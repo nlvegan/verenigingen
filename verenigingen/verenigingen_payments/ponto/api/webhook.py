@@ -36,6 +36,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.service_user import get_service_user
+from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
 from verenigingen.verenigingen_payments.ponto.utils.webhook_security import verify_ponto_webhook
 
@@ -106,9 +107,8 @@ def _create_webhook_log(
         if error_details:
             log.error_details = error_details[:65535] if len(error_details) > 65535 else error_details
 
-        # SECURITY JUSTIFICATION: Webhook logging is a system audit function during
-        # webhook processing. No user session during webhook callbacks.
-        log.insert(ignore_permissions=True)
+        # Webhook user has create permission on Webhook Processing Log (added 2026-01-10)
+        log.insert()
         frappe.db.commit()
 
         return log.name
@@ -235,6 +235,21 @@ def handle_ponto_webhook():
         dict: Processing result with status
     """
     try:
+        # STEP 0: Rate limiting (before any expensive operations)
+        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        # Use event ID from headers if available for rate limit tracking
+        webhook_id = frappe.request.headers.get("X-Event-ID") if frappe.request else None
+
+        rate_limiter = get_webhook_rate_limiter()
+        is_allowed, reason = rate_limiter.check_rate_limit(ip_address, webhook_id)
+
+        if not is_allowed:
+            frappe.log_error(
+                f"Ponto webhook rate limited: IP={ip_address}, webhook_id={webhook_id}, reason={reason}",
+                "Ponto Webhook Rate Limit",
+            )
+            raise WebhookRateLimitExceeded(f"Rate limit exceeded: {reason}")
+
         # Get raw request data
         payload = frappe.request.get_data()
         signature = frappe.request.headers.get("Signature")
@@ -329,6 +344,11 @@ def handle_ponto_webhook():
             "event_type": event_type,
             "result": result,
         }
+
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Ponto/Ibanity to retry later
+        frappe.local.response["http_status_code"] = 429
+        return {"status": "rate_limited", "message": str(e)}
 
     except PontoWebhookError as e:
         frappe.logger().error(f"Ponto webhook error: {e}")
@@ -990,9 +1010,8 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
             if matched_invoice:
                 # Link the invoice to the payment link
                 payment_link_doc.sales_invoice = matched_invoice
-                # SECURITY JUSTIFICATION: Webhook handler updating payment link with matched invoice.
-                # No user session during webhook processing. Audit trail via webhook event logs.
-                payment_link_doc.save(ignore_permissions=True)
+                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
+                payment_link_doc.save()
                 result["sales_invoice"] = matched_invoice
                 result["matched_by"] = "invoice_matcher"
                 frappe.logger().info(
@@ -1009,9 +1028,8 @@ def _process_executed_payment(payment_link_doc) -> Dict[str, Any]:
                 result["payment_entry"] = pe_name
                 # Link payment entry back to payment link
                 payment_link_doc.payment_entry = pe_name
-                # SECURITY JUSTIFICATION: Webhook handler updating payment link with Payment Entry.
-                # No user session during webhook processing. Audit trail via webhook event logs.
-                payment_link_doc.save(ignore_permissions=True)
+                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
+                payment_link_doc.save()
 
         return result
 
@@ -1096,9 +1114,8 @@ def _create_ponto_payment_entry(payment_link_doc, invoice_name: str) -> Optional
         if payment_link_doc.member:
             payment_entry.custom_member = payment_link_doc.member
 
-        # SECURITY JUSTIFICATION: Creating Payment Entry from webhook callback.
-        # No user session during webhook processing. Audit trail via Payment Entry and webhook logs.
-        payment_entry.insert(ignore_permissions=True)
+        # Webhook user has create/submit permission on Payment Entry (via custom_docperm.json)
+        payment_entry.insert()
         payment_entry.submit()
 
         frappe.logger().info(
@@ -1249,9 +1266,8 @@ def handle_periodic_payment_execution(event_data: Dict[str, Any]) -> Dict[str, A
                     doc.debtor_iban = debtor_info["iban"]
                 if debtor_info.get("bank"):
                     doc.debtor_bank = debtor_info["bank"]
-                # SECURITY JUSTIFICATION: Webhook handler processes external Ponto callbacks.
-                # No user session during webhook processing. Audit trail via webhook event logs.
-                doc.save(ignore_permissions=True)
+                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
+                doc.save()
 
             frappe.logger().info(
                 f"Processed periodic payment execution for {pl.name}, "

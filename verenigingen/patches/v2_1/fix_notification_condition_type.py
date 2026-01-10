@@ -16,7 +16,16 @@ import frappe
 
 def execute():
     """Set condition_type to 'Python' for notifications with conditions."""
-    affected = frappe.db.sql(
+    # Check if condition_type column exists (added in newer Frappe versions)
+    columns = frappe.db.get_table_columns("Notification")
+    if "condition_type" not in columns:
+        # Column doesn't exist in this Frappe version - skip patch
+        frappe.logger().info(
+            "Skipping fix_notification_condition_type: condition_type column not present in this Frappe version"
+        )
+        return
+
+    frappe.db.sql(
         """
         UPDATE `tabNotification`
         SET condition_type = 'Python'

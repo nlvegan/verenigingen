@@ -238,6 +238,11 @@
       "share": 1,
       "submit": 1,
       "write": 1
+    },
+    {
+      "read": 1,
+      "write": 1,
+      "role": "Verenigingen Webhook User"
     }
   ],
   "quick_entry": 0,

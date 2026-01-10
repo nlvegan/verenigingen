@@ -251,7 +251,8 @@ class TestProcessMandateWebhook(FrappeTestCase):
             self.assertTrue(result["handled"])
             self.assertEqual(result["action"], "status_updated")
             self.assertEqual(result["old_status"], "Pending")
-            mock_mandate.save.assert_called_once_with(ignore_permissions=True)
+            # Webhook user has write permission on ING Checkout Mandate
+            mock_mandate.save.assert_called_once_with()
 
     @patch("frappe.db.get_value")
     @patch("frappe.get_doc")

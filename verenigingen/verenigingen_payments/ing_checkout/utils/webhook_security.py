@@ -435,9 +435,8 @@ def log_webhook(
         if error_details:
             log.error_details = error_details[:65535] if len(error_details) > 65535 else error_details
 
-        # SECURITY JUSTIFICATION: Webhook logging is a system audit function during
-        # webhook processing. No user session during webhook callbacks.
-        log.insert(ignore_permissions=True)
+        # Webhook user has create permission on Webhook Processing Log (added 2026-01-10)
+        log.insert()
 
         return log.name
 

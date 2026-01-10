@@ -26,6 +26,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security import (
     INGCheckoutWebhookError,
     authenticate_webhook,
@@ -71,6 +72,21 @@ def handle_payment():
     """
     raw_payload = None
     try:
+        # STEP 0: Rate limiting (before any expensive operations)
+        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        # Use event ID from form data if available
+        webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
+
+        rate_limiter = get_webhook_rate_limiter()
+        is_allowed, reason = rate_limiter.check_rate_limit(ip_address, webhook_id)
+
+        if not is_allowed:
+            frappe.log_error(
+                f"ING Checkout payment webhook rate limited: IP={ip_address}, webhook_id={webhook_id}, reason={reason}",
+                "ING Checkout Webhook Rate Limit",
+            )
+            raise WebhookRateLimitExceeded(f"Rate limit exceeded: {reason}")
+
         # Get raw request data
         raw_payload = frappe.request.get_data()
         if not raw_payload:
@@ -154,6 +170,11 @@ def handle_payment():
             frappe.db.rollback(save_point=savepoint_name)
             raise
 
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Pay.nl to retry later
+        frappe.local.response["http_status_code"] = 429
+        return {"status": "rate_limited", "message": str(e)}
+
     except INGCheckoutWebhookError as e:
         frappe.logger().error(f"ING Checkout webhook error: {e.message}")
         frappe.log_error(
@@ -204,6 +225,20 @@ def handle_mandate():
     """
     raw_payload = None
     try:
+        # STEP 0: Rate limiting (before any expensive operations)
+        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
+
+        rate_limiter = get_webhook_rate_limiter()
+        is_allowed, reason = rate_limiter.check_rate_limit(ip_address, webhook_id)
+
+        if not is_allowed:
+            frappe.log_error(
+                f"ING Checkout mandate webhook rate limited: IP={ip_address}, webhook_id={webhook_id}, reason={reason}",
+                "ING Checkout Webhook Rate Limit",
+            )
+            raise WebhookRateLimitExceeded(f"Rate limit exceeded: {reason}")
+
         raw_payload = frappe.request.get_data()
         if not raw_payload:
             frappe.local.response["http_status_code"] = 400
@@ -267,6 +302,11 @@ def handle_mandate():
             frappe.db.rollback(save_point=savepoint_name)
             raise
 
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Pay.nl to retry later
+        frappe.local.response["http_status_code"] = 429
+        return {"status": "rate_limited", "message": str(e)}
+
     except Exception as e:
         frappe.logger().error(f"ING Checkout mandate webhook error: {e}")
         frappe.log_error(
@@ -297,6 +337,20 @@ def handle_direct_debit():
     """
     raw_payload = None
     try:
+        # STEP 0: Rate limiting (before any expensive operations)
+        ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+        webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
+
+        rate_limiter = get_webhook_rate_limiter()
+        is_allowed, reason = rate_limiter.check_rate_limit(ip_address, webhook_id)
+
+        if not is_allowed:
+            frappe.log_error(
+                f"ING Checkout direct debit webhook rate limited: IP={ip_address}, webhook_id={webhook_id}, reason={reason}",
+                "ING Checkout Webhook Rate Limit",
+            )
+            raise WebhookRateLimitExceeded(f"Rate limit exceeded: {reason}")
+
         raw_payload = frappe.request.get_data()
         if not raw_payload:
             frappe.local.response["http_status_code"] = 400
@@ -359,6 +413,11 @@ def handle_direct_debit():
         except Exception:
             frappe.db.rollback(save_point=savepoint_name)
             raise
+
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Pay.nl to retry later
+        frappe.local.response["http_status_code"] = 429
+        return {"status": "rate_limited", "message": str(e)}
 
     except Exception as e:
         frappe.logger().error(f"ING Checkout direct debit webhook error: {e}")
@@ -526,9 +585,8 @@ def _process_mandate_webhook(mandate_id: str, payload: dict) -> Dict[str, Any]:
         old_status = mandate_doc.status
         mandate_doc.status = MANDATE_STATUS_MAP[status_lower]
         mandate_doc.raw_response = frappe.as_json(payload)
-        # SECURITY JUSTIFICATION: Webhook handler updating mandate status from external callback.
-        # No user session during webhook processing. Audit trail via webhook logs.
-        mandate_doc.save(ignore_permissions=True)
+        # Webhook user has write permission on ING Checkout Mandate (added 2026-01-10)
+        mandate_doc.save()
 
         return {
             "handled": True,

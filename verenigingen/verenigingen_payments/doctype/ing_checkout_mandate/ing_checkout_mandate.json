@@ -237,6 +237,12 @@
    "read": 1,
    "report": 1,
    "role": "Accounts User"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Verenigingen Webhook User"
   }
  ],
  "sort_field": "creation",

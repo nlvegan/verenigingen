@@ -255,7 +255,8 @@ class TestLogWebhook(FrappeTestCase):
 
         self.assertEqual(log_name, "WEBHOOK-00001")
         mock_new_doc.assert_called_once_with("Webhook Processing Log")
-        mock_log.insert.assert_called_once_with(ignore_permissions=True)
+        # Webhook user has create permission on Webhook Processing Log
+        mock_log.insert.assert_called_once_with()
 
     @patch("frappe.new_doc")
     @patch("frappe.db.exists")

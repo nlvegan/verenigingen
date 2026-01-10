@@ -23,6 +23,7 @@ from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.security.rate_limiter import check_api_rate_limit
+from verenigingen.utils.service_user import get_service_user
 
 
 def _get_client_ip() -> str:
@@ -67,6 +68,15 @@ def payment_link_callback():
         frappe.local.response["location"] = get_url("/app/home")
         return
 
+    # Set webhook user context for permission-based operations
+    webhook_user = get_service_user(
+        settings_doctype="Verenigingen Payments Settings",
+        user_field="webhook_user",
+        service_name="Ponto Betaalverzoek Callback",
+    )
+    if webhook_user:
+        frappe.set_user(webhook_user)
+
     payment_link_name = frappe.request.args.get("payment_link")
     error = frappe.request.args.get("error")
     error_description = frappe.request.args.get("error_description")
@@ -94,11 +104,10 @@ def payment_link_callback():
             )
 
             # If access_denied, customer cancelled the authorization
-            # SECURITY JUSTIFICATION: OAuth2 callback from external Ponto system. Guest endpoint
-            # by design (allow_guest=True). Audit trail via doc.status change and error logs.
             if error == "access_denied":
                 doc.status = "Cancelled"
-                doc.save(ignore_permissions=True)
+                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
+                doc.save()
                 frappe.local.response["type"] = "redirect"
                 frappe.local.response["location"] = get_url(
                     f"/payment-success?payment_link={payment_link_name}"
@@ -107,7 +116,8 @@ def payment_link_callback():
             else:
                 # Other errors - mark as rejected
                 doc.status = "Rejected"
-                doc.save(ignore_permissions=True)
+                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
+                doc.save()
                 frappe.log_error(
                     title=f"Ponto payment authorization failed: {payment_link_name}",
                     message=f"Error: {error}\nDescription: {error_description}",

@@ -331,6 +331,7 @@
     },
     {
       "read": 1,
+      "write": 1,
       "role": "Verenigingen Webhook User"
     }
   ],

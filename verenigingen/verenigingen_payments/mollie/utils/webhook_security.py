@@ -2,6 +2,10 @@
 Mollie Webhook Security
 
 Security functions for webhook authentication and validation.
+
+This module provides:
+1. Webhook signature validation (HMAC-SHA256) to verify requests originate from Mollie
+2. User context setting for proper Frappe permissions during webhook processing
 """
 
 import frappe
@@ -10,14 +14,71 @@ from frappe.utils import now_datetime
 from verenigingen.utils.settings_utils import get_payments_settings
 
 
-def authenticate_mollie_webhook():
+def authenticate_mollie_webhook() -> str:
     """
-    Authenticate Mollie webhook requests by setting proper user context.
+    Authenticate Mollie webhook requests with rate limiting, signature validation, and user context.
 
-    Mollie webhooks are unauthenticated HTTP POST requests, so we need to
-    set a dedicated webhook user context for proper permission handling.
+    This function performs three critical security steps:
+    1. Rate limiting to prevent DoS attacks (checked first for efficiency)
+    2. Validates the webhook signature (HMAC-SHA256) to ensure the request is from Mollie
+    3. Sets the dedicated webhook user context for proper permission handling
+
+    Returns:
+        str: The validated raw payload from the request
+
+    Raises:
+        WebhookRateLimitExceeded: If rate limit is exceeded
+        WebhookAuthenticationError: If signature validation fails
+        frappe.ValidationError: If webhook user is not configured or payload is empty
     """
-    # Get webhook user from Verenigingen Payments Settings
+    # STEP 0: Rate limiting (before any expensive operations)
+    from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
+
+    # Get client IP and webhook ID for rate limiting
+    ip_address = frappe.local.request_ip if hasattr(frappe.local, "request_ip") else "unknown"
+    webhook_id = frappe.form_dict.get("id") if frappe.form_dict else None
+
+    rate_limiter = get_webhook_rate_limiter()
+    is_allowed, reason = rate_limiter.check_rate_limit(ip_address, webhook_id)
+
+    if not is_allowed:
+        frappe.log_error(
+            f"Mollie webhook rate limited: IP={ip_address}, webhook_id={webhook_id}, reason={reason}",
+            "Mollie Webhook Rate Limit",
+        )
+        raise WebhookRateLimitExceeded(f"Rate limit exceeded: {reason}")
+
+    # STEP 1: Validate webhook signature
+    # Import the signature validation from the canonical location
+    from verenigingen.utils.webhook_security import (
+        WebhookAuthenticationError,
+        verify_mollie_webhook_signature,
+    )
+
+    # Get raw payload and signature header
+    payload = frappe.request.get_data(as_text=True) if frappe.request else None
+    signature_header = frappe.request.headers.get("X-Mollie-Signature") if frappe.request else None
+
+    if not payload:
+        frappe.log_error(
+            "Empty webhook payload received",
+            "Mollie Webhook Security Error",
+        )
+        raise WebhookAuthenticationError("Empty webhook payload")
+
+    try:
+        # Validate signature (handles test mode bypass internally)
+        verify_mollie_webhook_signature(payload, signature_header)
+        frappe.logger().info("Mollie webhook signature validated successfully")
+
+    except WebhookAuthenticationError as e:
+        frappe.log_error(
+            f"Mollie webhook signature validation failed: {e}",
+            "Mollie Webhook Security Error",
+        )
+        raise
+
+    # STEP 2: Set webhook user context
     webhook_user = None
     try:
         settings = get_payments_settings()
@@ -53,6 +114,9 @@ def authenticate_mollie_webhook():
         )
 
     frappe.logger().info(f"Mollie webhook authenticated with user: {webhook_user}")
+
+    # Return the validated payload
+    return payload
 
 
 def validate_webhook_user_permissions():

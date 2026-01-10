@@ -413,11 +413,15 @@ def enhanced_mollie_subscription_webhook():
     Replaces existing webhook handler with improved error handling,
     retry mechanisms, and proper relationship management.
     """
+    from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded
+
     queue = MollieWebhookQueue()
 
     try:
-        # Get webhook data using existing security verification
-        from verenigingen.utils.webhook_security import authenticate_mollie_webhook
+        # Get webhook data using consolidated security verification (signature + user context + rate limiting)
+        from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
+            authenticate_mollie_webhook,
+        )
 
         payload = authenticate_mollie_webhook()
 
@@ -432,6 +436,11 @@ def enhanced_mollie_subscription_webhook():
             "webhook_id": webhook_data.get("id"),
             "processed_at": now_datetime().isoformat(),
         }
+
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Mollie to retry later
+        frappe.local.response["http_status_code"] = 429
+        return {"status": "rate_limited", "message": str(e)}
 
     except Exception as e:
         frappe.log_error(f"Enhanced webhook handler error: {str(e)}", "Enhanced Mollie Webhook Error")

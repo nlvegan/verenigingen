@@ -17,6 +17,7 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded
 
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
 from ..services.complete_payment_service import CompletePaymentService
@@ -75,6 +76,11 @@ def handle_payment_webhook(payment_id: Optional[str] = None):
             frappe.logger().info(f"✅ Webhook processed successfully: {payment_id}")
 
         return result
+
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Mollie to retry later
+        frappe.response.http_status_code = 429
+        return {"status": "rate_limited", "message": str(e)}
 
     except (MollieWebhookError, MolliePaymentError) as e:
         frappe.log_error(f"Mollie webhook error for {payment_id}: {e}", "Mollie Webhook Error")
@@ -332,8 +338,10 @@ def handle_refund_webhook():
         Dict with refund processing results
     """
     try:
-        # Set webhook user context for proper permissions
-        from verenigingen.utils.webhook_security import authenticate_mollie_webhook
+        # Authenticate webhook: validates signature AND sets user context
+        from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
+            authenticate_mollie_webhook,
+        )
 
         authenticate_mollie_webhook()
 
@@ -402,6 +410,11 @@ def handle_refund_webhook():
         frappe.logger().info("✅ Refund webhook processed successfully")
         return result
 
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Mollie to retry later
+        frappe.response.http_status_code = 429
+        return {"status": "rate_limited", "message": str(e)}
+
     except (MollieWebhookError, MolliePaymentError) as e:
         frappe.log_error(f"Mollie refund webhook error: {e}", "Mollie Refund Webhook Error")
         frappe.response.http_status_code = 400
@@ -426,8 +439,10 @@ def handle_chargeback_webhook():
         Dict with chargeback processing results
     """
     try:
-        # Set webhook user context for proper permissions
-        from verenigingen.utils.webhook_security import authenticate_mollie_webhook
+        # Authenticate webhook: validates signature AND sets user context
+        from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
+            authenticate_mollie_webhook,
+        )
 
         authenticate_mollie_webhook()
 
@@ -447,6 +462,11 @@ def handle_chargeback_webhook():
 
         frappe.logger().info("✅ Chargeback webhook processed successfully")
         return result
+
+    except WebhookRateLimitExceeded as e:
+        # Return 429 to signal Mollie to retry later
+        frappe.response.http_status_code = 429
+        return {"status": "rate_limited", "message": str(e)}
 
     except (MollieWebhookError, MolliePaymentError) as e:
         frappe.log_error(f"Mollie chargeback webhook error: {e}", "Mollie Chargeback Webhook Error")
