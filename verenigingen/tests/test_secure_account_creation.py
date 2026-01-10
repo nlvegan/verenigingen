@@ -159,6 +159,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
             # Attempt to queue account creation - should either raise PermissionError
             # or return with success=False depending on implementation
+            from verenigingen.utils.error_handling import PermissionError as VPermissionError
             try:
                 result = queue_account_creation_for_volunteer(
                     volunteer_name=test_volunteer.name,
@@ -170,8 +171,8 @@ class TestSecureAccountCreation(EnhancedTestCase):
                         result.get("success", False),
                         "User without permissions should not be able to queue account creation"
                     )
-            except frappe.PermissionError:
-                # Expected behavior - permission error raised
+            except (frappe.PermissionError, VPermissionError):
+                # Expected behavior - permission error raised (either frappe or custom)
                 pass
         finally:
             # Always restore Administrator context
