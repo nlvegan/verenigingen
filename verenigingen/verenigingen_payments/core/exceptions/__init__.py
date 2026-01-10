@@ -89,6 +89,7 @@ class PSPIntegrationError(Exception):
             "psp_name": self.psp_name,
             "details": self.details,
             "status_code": self.status_code,
+            "original_error": str(self.original_error) if self.original_error else None,
         }
 
 

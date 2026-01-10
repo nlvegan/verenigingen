@@ -40,7 +40,6 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
-from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.webhook.logging import create_webhook_log
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
@@ -66,26 +65,6 @@ from .webhook_handlers import (
 
 # Import utilities from split module
 from .webhook_utils import extract_event_type
-
-
-def _get_webhook_user() -> str:
-    """
-    Get the configured webhook user for background job execution.
-
-    Webhook handlers run as Guest (allow_guest=True), but background jobs
-    need a proper user context with appropriate permissions.
-
-    Returns:
-        str: Username from Verenigingen Payments Settings, or 'Administrator' as fallback
-
-    Raises:
-        ValueError: If no valid user is available
-    """
-    return get_service_user(
-        settings_doctype="Verenigingen Payments Settings",
-        user_field="webhook_user",
-        service_name="Ponto Webhook",
-    )
 
 
 def _create_webhook_log(
