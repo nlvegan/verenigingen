@@ -707,8 +707,26 @@ These have no dependencies and can be tackled simultaneously:
 - References unified infrastructure from HIGH-2, HIGH-3, MED-3
 
 ### Phase 4: Pattern Standardization
-- [ ] MED-1: Adopt WebhookErrorHandler in Ponto/ING *(benefits from MED-3)*
-- [ ] MED-2: Create base idempotency manager
+- [x] MED-1: Adopt WebhookErrorHandler in Ponto/ING *(benefits from MED-3)*
+
+**MED-1 Implementation Summary** (2026-01-11):
+- Added WebhookErrorHandler to ING Checkout (3 handlers: payment, mandate, direct_debit)
+- Added WebhookErrorHandler to Ponto (handle_ponto_webhook)
+- All responses now include correlation_id for request tracing
+- Structured error responses: validation_error, business_error, system_error
+- Consistent logging with log_info/log_warning/log_error across all PSP webhooks
+
+- [x] MED-2: Create base idempotency manager
+
+**MED-2 Implementation Summary** (2026-01-11):
+- Created `core/idempotency/__init__.py` with:
+  - `BaseIdempotencyManager`: OOP wrapper around hash-based idempotency
+  - `IdempotencyResult`: Structured dataclass for duplicate check results
+  - `get_idempotency_manager()`: Factory for PSP-specific instances
+- Leverages existing `utils/webhook/logging.py` functions (HIGH-2)
+- Provides cleaner interface: `check_duplicate()` returns structured result with original log details
+- Mollie's `UnifiedIdempotencyManager` remains separate for advanced features (Payment Entry tracking, refund/chargeback state)
+
 - [ ] MED-4: Add models to ING Checkout
 - [ ] MED-5: Standardize error response formats
 
