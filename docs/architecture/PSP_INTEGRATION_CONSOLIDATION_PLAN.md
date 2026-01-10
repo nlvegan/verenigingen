@@ -665,7 +665,17 @@ These have no dependencies and can be tackled simultaneously:
 - [x] HIGH-5: Add resilience patterns to ING Checkout *(depends on HIGH-1)*
 - [x] HIGH-2: Extract unified webhook logging
 - [x] HIGH-3: Migrate Mollie to shared service user resolution
-- [ ] MED-3: Create shared exception hierarchy
+- [x] MED-3: Create shared exception hierarchy
+
+**MED-3 Implementation Summary** (2026-01-10):
+- Created `core/exceptions/__init__.py` with comprehensive PSP exception hierarchy
+- Base class: `PSPIntegrationError` with rich context (psp_name, details, status_code)
+- API errors: `PSPAPIError`, `PSPAuthenticationError`, `PSPRateLimitError`, `PSPValidationError`
+- Configuration: `PSPConfigurationError` with config_field tracking
+- Webhook errors: `PSPWebhookError`, `PSPWebhookSecurityError`, `PSPWebhookIdempotencyError`
+- Resource errors: `PSPResourceNotFoundError` with resource_type/resource_id
+- All exceptions include `to_dict()` method for logging/serialization
+- Ready for MED-1 (WebhookErrorHandler adoption) in Phase 4
 
 ### Phase 3: Code Cleanup
 - [ ] HIGH-4: Split Ponto webhook.py
