@@ -1175,6 +1175,7 @@ class EnhancedTestDataFactory:
         chapter_data = {
             "doctype": "Chapter",
             "name": chapter_name,
+            "status": attributes.get("status", "Active") if attributes else "Active",
             "published": attributes.get("published", 1) if attributes else 1,
             # Required fields for chapter
             "introduction": attributes.get("introduction", "Test chapter for automated testing") if attributes else "Test chapter for automated testing",
