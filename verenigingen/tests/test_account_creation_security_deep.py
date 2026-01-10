@@ -31,6 +31,7 @@ from verenigingen.utils.account_creation_manager import (
     queue_account_creation_for_member,
     queue_account_creation_for_volunteer
 )
+from verenigingen.utils.error_handling import PermissionError as VPermissionError
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -234,8 +235,12 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
                 frappe.set_user(unauth_user.email)  # Switch to unauthorized user
 
                 try:
-                    with self.assertRaises(frappe.PermissionError):
+                    # Should raise either frappe.PermissionError or VPermissionError
+                    try:
                         queue_account_creation_for_member(member.name)
+                        self.fail(f"Expected PermissionError for unauthorized user {unauth_user.email}")
+                    except (frappe.PermissionError, VPermissionError):
+                        pass  # Expected - unauthorized user denied access
                 finally:
                     frappe.set_user("Administrator")  # Reset to admin
                     
@@ -506,9 +511,12 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
         frappe.set_user(unauth_user.email)  # Switch to unauthorized user
 
         try:
-            # Attempt unauthorized operation
-            with self.assertRaises(frappe.PermissionError):
+            # Attempt unauthorized operation - should raise either PermissionError type
+            try:
                 queue_account_creation_for_member(member.name)
+                self.fail("Expected PermissionError for unauthorized user")
+            except (frappe.PermissionError, VPermissionError):
+                pass  # Expected - unauthorized user denied access
         finally:
             frappe.set_user("Administrator")  # Reset to admin
 
