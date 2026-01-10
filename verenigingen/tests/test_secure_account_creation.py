@@ -306,7 +306,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
             
             # Create member first
             member = self.create_test_member(
-                first_name="Integration",
+                first_name=f"Integration{self.uid}",
                 last_name="Test",
                 email=unique_email
             )
