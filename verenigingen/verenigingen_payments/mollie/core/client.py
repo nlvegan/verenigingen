@@ -17,7 +17,12 @@ import frappe
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 from ..exceptions import MolliePaymentError, MollieWebhookError
-from ..utils.error_recovery import CircuitBreakerConfig, RetryConfig, with_circuit_breaker, with_retry
+from verenigingen.verenigingen_payments.core.resilience import (
+    CircuitBreakerConfig,
+    RetryConfig,
+    with_circuit_breaker,
+    with_retry,
+)
 
 
 class MollieClient:

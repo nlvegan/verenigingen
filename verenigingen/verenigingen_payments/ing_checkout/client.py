@@ -20,6 +20,11 @@ from frappe import _
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from verenigingen.verenigingen_payments.core.resilience import (
+    CircuitBreakerConfig,
+    with_circuit_breaker,
+)
+
 
 class PayNLError(Exception):
     """Base exception for Pay.nl API errors."""
@@ -259,9 +264,12 @@ class PayNLClient:
     # Order API (TGU - connect.pay.nl)
     # ==========================================
 
+    @with_circuit_breaker("paynl_orders", CircuitBreakerConfig(failure_threshold=5, recovery_timeout=60))
     def create_order(self, order_data: dict) -> dict:
         """
         Create a new payment order.
+
+        Protected by circuit breaker to prevent cascading failures.
 
         Args:
             order_data: Order data including:
@@ -308,9 +316,12 @@ class PayNLClient:
     # Direct Debit API (GMS - rest.pay.nl)
     # ==========================================
 
+    @with_circuit_breaker("paynl_mandates", CircuitBreakerConfig(failure_threshold=5, recovery_timeout=60))
     def create_mandate(self, mandate_data: dict) -> dict:
         """
         Create a SEPA Direct Debit mandate.
+
+        Protected by circuit breaker to prevent cascading failures.
 
         Args:
             mandate_data: Mandate data including:
@@ -375,9 +386,12 @@ class PayNLClient:
         url = f"{self.GMS_BASE_URL}/{self.GMS_VERSION}/directdebits/mandates/{mandate_id}/cancel"
         return self._make_request("POST", url)
 
+    @with_circuit_breaker("paynl_directdebits", CircuitBreakerConfig(failure_threshold=5, recovery_timeout=60))
     def create_direct_debit(self, debit_data: dict) -> dict:
         """
         Execute a direct debit on an existing mandate.
+
+        Protected by circuit breaker to prevent cascading failures.
 
         Args:
             debit_data: Direct debit data including:

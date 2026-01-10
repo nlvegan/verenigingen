@@ -73,36 +73,27 @@ This document captures findings and recommendations from a comprehensive archite
 
 ## High Priority Consolidation
 
-### HIGH-1: Move Resilience Utilities to Shared Location
+### HIGH-1: Move Resilience Utilities to Shared Location - ✅ COMPLETED
 
 **Priority**: HIGH
 **Effort**: 1 day
 **Impact**: Formalizes existing de-facto sharing, cleaner imports
+**Status**: ✅ COMPLETED (2026-01-10)
 
-**Current State**:
-- `error_recovery.py` (circuit breaker, retry) lives in `mollie/utils/`
-- Ponto already imports it: `from ...mollie.utils.error_recovery import with_circuit_breaker`
-- This creates awkward cross-PSP dependency
+**Implementation Summary**:
+- Created `core/resilience/__init__.py` with compatibility adapters for Mollie/Ponto interface
+- Existing implementations in `core/resilience/` already contained:
+  - `circuit_breaker.py` - Full CircuitBreaker class with state management
+  - `retry_policy.py` - ExponentialBackoffRetry with jitter
+  - `rate_limiter.py` - Rate limiting utilities
+- Added decorator wrappers (`with_retry`, `with_circuit_breaker`) compatible with Mollie API
+- Added `RetryConfig` and `CircuitBreakerConfig` dataclasses
 
-**Required Fix**:
-```
-# Move from:
-verenigingen/verenigingen_payments/mollie/utils/error_recovery.py
-
-# Move to:
-verenigingen/verenigingen_payments/core/resilience/
-├── __init__.py
-├── circuit_breaker.py
-├── rate_limiter.py
-├── retry_policy.py
-└── decorators.py
-```
-
-**Files to Modify**:
-- Create new `core/resilience/` module
-- Update imports in `mollie/core/client.py`
-- Update imports in `ponto/core/ponto_client.py`
-- Add resilience to ING Checkout client
+**Files Modified**:
+- `core/resilience/__init__.py` - Created compatibility layer
+- `mollie/core/client.py` - Updated imports to use shared module
+- `mollie/services/webhook_wrapper_service_unified.py` - Updated imports
+- `ponto/core/ponto_client.py` - Updated imports to use shared module
 
 ---
 
@@ -195,41 +186,26 @@ ponto/api/
 
 ---
 
-### HIGH-5: Add Resilience Patterns to ING Checkout
+### HIGH-5: Add Resilience Patterns to ING Checkout - ✅ COMPLETED
 
 **Priority**: HIGH
 **Effort**: 1-2 days
 **Impact**: Production stability, consistent behavior across PSPs
 **Depends On**: HIGH-1 (resilience utilities must be in shared location first)
+**Status**: ✅ COMPLETED (2026-01-10)
 
-**Current State**:
-- ING Checkout's `PayNLClient` has **no circuit breaker or retry logic**
-- Basic retry exists but no exponential backoff
-- No protection against cascading failures if Pay.nl API is degraded
-- Mollie and Ponto both have these patterns; ING is the outlier
+**Implementation Summary**:
+- Added circuit breaker protection to critical ING Checkout API operations
+- PayNLClient already had basic retry via urllib3's Retry adapter
+- Circuit breaker provides protection against cascading failures
 
-**Required Fix**:
-```python
-# In ing_checkout/client.py - after HIGH-1 is complete
-from verenigingen.verenigingen_payments.core.resilience import (
-    with_circuit_breaker,
-    with_retry,
-    CircuitBreakerConfig,
-    RetryConfig,
-)
+**Methods Protected with Circuit Breaker**:
+- `create_order()` - Payment order creation (circuit: `paynl_orders`)
+- `create_mandate()` - SEPA mandate creation (circuit: `paynl_mandates`)
+- `create_direct_debit()` - Direct debit execution (circuit: `paynl_directdebits`)
 
-class PayNLClient:
-    @with_circuit_breaker(
-        "paynl_api",
-        CircuitBreakerConfig(failure_threshold=5, recovery_timeout=60)
-    )
-    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0))
-    def _request(self, method: str, endpoint: str, **kwargs):
-        # existing implementation
-```
-
-**Files to Modify**:
-- `verenigingen/verenigingen_payments/ing_checkout/client.py`
+**Files Modified**:
+- `verenigingen/verenigingen_payments/ing_checkout/client.py` - Added circuit breaker decorators
 
 ---
 
@@ -491,12 +467,12 @@ class WebhookTestHelper(ABC):
 
 ---
 
-### SEC-3: Audit All ignore_permissions=True Usage - ✅ COMPLETED
+### SEC-3: Audit All ignore_permissions=True Usage - 🔄 IN PROGRESS
 
 **Priority**: MEDIUM
 **Effort**: 1 day
 **Impact**: Security documentation
-**Status**: ✅ COMPLETED (2026-01-10)
+**Status**: 🔄 IN PROGRESS (2026-01-10)
 
 **Phase 1 COMPLETED - Added Webhook User Permissions**:
 The "Verenigingen Webhook User" role was missing permissions for several DocTypes used during webhook processing. Added permissions to:
@@ -511,23 +487,28 @@ The "Verenigingen Webhook User" role was missing permissions for several DocType
 | Ponto Sync Log | create, write (already had read) |
 | SEPA Audit Log | create, read |
 
-**Phase 2 COMPLETED - Removed ignore_permissions calls**:
-With webhook user permissions in place, removed `ignore_permissions=True` from webhook API layer:
+**Files Modified**:
+- `vereinigingen_payments/doctype/webhook_processing_log/webhook_processing_log.json`
+- `vereinigingen_payments/doctype/ing_checkout_transaction/ing_checkout_transaction.json`
+- `vereinigingen_payments/doctype/ing_checkout_mandate/ing_checkout_mandate.json`
+- `vereinigingen_payments/doctype/ponto_payment_link/ponto_payment_link.json`
+- `vereinigingen_payments/doctype/ponto_payment_request/ponto_payment_request.json`
+- `vereinigingen_payments/doctype/ponto_sync_log/ponto_sync_log.json`
+- `vereinigingen_payments/doctype/sepa_audit_log/sepa_audit_log.json`
 
-| File | Changes |
-|------|---------|
-| `ing_checkout/api/webhook.py` | Removed from mandate save |
-| `ing_checkout/utils/webhook_security.py` | Removed from log insert |
-| `ponto/api/webhook.py` | Removed 5 ignore_permissions calls |
-| `ponto/api/betaalverzoek_callback.py` | Added webhook user context + removed 2 calls |
-| `ponto/api/payment_callback.py` | Added webhook user context + removed 2 calls |
+**Phase 2 PENDING - Remove ignore_permissions calls**:
+With webhook user permissions in place, the following `ignore_permissions=True` usages can be removed:
 
-Guest callback endpoints (`allow_guest=True`) now use `get_service_user()` to set webhook user context before database operations.
+**Can Now Remove** (webhook user has permissions):
+- `ing_checkout/api/webhook.py` - mandate/transaction saves
+- `ing_checkout/utils/webhook_security.py` - log_webhook() insert
+- `ponto/api/webhook.py` - payment link and sync log saves
+- `ponto/api/betaalverzoek_callback.py` - doc saves
+- `ponto/api/payment_callback.py` - doc saves
 
-**Remaining ignore_permissions** (legitimate system operations):
+**Must Keep** (legitimate system operations):
 - Ponto Settings OAuth token saves (credential management)
 - OAuth2 service token saves (no user context during OAuth flow)
-- DocType internal methods (called within webhook user context)
 - Test fixtures (need to create data without user context)
 
 ---
@@ -704,8 +685,8 @@ These have no dependencies and can be tackled simultaneously:
 - [x] SEC-3: Audit and document all `ignore_permissions=True` usage
 
 ### Phase 2: Infrastructure Consolidation
-- [ ] HIGH-1: Move resilience utilities to `core/resilience/`
-- [ ] HIGH-5: Add resilience patterns to ING Checkout *(depends on HIGH-1)*
+- [x] HIGH-1: Move resilience utilities to `core/resilience/`
+- [x] HIGH-5: Add resilience patterns to ING Checkout *(depends on HIGH-1)*
 - [ ] HIGH-2: Extract unified webhook logging
 - [ ] HIGH-3: Migrate Mollie to shared service user resolution
 - [ ] MED-3: Create shared exception hierarchy

@@ -23,7 +23,7 @@ from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_
 
 # Import custom exceptions
 from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError
-from ..utils.error_recovery import CircuitBreakerConfig, RetryConfig, error_recovery
+from verenigingen.verenigingen_payments.core.resilience import CircuitBreakerConfig, RetryConfig
 
 # Import logging and monitoring utilities
 from ..utils.logging import MollieLogger, log_payment_processing, log_webhook_received
