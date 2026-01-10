@@ -39,10 +39,13 @@ from typing import List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import cint, now_datetime
+from frappe.utils import cint
 
 from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
+from verenigingen.utils.webhook.logging import compute_webhook_hash as _unified_compute_hash
+from verenigingen.utils.webhook.logging import create_webhook_log as _unified_create_log
+from verenigingen.utils.webhook.logging import is_duplicate_webhook as _unified_is_duplicate
 
 # Cache for Pay.nl IP addresses (refreshed every hour)
 _paynl_ip_cache = {"ips": [], "last_updated": None}
@@ -352,6 +355,9 @@ def compute_webhook_hash(event_id: str, payload: str) -> str:
     """
     Compute a unique hash for a webhook event.
 
+    This is a thin wrapper around the unified compute_webhook_hash function
+    from verenigingen.utils.webhook.logging for backwards compatibility.
+
     Args:
         event_id: Unique event identifier from Pay.nl
         payload: Raw webhook payload
@@ -359,14 +365,15 @@ def compute_webhook_hash(event_id: str, payload: str) -> str:
     Returns:
         SHA256 hash string
     """
-    return hashlib.sha256(f"{event_id}:{payload}".encode()).hexdigest()
+    return _unified_compute_hash(event_id, payload)
 
 
 def is_duplicate_webhook(event_id: str, payload: str) -> bool:
     """
     Check if this webhook has already been processed (idempotency check).
 
-    Uses Webhook Processing Log to track processed webhooks.
+    This is a thin wrapper around the unified is_duplicate_webhook function
+    from verenigingen.utils.webhook.logging for backwards compatibility.
 
     Args:
         event_id: Unique event identifier
@@ -375,19 +382,7 @@ def is_duplicate_webhook(event_id: str, payload: str) -> bool:
     Returns:
         True if this webhook was already processed
     """
-    webhook_hash = compute_webhook_hash(event_id, payload)
-
-    # Check for existing log entry with same hash
-    existing = frappe.db.exists(
-        "Webhook Processing Log",
-        {"webhook_hash": webhook_hash},
-    )
-
-    if existing:
-        frappe.logger().debug(f"Duplicate ING Checkout webhook detected: {event_id}")
-        return True
-
-    return False
+    return _unified_is_duplicate(event_id, payload)
 
 
 def log_webhook(
@@ -401,6 +396,9 @@ def log_webhook(
     """
     Create a Webhook Processing Log entry for idempotency tracking.
 
+    This is a thin wrapper around the unified create_webhook_log function
+    from verenigingen.utils.webhook.logging for backwards compatibility.
+
     Args:
         event_id: Unique identifier for the webhook
         webhook_type: Type of webhook (ing_checkout_payment, ing_checkout_mandate, etc.)
@@ -412,34 +410,12 @@ def log_webhook(
     Returns:
         Name of created log document or None if logging failed
     """
-    try:
-        webhook_hash = compute_webhook_hash(event_id, raw_payload)
-
-        # Double-check for duplicate (race condition protection)
-        existing = frappe.db.exists("Webhook Processing Log", {"webhook_hash": webhook_hash})
-        if existing:
-            frappe.logger().debug(f"Duplicate webhook detected during logging: {event_id}")
-            return None
-
-        log = frappe.new_doc("Webhook Processing Log")
-        log.webhook_id = event_id[:140] if event_id else "unknown"
-        log.webhook_type = webhook_type
-        log.webhook_hash = webhook_hash
-        log.processed_at = now_datetime()
-        log.status = status
-        log.raw_payload = raw_payload
-
-        if processing_result:
-            log.processing_result = processing_result
-
-        if error_details:
-            log.error_details = error_details[:65535] if len(error_details) > 65535 else error_details
-
-        # Webhook user has create permission on Webhook Processing Log (added 2026-01-10)
-        log.insert()
-
-        return log.name
-
-    except Exception as e:
-        frappe.logger().error(f"Failed to create ING Checkout webhook log: {e}")
-        return None
+    return _unified_create_log(
+        webhook_id=event_id,
+        webhook_type=webhook_type,
+        raw_payload=raw_payload,
+        status=status,
+        processing_result=processing_result,
+        error_details=error_details,
+        auto_commit=False,  # ING Checkout didn't auto-commit before
+    )

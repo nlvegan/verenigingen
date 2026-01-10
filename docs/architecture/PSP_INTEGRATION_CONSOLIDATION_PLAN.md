@@ -97,55 +97,28 @@ This document captures findings and recommendations from a comprehensive archite
 
 ---
 
-### HIGH-2: Extract Unified Webhook Logging
+### HIGH-2: Extract Unified Webhook Logging - ✅ COMPLETED
 
 **Priority**: HIGH
 **Effort**: 1-2 days
 **Impact**: Eliminates ~95% duplicate code between Ponto and ING
+**Status**: ✅ COMPLETED (2026-01-10)
 
-**Current State**:
-- Ponto has `_create_webhook_log()` in `webhook.py`
-- ING has `log_webhook()` in `webhook.py`
-- Both are nearly identical implementations
-- Mollie uses WebhookProcessingLog inconsistently
+**Implementation Summary**:
+Created `verenigingen/utils/webhook/logging.py` with unified webhook logging utilities:
+- `compute_webhook_hash()` - SHA256 hash for idempotency
+- `is_duplicate_webhook()` - Check for already-processed webhooks
+- `create_webhook_log()` - Create Webhook Processing Log entry
+- `update_webhook_log()` - Update existing log entries
+- `get_webhook_log_by_hash()` - Retrieve log by hash
 
-**Required Fix**:
-```python
-# Create: verenigingen/utils/webhook/logging.py
-def create_webhook_log(
-    webhook_id: str,
-    webhook_type: str,  # "mollie_payment", "ponto_sync", "ing_checkout_payment"
-    raw_payload: str,
-    status: str = "success",
-    processing_result: str = None,
-    error_details: str = None,
-    webhook_hash: str = None,
-) -> Optional[str]:
-    """Unified webhook logging for all PSPs."""
-    if not webhook_hash:
-        webhook_hash = hashlib.sha256(
-            f"{webhook_id}:{raw_payload}".encode()
-        ).hexdigest()
+Both Ponto and ING Checkout now use thin wrappers that delegate to the unified module.
 
-    doc = frappe.get_doc({
-        "doctype": "Webhook Processing Log",
-        "webhook_id": webhook_id,
-        "webhook_type": webhook_type,
-        "webhook_hash": webhook_hash,
-        "raw_payload": raw_payload,
-        "status": status,
-        "processing_result": processing_result,
-        "error_details": error_details,
-    })
-    doc.insert(ignore_permissions=True)
-    return doc.name
-```
-
-**Files to Modify**:
-- Create `verenigingen/utils/webhook/logging.py`
-- Update `ponto/api/webhook.py` to use shared utility
-- Update `ing_checkout/api/webhook.py` to use shared utility
-- Update `mollie/api/webhooks.py` to use shared utility consistently
+**Files Created/Modified**:
+- Created `verenigingen/utils/webhook/__init__.py` - Package exports
+- Created `verenigingen/utils/webhook/logging.py` - Unified implementation
+- Updated `ponto/api/webhook.py` - `_create_webhook_log()` now calls unified module
+- Updated `ing_checkout/utils/webhook_security.py` - `log_webhook()`, `compute_webhook_hash()`, `is_duplicate_webhook()` now call unified module
 
 ---
 
@@ -687,7 +660,7 @@ These have no dependencies and can be tackled simultaneously:
 ### Phase 2: Infrastructure Consolidation
 - [x] HIGH-1: Move resilience utilities to `core/resilience/`
 - [x] HIGH-5: Add resilience patterns to ING Checkout *(depends on HIGH-1)*
-- [ ] HIGH-2: Extract unified webhook logging
+- [x] HIGH-2: Extract unified webhook logging
 - [ ] HIGH-3: Migrate Mollie to shared service user resolution
 - [ ] MED-3: Create shared exception hierarchy
 

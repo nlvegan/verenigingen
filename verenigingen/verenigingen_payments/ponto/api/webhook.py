@@ -26,16 +26,15 @@ Note:
     Signature verification uses JWT with JWKS public keys from Ibanity.
 """
 
-import hashlib
 import json
 from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.service_user import get_service_user
+from verenigingen.utils.webhook.logging import create_webhook_log
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoWebhookError
 from verenigingen.verenigingen_payments.ponto.utils.webhook_security import verify_ponto_webhook
@@ -72,6 +71,9 @@ def _create_webhook_log(
     """
     Create a Webhook Processing Log entry.
 
+    This is a thin wrapper around the unified create_webhook_log function
+    from verenigingen.utils.webhook.logging for backwards compatibility.
+
     Args:
         webhook_id: Unique identifier for the webhook (e.g., event ID from Ponto)
         webhook_type: Type of webhook (ponto_sync, ponto_payment, ponto_account)
@@ -83,39 +85,15 @@ def _create_webhook_log(
     Returns:
         Name of created log document or None if logging failed
     """
-    try:
-        # Create a hash to detect duplicate webhooks
-        webhook_hash = hashlib.sha256(f"{webhook_id}:{raw_payload}".encode()).hexdigest()
-
-        # Check for duplicate
-        existing = frappe.db.exists("Webhook Processing Log", {"webhook_hash": webhook_hash})
-        if existing:
-            frappe.logger().debug(f"Duplicate webhook detected: {webhook_id}")
-            return None
-
-        log = frappe.new_doc("Webhook Processing Log")
-        log.webhook_id = webhook_id[:140] if webhook_id else "unknown"  # Truncate to field limit
-        log.webhook_type = webhook_type
-        log.webhook_hash = webhook_hash
-        log.processed_at = now_datetime()
-        log.status = status
-        log.raw_payload = raw_payload
-
-        if processing_result:
-            log.processing_result = processing_result
-
-        if error_details:
-            log.error_details = error_details[:65535] if len(error_details) > 65535 else error_details
-
-        # Webhook user has create permission on Webhook Processing Log (added 2026-01-10)
-        log.insert()
-        frappe.db.commit()
-
-        return log.name
-
-    except Exception as e:
-        frappe.logger().error(f"Failed to create webhook log: {e}")
-        return None
+    return create_webhook_log(
+        webhook_id=webhook_id,
+        webhook_type=webhook_type,
+        raw_payload=raw_payload,
+        status=status,
+        processing_result=processing_result,
+        error_details=error_details,
+        auto_commit=True,
+    )
 
 
 def _get_webhook_type_from_event(event_type: str) -> str:
