@@ -581,10 +581,14 @@ class EnhancedTestDataFactory:
             if field not in skip_validation_fields:
                 self.validate_field_exists("Member", field)
             
-        # Set intelligent defaults
+        # Set intelligent defaults - include unique suffix in last_name to prevent Customer name collisions
+        test_name_parts = self.generate_test_name("Member").split()
+        # test_name_parts is like ["TEST", "Adam", "Lee", "001123456"]
+        # We need the suffix (index 3+) appended to last_name for unique Customer names
+        unique_suffix = test_name_parts[3] if len(test_name_parts) > 3 else str(self.get_next_sequence('member'))
         defaults = {
-            "first_name": self.generate_test_name("Member").split()[1],  # Just the first name part
-            "last_name": self.generate_test_name("Member").split()[2],   # Just the last name part
+            "first_name": test_name_parts[1] if len(test_name_parts) > 1 else "Test",
+            "last_name": f"{test_name_parts[2] if len(test_name_parts) > 2 else 'Member'}{unique_suffix}",  # Include suffix for unique Customer name
             "email": self.generate_test_email("member"),
             "birth_date": add_days(getdate(), -random.randint(6570, 25550)),  # 18-70 years old (validated via AgeValidator)
             "status": "Active",

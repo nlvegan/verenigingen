@@ -298,40 +298,35 @@ class TestSecureAccountCreation(EnhancedTestCase):
         # Temporarily re-enable automatic account creation for this test
         original_flag = frappe.flags.get("skip_volunteer_account_creation", False)
         frappe.flags.skip_volunteer_account_creation = False
-        
+
         try:
             # Generate unique email for this test run
             import time
             unique_email = f"integration.test.{int(time.time())}.{self.test_run_id}@example.com"
-            
+
             # Create member first
             member = self.create_test_member(
                 first_name=f"Integration{self.uid}",
                 last_name="Test",
                 email=unique_email
             )
-            
-            # Create new volunteer directly (should trigger secure account creation)
-            from frappe.utils import today
-            volunteer = frappe.get_doc({
-                "doctype": "Volunteer",
-                "volunteer_name": f"Integration Test Volunteer {self.test_run_id}",
-                "email": unique_email,
-                "member": member.name,
-                "status": "New",
-                "start_date": today()
-            })
-            volunteer.insert()  # Test setup - admin context has permissions
-            self.factory.track_document("Volunteer", volunteer.name)
-            
+
+            # Create volunteer using test helper which handles permissions properly
+            volunteer = self.create_test_volunteer(
+                member=member.name,
+                volunteer_name=f"Integration Test Volunteer {self.test_run_id}",
+                email=unique_email,
+                status="New"
+            )
+
             # Verify that account creation was queued (not processed immediately)
             account_requests = frappe.get_all("Account Creation Request",
                 filters={"source_record": volunteer.name})
-            
+
             # Should have created an account request
-            self.assertTrue(len(account_requests) > 0, 
+            self.assertTrue(len(account_requests) > 0,
                            "Volunteer creation should queue account creation request")
-            
+
             # Verify no immediate user creation (secure approach)
             self.assertFalse(frappe.db.exists("User", unique_email),
                             "User should not be created immediately - should go through secure queue")
