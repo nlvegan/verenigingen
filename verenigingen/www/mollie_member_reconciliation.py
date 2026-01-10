@@ -14,7 +14,7 @@ from frappe import _
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import critical_api
 from verenigingen.utils.settings_utils import get_payments_settings
-from verenigingen.verenigingen_payments.mollie.core.mollie_client import MollieClient
+from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 
 
 def get_context(context):

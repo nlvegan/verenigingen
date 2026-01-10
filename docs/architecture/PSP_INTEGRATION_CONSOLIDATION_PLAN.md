@@ -689,9 +689,22 @@ These have no dependencies and can be tackled simultaneously:
 - Maintained backwards compatibility via re-exports
 - All syntax validated
 
-- [ ] LOW-1: Remove deprecated mollie_client.py
+- [x] LOW-1: Remove deprecated mollie_client.py
+
+**LOW-1 Implementation Summary** (2026-01-10):
+- Updated 3 files to import from `client.py` instead of deprecated `mollie_client.py`
+- Removed `verenigingen/verenigingen_payments/mollie/core/mollie_client.py`
+- Admin utilities now use the newer, focused MollieClient
+
 - [ ] LOW-4: Make debug logging conditional
-- [ ] LOW-5: Document/consolidate webhook security files
+- [x] LOW-5: Document/consolidate webhook security files
+
+**LOW-5 Implementation Summary** (2026-01-10):
+- Created `docs/architecture/WEBHOOK_SECURITY_ARCHITECTURE.md`
+- Documents all 5 webhook security files and their purposes
+- Explains PSP-specific authentication methods (HMAC, JWT/JWKS, IP validation)
+- Clarifies which files are authoritative vs deprecated
+- References unified infrastructure from HIGH-2, HIGH-3, MED-3
 
 ### Phase 4: Pattern Standardization
 - [ ] MED-1: Adopt WebhookErrorHandler in Ponto/ING *(benefits from MED-3)*
