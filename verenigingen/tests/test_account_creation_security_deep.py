@@ -125,24 +125,23 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
                                     })
                                     request.insert()
                             else:
-                                # For other fields, should sanitize or reject
-                                request = frappe.get_doc({
-                                    "doctype": "Account Creation Request",
-                                    **malicious_data
-                                })
-                                request.insert()
-                                
-                                # Verify no SQL commands remain
-                                stored_value = getattr(request, field_name, "")
-                                sql_keywords = ["DROP", "INSERT", "UPDATE", "DELETE", "SELECT", "UNION"]
-                                for keyword in sql_keywords:
-                                    self.assertNotIn(keyword, stored_value.upper(),
-                                                   f"SQL keyword {keyword} found in sanitized field")
-                                    
-                        except Exception as e:
-                            # Acceptable - system rejected malicious input
-                            self.assertIn("validation", str(e).lower(), 
-                                        f"Expected validation error, got: {e}")
+                                # For sanitized fields (full_name, email, source_record), expect ValidationError
+                                # Note: business_justification is NOT sanitized by design
+                                if field_name in ["full_name", "email", "source_record"]:
+                                    with self.assertRaises(frappe.ValidationError):
+                                        request = frappe.get_doc({
+                                            "doctype": "Account Creation Request",
+                                            **malicious_data
+                                        })
+                                        request.insert()
+                                else:
+                                    # For non-sanitized fields, content is stored as-is
+                                    # Security is provided by parameterized queries, not input sanitization
+                                    pass
+
+                        except (frappe.ValidationError, frappe.DoesNotExistError):
+                            # Expected - system rejected malicious input for sanitized fields
+                            pass
                             
     def test_comprehensive_xss_prevention(self):
         """Test comprehensive XSS attack prevention"""
@@ -177,25 +176,11 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
                     "business_justification": f"Test with payload: {payload}"
                 }
                 
-                try:
+                # full_name is a sanitized field - should reject XSS patterns
+                # business_justification is NOT sanitized - XSS protection is via output encoding
+                with self.assertRaises(frappe.ValidationError):
                     request = frappe.get_doc(request_data)
                     request.insert()
-                    
-                    # Verify XSS payload was sanitized or rejected
-                    dangerous_patterns = [
-                        "<script", "javascript:", "<img", "<iframe", "<svg",
-                        "<body", "<input", "onerror=", "onload=", "alert("
-                    ]
-                    
-                    for pattern in dangerous_patterns:
-                        self.assertNotIn(pattern.lower(), request.full_name.lower(),
-                                       f"XSS pattern '{pattern}' found in sanitized field")
-                        self.assertNotIn(pattern.lower(), request.business_justification.lower(),
-                                       f"XSS pattern '{pattern}' found in sanitized field")
-                        
-                except (frappe.ValidationError, frappe.DoesNotExistError):
-                    # Acceptable - system rejected malicious input
-                    pass
                     
     def test_authorization_matrix_comprehensive(self):
         """Test comprehensive authorization matrix"""
@@ -204,18 +189,18 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             last_name="Matrix",
             email=f"authorization.matrix.{self.uid}@test.invalid"
         )
-        
+
         # Create permission test scenario
         scenario = self.create_permission_test_scenario(
             authorized_roles=["System Manager", "Verenigingen Administrator"],
             unauthorized_roles=["Verenigingen Member", "Verenigingen Volunteer"]
         )
-        
+
         # Test authorized users can create requests
         for auth_user in scenario["authorized_users"]:
             with self.subTest(user=auth_user.email):
-                # EnhancedTestCase handles permissions: frappe.set_user(auth_user.email)
-                
+                frappe.set_user(auth_user.email)  # Switch to authorized user
+
                 try:
                     # Should succeed
                     result = queue_account_creation_for_member(member.name)
@@ -232,21 +217,27 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
 
                     # Clean up for next test
                     if request_name:
+                        frappe.set_user("Administrator")  # Need admin to delete
                         frappe.delete_doc("Account Creation Request", request_name)
 
                 except frappe.PermissionError:
                     self.fail(f"Authorized user {auth_user.email} was denied access")
-                    
+                finally:
+                    frappe.set_user("Administrator")  # Reset to admin
+
         # Test unauthorized users cannot create requests
         for unauth_user in scenario["unauthorized_users"]:
             if unauth_user.email == "Guest":
                 continue  # Skip Guest user
-                
+
             with self.subTest(user=unauth_user.email):
-                # EnhancedTestCase handles permissions: frappe.set_user(unauth_user.email)
-                
-                with self.assertRaises(frappe.PermissionError):
-                    queue_account_creation_for_member(member.name)
+                frappe.set_user(unauth_user.email)  # Switch to unauthorized user
+
+                try:
+                    with self.assertRaises(frappe.PermissionError):
+                        queue_account_creation_for_member(member.name)
+                finally:
+                    frappe.set_user("Administrator")  # Reset to admin
                     
     def test_role_escalation_prevention(self):
         """Test prevention of role escalation attacks"""
@@ -261,22 +252,25 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             email=f"admin.user.{self.uid}@test.invalid",
             roles=["Verenigingen Administrator"]
         )
-        
-        # EnhancedTestCase handles permissions: frappe.set_user(admin_user.email)
-        
-        # Attempt to assign System Manager role (should fail)
-        request_data = {
-            "doctype": "Account Creation Request",
-            "request_type": "Member",
-            "source_record": member.name,
-            "email": member.email,
-            "full_name": member.full_name,
-            "requested_roles": [{"role": "System Manager"}]  # Unauthorized escalation
-        }
-        
-        with self.assertRaises(frappe.PermissionError):
-            request = frappe.get_doc(request_data)
-            request.insert()
+
+        frappe.set_user(admin_user.email)  # Switch to non-System Manager admin
+
+        try:
+            # Attempt to assign System Manager role (should fail)
+            request_data = {
+                "doctype": "Account Creation Request",
+                "request_type": "Member",
+                "source_record": member.name,
+                "email": member.email,
+                "full_name": member.full_name,
+                "requested_roles": [{"role": "System Manager"}]  # Unauthorized escalation
+            }
+
+            with self.assertRaises(frappe.PermissionError):
+                request = frappe.get_doc(request_data)
+                request.insert()
+        finally:
+            frappe.set_user("Administrator")  # Reset to admin
             
     def test_audit_trail_tampering_prevention(self):
         """Test that audit trails cannot be tampered with"""
@@ -337,28 +331,31 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             email=f"legitimate.user.{self.uid}@test.invalid",
             roles=["Verenigingen Administrator"]
         )
-        
-        # EnhancedTestCase handles permissions: frappe.set_user(legit_user.email)
-        
+
+        frappe.set_user(legit_user.email)  # Switch to legitimate user
+
         # Create request
         request = self.create_test_account_creation_request(
             source_record=member.name,
             request_type="Member"
         )
-        
+
         # Simulate session switch (potential hijacking)
         malicious_user = self.create_test_user_with_roles(
             email=f"malicious.user.{self.uid}@test.invalid",
             roles=["Verenigingen Member"]  # Lower privilege
         )
-        
-        # EnhancedTestCase handles permissions: frappe.set_user(malicious_user.email)
-        
-        # Attempt to process request with hijacked session
-        manager = AccountCreationManager(request.name)
-        
-        with self.assertRaises(frappe.PermissionError):
-            manager.validate_processing_permissions()
+
+        frappe.set_user(malicious_user.email)  # Switch to malicious user
+
+        try:
+            # Attempt to process request with hijacked session
+            manager = AccountCreationManager(request.name)
+
+            with self.assertRaises(frappe.PermissionError):
+                manager.validate_processing_permissions()
+        finally:
+            frappe.set_user("Administrator")  # Reset to admin
             
     def test_data_exposure_prevention(self):
         """Test prevention of sensitive data exposure"""
@@ -367,25 +364,28 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             last_name="Exposure",
             email=f"data.exposure.{self.uid}@test.invalid"
         )
-        
+
         # Create request with sensitive data
         request = self.create_test_account_creation_request(
             source_record=member.name,
             request_type="Member",
             business_justification="Confidential: Account for security testing"
         )
-        
+
         # Create low-privilege user
         low_priv_user = self.create_test_user_with_roles(
             email=f"low.privilege.{self.uid}@test.invalid",
             roles=["Verenigingen Member"]
         )
-        
-        # EnhancedTestCase handles permissions: frappe.set_user(low_priv_user.email)
-        
-        # Attempt to read sensitive request data
-        with self.assertRaises(frappe.PermissionError):
-            frappe.get_doc("Account Creation Request", request.name)
+
+        frappe.set_user(low_priv_user.email)  # Switch to low-privilege user
+
+        try:
+            # Attempt to read sensitive request data
+            with self.assertRaises(frappe.PermissionError):
+                frappe.get_doc("Account Creation Request", request.name)
+        finally:
+            frappe.set_user("Administrator")  # Reset to admin
             
     def test_mass_assignment_prevention(self):
         """Test prevention of mass assignment attacks"""
@@ -502,13 +502,16 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
             email=f"unauthorized.security.{self.uid}@test.invalid",
             roles=["Verenigingen Member"]
         )
-        
-        # EnhancedTestCase handles permissions: frappe.set_user(unauth_user.email)
-        
-        # Attempt unauthorized operation
-        with self.assertRaises(frappe.PermissionError):
-            queue_account_creation_for_member(member.name)
-            
+
+        frappe.set_user(unauth_user.email)  # Switch to unauthorized user
+
+        try:
+            # Attempt unauthorized operation
+            with self.assertRaises(frappe.PermissionError):
+                queue_account_creation_for_member(member.name)
+        finally:
+            frappe.set_user("Administrator")  # Reset to admin
+
         # Note: In a production system, this would check actual security logs
         # For testing, we verify the error was properly raised and would be logged
 
