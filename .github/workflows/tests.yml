@@ -71,6 +71,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Sync code to frappe-bench
+        run: |
+          # Copy checked-out code to frappe-bench apps directory
+          rsync -a --delete --exclude='.git' \
+            ${{ github.workspace }}/ \
+            /home/frappe/frappe-bench/apps/verenigingen/
+
       - name: Run Contract Tests
         run: |
           cd /home/frappe/frappe-bench
@@ -107,6 +114,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Sync code to frappe-bench
+        run: |
+          rsync -a --delete --exclude='.git' \
+            ${{ github.workspace }}/ \
+            /home/frappe/frappe-bench/apps/verenigingen/
 
       - name: Run ${{ matrix.category }} tests
         run: |
@@ -154,6 +167,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Sync code to frappe-bench
+        run: |
+          rsync -a --delete --exclude='.git' \
+            ${{ github.workspace }}/ \
+            /home/frappe/frappe-bench/apps/verenigingen/
+
       - name: Run Mollie Core Tests
         run: |
           cd /home/frappe/frappe-bench
@@ -180,6 +199,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Sync code to frappe-bench
+        run: |
+          rsync -a --delete --exclude='.git' \
+            ${{ github.workspace }}/ \
+            /home/frappe/frappe-bench/apps/verenigingen/
 
       - name: Run tests with coverage
         run: |
