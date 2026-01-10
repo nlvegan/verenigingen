@@ -11,6 +11,7 @@ This module provides:
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 
 
@@ -78,34 +79,21 @@ def authenticate_mollie_webhook() -> str:
         )
         raise
 
-    # STEP 2: Set webhook user context
-    webhook_user = None
+    # STEP 2: Set webhook user context using shared service user resolution
+    # This provides consistent behavior with Ponto and ING Checkout webhooks
     try:
-        settings = get_payments_settings()
-        webhook_user = getattr(settings, "webhook_user", None)
-    except Exception as e:
+        webhook_user = get_service_user(
+            settings_doctype="Verenigingen Payments Settings",
+            user_field="webhook_user",
+            service_name="Mollie Webhook",
+        )
+        frappe.set_user(webhook_user)
+    except ValueError as e:
         frappe.log_error(
-            f"Failed to load Verenigingen Payments Settings: {e}",
+            f"Mollie webhook user configuration error: {e}",
             "Mollie Webhook Authentication Error",
         )
-
-    if not webhook_user:
-        frappe.log_error(
-            "Webhook user not configured in Verenigingen Payments Settings",
-            "Mollie Webhook Authentication Error",
-        )
-        frappe.throw("Webhook user not configured in Verenigingen Payments Settings")
-
-    # Verify the webhook user exists
-    if not frappe.db.exists("User", webhook_user):
-        frappe.log_error(
-            f"Webhook user {webhook_user} does not exist. Mollie webhooks will fail.",
-            "Mollie Webhook Authentication Error",
-        )
-        frappe.throw(f"Webhook user {webhook_user} not configured")
-
-    # Set user context
-    frappe.set_user(webhook_user)
+        frappe.throw(str(e))
 
     # Validate permissions (log but don't block - webhook user may have different role structure)
     if not validate_webhook_user_permissions():

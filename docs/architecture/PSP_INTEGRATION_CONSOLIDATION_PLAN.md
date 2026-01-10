@@ -122,19 +122,22 @@ Both Ponto and ING Checkout now use thin wrappers that delegate to the unified m
 
 ---
 
-### HIGH-3: Migrate Mollie to Shared Service User Resolution
+### HIGH-3: Migrate Mollie to Shared Service User Resolution - ✅ COMPLETED
 
 **Priority**: HIGH
 **Effort**: 0.5 days
 **Impact**: Consistency across PSPs
+**Status**: ✅ COMPLETED (2026-01-10)
 
-**Current State**:
-- Ponto and ING use `get_service_user()` from `verenigingen/utils/service_user.py`
-- Mollie has its own `authenticate_mollie_webhook()` implementation
+**Implementation Summary**:
+Refactored `authenticate_mollie_webhook()` in `mollie/utils/webhook_security.py` to use the
+shared `get_service_user()` utility. This provides consistent behavior with Ponto and ING Checkout:
+- User validation is now handled by the shared utility
+- Fallback to Administrator with audit logging
+- Error handling consistent across all PSPs
 
-**Required Fix**:
-- Refactor `authenticate_mollie_webhook()` to use `get_service_user()`
-- Maintain signature validation as separate concern
+**Files Modified**:
+- `mollie/utils/webhook_security.py` - Now imports and uses `get_service_user()`
 
 ---
 
@@ -661,7 +664,7 @@ These have no dependencies and can be tackled simultaneously:
 - [x] HIGH-1: Move resilience utilities to `core/resilience/`
 - [x] HIGH-5: Add resilience patterns to ING Checkout *(depends on HIGH-1)*
 - [x] HIGH-2: Extract unified webhook logging
-- [ ] HIGH-3: Migrate Mollie to shared service user resolution
+- [x] HIGH-3: Migrate Mollie to shared service user resolution
 - [ ] MED-3: Create shared exception hierarchy
 
 ### Phase 3: Code Cleanup
