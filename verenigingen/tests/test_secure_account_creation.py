@@ -32,6 +32,8 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        # Ensure Administrator context at start of each test to prevent contamination
+        frappe.set_user("Administrator")
         # EnhancedTestCase handles all cleanup automatically
 
         # CLEANUP FIX: Aggressively clean up all Account Creation Requests to prevent conflicts
@@ -131,31 +133,37 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def test_permission_validation_for_account_creation(self):
         """Test that permission validation works properly"""
-        # Create a user without permissions
-        test_user_email = "test.nopermissions@example.com"
-        if not frappe.db.exists("User", test_user_email):
-            test_user = frappe.get_doc({
-                "doctype": "User",
-                "email": test_user_email,
-                "first_name": "No",
-                "last_name": "Permissions",
-                "user_type": "System User"
-            })
-            test_user.insert()
-        
-        # Set user without permissions
-        frappe.set_user(test_user_email)
-        
-        # Attempt to queue account creation - should fail
-        with self.assertRaises(frappe.PermissionError):
-            queue_account_creation_for_volunteer(
-                volunteer_name=self.get_fresh_test_volunteer().name,
-                priority="Normal"
-            )
-        
-        # Clean up test user
-        frappe.set_user("Administrator")  # Switch back to Administrator for cleanup
-        frappe.delete_doc("User", test_user_email, force=True)
+        # Create a user without permissions with unique email for test isolation
+        test_user_email = f"test.nopermissions.{self.uid}@example.com"
+        test_user_created = False
+
+        try:
+            if not frappe.db.exists("User", test_user_email):
+                test_user = frappe.get_doc({
+                    "doctype": "User",
+                    "email": test_user_email,
+                    "first_name": "No",
+                    "last_name": "Permissions",
+                    "user_type": "System User"
+                })
+                test_user.insert()
+                test_user_created = True
+
+            # Set user without permissions
+            frappe.set_user(test_user_email)
+
+            # Attempt to queue account creation - should fail
+            with self.assertRaises(frappe.PermissionError):
+                queue_account_creation_for_volunteer(
+                    volunteer_name=self.get_fresh_test_volunteer().name,
+                    priority="Normal"
+                )
+        finally:
+            # Always restore Administrator context
+            frappe.set_user("Administrator")
+            # Clean up test user if we created it
+            if test_user_created and frappe.db.exists("User", test_user_email):
+                frappe.delete_doc("User", test_user_email, force=True)
 
     def test_no_permission_bypasses_in_account_creation(self):
         """Test that no ignore_permissions=True is used in account creation"""
