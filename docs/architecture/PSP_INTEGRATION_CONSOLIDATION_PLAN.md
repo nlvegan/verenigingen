@@ -507,12 +507,12 @@ class WebhookTestHelper(ABC):
 
 ---
 
-### SEC-3: Audit All ignore_permissions=True Usage - 🔄 IN PROGRESS
+### SEC-3: Audit All ignore_permissions=True Usage - ✅ COMPLETED
 
 **Priority**: MEDIUM
 **Effort**: 1 day
 **Impact**: Security documentation
-**Status**: 🔄 IN PROGRESS (2026-01-10)
+**Status**: ✅ COMPLETED (2026-01-11)
 
 **Phase 1 COMPLETED - Added Webhook User Permissions**:
 The "Verenigingen Webhook User" role was missing permissions for several DocTypes used during webhook processing. Added permissions to:
@@ -536,20 +536,19 @@ The "Verenigingen Webhook User" role was missing permissions for several DocType
 - `vereinigingen_payments/doctype/ponto_sync_log/ponto_sync_log.json`
 - `vereinigingen_payments/doctype/sepa_audit_log/sepa_audit_log.json`
 
-**Phase 2 PENDING - Remove ignore_permissions calls**:
-With webhook user permissions in place, the following `ignore_permissions=True` usages can be removed:
+**Phase 2 COMPLETED - Verified ignore_permissions Removal** (2026-01-11):
+The following files were verified to not have `ignore_permissions=True`:
+- `ing_checkout/api/webhook.py` - No ignore_permissions
+- `ing_checkout/utils/webhook_security.py` - No ignore_permissions
+- `ponto/api/webhook.py` - No ignore_permissions
+- `ponto/api/betaalverzoek_callback.py` - No ignore_permissions
+- `ponto/api/payment_callback.py` - No ignore_permissions
 
-**Can Now Remove** (webhook user has permissions):
-- `ing_checkout/api/webhook.py` - mandate/transaction saves
-- `ing_checkout/utils/webhook_security.py` - log_webhook() insert
-- `ponto/api/webhook.py` - payment link and sync log saves
-- `ponto/api/betaalverzoek_callback.py` - doc saves
-- `ponto/api/payment_callback.py` - doc saves
-
-**Must Keep** (legitimate system operations):
-- Ponto Settings OAuth token saves (credential management)
-- OAuth2 service token saves (no user context during OAuth flow)
-- Test fixtures (need to create data without user context)
+**Remaining Legitimate Uses** (must keep):
+- `ponto/utils/token_manager.py` - OAuth token saves (no user context during OAuth)
+- `ponto/services/oauth2_service.py` - OAuth token saves (system operation)
+- `mollie/utils/audit.py` - Audit log inserts (system operation)
+- Test fixtures - Need to create data without user context
 
 ---
 
