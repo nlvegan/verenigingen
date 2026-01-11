@@ -336,20 +336,45 @@ Created `ing_checkout/models.py` with comprehensive dataclass models following t
 
 ---
 
-### LOW-2: Clarify MollieConnector vs MollieClient Responsibilities
+### LOW-2: Clarify MollieConnector vs MollieClient Responsibilities - ✅ COMPLETED
 
 **Priority**: LOW
 **Effort**: 2 days
 **Impact**: Clearer architecture
+**Status**: ✅ COMPLETED (2026-01-11)
 
-**Current State**:
-- `MollieConnector` in `integration/mollie_connector.py` - settlements/balances
-- `MollieClient` in `core/client.py` - payments/subscriptions
-- Some overlap in responsibilities
+**Analysis Findings**:
+- `MollieConnector` (integration/) used in only 3 places, mostly for raw `.client` access
+- `MollieClient` (mollie/core/) used in 40 places with circuit breakers/retry
+- Specialized clients already exist in `clients/` directory:
+  - `SettlementsClient` - settlement operations
+  - `BalancesClient` - balance queries
+  - `ChargebacksClient` - chargeback handling
+  - `InvoicesClient` - Mollie platform invoices
+  - `PaymentsClient` - payment operations
 
-**Required Fix**:
-- Document clear boundaries
-- Consider merging or clearly separating concerns
+**Resolution**:
+1. **Deprecated MollieConnector** - Added deprecation warnings with migration guidance
+2. **Documented architecture** in module docstring pointing to alternatives
+3. **No merge needed** - specialized clients already provide better separation
+
+**Mollie Client Architecture** (documented):
+```
+mollie/core/client.py (MollieClient)
+├── Payments, Customers, Subscriptions, Refunds
+├── Circuit breaker + retry patterns
+└── Primary client for transactional operations
+
+clients/ (Specialized Clients extending MollieBaseClient)
+├── SettlementsClient - Financial reconciliation
+├── BalancesClient - Account balance queries
+├── ChargebacksClient - Chargeback processing
+├── InvoicesClient - Mollie platform invoices
+└── PaymentsClient - Additional payment operations
+```
+
+**Files Modified**:
+- `integration/mollie_connector.py` - Added deprecation warnings and migration docs
 
 ---
 
@@ -748,7 +773,7 @@ These have no dependencies and can be tackled simultaneously:
 - [x] MED-5: Standardize error response formats ✅
 
 ### Phase 5: Advanced Consolidation
-- [ ] LOW-2: Clarify MollieConnector vs MollieClient
+- [x] LOW-2: Clarify MollieConnector vs MollieClient ✅
 - [ ] LOW-3: Consolidate Mollie orchestration paths
 - [ ] LOW-6: Create shared webhook test helpers *(benefits from HIGH-2)*
 - [ ] Future: Implement PSPFactory pattern for runtime PSP selection

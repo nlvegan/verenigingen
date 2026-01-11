@@ -1,9 +1,26 @@
 """
 Mollie SDK Integration Connector
 Bridges Frappe framework with Mollie Python SDK
+
+.. deprecated::
+    This module is deprecated. Use the following alternatives instead:
+
+    - For payments/subscriptions: `mollie.core.client.MollieClient`
+    - For settlements: `clients.settlements_client.SettlementsClient`
+    - For balances: `clients.balances_client.BalancesClient`
+    - For chargebacks: `clients.chargebacks_client.ChargebacksClient`
+    - For invoices: `clients.invoices_client.InvoicesClient`
+
+    These specialized clients provide:
+    - Circuit breaker and retry patterns
+    - Proper exception hierarchy
+    - Better separation of concerns
+
+    This module will be removed in a future version.
 """
 
 import json
+import warnings
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
@@ -34,10 +51,22 @@ class MollieConnector:
     """
     Production-ready Mollie SDK connector
     Provides actual API connectivity with proper error handling
+
+    .. deprecated::
+        Use specialized clients instead:
+        - `mollie.core.client.MollieClient` for payments/subscriptions
+        - `clients.settlements_client.SettlementsClient` for settlements
+        - `clients.balances_client.BalancesClient` for balances
     """
 
     def __init__(self):
-        """Initialize Mollie connector with settings"""
+        """Initialize Mollie connector with settings."""
+        warnings.warn(
+            "MollieConnector is deprecated. Use MollieClient or specialized clients "
+            "(SettlementsClient, BalancesClient, etc.) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not MOLLIE_AVAILABLE:
             raise MollieIntegrationError("Mollie SDK not installed. Run: pip install mollie-api-python")
 
