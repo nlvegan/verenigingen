@@ -564,15 +564,41 @@ class PontoTestDataFactory:
         """
         Create or update Ponto Settings for testing.
 
+        WARNING: This modifies a singleton DocType. Always use with SingletonBackup
+        to prevent test data from leaking into the database:
+
+            from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+
+            with singleton_backup("Ponto Settings"):
+                PontoTestDataFactory.create_ponto_settings(...)
+                # ... your test code ...
+            # Settings automatically restored
+
         Returns:
             Ponto Settings document
+
+        Raises:
+            RuntimeError: If called outside of test mode without frappe.flags.in_test
         """
+        import warnings
+
+        if not frappe.flags.in_test:
+            warnings.warn(
+                "create_ponto_settings() called outside of test mode. "
+                "This will modify production settings! Use SingletonBackup.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         settings = frappe.get_single("Ponto Settings")
         settings.ibanity_client_id = client_id
         settings.set_password("ibanity_client_secret", client_secret)
         settings.use_sandbox = 1 if use_sandbox else 0
         settings.use_ibanity_mtls = 1 if use_mtls else 0
+        # Use flags to bypass the test credential validation in tests
+        settings.flags.ignore_validate = True
         settings.save()
+        settings.flags.ignore_validate = False
         return settings
 
     @staticmethod

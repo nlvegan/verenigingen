@@ -25,6 +25,7 @@ class PontoSettings(Document):
     def validate(self):
         """Validate settings before save."""
         self.validate_credentials_configured()
+        self.validate_no_test_credentials()
         self.validate_sync_interval()
         self.update_webhook_url()
 
@@ -70,6 +71,48 @@ class PontoSettings(Document):
                     _("Production Client ID is required when Sandbox Mode is disabled"),
                     title=_("Missing Credentials"),
                 )
+
+    def validate_no_test_credentials(self):
+        """
+        Prevent test credentials from being saved in non-test environments.
+
+        This catches accidental leakage of test settings from unit tests into
+        the database, which can cause OAuth failures that are hard to diagnose.
+        """
+        # Skip validation in test mode
+        if frappe.flags.in_test:
+            return
+
+        # Patterns that indicate test credentials
+        test_patterns = [
+            "test_client",
+            "test_secret",
+            "mock_",
+            "fake_",
+            "dummy_",
+            "placeholder",
+        ]
+
+        # Check all client_id fields
+        client_id_fields = [
+            ("sandbox_client_id", self.sandbox_client_id),
+            ("production_client_id", self.production_client_id),
+            ("ibanity_client_id", self.ibanity_client_id),
+        ]
+
+        for field_name, value in client_id_fields:
+            if value:
+                value_lower = value.lower()
+                for pattern in test_patterns:
+                    if pattern in value_lower:
+                        frappe.throw(
+                            _(
+                                "Invalid {0}: '{1}' appears to be a test credential. "
+                                "Test credentials should not be saved outside of test mode. "
+                                "This may indicate a test leaked settings into the database."
+                            ).format(field_name, value),
+                            title=_("Test Credentials Detected"),
+                        )
 
     def validate_sync_interval(self):
         """Ensure sync interval is reasonable."""
