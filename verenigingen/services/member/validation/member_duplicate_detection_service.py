@@ -425,17 +425,17 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
         - Never throws exceptions (returns failed OperationResult)
         - Preserves all security logging and validation
     """
-    from verenigingen.utils.security.rate_limiter import log_security_event, validate_input_security
+    from verenigingen.utils.security.audit_logging import log_security_event
+    from verenigingen.utils.validation.api_validators import APIValidator
 
     # SECURITY FIX 1: Input validation
     try:
-        member_name = validate_input_security(member_name, "member_name", max_length=255)
+        member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
     except Exception as e:
         log_security_event(
-            frappe.session.user,
             "input_validation_failure",
-            f"Input validation failed for duplicate check: {str(e)}",
-            "medium",
+            {"message": f"Input validation failed for duplicate check: {str(e)}"},
+            severity="warning",
         )
         return OperationResult.fail(
             _("Invalid input data provided"), errors=[str(e)], has_duplicates=False, duplicates=[]
@@ -444,10 +444,9 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
     # SECURITY FIX 2: Validate member exists
     if not frappe.db.exists("Member", member_name):
         log_security_event(
-            frappe.session.user,
             "invalid_member_access",
-            f"Attempted duplicate check on non-existent member: {member_name}",
-            "medium",
+            {"message": f"Attempted duplicate check on non-existent member: {member_name}"},
+            severity="warning",
         )
         return OperationResult.fail(
             _("Member not found"),
@@ -460,10 +459,9 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
     # SECURITY FIX 3: Permission validation
     if not frappe.has_permission("Member", "read", member_name):
         log_security_event(
-            frappe.session.user,
             "unauthorized_duplicate_check",
-            f"User attempted duplicate check without permission: {member_name}",
-            "high",
+            {"message": f"User attempted duplicate check without permission: {member_name}"},
+            severity="error",
         )
         frappe.throw(_("You do not have permission to access this member"))
 
@@ -510,10 +508,9 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
 
     except frappe.DoesNotExistError:
         log_security_event(
-            frappe.session.user,
             "invalid_member_duplicate_check",
-            f"Duplicate check on non-existent member: {member_name}",
-            "medium",
+            {"message": f"Duplicate check on non-existent member: {member_name}"},
+            severity="warning",
         )
         return OperationResult.fail(
             _("Member not found"),
@@ -525,10 +522,9 @@ def check_duplicate_for_approval(member_name: str) -> OperationResult[Dict]:
 
     except frappe.PermissionError:
         log_security_event(
-            frappe.session.user,
             "unauthorized_duplicate_check",
-            f"Permission denied for duplicate check: {member_name}",
-            "high",
+            {"message": f"Permission denied for duplicate check: {member_name}"},
+            severity="error",
         )
         frappe.throw(_("Insufficient permissions to check duplicates"))
 

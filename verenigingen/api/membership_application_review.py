@@ -188,25 +188,25 @@ def approve_membership_application(
     This separation ensures proper security compliance and maintainable code.
     """
     # Input sanitization and validation
-    from verenigingen.utils.security.rate_limiter import log_security_event, validate_input_security
+    from verenigingen.utils.security.audit_logging import log_security_event
+    from verenigingen.utils.validation.api_validators import APIValidator
 
     try:
         # Validate and sanitize all inputs
-        member_name = validate_input_security(member_name, "member_name", max_length=255)
+        member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
         if membership_type:
-            membership_type = validate_input_security(membership_type, "membership_type", max_length=255)
+            membership_type = APIValidator.sanitize_text(str(membership_type), max_length=255)
         if chapter:
-            chapter = validate_input_security(chapter, "chapter", max_length=255)
+            chapter = APIValidator.sanitize_text(str(chapter), max_length=255)
         if notes:
-            notes = validate_input_security(notes, "notes", max_length=2000, allow_html=False)
+            notes = APIValidator.sanitize_text(str(notes), max_length=2000, allow_html=False)
 
         # Validate member exists before proceeding
         if not frappe.db.exists("Member", member_name):
             log_security_event(
-                frappe.session.user,
                 "invalid_member_access",
-                f"Attempted approval of non-existent member: {member_name}",
-                "high",
+                {"message": f"Attempted approval of non-existent member: {member_name}"},
+                severity="error",
             )
             frappe.throw(_("Invalid member reference"))
 
@@ -241,10 +241,9 @@ def approve_membership_application(
 
     except Exception as e:
         log_security_event(
-            frappe.session.user,
             "input_validation_failure",
-            f"Input validation failed for approval: {str(e)}",
-            "medium",
+            {"message": f"Input validation failed for approval: {str(e)}"},
+            severity="warning",
         )
         frappe.throw(_("Invalid input data provided"))
 
@@ -457,10 +456,9 @@ def approve_membership_application(
         )
 
     log_security_event(
-        frappe.session.user,
         "membership_approved",
-        f"Member {member_name} approved with status change: Pending -> Approved/Active",
-        "low",
+        {"message": f"Member {member_name} approved with status change: Pending -> Approved/Active"},
+        severity="info",
     )
 
     # Note: Frappe automatically commits successful transactions
@@ -831,31 +829,29 @@ def reject_membership_application(
 ):
     """Reject a membership application with enhanced template support and input validation"""
     # Input sanitization and validation
-    from verenigingen.utils.security.rate_limiter import log_security_event, validate_input_security
+    from verenigingen.utils.security.audit_logging import log_security_event
+    from verenigingen.utils.validation.api_validators import APIValidator
 
     try:
         # Validate and sanitize all inputs
-        member_name = validate_input_security(member_name, "member_name", max_length=255)
-        reason = validate_input_security(reason, "reason", max_length=1000, allow_html=False)
+        member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
+        reason = APIValidator.sanitize_text(str(reason), max_length=1000, allow_html=False)
 
         if email_template:
-            email_template = validate_input_security(email_template, "email_template", max_length=255)
+            email_template = APIValidator.sanitize_text(str(email_template), max_length=255)
         if rejection_category:
-            rejection_category = validate_input_security(
-                rejection_category, "rejection_category", max_length=255
-            )
+            rejection_category = APIValidator.sanitize_text(str(rejection_category), max_length=255)
         if internal_notes:
-            internal_notes = validate_input_security(
-                internal_notes, "internal_notes", max_length=2000, allow_html=False
+            internal_notes = APIValidator.sanitize_text(
+                str(internal_notes), max_length=2000, allow_html=False
             )
 
         # Validate member exists
         if not frappe.db.exists("Member", member_name):
             log_security_event(
-                frappe.session.user,
                 "invalid_member_access",
-                f"Attempted rejection of non-existent member: {member_name}",
-                "high",
+                {"message": f"Attempted rejection of non-existent member: {member_name}"},
+                severity="error",
             )
             frappe.throw(_("Invalid member reference"))
 
@@ -865,10 +861,9 @@ def reject_membership_application(
 
     except Exception as e:
         log_security_event(
-            frappe.session.user,
             "input_validation_failure",
-            f"Input validation failed for rejection: {str(e)}",
-            "medium",
+            {"message": f"Input validation failed for rejection: {str(e)}"},
+            severity="warning",
         )
         frappe.throw(_("Invalid input data provided"))
 
@@ -1012,12 +1007,8 @@ def has_approval_permission(member):
         safe_log_error(f"Approval attempted by guest user for member {member.name}")
         return False
 
-    # Rate limiting check - prevent spam approvals
-    from verenigingen.utils.security.rate_limiter import check_approval_rate_limit
-
-    if not check_approval_rate_limit(user):
-        safe_log_error(f"Rate limit exceeded for approval operations by user {user}")
-        frappe.throw(_("Too many approval operations. Please wait before trying again."))
+    # Note: Rate limiting is handled by COR (Critical Operation Rules) via @high_security_api decorator
+    # on the API endpoints that call this function. No internal rate limit check needed.
 
     # Audit log the permission check
     safe_log_error(

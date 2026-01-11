@@ -21,32 +21,13 @@ import frappe
 from frappe import _
 from frappe.utils import get_url
 
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
-from verenigingen.utils.security.rate_limiter import check_api_rate_limit
+from verenigingen.utils.security.api_security_framework import public_api
+from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.service_user import get_service_user
 
 
-def _get_client_ip() -> str:
-    """Get client IP address, handling proxies."""
-    forwarded_for = frappe.request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    return frappe.request.remote_addr or "unknown"
-
-
-def _check_betaalverzoek_callback_rate_limit() -> bool:
-    """Check betaalverzoek callback rate limit - 30 per 5 minutes per IP."""
-    ip_address = _get_client_ip()
-    return check_api_rate_limit(
-        user=f"ip:{ip_address}",
-        endpoint="ponto_betaalverzoek_callback",
-        max_requests=30,
-        window_minutes=5,
-    )
-
-
 @frappe.whitelist(allow_guest=True, methods=["GET"])
-@standard_api(operation_type=OperationType.PUBLIC)
+@public_api(operation_type=OperationType.PUBLIC)
 def payment_link_callback():
     """
     Handle redirect from Ponto after customer payment authorization.
@@ -58,16 +39,11 @@ def payment_link_callback():
 
     Returns:
         Redirect to appropriate page based on result
-    """
-    # Rate limit check
-    if not _check_betaalverzoek_callback_rate_limit():
-        ip = _get_client_ip()
-        frappe.logger().warning(f"Betaalverzoek callback rate limit exceeded for IP: {ip}")
-        frappe.local.response["http_status_code"] = 429
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = get_url("/app/home")
-        return
 
+    Note:
+        Rate limiting is handled by COR 'payment_link_callback'
+        with per-IP scope: 30 requests per 5 minutes.
+    """
     # Set webhook user context for permission-based operations
     webhook_user = get_service_user(
         settings_doctype="Verenigingen Payments Settings",

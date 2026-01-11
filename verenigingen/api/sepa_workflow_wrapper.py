@@ -28,7 +28,6 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
-from verenigingen.utils.security.rate_limiting import rate_limit
 from verenigingen.verenigingen_payments.api.sepa_reconciliation import (
     correlate_return_transactions,
     identify_sepa_transactions,
@@ -39,7 +38,6 @@ from verenigingen.verenigingen_payments.api.sepa_reconciliation import (
 
 @critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-@rate_limit(calls=30, period=60)  # 30 calls per minute
 @require_role(["Accounts Manager", "System Manager"])
 @validate_csrf_token
 def execute_complete_reconciliation(workflow_data: dict) -> OperationResult[Dict[str, Any]]:
@@ -113,7 +111,6 @@ def execute_complete_reconciliation(workflow_data: dict) -> OperationResult[Dict
 
 @critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["Accounts Manager", "System Manager"])
 @validate_csrf_token
 def process_complete_return_file(
@@ -211,7 +208,6 @@ def process_complete_return_file(
 
 @high_security_api(operation_type=OperationType.AUDIT)
 @frappe.whitelist()
-@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
 @require_role(["Accounts Manager", "System Manager"])
 @validate_csrf_token
 def run_comprehensive_sepa_audit() -> OperationResult[Dict[str, Any]]:
@@ -334,7 +330,6 @@ def run_comprehensive_sepa_audit() -> OperationResult[Dict[str, Any]]:
 
 @high_security_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["Accounts Manager", "System Manager"])
 @validate_csrf_token
 def generate_duplicate_prevention_report() -> OperationResult[Dict[str, Any]]:

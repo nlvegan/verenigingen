@@ -14,7 +14,6 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
-from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()

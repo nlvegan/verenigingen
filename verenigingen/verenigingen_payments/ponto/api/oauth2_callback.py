@@ -19,39 +19,12 @@ import frappe
 from frappe import _
 from frappe.utils import get_url
 
-from verenigingen.utils.security.rate_limiter import check_api_rate_limit
-
-
-def _get_client_ip() -> str:
-    """Get client IP address, handling proxies."""
-    # Check X-Forwarded-For for reverse proxy setups
-    forwarded_for = frappe.request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # Take the first IP (client IP)
-        return forwarded_for.split(",")[0].strip()
-    # Fall back to remote_addr
-    return frappe.request.remote_addr or "unknown"
-
-
-def _check_oauth_rate_limit() -> bool:
-    """
-    Check OAuth callback rate limit.
-
-    Returns:
-        bool: True if request is allowed, False if rate limited
-    """
-    ip_address = _get_client_ip()
-    # Stricter limit for OAuth callbacks: 10 requests per 10 minutes per IP
-    # OAuth callbacks should be infrequent (user authorization events)
-    return check_api_rate_limit(
-        user=f"ip:{ip_address}",
-        endpoint="ponto_oauth_callback",
-        max_requests=10,
-        window_minutes=10,
-    )
+from verenigingen.utils.security.api_security_framework import public_api
+from verenigingen.utils.security.types import OperationType
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
+@public_api(operation_type=OperationType.PUBLIC)
 def handle_callback():
     """
     Handle OAuth2 authorization callback from Ibanity.
@@ -64,25 +37,11 @@ def handle_callback():
 
     Returns:
         Redirect to appropriate page based on result
-    """
-    # Rate limit check - prevent abuse of OAuth callback endpoint
-    if not _check_oauth_rate_limit():
-        ip = _get_client_ip()
-        frappe.logger().warning(f"OAuth callback rate limit exceeded for IP: {ip}")
-        frappe.log_error(
-            title="OAuth callback rate limit exceeded",
-            message=f"IP {ip} exceeded OAuth callback rate limit. Possible attack attempt.",
-        )
-        frappe.local.response["http_status_code"] = 429
-        frappe.msgprint(
-            _("Too many authorization requests. Please try again later."),
-            indicator="red",
-            title=_("Rate Limited"),
-        )
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = get_url("/app/ponto-settings")
-        return
 
+    Note:
+        Rate limiting is handled by COR (Critical Operation Rule) 'handle_callback'
+        with per-IP scope: 10 requests per 10 minutes.
+    """
     code = frappe.request.args.get("code")
     state = frappe.request.args.get("state")
     error = frappe.request.args.get("error")

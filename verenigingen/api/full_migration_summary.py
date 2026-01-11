@@ -9,12 +9,11 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
-from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-@rate_limit(calls=10, period=60)  # 10 calls per minute
+# Note: Rate limiting now handled by COR via @high_security_api decorator
 @require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
 @validate_csrf_token
 def full_migration_summary():
@@ -134,7 +133,7 @@ def full_migration_summary():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-@rate_limit(calls=10, period=60)  # 10 calls per minute
+# Note: Rate limiting now handled by COR via @high_security_api decorator
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def migration_deployment_checklist():

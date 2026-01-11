@@ -13,12 +13,10 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
-from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def validate_doctype_installation():
@@ -78,7 +76,6 @@ def validate_doctype_installation():
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def validate_scheduler_configuration():
@@ -126,7 +123,6 @@ def validate_scheduler_configuration():
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def validate_configuration_completeness():
@@ -170,7 +166,6 @@ def validate_configuration_completeness():
 
 @high_security_api(operation_type=OperationType.SECURITY)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def validate_security_compliance():
@@ -215,7 +210,6 @@ def validate_security_compliance():
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def validate_performance_acceptance():
@@ -258,7 +252,6 @@ def validate_performance_acceptance():
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def run_production_readiness_check():

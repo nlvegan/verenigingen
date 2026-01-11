@@ -200,7 +200,6 @@ def get_application_form_data() -> OperationResult[Dict[str, Any]]:
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 @performance_monitor(threshold_ms=200)
-@rate_limit(max_requests=30)
 def validate_email(email) -> OperationResult[Dict[str, Any]]:
     """Validate email format and check if it already exists"""
 
@@ -430,7 +429,6 @@ def check_application_eligibility_endpoint(data) -> OperationResult[Dict[str, An
 @public_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor(threshold_ms=3000)
-@rate_limit(max_requests=10)
 def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
     """Process membership application submission - Main entry point"""
     try:

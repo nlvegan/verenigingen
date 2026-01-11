@@ -18,12 +18,10 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
-from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
@@ -157,7 +155,6 @@ def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
 @require_role(["Accounts Manager", "System Manager"])
 @validate_csrf_token
 def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict[str, Any]]:
@@ -340,7 +337,6 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-@rate_limit(calls=15, period=60)  # 15 calls per minute
 @require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def prevent_orphaned_schedules() -> OperationResult[Dict[str, Any]]:

@@ -61,34 +61,33 @@ def approve_membership_application_background(
     """
     try:
         # Input sanitization and validation
-        from verenigingen.utils.security.rate_limiter import log_security_event, validate_input_security
+        from verenigingen.utils.security.audit_logging import log_security_event
+        from verenigingen.utils.validation.api_validators import APIValidator
 
         try:
             # Validate and sanitize all inputs
-            member_name = validate_input_security(member_name, "member_name", max_length=255)
+            member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
             if membership_type:
-                membership_type = validate_input_security(membership_type, "membership_type", max_length=255)
+                membership_type = APIValidator.sanitize_text(str(membership_type), max_length=255)
             if chapter:
-                chapter = validate_input_security(chapter, "chapter", max_length=255)
+                chapter = APIValidator.sanitize_text(str(chapter), max_length=255)
             if notes:
-                notes = validate_input_security(notes, "notes", max_length=2000, allow_html=False)
+                notes = APIValidator.sanitize_text(str(notes), max_length=2000, allow_html=False)
 
             # Validate member exists before proceeding
             if not frappe.db.exists("Member", member_name):
                 log_security_event(
-                    frappe.session.user,
                     "invalid_member_access",
-                    f"Attempted approval of non-existent member: {member_name}",
-                    "high",
+                    {"message": f"Attempted approval of non-existent member: {member_name}"},
+                    severity="error",
                 )
                 frappe.throw(_("Invalid member reference"))
 
         except Exception as e:
             log_security_event(
-                frappe.session.user,
                 "input_validation_failure",
-                f"Input validation failed for approval: {str(e)}",
-                "medium",
+                {"message": f"Input validation failed for approval: {str(e)}"},
+                severity="warning",
             )
             frappe.throw(_("Invalid input data provided"))
 

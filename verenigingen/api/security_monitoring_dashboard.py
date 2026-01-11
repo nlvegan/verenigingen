@@ -361,10 +361,9 @@ def _get_framework_health_status():
             health_status["overall_status"] = "DEGRADED"
 
         try:
-            from verenigingen.utils.security.rate_limiting import get_rate_limiter
-
-            # rate_limiter = get_rate_limiter()  # Unused variable
-            health_status["components"]["rate_limiting"] = "✅ OPERATIONAL"
+            # Rate limiting is now COR-based - check if COR DocType is accessible
+            cor_count = frappe.db.count("Critical Operation Rule", {"enabled": 1})
+            health_status["components"]["rate_limiting"] = f"✅ OPERATIONAL (COR-based, {cor_count} rules)"
         except Exception:
             health_status["components"]["rate_limiting"] = "❌ ERROR"
             health_status["overall_status"] = "DEGRADED"

@@ -69,7 +69,6 @@ import frappe
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.security.audit_logging import log_security_event
 from verenigingen.utils.security.authorization import require_role
-from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()

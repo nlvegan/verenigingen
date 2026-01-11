@@ -34,15 +34,10 @@ class TestAPISecurityDecorators(EnhancedTestCase):
         super().setUp()
         self.test_start_time = now_datetime()
         self.security_framework = get_security_framework()
-        
-        # Clear rate limits for clean test environment
-        try:
-            from verenigingen.utils.security.rate_limiting import clear_rate_limits
-            clear_rate_limits()
-        except Exception:
-            # Ignore if rate limiter clear fails
-            pass
-        
+
+        # Rate limiting now handled by COR (Critical Operation Rules)
+        # No manual rate limit clearing needed
+
         # Create test users with different role combinations
         self.test_users = {
             'admin': self.create_test_user(

@@ -222,5 +222,53 @@
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "handle_callback",
+    "operation_name": "handle_callback",
+    "operation_type": "public",
+    "description": "Ponto OAuth2 authorization callback handler",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "OAuth2 callback from Ibanity - public endpoint for token exchange",
+    "required_roles": "",
+    "rate_limit_calls": 10,
+    "rate_limit_period_seconds": 600,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "payment_link_callback",
+    "operation_name": "payment_link_callback",
+    "operation_type": "public",
+    "description": "Ponto Betaalverzoek payment link callback handler",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Payment callback from Ponto - public webhook for payment link notifications",
+    "required_roles": "",
+    "rate_limit_calls": 30,
+    "rate_limit_period_seconds": 300,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "payment_callback",
+    "operation_name": "payment_callback",
+    "operation_type": "public",
+    "description": "Ponto payment signing callback handler",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Payment callback from Ponto - public webhook for payment signing status",
+    "required_roles": "",
+    "rate_limit_calls": 20,
+    "rate_limit_period_seconds": 300,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]

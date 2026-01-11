@@ -3,7 +3,7 @@ Security Package for Verenigingen SEPA Operations
 
 This package provides comprehensive security measures for SEPA operations including:
 - CSRF protection
-- Rate limiting
+- Rate limiting (via Critical Operation Rules - COR)
 - Role-based authorization
 - Comprehensive audit logging
 
@@ -21,7 +21,9 @@ from .authorization import (
 
 # Context validators removed - functionality moved to api_security_framework
 from .csrf_protection import CSRFProtection, require_csrf_token, setup_csrf_protection
-from .rate_limiting import RateLimiter, rate_limit, setup_rate_limiting
+
+# Rate limiting moved to COR (Critical Operation Rules) - database-configurable
+# Old rate_limiting.py and rate_limiter.py removed
 from .types import AuditEventType, AuditSeverity
 
 __all__ = [
@@ -29,10 +31,8 @@ __all__ = [
     "CSRFProtection",
     "require_csrf_token",
     "setup_csrf_protection",
-    # Rate Limiting
-    "RateLimiter",
-    "rate_limit",
-    "setup_rate_limiting",
+    # Rate Limiting - now handled by COR (Critical Operation Rules)
+    # Use @standard_api, @utility_api etc. from api_security_framework
     # Authorization
     "SEPAAuthorizationManager",
     "SEPAOperation",
@@ -45,7 +45,6 @@ __all__ = [
     "AuditSeverity",
     "audit_log",
     "setup_audit_logging",
-    # Context Validators - moved to api_security_framework
     # Setup
     "setup_all_security",
 ]
@@ -57,14 +56,15 @@ def setup_all_security():
 
     This function initializes and configures all security components:
     - CSRF protection
-    - Rate limiting
+    - Rate limiting (via COR - Critical Operation Rules)
     - Authorization system
     - Audit logging
     """
     try:
         # Setup individual components
         setup_csrf_protection()
-        setup_rate_limiting()
+        # Rate limiting now handled by COR (Critical Operation Rules)
+        # Configured in fixtures/critical_operation_rule*.json
         setup_authorization()
         setup_audit_logging()
 
@@ -75,7 +75,7 @@ def setup_all_security():
         log_sepa_event(
             "security_system_initialized",
             details={
-                "components": ["csrf_protection", "rate_limiting", "authorization", "audit_logging"],
+                "components": ["csrf_protection", "rate_limiting_cor", "authorization", "audit_logging"],
                 "status": "all_components_active",
             },
             severity=AuditSeverity.INFO,

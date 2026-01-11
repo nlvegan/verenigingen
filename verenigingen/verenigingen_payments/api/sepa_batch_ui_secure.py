@@ -772,7 +772,6 @@ def sepa_security_health_check():
         from verenigingen.utils.security.audit_logging import get_audit_logger
         from verenigingen.utils.security.authorization import get_auth_manager
         from verenigingen.utils.security.csrf_protection import get_csrf_token
-        from verenigingen.utils.security.rate_limiting import get_rate_limiter
 
         # Test each security component
         health_status = {
@@ -792,10 +791,13 @@ def sepa_security_health_check():
         except Exception as e:
             health_status["csrf_protection"] = {"status": "error", "details": {"error": str(e)}}
 
-        # Test rate limiting
+        # Test rate limiting (now COR-based)
         try:
-            limiter = get_rate_limiter()
-            health_status["rate_limiting"] = {"status": "healthy", "details": {"backend": limiter.backend}}
+            cor_count = frappe.db.count("Critical Operation Rule", {"enabled": 1})
+            health_status["rate_limiting"] = {
+                "status": "healthy",
+                "details": {"backend": "COR", "rules_count": cor_count},
+            }
         except Exception as e:
             health_status["rate_limiting"] = {"status": "error", "details": {"error": str(e)}}
 

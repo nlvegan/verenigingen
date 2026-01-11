@@ -202,14 +202,16 @@ def get_security_framework_status():
         from verenigingen.utils.security.api_security_framework import APISecurityFramework
         from verenigingen.utils.security.audit_logging import get_audit_logger
         from verenigingen.utils.security.csrf_protection import CSRFProtection
-        from verenigingen.utils.security.rate_limiting import get_rate_limiter
+
+        # Rate limiting is now COR-based
+        cor_count = frappe.db.count("Critical Operation Rule", {"enabled": 1})
 
         return {
             "success": True,
             "framework_status": {
                 "api_security_framework": "✅ Loaded",
                 "audit_logging": "✅ Available",
-                "rate_limiting": "✅ Available",
+                "rate_limiting": f"✅ COR-based ({cor_count} rules)",
                 "csrf_protection": "✅ Available",
             },
             "security_levels_available": [

@@ -14,12 +14,10 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
-from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-@rate_limit("stock_check")  # Correct signature: operation name only
 @require_role(["System Manager", "Accounts Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def find_stock_account_mutations():
@@ -78,7 +76,6 @@ def find_stock_account_mutations():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
 @require_role(["System Manager", "Accounts Manager"])
 @validate_csrf_token
 def check_why_these_5_failed():

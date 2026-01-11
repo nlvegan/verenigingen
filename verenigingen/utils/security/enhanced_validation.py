@@ -19,8 +19,9 @@ from frappe import _
 from frappe.utils import cstr, get_datetime, getdate
 
 from verenigingen.utils.error_handling import ValidationError as VValidationError
+from verenigingen.utils.security.api_security_framework import development_only_api
 from verenigingen.utils.security.audit_logging import AuditSeverity, get_audit_logger
-from verenigingen.utils.security.types import OperationType, development_only_api
+from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
