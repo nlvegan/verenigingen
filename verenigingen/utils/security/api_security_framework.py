@@ -632,21 +632,39 @@ class APISecurityFramework:
         if user == "Guest":
             raise VPermissionError(_("Authentication required for this endpoint"))
 
+        # LOW security level: Any authenticated user is allowed
+        # This matches the SecurityProfile definition: required_roles=[], # Any authenticated user
+        if profile.level == SecurityLevel.LOW:
+            frappe.logger("verenigingen.api_security").debug(
+                f"Access granted: LOW security level allows any authenticated user ({user})"
+            )
+            return True
+
         # Primary authorization: Check role profile access
         if self._validate_role_profile_access(profile.level, user):
             return True
 
+        # Get user roles once for efficiency
+        user_roles = frappe.get_roles(user)
+
+        # Secondary authorization: Check individual roles against security mapping
+        # This allows users with individual roles (not role profiles) to access APIs
+        # if their role name matches a role profile name in the security mapping
+        for role in user_roles:
+            allowed_levels = self.ROLE_PROFILE_SECURITY_MAPPING.get(role, [])
+            if profile.level in allowed_levels:
+                frappe.logger("verenigingen.api_security").debug(
+                    f"Access granted via individual role: {role} → {profile.level.value}"
+                )
+                return True
+
         # Fallback authorization: Check hardcoded required roles (for backwards compatibility)
         if profile.required_roles:
-            user_roles = frappe.get_roles(user)
             if any(role in user_roles for role in profile.required_roles):
                 frappe.logger("verenigingen.api_security").debug(
                     f"Access granted via fallback hardcoded roles: {profile.required_roles}"
                 )
                 return True
-
-        # Get user roles once for efficiency
-        user_roles = frappe.get_roles(user)
 
         # System Manager should have access to low and medium security operations
         try:
