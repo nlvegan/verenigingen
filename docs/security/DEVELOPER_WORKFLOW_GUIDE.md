@@ -1152,18 +1152,16 @@ print(f"Cached: {cached is not None}")
 **Diagnosis**:
 
 ```python
-# Check current rate limit status
-from verenigingen.utils.security.rate_limiting import get_rate_limiter
-limiter = get_rate_limiter()
-
-# Check specific user's rate limit status
-user_status = limiter.get_rate_limit_status("operation_key", frappe.session.user)
-print(f"User rate limit status: {user_status}")
-
-# Check rule configuration
+# Check Critical Operation Rule configuration
 rule = frappe.get_doc("Critical Operation Rule", "operation_name")
 print(f"Rate limit: {rule.rate_limit_calls}/{rule.rate_limit_period_seconds}s")
 print(f"Scope: {rule.rate_limit_scope}")
+
+# Check rate limit headers for current user
+from verenigingen.utils.security.api_security_framework import get_security_framework
+framework = get_security_framework()
+headers = framework.get_cor_rate_limit_headers("operation_name")
+print(f"Remaining requests: {headers.get('X-RateLimit-Remaining')}")
 ```
 
 **Solutions**:
@@ -1311,11 +1309,11 @@ def monitor_security_performance():
         violations = registry.validate_business_rules("create_financial_document",
             amount=500, member_id="TEST-001")
 
-    # Test rate limiting check
+    # Test rate limiting check (now via COR)
     with timer("Rate limiting check"):
-        from verenigingen.utils.security.rate_limiting import get_rate_limiter
-        limiter = get_rate_limiter()
-        limiter.check_rate_limit("test_operation")
+        from verenigingen.utils.security.api_security_framework import get_security_framework
+        framework = get_security_framework()
+        framework.validate_rate_limits(profile=None, operation_key="test_operation")
 
     print("Performance monitoring completed")
 

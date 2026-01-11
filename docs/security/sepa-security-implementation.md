@@ -68,14 +68,22 @@ def secure_api_function():
 
 **Usage:**
 
+Rate limiting is now database-configurable via Critical Operation Rules (COR).
+Use security decorators from `api_security_framework`:
+
 ```python
-from verenigingen.utils.security.rate_limiting import rate_limit
+from verenigingen.utils.security.api_security_framework import (
+    standard_api, critical_api, OperationType
+)
 
 @frappe.whitelist()
-@rate_limit("sepa_batch_creation")
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_batch():
     # Function implementation
+    # Rate limits configured in "Critical Operation Rule" DocType
 ```
+
+Configure rate limits in the "Critical Operation Rule" DocType for the operation.
 
 ### 3. Role-Based Authorization
 

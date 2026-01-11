@@ -699,8 +699,6 @@ class APISecurityFramework:
             )
         )
 
-        return False
-
     def validate_request_method(self, profile: SecurityProfile) -> bool:
         """Validate HTTP method is allowed"""
         if not frappe.request:
@@ -906,18 +904,21 @@ class APISecurityFramework:
             else:  # per_user (default)
                 cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
 
-            # Check current usage (ensure it's an integer)
-            current_count = int(frappe.cache().get(cache_key) or 0)
+            # Atomic increment to avoid race conditions
+            # incrby returns the new value after increment, creates key with 0 if not exists
+            new_count = frappe.cache.incrby(cache_key, 1)
 
-            if current_count >= max_calls:
+            # Set TTL on first request (when counter was just created)
+            if new_count == 1:
+                frappe.cache.expire(cache_key, period_seconds)
+
+            if new_count > max_calls:
                 raise VPermissionError(
                     _("Rate limit exceeded: {0}/{1} requests per {2} seconds for {3}").format(
-                        current_count, max_calls, period_seconds, operation_name
+                        new_count, max_calls, period_seconds, operation_name
                     )
                 )
 
-            # Increment counter with appropriate expiry
-            frappe.cache().setex(cache_key, period_seconds, current_count + 1)
             return True
 
         except Exception as e:
@@ -963,15 +964,17 @@ class APISecurityFramework:
             scope = cor_record.rate_limit_scope or "per_user"
 
             # Build cache key based on scope (same logic as validate_rate_limits)
+            # Headers are for HTTP responses, so use "interactive" limit_type
+            limit_type = "interactive"
             if scope == "global":
-                cache_key = f"cor_rate_limit:{operation_name}"
+                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}"
             elif scope == "per_ip":
                 # Use getattr to safely access request which may not exist outside HTTP context
                 request = getattr(frappe.local, "request", None)
                 client_ip = request.environ.get("REMOTE_ADDR", "unknown") if request else "unknown"
-                cache_key = f"cor_rate_limit:{operation_name}:{client_ip}"
+                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{client_ip}"
             else:  # per_user (default)
-                cache_key = f"cor_rate_limit:{operation_name}:{frappe.session.user}"
+                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
 
             # Get current usage without modifying it
             current_count = int(frappe.cache().get(cache_key) or 0)

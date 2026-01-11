@@ -863,12 +863,13 @@ print(f"Cached config: {cached_config}")
 **Diagnosis**:
 
 ```python
-from verenigingen.utils.security.rate_limiting import get_rate_limiter
+from verenigingen.utils.security.api_security_framework import get_security_framework
 
-limiter = get_rate_limiter()
-# Check current rate limit status for user
-status = limiter.get_rate_limit_status("operation_key", "user")
-print(f"Rate limit status: {status}")
+framework = get_security_framework()
+# Check rate limit headers for current operation
+headers = framework.get_cor_rate_limit_headers("operation_key")
+print(f"Rate limit: {headers.get('X-RateLimit-Limit')}")
+print(f"Remaining: {headers.get('X-RateLimit-Remaining')}")
 ```
 
 **Solutions**:
@@ -1017,14 +1018,18 @@ def measure_security_overhead():
 ```python
 @frappe.whitelist()
 def debug_rate_limit_performance():
-    """Check rate limit performance"""
-    from verenigingen.utils.security.rate_limiting import get_rate_limiter
+    """Check rate limit performance (COR-based)"""
+    from verenigingen.utils.security.api_security_framework import get_security_framework
+    import time
 
-    limiter = get_rate_limiter()
+    framework = get_security_framework()
 
     start = time.time()
     for i in range(100):
-        limiter.check_rate_limit("test_operation")
+        try:
+            framework.validate_rate_limits(profile=None, operation_key="test_operation")
+        except Exception:
+            pass  # Expected after limit exceeded
     duration = time.time() - start
 
     return {
