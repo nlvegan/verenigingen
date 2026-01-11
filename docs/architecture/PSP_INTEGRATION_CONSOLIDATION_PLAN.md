@@ -745,7 +745,7 @@ These have no dependencies and can be tackled simultaneously:
 - Mollie's `UnifiedIdempotencyManager` remains separate for advanced features (Payment Entry tracking, refund/chargeback state)
 
 - [x] MED-4: Add models to ING Checkout ✅
-- [ ] MED-5: Standardize error response formats
+- [x] MED-5: Standardize error response formats ✅
 
 ### Phase 5: Advanced Consolidation
 - [ ] LOW-2: Clarify MollieConnector vs MollieClient
