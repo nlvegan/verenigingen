@@ -30,6 +30,8 @@ class GenericWebhookService:
         self.logger = MollieLogger("generic_webhook")
         self.context_resolver = PaymentContextResolver()
         self.processor_factory = PaymentProcessorFactory()
+        # Enable verbose debug logging via site_config.mollie_debug_webhooks = True
+        self._debug_mode = frappe.conf.get("mollie_debug_webhooks", False)
 
         # Use unified webhook service for refund processing
         self.unified_webhook_service = None
@@ -264,7 +266,8 @@ class GenericWebhookService:
                     continue
 
                 # DEBUG: Log that we're proceeding with this refund
-                self.logger.info(f"DEBUG: Refund {refund.id} passed status check, proceeding...")
+                if self._debug_mode:
+                    self.logger.info(f"DEBUG: Refund {refund.id} passed status check, proceeding...")
 
                 # Check if this refund has already been processed (idempotency)
                 existing_pe = frappe.db.exists(

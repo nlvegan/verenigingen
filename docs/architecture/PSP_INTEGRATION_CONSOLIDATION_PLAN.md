@@ -760,7 +760,17 @@ These have no dependencies and can be tackled simultaneously:
 - Removed `verenigingen/verenigingen_payments/mollie/core/mollie_client.py`
 - Admin utilities now use the newer, focused MollieClient
 
-- [ ] LOW-4: Make debug logging conditional
+- [x] LOW-4: Make debug logging conditional ✅
+
+**LOW-4 Implementation Summary** (2026-01-11):
+- Added `_debug_mode` flag to webhook services (checks `frappe.conf.mollie_debug_webhooks`)
+- Made verbose debug logging conditional in:
+  - `webhook_service.py` - unconditional `frappe.log_error` debug now conditional
+  - `webhook_wrapper_service_unified.py` - idempotency state logging + response debug
+  - `unified_idempotency_manager.py` - payment history debug logging
+  - `generic_webhook_service.py` - refund status logging
+- Enable debugging by adding `mollie_debug_webhooks = true` to site_config.json
+
 - [x] LOW-5: Document/consolidate webhook security files
 
 **LOW-5 Implementation Summary** (2026-01-10):

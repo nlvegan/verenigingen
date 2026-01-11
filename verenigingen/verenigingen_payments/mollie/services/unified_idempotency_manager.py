@@ -76,6 +76,8 @@ class UnifiedIdempotencyManager:
     def __init__(self, target_doctype: str = "Donation"):
         self.logger = MollieLogger("unified_idempotency")
         self.target_doctype = target_doctype
+        # Enable verbose debug logging via site_config.mollie_debug_webhooks = True
+        self._debug_mode = frappe.conf.get("mollie_debug_webhooks", False)
 
     def check_payment_processing_state(
         self, payment_id: str, include_mollie_api: bool = False
@@ -170,22 +172,23 @@ class UnifiedIdempotencyManager:
             # Check payment history for this payment_id
             donation_doc = frappe.get_doc(self.target_doctype, donation.name)
 
-            # ENHANCED DEBUG: Log child table details
-            self.logger.info(f"🔬 PAYMENT HISTORY DEBUG for {payment_id}:")
-            self.logger.info(f"  - Donation doc loaded: {donation_doc.name}")
-            self.logger.info(f"  - Payments attribute exists: {hasattr(donation_doc, 'payments')}")
-            if hasattr(donation_doc, "payments"):
-                payments_list = donation_doc.payments or []
-                self.logger.info(f"  - Payment records count: {len(payments_list)}")
-                for i, ph in enumerate(payments_list):
-                    mollie_id = getattr(ph, "mollie_payment_id", "N/A")
-                    amount = getattr(ph, "amount", "N/A")
-                    date = getattr(ph, "payment_date", "N/A")
-                    self.logger.info(
-                        f"    Payment {i + 1}: mollie_id={mollie_id}, amount={amount}, date={date}"
-                    )
-            else:
-                self.logger.error(f"❌ Donation {donation_doc.name} has no payments attribute!")
+            # DEBUG: Log child table details (enable with mollie_debug_webhooks)
+            if self._debug_mode:
+                self.logger.info(f"🔬 PAYMENT HISTORY DEBUG for {payment_id}:")
+                self.logger.info(f"  - Donation doc loaded: {donation_doc.name}")
+                self.logger.info(f"  - Payments attribute exists: {hasattr(donation_doc, 'payments')}")
+                if hasattr(donation_doc, "payments"):
+                    payments_list = donation_doc.payments or []
+                    self.logger.info(f"  - Payment records count: {len(payments_list)}")
+                    for i, ph in enumerate(payments_list):
+                        mollie_id = getattr(ph, "mollie_payment_id", "N/A")
+                        amount = getattr(ph, "amount", "N/A")
+                        date = getattr(ph, "payment_date", "N/A")
+                        self.logger.info(
+                            f"    Payment {i + 1}: mollie_id={mollie_id}, amount={amount}, date={date}"
+                        )
+                else:
+                    self.logger.error(f"❌ Donation {donation_doc.name} has no payments attribute!")
 
             payment_history_entry = next(
                 (

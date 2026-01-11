@@ -63,17 +63,18 @@ class WebhookService:
         """
         Main webhook handler - complete port from original mollie_payment_webhook.py
         """
-        # CRITICAL: Log every webhook call for debugging
-        try:
-            frappe.log_error(
-                f"WEBHOOK_DEBUG: Called at {frappe.utils.now()}\n"
-                f"Form dict: {frappe.form_dict}\n"
-                f"Request method: {frappe.request.method if frappe.request else 'None'}\n"
-                f"Raw data: {frappe.request.get_data(as_text=True) if frappe.request else 'None'}",
-                "Mollie Webhook Call Debug",
-            )
-        except Exception as debug_error:
-            frappe.log_error(f"Debug logging failed: {debug_error}", "Webhook Debug Error")
+        # Conditional debug logging (enable with site_config.mollie_debug_webhooks = True)
+        if frappe.conf.get("mollie_debug_webhooks"):
+            try:
+                frappe.log_error(
+                    f"WEBHOOK_DEBUG: Called at {frappe.utils.now()}\n"
+                    f"Form dict: {frappe.form_dict}\n"
+                    f"Request method: {frappe.request.method if frappe.request else 'None'}\n"
+                    f"Raw data: {frappe.request.get_data(as_text=True) if frappe.request else 'None'}",
+                    "Mollie Webhook Call Debug",
+                )
+            except Exception as debug_error:
+                frappe.log_error(f"Debug logging failed: {debug_error}", "Webhook Debug Error")
 
         try:
             # Set webhook user context for proper security

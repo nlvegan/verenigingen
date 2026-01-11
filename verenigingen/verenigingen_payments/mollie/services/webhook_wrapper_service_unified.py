@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.verenigingen_payments.core.resilience import CircuitBreakerConfig, RetryConfig
+
 # Import services for correct donation processing flow
 from verenigingen.verenigingen_payments.services.bank_transaction_creator import get_bank_transaction_creator
 from verenigingen.verenigingen_payments.services.donation_journal_entry_creator import (
@@ -23,7 +25,6 @@ from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_
 
 # Import custom exceptions
 from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError
-from verenigingen.verenigingen_payments.core.resilience import CircuitBreakerConfig, RetryConfig
 
 # Import logging and monitoring utilities
 from ..utils.logging import MollieLogger, log_payment_processing, log_webhook_received
@@ -45,6 +46,8 @@ class UnifiedWebhookWrapperService:
 
     def __init__(self):
         self.logger = MollieLogger("unified_webhook_wrapper")
+        # Enable verbose debug logging via site_config.mollie_debug_webhooks = True
+        self._debug_mode = frappe.conf.get("mollie_debug_webhooks", False)
         # Import the unified idempotency manager - single source of truth
         from .unified_idempotency_manager import get_unified_idempotency_manager
 
@@ -429,19 +432,22 @@ class UnifiedWebhookWrapperService:
                 payment_id, include_mollie_api=True
             )
 
-            # DEBUG: Log detailed processing state
-            self.logger.info(f"🔬 IDEMPOTENCY STATE for {payment_id}:")
-            self.logger.info(f"  - payment_entry_exists: {processing_state.payment_entry_exists}")
-            self.logger.info(f"  - payment_entry_name: {processing_state.payment_entry_name}")
-            self.logger.info(f"  - payment_history_updated: {processing_state.payment_history_updated}")
-            self.logger.info(f"  - donation_status_updated: {processing_state.donation_status_updated}")
-            self.logger.info(f"  - is_fully_processed(): {processing_state.is_fully_processed()}")
-            self.logger.info(f"  - needs_payment_processing(): {processing_state.needs_payment_processing()}")
-            self.logger.info(f"  - pending_refunds count: {len(processing_state.pending_refunds)}")
-            self.logger.info(
-                f"  - payment_history_missing count: {len(processing_state.payment_history_missing)}"
-            )
-            self.logger.info(f"  - refunds_processed count: {len(processing_state.refunds_processed)}")
+            # DEBUG: Log detailed processing state (enable with mollie_debug_webhooks)
+            if self._debug_mode:
+                self.logger.info(f"🔬 IDEMPOTENCY STATE for {payment_id}:")
+                self.logger.info(f"  - payment_entry_exists: {processing_state.payment_entry_exists}")
+                self.logger.info(f"  - payment_entry_name: {processing_state.payment_entry_name}")
+                self.logger.info(f"  - payment_history_updated: {processing_state.payment_history_updated}")
+                self.logger.info(f"  - donation_status_updated: {processing_state.donation_status_updated}")
+                self.logger.info(f"  - is_fully_processed(): {processing_state.is_fully_processed()}")
+                self.logger.info(
+                    f"  - needs_payment_processing(): {processing_state.needs_payment_processing()}"
+                )
+                self.logger.info(f"  - pending_refunds count: {len(processing_state.pending_refunds)}")
+                self.logger.info(
+                    f"  - payment_history_missing count: {len(processing_state.payment_history_missing)}"
+                )
+                self.logger.info(f"  - refunds_processed count: {len(processing_state.refunds_processed)}")
 
             # CRITICAL FIX: Check if refund/chargeback validation failed due to Mollie API errors
             if processing_state.refund_check_failed or processing_state.chargeback_check_failed:
@@ -500,12 +506,13 @@ class UnifiedWebhookWrapperService:
         """Handle payments that are already fully processed."""
         self.logger.info(f"✅ Payment {payment_id} already fully processed")
 
-        # DEBUG: Log detailed state information
-        self.logger.info(f"🔬 FULLY PROCESSED HANDLER for {payment_id}:")
-        self.logger.info(f"  - Payment Entry: {processing_state.payment_entry_name}")
-        self.logger.info(f"  - Payment History Updated: {processing_state.payment_history_updated}")
-        self.logger.info(f"  - Donation Status Updated: {processing_state.donation_status_updated}")
-        self.logger.info(f"  - Pending Refunds: {len(processing_state.pending_refunds)}")
+        # DEBUG: Log detailed state information (enable with mollie_debug_webhooks)
+        if self._debug_mode:
+            self.logger.info(f"🔬 FULLY PROCESSED HANDLER for {payment_id}:")
+            self.logger.info(f"  - Payment Entry: {processing_state.payment_entry_name}")
+            self.logger.info(f"  - Payment History Updated: {processing_state.payment_history_updated}")
+            self.logger.info(f"  - Donation Status Updated: {processing_state.donation_status_updated}")
+            self.logger.info(f"  - Pending Refunds: {len(processing_state.pending_refunds)}")
 
         # Find donation for potential refund/history processing
         donation = find_donation_for_payment_by_id(payment_id)
@@ -683,16 +690,17 @@ class UnifiedWebhookWrapperService:
                 result["unified_processing"] = True
                 result["duration_seconds"] = duration
 
-                # TEMPORARY DEBUG: Add processing state to response for debugging
-                result["debug_processing_state"] = {
-                    "payment_entry_exists": processing_state.payment_entry_exists,
-                    "payment_entry_name": processing_state.payment_entry_name,
-                    "payment_history_updated": processing_state.payment_history_updated,
-                    "donation_status_updated": processing_state.donation_status_updated,
-                    "is_fully_processed": processing_state.is_fully_processed(),
-                    "needs_payment_processing": processing_state.needs_payment_processing(),
-                    "pending_refunds_count": len(processing_state.pending_refunds),
-                }
+                # Add processing state to response only in debug mode
+                if self._debug_mode:
+                    result["debug_processing_state"] = {
+                        "payment_entry_exists": processing_state.payment_entry_exists,
+                        "payment_entry_name": processing_state.payment_entry_name,
+                        "payment_history_updated": processing_state.payment_history_updated,
+                        "donation_status_updated": processing_state.donation_status_updated,
+                        "is_fully_processed": processing_state.is_fully_processed(),
+                        "needs_payment_processing": processing_state.needs_payment_processing(),
+                        "pending_refunds_count": len(processing_state.pending_refunds),
+                    }
 
             return result
 
