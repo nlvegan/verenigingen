@@ -807,7 +807,23 @@ These have no dependencies and can be tackled simultaneously:
 ### Phase 5: Advanced Consolidation
 - [x] LOW-2: Clarify MollieConnector vs MollieClient ✅
 - [x] LOW-3: Consolidate Mollie orchestration paths ✅
-- [ ] LOW-6: Create shared webhook test helpers *(benefits from HIGH-2)*
+- [x] LOW-6: Create shared webhook test helpers ✅
+
+**LOW-6 Implementation Summary** (2026-01-11):
+- Created `utils/webhook/testing.py` with shared test infrastructure:
+  - `WebhookTestHelper` - Abstract base class with common functionality
+  - `WebhookTestResult` - Dataclass for test results
+  - `MollieWebhookTestHelper` - Mollie-specific test helper
+  - `PontoWebhookTestHelper` - Ponto-specific test helper
+  - `INGCheckoutWebhookTestHelper` - ING Checkout-specific test helper
+  - `get_webhook_test_helper()` - Factory function for PSP selection
+- Features:
+  - Abstract `create_test_payload()` and `simulate_webhook_call()` methods
+  - Shared `verify_idempotency()` using existing logging infrastructure
+  - Signature generation for each PSP (HMAC-SHA256, JWT)
+  - Context manager support for cleanup
+- Updated `utils/webhook/__init__.py` with exports
+
 - [ ] Future: Implement PSPFactory pattern for runtime PSP selection
 
 ---
