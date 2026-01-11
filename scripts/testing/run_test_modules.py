@@ -110,7 +110,7 @@ TEST_CATEGORIES = {
     "e_boekhouden": {
         "description": "E-Boekhouden integration tests",
         "modules": [
-            "vereinigingen.tests.e_boekhouden",
+            "verenigingen.tests.e_boekhouden",
         ],
     },
 }

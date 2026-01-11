@@ -1859,7 +1859,7 @@ def cleanup_test_members_only(email_patterns=None):
     return results
 
 
-def _validate_vereinigingen_admin_permissions():
+def _validate_verenigingen_admin_permissions():
     """
     Validate that current user has Verenigingen Administrator role.
     Returns True if user has permission, throws otherwise.
@@ -1943,7 +1943,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
         - Rate limited to 2 uses per hour per user (via COR)
     """
     # Security validation - Verenigingen Administrator only
-    _validate_vereinigingen_admin_permissions()
+    _validate_verenigingen_admin_permissions()
 
     if not confirm_nuclear_truncate:
         frappe.throw(

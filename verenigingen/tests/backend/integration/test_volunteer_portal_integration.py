@@ -630,7 +630,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         # Skipped: expense_approval_dashboard DocType does not exist yet
         # When implemented, uncomment these imports:
         # from verenigingen.templates.pages.volunteer.expenses import submit_expense
-        # from vereinigungen.verenigingen.doctype.expense_approval_dashboard.expense_approval_dashboard import (
+        # from verenigingen.verenigingen.doctype.expense_approval_dashboard.expense_approval_dashboard import (
         #     bulk_approve_expenses,
         #     get_pending_expenses_for_dashboard,
         # )

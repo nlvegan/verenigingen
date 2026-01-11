@@ -253,7 +253,7 @@ class TieredTestAnalyzer:
             # For many modules, suggest running tests directory
             return (
                 f"# {len(modules)} tests identified - consider running:\n"
-                f"bench --site dev.veganisme.net run-tests --module vereinigingen.tests"
+                f"bench --site dev.veganisme.net run-tests --module verenigingen.tests"
             )
 
 

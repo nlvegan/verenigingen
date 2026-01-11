@@ -574,8 +574,8 @@ class MolliePaymentOrchestrator:
         # Ensure fiscal year exists before invoice creation
         from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 
-        vereiningen_settings = frappe.get_single("Verenigingen Settings")
-        company = vereiningen_settings.company or frappe.defaults.get_global_default("company")
+        verenigingen_settings = frappe.get_single("Verenigingen Settings")
+        company = verenigingen_settings.company or frappe.defaults.get_global_default("company")
 
         try:
             fiscal_year = ensure_fiscal_year_exists(payment_date, company)

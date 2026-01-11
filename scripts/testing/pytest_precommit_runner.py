@@ -71,7 +71,7 @@ def run_pytest_for_precommit():
                     print(f"   {line}")
                 
                 # Look for percentage coverage
-                elif '%' in line and any(keyword in line.lower() for keyword in ['vereinig', 'total']):
+                elif '%' in line and any(keyword in line.lower() for keyword in ['verenig', 'total']):
                     if not coverage_section_found:
                         print("\n📊 Coverage Information:")
                         coverage_section_found = True

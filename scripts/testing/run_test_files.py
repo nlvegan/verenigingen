@@ -48,14 +48,14 @@ SKIP_PATTERNS = [
 
 # Directories known to have working tests
 WORKING_DIRS = [
-    "vereinigingen/tests/services",
-    "vereinigingen/tests/contracts",
-    "vereinigingen/tests/integration",
-    "vereinigingen/tests/security",
-    "vereinigingen/tests/backend/unit",
-    "vereinigingen/tests/backend/components",
-    "vereinigingen/tests/backend/comprehensive",
-    "vereinigingen/integrations/mollie/tests",
+    "verenigingen/tests/services",
+    "verenigingen/tests/contracts",
+    "verenigingen/tests/integration",
+    "verenigingen/tests/security",
+    "verenigingen/tests/backend/unit",
+    "verenigingen/tests/backend/components",
+    "verenigingen/tests/backend/comprehensive",
+    "verenigingen/integrations/mollie/tests",
 ]
 
 

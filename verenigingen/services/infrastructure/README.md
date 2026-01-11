@@ -260,7 +260,7 @@ health = get_service_health("my_service")
 print(f"Service status: {health['status']}")
 
 # Get system-wide metrics
-from vereinigingen.services.infrastructure.service_metrics import get_system_health
+from verenigingen.services.infrastructure.service_metrics import get_system_health
 
 system_health = get_system_health()
 print(f"Overall status: {system_health['overall_status']}")

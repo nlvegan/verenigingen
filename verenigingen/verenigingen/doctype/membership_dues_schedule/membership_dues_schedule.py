@@ -969,7 +969,7 @@ class MembershipDuesSchedule(Document):
             error_lower = error_message.lower()
             if "membership_type" in error_lower or "missing membership" in error_lower:
                 try:
-                    from vereiningen.utils.dues_schedule_health_manager import DuesScheduleHealthManager
+                    from verenigingen.utils.dues_schedule_health_manager import DuesScheduleHealthManager
 
                     manager = DuesScheduleHealthManager()
                     manager.reconstruct_missing_membership(self.member)
