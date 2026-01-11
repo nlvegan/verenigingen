@@ -3,9 +3,23 @@ Mollie Payment Service
 
 Complete business logic for handling all types of payments through Mollie.
 Includes the critical subscription creation workflow from the original implementation.
+
+.. deprecated::
+    This service contains overlapping functionality with the canonical webhook flow.
+    For webhook processing, use:
+    - `webhook_wrapper_service_unified.UnifiedWebhookWrapperService`
+
+    This PaymentService may still be useful for:
+    - Direct payment creation (create_payment, create_first_payment)
+    - Subscription management (create_subscription, cancel_subscription)
+    - Customer operations (get_or_create_customer)
+
+    The webhook processing methods in this class are legacy and should not be
+    used for new development.
 """
 
 import json
+import warnings
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
@@ -42,7 +56,16 @@ class PaymentService:
 
         Args:
             client: Optional Mollie client (for dependency injection/testing)
+
+        .. deprecated::
+            For webhook processing, use UnifiedWebhookWrapperService instead.
         """
+        warnings.warn(
+            "PaymentService webhook methods are deprecated. "
+            "Use UnifiedWebhookWrapperService for webhook processing.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # Initialize client
         if client is None:
             from ..core.client import MollieClient

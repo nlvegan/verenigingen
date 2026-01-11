@@ -3,10 +3,24 @@ Mollie Webhook Service
 
 COMPLETE webhook processing service ported from the original mollie_payment_webhook.py
 with all critical business logic for payment completion and financial record creation.
+
+.. deprecated::
+    This module is LEGACY. The canonical webhook handler is now:
+    - `webhook_wrapper_service_unified.UnifiedWebhookWrapperService`
+
+    The unified service provides:
+    - Centralized idempotency via UnifiedIdempotencyManager
+    - Payment routing via PaymentTypeRouter
+    - Support for DUES, ORDER, and DONATION payments
+    - Standardized error handling
+
+    This WebhookService is retained for backwards compatibility but should not
+    be used for new development.
 """
 
 import json
 import urllib.parse
+import warnings
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -30,7 +44,16 @@ class WebhookService:
     """
 
     def __init__(self):
-        """Initialize webhook service with required components."""
+        """Initialize webhook service with required components.
+
+        .. deprecated::
+            Use UnifiedWebhookWrapperService instead for webhook processing.
+        """
+        warnings.warn(
+            "WebhookService is deprecated. Use UnifiedWebhookWrapperService instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.client = MollieClient()
         self.relationship_manager = MollieRelationshipManager()
         self.webhook_queue = MollieWebhookQueue()

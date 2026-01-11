@@ -378,21 +378,43 @@ clients/ (Specialized Clients extending MollieBaseClient)
 
 ---
 
-### LOW-3: Consolidate Mollie Orchestration Paths
+### LOW-3: Consolidate Mollie Orchestration Paths - ✅ COMPLETED
 
 **Priority**: LOW
 **Effort**: 1 week
 **Impact**: Maintainability, reduced bugs
+**Status**: ✅ COMPLETED (2026-01-11)
 
-**Current State**:
-Three overlapping orchestration mechanisms:
-1. `MolliePaymentOrchestrator` (canonical)
-2. `DuesPaymentProcessor`
-3. `WebhookService._process_payment_webhook()`
+**Analysis Findings**:
+6 overlapping services were found with 3 competing call paths:
 
-**Required Fix**:
-- Route all paths through `MolliePaymentOrchestrator`
-- Keep `DuesPaymentProcessor` as thin wrapper if needed
+| Service | Purpose | Status |
+|---------|---------|--------|
+| `UnifiedWebhookWrapperService` | Canonical entry point for webhooks | **CANONICAL** |
+| `PaymentTypeRouter` | Routes by payment type (DUES/ORDER/DONATION) | **CANONICAL** |
+| `DuesPaymentProcessor` | Processes membership dues payments | **CANONICAL** |
+| `WebhookService` | Legacy webhook handler | DEPRECATED |
+| `PaymentService` | Legacy payment operations | DEPRECATED |
+| `MolliePaymentOrchestrator` | Debug/recovery tool | Utility |
+
+**Canonical Flow**:
+```
+Webhook Entry Point
+    └── UnifiedWebhookWrapperService.handle_webhook()
+            └── PaymentTypeRouter.route_payment()
+                    ├── DuesPaymentProcessor (membership dues)
+                    ├── OrderPaymentProcessor (shop orders)
+                    └── DonationPaymentProcessor (donations)
+```
+
+**Resolution**:
+1. **Added deprecation warnings** to legacy services (`WebhookService`, `PaymentService`)
+2. **Documented canonical flow** for future maintainers
+3. **No merge needed** - canonical architecture already exists and is working
+
+**Files Modified**:
+- `mollie/services/webhook_service.py` - Added deprecation warning
+- `mollie/services/payment_service.py` - Added deprecation warning (kept subscription methods as useful)
 
 ---
 
@@ -774,7 +796,7 @@ These have no dependencies and can be tackled simultaneously:
 
 ### Phase 5: Advanced Consolidation
 - [x] LOW-2: Clarify MollieConnector vs MollieClient ✅
-- [ ] LOW-3: Consolidate Mollie orchestration paths
+- [x] LOW-3: Consolidate Mollie orchestration paths ✅
 - [ ] LOW-6: Create shared webhook test helpers *(benefits from HIGH-2)*
 - [ ] Future: Implement PSPFactory pattern for runtime PSP selection
 
