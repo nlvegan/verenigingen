@@ -21,25 +21,8 @@ from verenigingen.utils.security.csrf_protection import CSRFProtection, CSRFErro
 from verenigingen.utils.security.authorization import SEPAAuthorizationManager, SEPAOperation, SEPAPermissionLevel
 from verenigingen.utils.security.audit_logging import SEPAAuditLogger, AuditEventType, AuditSeverity
 
-# Rate limiting module removed - now handled by COR (Critical Operation Rules)
-# Stub classes for backward compatibility with existing tests
-RATE_LIMITING_AVAILABLE = False
-
-
-class RateLimiter:
-    """Stub class - rate limiting now handled by COR"""
-
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def check_rate_limit(self, *args, **kwargs):
-        return {"allowed": True, "limit": 1000, "current_count": 0}
-
-
-class RateLimitExceeded(Exception):
-    """Stub exception - rate limiting now handled by COR"""
-
-    pass
+# Rate limiting now handled by COR (Critical Operation Rules)
+# Real COR enforcement tests are in test_cor_rate_limiting.py
 
 
 class TestCSRFProtection(EnhancedTestCase):
@@ -102,80 +85,6 @@ class TestCSRFProtection(EnhancedTestCase):
             self.assertTrue(token_result["success"])
             self.assertIn("csrf_token", token_result)
             self.assertIn("header_name", token_result)
-
-
-class TestRateLimiting(EnhancedTestCase):
-    """Test rate limiting system"""
-
-    def setUp(self):
-        super().setUp()
-        self.rate_limiter = RateLimiter(backend="memory")  # Use memory for testing
-
-    def test_rate_limit_basic_functionality(self):
-        """Test basic rate limiting functionality - tests production code path"""
-        # Rate limiting is bypassed during tests (frappe.flags.in_test),
-        # so we test the bypass behavior which is the expected production behavior during tests
-        with self.set_user("test@example.com"):
-            result = self.rate_limiter.check_rate_limit("sepa_batch_creation", "test@example.com")
-            # During tests, rate limiting should allow all requests
-            self.assertTrue(result["allowed"])
-
-    def test_rate_limit_enforcement(self):
-        """Test rate limit enforcement behavior"""
-        # Rate limiting uses internal limits defined in _get_user_limit()
-        # We test the actual API behavior, not internal attribute modification
-        with self.set_user("test@example.com"):
-            # Test that the rate limiter returns proper structure
-            result = self.rate_limiter.check_rate_limit("sepa_batch_creation", "test@example.com")
-            self.assertIn("allowed", result)
-            self.assertIn("limit", result)
-            self.assertIn("current_count", result)
-    
-    def test_rate_limit_role_multipliers(self):
-        """Test role-based rate limit multipliers"""
-        if not RATE_LIMITING_AVAILABLE:
-            self.skipTest("Rate limiting module removed - now handled by COR")
-            return
-
-        # Create users with different roles
-        admin_user = self.create_test_user("admin@example.com", ["System Manager"])
-        staff_user = self.create_test_user("staff@example.com", ["Verenigingen Staff"])
-
-        # Admin should have higher limits
-        admin_limit, _ = self.rate_limiter._get_user_limit("sepa_batch_creation", admin_user.email)
-        staff_limit, _ = self.rate_limiter._get_user_limit("sepa_batch_creation", staff_user.email)
-
-        self.assertGreater(admin_limit, staff_limit)
-    
-    def test_rate_limit_system_user_bypass(self):
-        """Test that system users bypass rate limits"""
-        if not RATE_LIMITING_AVAILABLE:
-            self.skipTest("Rate limiting module removed - now handled by COR")
-            return
-
-        with self.set_user("Administrator"):
-            # Administrator should bypass rate limits
-            result = self.rate_limiter.check_rate_limit("any_operation", "Administrator")
-            self.assertTrue(result["allowed"])
-            self.assertEqual(result["limit"], float('inf'))
-    
-    def test_rate_limit_headers(self):
-        """Test rate limit headers generation"""
-        if not RATE_LIMITING_AVAILABLE:
-            self.skipTest("Rate limiting module removed - now handled by COR")
-            return
-
-        with self.set_user("test@example.com"):
-            headers = self.rate_limiter.get_rate_limit_headers("sepa_batch_creation", "test@example.com")
-
-            self.assertIn("X-RateLimit-Limit", headers)
-            self.assertIn("X-RateLimit-Remaining", headers)
-            self.assertIn("X-RateLimit-Reset", headers)
-            self.assertIn("X-RateLimit-Window", headers)
-    
-    def test_rate_limit_decorator(self):
-        """Test rate limiting decorator - skipped, now handled by COR"""
-        self.skipTest("Rate limiting module removed - now handled by COR")
 
 
 class TestAuthorization(EnhancedTestCase):
@@ -400,11 +309,7 @@ class TestSecurityIntegration(EnhancedTestCase):
             self.assertIn("permissions", result)
             self.assertIn("roles", result)
             self.assertIn("available_operations", result)
-    
-    def test_rate_limit_api_endpoints(self):
-        """Test rate limiting API endpoints - skipped, now handled by COR"""
-        self.skipTest("Rate limiting module removed - now handled by COR")
-    
+
     def test_audit_log_api_endpoints(self):
         """Test audit log API endpoints"""
         with self.set_user("Administrator"):
@@ -447,26 +352,7 @@ class TestSecurityConfiguration(EnhancedTestCase):
         
         with self.assertRaises(CSRFError):
             csrf_protection.validate_token(None)
-    
-    def test_concurrent_access_patterns(self):
-        """Test concurrent access patterns for rate limiting"""
-        rate_limiter = RateLimiter(backend="memory")
 
-        # During tests, rate limiting is bypassed (frappe.flags.in_test)
-        # so we test the bypass behavior which is expected
-        with self.set_user("test@example.com"):
-            successful_requests = 0
-            for i in range(10):
-                try:
-                    result = rate_limiter.check_rate_limit("sepa_batch_creation", "test@example.com")
-                    if result["allowed"]:
-                        successful_requests += 1
-                except RateLimitExceeded:
-                    break
-
-            # During tests, all requests should be allowed (bypass behavior)
-            self.assertEqual(successful_requests, 10)
-    
     def test_security_error_handling(self):
         """Test security error handling and logging"""
         audit_logger = SEPAAuditLogger()
