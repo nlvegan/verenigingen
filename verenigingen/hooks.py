@@ -274,6 +274,10 @@ app_color = "blue"
 app_email = "info@verenigingen.org"
 app_license = "AGPL-3"
 
+# Home Page
+# ---------
+home_page = "verenigingen"
+
 # Includes in <head>
 # ------------------
 # Updated to use dues schedule system instead of subscription overrides
