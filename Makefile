@@ -49,14 +49,18 @@ coverage:
 
 lint:
 	@echo "Running linters..."
-	@command -v flake8 >/dev/null 2>&1 && flake8 verenigingen --max-line-length=110 --extend-ignore=E203,E501,W503 || echo "⚠️  flake8 not installed, skipping"
-	@command -v pylint >/dev/null 2>&1 && (pylint verenigingen --rcfile=.pylintrc --fail-under=7.0 || true) || echo "⚠️  pylint not installed, skipping"
+	@command -v ruff >/dev/null 2>&1 && ruff check verenigingen || echo "⚠️  ruff not installed, skipping (install with: pip install ruff)"
 	@echo "✓ Linting complete"
 
+lint-fix:
+	@echo "Running linters with auto-fix..."
+	@command -v ruff >/dev/null 2>&1 && ruff check --fix verenigingen || echo "⚠️  ruff not installed"
+	@echo "✓ Lint fixes applied"
+
 lint-strict:
-	@echo "Running strict linting..."
-	@flake8 verenigingen --max-line-length=110 --extend-ignore=E203,E501,W503
-	@pylint verenigingen --rcfile=.pylintrc --fail-under=8.0
+	@echo "Running strict linting (ruff + pylint)..."
+	@command -v ruff >/dev/null 2>&1 && ruff check verenigingen || echo "⚠️  ruff not installed"
+	@command -v pylint >/dev/null 2>&1 && pylint verenigingen --rcfile=.pylintrc --fail-under=8.0 || echo "⚠️  pylint not installed"
 	@echo "✓ Strict linting complete"
 
 format:

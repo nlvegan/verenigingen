@@ -26,28 +26,20 @@ repos:
         args: ['--line-length=110']
         exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
 
-  - repo: https://github.com/PyCQA/flake8
-    rev: 6.0.0
+  # Ruff replaces flake8 + isort (10-100x faster)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.1
     hooks:
-      - id: flake8
-        args: [
-          '--max-line-length=120',
-          '--max-complexity=20',
-          '--extend-ignore=E501,W503,E203,F401,E722,F821,C901,E225,E713'
-        ]
+      - id: ruff
+        args: ['--fix', '--exit-non-zero-on-fix']
         exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|.*test.*\.py|.*debug.*\.py|archived_.*)'
 
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
-    hooks:
-      - id: isort
-        args: ['--profile', 'black', '--line-length', '110']
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
-
+  # Pylint for deep static analysis (pre-push only, non-blocking on commit)
   - repo: https://github.com/PyCQA/pylint
     rev: v3.0.3
     hooks:
       - id: pylint
+        stages: [pre-push]
         args: [
           '--rcfile=.pylintrc',
           '--fail-under=7.0',

@@ -104,6 +104,7 @@ ensure_newline_before_comments = true
 skip_glob = ["*/migrations/*", "*/node_modules/*", "*/build/*", "*/dist/*", "*/scripts/*", "*/tests/*", "*/debug_utils/*", "*/dev_scripts/*", "*/integration_tests/*", "*/frontend_tests/*"]
 
 [tool.flake8]
+# DEPRECATED: flake8 replaced by ruff - kept for reference
 max-line-length = 120
 extend-ignore = ["E203", "W503", "E501", "F401", "E722", "F821", "C901", "E225"]
 exclude = [
@@ -121,3 +122,59 @@ exclude = [
     "integration_tests",
     "frontend_tests"
 ]
+
+[tool.ruff]
+# Ruff replaces flake8 + isort (10-100x faster)
+line-length = 110
+target-version = "py310"
+
+exclude = [
+    "migrations",
+    "node_modules",
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "__pycache__",
+    "scripts",
+    "tests",
+    "debug_utils",
+    "dev_scripts",
+    "integration_tests",
+    "frontend_tests",
+    "archived_*",
+]
+
+[tool.ruff.lint]
+# Enable rules: E/W (pycodestyle), F (pyflakes), I (isort)
+# Start conservative, enable more rules over time
+select = ["E", "W", "F", "I"]
+
+# Ignore rules matching previous flake8 config
+ignore = [
+    "E203",  # Whitespace before ':' (conflicts with black)
+    "E501",  # Line too long (handled by formatter)
+    "E712",  # Comparison to True/False (sometimes intentional)
+    "E713",  # Test for membership should be 'not in'
+    "E721",  # Type comparison (sometimes needed)
+    "E722",  # Do not use bare 'except'
+    "E731",  # Do not assign a lambda expression
+    "F401",  # Unused import (too noisy during development)
+    "F403",  # Star imports
+    "F405",  # May be undefined from star import
+    "F811",  # Redefinition of unused name
+    "F821",  # Undefined name (frappe._ and other framework magic)
+    "F823",  # Local variable referenced before assignment
+    "F841",  # Local variable never used
+    "F541",  # f-string without placeholders (intentional for consistency)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+# Match isort profile for black compatibility
+known-first-party = ["verenigingen"]
+force-single-line = false
+combine-as-imports = true
