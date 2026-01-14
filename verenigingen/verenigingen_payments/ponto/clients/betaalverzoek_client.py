@@ -617,12 +617,17 @@ class PontoBetaalverzoekClient:
         )
         raise NotImplementedError("Ponto Connect does not support periodic payment initiation requests.")
 
-    def list_payment_requests(self, limit: int = 25) -> List[PaymentInitiationRequest]:
+    def list_payment_requests(
+        self, limit: int = 25, max_pages: Optional[int] = None
+    ) -> List[PaymentInitiationRequest]:
         """
         List payment initiation requests.
 
+        Uses cursor-based pagination to fetch all requests across multiple pages.
+
         Args:
-            limit: Maximum number of results
+            limit: Items per page (default 25)
+            max_pages: Maximum pages to fetch (None for unlimited)
 
         Returns:
             List of PaymentInitiationRequest objects
@@ -631,14 +636,15 @@ class PontoBetaalverzoekClient:
             PontoAPIError: If request fails
         """
         try:
-            # List all payment requests across accounts
-            response = self._client.get(
+            # List all payment requests across accounts with pagination
+            data = self._client.get_paginated(
                 "/payment-requests",
-                params={"limit": limit},
+                limit=limit,
+                max_pages=max_pages,
             )
 
             requests = []
-            for item in response.get("data", []):
+            for item in data:
                 requests.append(PaymentInitiationRequest.from_api_response(item))
 
             return requests

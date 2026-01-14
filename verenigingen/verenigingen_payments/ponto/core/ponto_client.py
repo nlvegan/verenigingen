@@ -18,14 +18,10 @@ Usage:
     transactions = client.get_paginated("/accounts/{id}/transactions")
 """
 
-import os
-import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 import requests
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from verenigingen.verenigingen_payments.core.resilience import (
     CircuitBreakerConfig,
@@ -39,6 +35,7 @@ from verenigingen.verenigingen_payments.ponto.exceptions import (
     PontoRateLimitError,
 )
 from verenigingen.verenigingen_payments.ponto.services.configuration_service import get_ponto_config
+from verenigingen.verenigingen_payments.ponto.utils.secure_cert_manager import SecureCertManager
 from verenigingen.verenigingen_payments.ponto.utils.token_manager import PontoTokenManager
 
 
@@ -116,132 +113,52 @@ class PontoClient:
         self._session = requests.Session()
         self._config = get_ponto_config()
 
-        # mTLS configuration
+        # mTLS configuration using SecureCertManager
         self._use_mtls = False
         self._cert_files: Optional[Tuple[str, str]] = None
-        self._temp_cert_file: Optional[str] = None
-        self._temp_key_file: Optional[str] = None
+        self._cert_manager: Optional[SecureCertManager] = None
 
         # Check if mTLS is enabled
         self._setup_mtls()
-
-    def _prepare_private_key(self, key_pem: str, passphrase: Optional[str] = None) -> bytes:
-        """
-        Prepare private key for use with requests library.
-
-        If the key is encrypted and a passphrase is provided, decrypt it.
-        The requests library cannot handle encrypted keys directly.
-
-        Args:
-            key_pem: PEM-encoded private key (possibly encrypted)
-            passphrase: Passphrase for encrypted key (optional)
-
-        Returns:
-            bytes: Decrypted PEM-encoded private key
-        """
-        key_bytes = key_pem.encode("utf-8")
-
-        # Check if key is encrypted (contains ENCRYPTED in header)
-        if b"ENCRYPTED" in key_bytes and passphrase:
-            # Decrypt the key
-            password = passphrase.encode("utf-8") if passphrase else None
-            private_key = load_pem_private_key(key_bytes, password=password)
-            # Serialize back to unencrypted PEM
-            return private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-
-        # Key is not encrypted or no passphrase provided
-        return key_bytes
 
     def _setup_mtls(self):
         """
         Set up mTLS certificate authentication if enabled.
 
-        Reads certificate and private key from Ponto Settings and writes
-        them to temporary files for use with requests library.
+        Uses SecureCertManager for secure certificate file handling.
         """
         try:
             settings = frappe.get_single("Ponto Settings")
             if not settings.use_ibanity_mtls:
                 return
 
-            if not settings.ibanity_certificate or not settings.ibanity_private_key:
-                frappe.logger().warning("mTLS enabled but certificate/key not configured")
+            # Use SecureCertManager for certificate handling
+            self._cert_manager = SecureCertManager()
+            if not self._cert_manager.setup_from_settings():
+                self._cert_manager = None
                 return
 
             self._use_mtls = True
+            self._cert_files = self._cert_manager.get_cert_files()
 
             # Update base URL to Ibanity Ponto Connect API
-            # The Ponto Connect endpoints are under /ponto-connect/ on api.ibanity.com
             ibanity_base = settings.ibanity_api_url or "https://api.ibanity.com"
             self.BASE_URL = f"{ibanity_base.rstrip('/')}/ponto-connect"
-
-            # Write certificate and key to temporary files
-            # (requests library requires file paths for client certificates)
-            self._temp_cert_file = tempfile.NamedTemporaryFile(
-                mode="wb",
-                suffix=".pem",
-                delete=False,
-                prefix="ponto_cert_",
-            )
-            self._temp_cert_file.write(settings.ibanity_certificate.encode("utf-8"))
-            self._temp_cert_file.close()
-
-            self._temp_key_file = tempfile.NamedTemporaryFile(
-                mode="wb",
-                suffix=".pem",
-                delete=False,
-                prefix="ponto_key_",
-            )
-            # Decrypt passphrase-protected key if needed
-            # requests library cannot handle encrypted keys directly
-            key_content = self._prepare_private_key(
-                settings.ibanity_private_key,
-                settings.get_password("ibanity_key_passphrase"),
-            )
-            self._temp_key_file.write(key_content)
-            self._temp_key_file.close()
-
-            self._cert_files = (self._temp_cert_file.name, self._temp_key_file.name)
 
             frappe.logger().info(f"Ponto mTLS enabled, using {self.BASE_URL}")
 
         except Exception as e:
             frappe.logger().error(f"Failed to setup mTLS: {e}")
             self._use_mtls = False
+            if self._cert_manager:
+                self._cert_manager._cleanup()
+                self._cert_manager = None
 
     def __del__(self):
-        """Clean up temporary certificate files on object destruction."""
-        self._cleanup_temp_files()
-
-    def _cleanup_temp_files(self):
-        """
-        Securely remove temporary certificate and key files.
-
-        Uses secure deletion (overwrite before delete) for key files
-        to prevent recovery of sensitive cryptographic material.
-        """
-        for filepath in [self._temp_cert_file, self._temp_key_file]:
-            if filepath:
-                try:
-                    name = filepath.name if hasattr(filepath, "name") else filepath
-                    if isinstance(name, str) and os.path.exists(name):
-                        # Secure delete: overwrite with random data before unlinking
-                        try:
-                            file_size = os.path.getsize(name)
-                            for _ in range(3):  # Multiple overwrite passes
-                                with open(name, "wb") as f:
-                                    f.write(os.urandom(file_size))
-                                    f.flush()
-                                    os.fsync(f.fileno())
-                        except Exception:
-                            pass  # Fall through to unlink
-                        os.unlink(name)
-                except Exception as e:
-                    frappe.logger().debug(f"Failed to cleanup temp file: {e}")
+        """Clean up certificate files on object destruction."""
+        if self._cert_manager:
+            self._cert_manager._cleanup()
+            self._cert_manager = None
 
     def _get_headers(self) -> Dict[str, str]:
         """

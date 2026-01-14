@@ -23,21 +23,18 @@ Usage:
     )
 """
 
-import os
-import tempfile
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 import frappe
 import requests
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from frappe import _
 
 from verenigingen.verenigingen_payments.ponto.exceptions import (
     PontoAuthenticationError,
     PontoTokenExpiredError,
 )
+from verenigingen.verenigingen_payments.ponto.utils.secure_cert_manager import SecureCertManager
 
 
 class PontoTokenManager:
@@ -81,96 +78,44 @@ class PontoTokenManager:
         self._session = requests.Session()
         self._use_mtls = False
         self._cert_files = None
-        self._temp_files = []
+        self._cert_manager: Optional[SecureCertManager] = None
 
         # Check if mTLS is configured
         self._setup_mtls()
 
     def __del__(self):
-        """Clean up temporary certificate files."""
-        self._cleanup_temp_files()
-
-    def _cleanup_temp_files(self):
-        """
-        Securely remove temporary certificate and key files.
-
-        Uses secure deletion (overwrite before delete) for key files
-        to prevent recovery of sensitive cryptographic material.
-        """
-        for filepath in self._temp_files:
-            try:
-                if filepath and os.path.exists(filepath):
-                    # Secure delete: overwrite with random data before unlinking
-                    try:
-                        file_size = os.path.getsize(filepath)
-                        for _pass in range(3):  # Multiple overwrite passes
-                            with open(filepath, "wb") as f:
-                                f.write(os.urandom(file_size))
-                                f.flush()
-                                os.fsync(f.fileno())
-                    except Exception:
-                        pass  # Fall through to unlink
-                    os.unlink(filepath)
-            except Exception:
-                pass
+        """Clean up certificate files on object destruction."""
+        if self._cert_manager:
+            self._cert_manager._cleanup()
+            self._cert_manager = None
 
     def _setup_mtls(self):
         """
         Set up mTLS certificate authentication if enabled.
 
-        Reads certificate and private key from Ponto Settings,
-        decrypts the private key if needed, and creates temp files
-        for use with requests library.
+        Uses SecureCertManager for secure certificate file handling.
         """
         try:
             settings = frappe.get_single("Ponto Settings")
             if not settings.use_ibanity_mtls:
                 return
 
-            if not settings.ibanity_certificate or not settings.ibanity_private_key:
-                frappe.logger().warning("mTLS enabled but certificate/key not configured")
+            # Use SecureCertManager for certificate handling
+            self._cert_manager = SecureCertManager()
+            if not self._cert_manager.setup_from_settings():
+                self._cert_manager = None
                 return
 
             self._use_mtls = True
-
-            # Write certificate to temp file
-            cert_file = tempfile.NamedTemporaryFile(
-                mode="wb", suffix=".pem", delete=False, prefix="ponto_token_cert_"
-            )
-            cert_file.write(settings.ibanity_certificate.encode("utf-8"))
-            cert_file.close()
-            self._temp_files.append(cert_file.name)
-
-            # Decrypt and write private key to temp file
-            key_pem = settings.ibanity_private_key
-            passphrase = settings.get_password("ibanity_key_passphrase")
-
-            key_bytes = key_pem.encode("utf-8")
-            if b"ENCRYPTED" in key_bytes and passphrase:
-                # Decrypt the key
-                password = passphrase.encode("utf-8")
-                private_key = load_pem_private_key(key_bytes, password=password)
-                decrypted_key = private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.TraditionalOpenSSL,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
-            else:
-                decrypted_key = key_bytes
-
-            key_file = tempfile.NamedTemporaryFile(
-                mode="wb", suffix=".pem", delete=False, prefix="ponto_token_key_"
-            )
-            key_file.write(decrypted_key)
-            key_file.close()
-            self._temp_files.append(key_file.name)
-
-            self._cert_files = (cert_file.name, key_file.name)
+            self._cert_files = self._cert_manager.get_cert_files()
             frappe.logger().debug("Ponto TokenManager mTLS configured")
 
         except Exception as e:
             frappe.logger().error(f"Failed to setup mTLS for token manager: {e}")
             self._use_mtls = False
+            if self._cert_manager:
+                self._cert_manager._cleanup()
+                self._cert_manager = None
 
     def _get_credentials(self) -> Tuple[str, str]:
         """

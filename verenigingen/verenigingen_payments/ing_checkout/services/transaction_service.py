@@ -26,13 +26,16 @@ class TransactionService:
 
     Provides:
     - Payment Entry creation from confirmed transactions
-    - Overpayment detection and alerting
-    - Failure alerting for manual intervention
+    - Overpayment detection and alerting (via shared PaymentAlertService)
+    - Failure alerting for manual intervention (via shared PaymentAlertService)
     """
+
+    SOURCE_NAME = "ING Checkout"
 
     def __init__(self):
         """Initialize the transaction service."""
         self._settings = None
+        self._alert_service = None
 
     @property
     def settings(self) -> Dict[str, Any]:
@@ -42,6 +45,15 @@ class TransactionService:
 
             self._settings = get_payments_settings() or {}
         return self._settings
+
+    @property
+    def alert_service(self):
+        """Lazy-load shared payment alert service."""
+        if self._alert_service is None:
+            from verenigingen.utils.payment_alert_service import get_payment_alert_service
+
+            self._alert_service = get_payment_alert_service()
+        return self._alert_service
 
     def create_payment_entry_for_transaction(
         self,
@@ -225,7 +237,7 @@ class TransactionService:
         outstanding_amount: float,
     ) -> None:
         """
-        Handle overpayment detection - log and alert for manual review.
+        Handle overpayment detection - delegates to shared PaymentAlertService.
 
         Args:
             transaction_name: The INGCheckoutTransaction document name
@@ -233,75 +245,15 @@ class TransactionService:
             transaction_amount: Amount paid in the transaction
             outstanding_amount: Amount that was due
         """
-        overpayment = transaction_amount - outstanding_amount
-
-        # Log for review
-        frappe.log_error(
-            title=f"ING Checkout: Overpayment detected - {transaction_name}",
-            message=(
-                f"Transaction: {transaction_name}\n"
-                f"Invoice: {reference_name}\n"
-                f"Transaction Amount: {transaction_amount:.2f}\n"
-                f"Outstanding Amount: {outstanding_amount:.2f}\n"
-                f"Overpayment: {overpayment:.2f}\n\n"
-                "Action Required: Review for refund or credit note."
-            ),
+        self.alert_service.send_overpayment_alert(
+            source=self.SOURCE_NAME,
+            transaction_id=transaction_name,
+            reference_name=reference_name,
+            amount_paid=transaction_amount,
+            amount_due=outstanding_amount,
+            transaction_doctype="ING Checkout Transaction",
+            transaction_name=transaction_name,
         )
-
-        # Add comment to transaction
-        try:
-            transaction = frappe.get_doc("ING Checkout Transaction", transaction_name)
-            transaction.add_comment(
-                "Comment",
-                f"Overpayment of {overpayment:.2f} detected.\n"
-                f"Customer paid {transaction_amount:.2f} but only {outstanding_amount:.2f} was due.\n"
-                f"Allocated {outstanding_amount:.2f} to invoice. Review for refund.",
-            )
-        except Exception as e:
-            frappe.logger().warning(f"Failed to add overpayment comment: {e}")
-
-        # Send alert email
-        self._send_overpayment_alert(
-            transaction_name, reference_name, transaction_amount, outstanding_amount, overpayment
-        )
-
-    def _send_overpayment_alert(
-        self,
-        transaction_name: str,
-        reference_name: str,
-        transaction_amount: float,
-        outstanding_amount: float,
-        overpayment: float,
-    ) -> None:
-        """Send alert email for overpayment."""
-        try:
-            recipients = frappe.get_hooks("accounts_managers_email") or []
-            if not recipients:
-                frappe.log_error(
-                    title="No Alert Recipients Configured",
-                    message=(
-                        f"Cannot send overpayment alert for {transaction_name}: "
-                        "accounts_managers_email hook not configured. "
-                        f"Overpayment of {overpayment:.2f} requires manual review."
-                    ),
-                )
-                return
-
-            frappe.sendmail(
-                recipients=recipients,
-                subject=f"ING Checkout Overpayment: {transaction_name} - {overpayment:.2f}",
-                message=(
-                    f"<p>An overpayment has been detected for ING Checkout transaction.</p>"
-                    f"<p><strong>Transaction:</strong> {transaction_name}</p>"
-                    f"<p><strong>Invoice:</strong> {reference_name}</p>"
-                    f"<p><strong>Amount Paid:</strong> {transaction_amount:.2f}</p>"
-                    f"<p><strong>Amount Due:</strong> {outstanding_amount:.2f}</p>"
-                    f"<p><strong>Overpayment:</strong> {overpayment:.2f}</p>"
-                    f"<p>Please review and process a refund or credit note as appropriate.</p>"
-                ),
-            )
-        except Exception as e:
-            frappe.logger().warning(f"Failed to send overpayment alert email: {e}")
 
     def send_payment_entry_failure_alert(
         self,
@@ -311,7 +263,7 @@ class TransactionService:
         error_message: str,
     ) -> None:
         """
-        Send alert email when Payment Entry creation fails.
+        Send alert when Payment Entry creation fails - delegates to shared PaymentAlertService.
 
         Args:
             transaction_name: The INGCheckoutTransaction document name
@@ -319,34 +271,13 @@ class TransactionService:
             amount: Transaction amount
             error_message: The error that occurred
         """
-        try:
-            recipients = frappe.get_hooks("accounts_managers_email") or []
-            if not recipients:
-                frappe.log_error(
-                    title="No Alert Recipients Configured",
-                    message=(
-                        f"Cannot send Payment Entry failure alert for {transaction_name}: "
-                        "accounts_managers_email hook not configured. "
-                        f"Error: {error_message}"
-                    ),
-                )
-                return
-
-            frappe.sendmail(
-                recipients=recipients,
-                subject=f"URGENT: ING Checkout Payment Entry Failed - {transaction_name}",
-                message=(
-                    f"<p><strong>Payment Entry creation failed for ING Checkout transaction.</strong></p>"
-                    f"<p><strong>Transaction:</strong> {transaction_name}</p>"
-                    f"<p><strong>Invoice:</strong> {reference_name or 'N/A'}</p>"
-                    f"<p><strong>Amount:</strong> {flt(amount):.2f}</p>"
-                    f"<p><strong>Error:</strong></p>"
-                    f"<pre>{error_message}</pre>"
-                    f"<p>Manual intervention is required to create the Payment Entry.</p>"
-                ),
-            )
-        except Exception as e:
-            frappe.logger().warning(f"Failed to send payment entry failure alert email: {e}")
+        self.alert_service.send_payment_entry_failure_alert(
+            source=self.SOURCE_NAME,
+            transaction_id=transaction_name,
+            reference_name=reference_name,
+            amount=amount,
+            error_message=error_message,
+        )
 
 
 def get_transaction_service() -> TransactionService:

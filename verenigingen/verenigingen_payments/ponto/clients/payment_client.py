@@ -275,13 +275,17 @@ class PontoPaymentClient:
         self,
         account_id: str,
         limit: int = 25,
+        max_pages: Optional[int] = None,
     ) -> List[PaymentRequest]:
         """
         List payment requests for an account.
 
+        Uses cursor-based pagination to fetch all payments across multiple pages.
+
         Args:
             account_id: Ponto account UUID
-            limit: Maximum number of results
+            limit: Items per page (default 25)
+            max_pages: Maximum pages to fetch (None for unlimited)
 
         Returns:
             List of PaymentRequest objects
@@ -290,13 +294,14 @@ class PontoPaymentClient:
             PontoAPIError: If request fails
         """
         try:
-            response = self._client.get(
+            data = self._client.get_paginated(
                 f"/accounts/{account_id}/payment-initiation-requests",
-                params={"limit": limit},
+                limit=limit,
+                max_pages=max_pages,
             )
 
             payments = []
-            for item in response.get("data", []):
+            for item in data:
                 payments.append(PaymentRequest.from_api_response(item))
 
             return payments

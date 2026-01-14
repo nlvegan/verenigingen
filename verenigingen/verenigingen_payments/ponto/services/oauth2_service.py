@@ -41,6 +41,7 @@ import frappe
 from frappe.utils import get_url
 
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAuthenticationError
+from verenigingen.verenigingen_payments.ponto.utils.secure_cert_manager import SecureCertManager
 
 
 class PontoOAuth2Service:
@@ -89,42 +90,13 @@ class PontoOAuth2Service:
         """Initialize OAuth2 service."""
         self._settings = None
         self._cert_files = None
+        self._cert_manager: Optional[SecureCertManager] = None
 
     def __del__(self):
-        """Clean up temporary certificate files on object destruction."""
-        self._cleanup_temp_files()
-
-    def _cleanup_temp_files(self):
-        """
-        Securely remove temporary certificate and key files.
-
-        Uses secure deletion (overwrite before delete) for key files
-        to prevent recovery of sensitive cryptographic material.
-        """
-        import os
-
-        if not self._cert_files:
-            return
-
-        for filepath in self._cert_files:
-            if filepath:
-                try:
-                    if os.path.exists(filepath):
-                        # Secure delete: overwrite with random data before unlinking
-                        try:
-                            file_size = os.path.getsize(filepath)
-                            for _ in range(3):  # Multiple overwrite passes
-                                with open(filepath, "wb") as f:
-                                    f.write(os.urandom(file_size))
-                                    f.flush()
-                                    os.fsync(f.fileno())
-                        except Exception:
-                            pass  # Fall through to unlink
-                        os.unlink(filepath)
-                except Exception:
-                    pass
-
-        self._cert_files = None
+        """Clean up certificate files on object destruction."""
+        if self._cert_manager:
+            self._cert_manager._cleanup()
+            self._cert_manager = None
 
     def _generate_pkce_pair(self) -> Tuple[str, str]:
         """
@@ -267,15 +239,11 @@ class PontoOAuth2Service:
         """
         Get mTLS certificate files for API requests.
 
+        Uses SecureCertManager for secure certificate file handling.
+
         Returns:
             Tuple of (cert_path, key_path) or None
         """
-        import os
-        import tempfile
-
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.serialization import load_pem_private_key
-
         if self._cert_files:
             return self._cert_files
 
@@ -284,39 +252,13 @@ class PontoOAuth2Service:
         if not settings.use_ibanity_mtls:
             return None
 
-        if not settings.ibanity_certificate or not settings.ibanity_private_key:
+        # Use SecureCertManager for certificate handling
+        self._cert_manager = SecureCertManager()
+        if not self._cert_manager.setup_from_settings():
+            self._cert_manager = None
             return None
 
-        # Write certificate to temp file
-        cert_file = tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".pem", delete=False, prefix="ponto_oauth_cert_"
-        )
-        cert_file.write(settings.ibanity_certificate.encode("utf-8"))
-        cert_file.close()
-
-        # Decrypt and write private key
-        key_pem = settings.ibanity_private_key
-        passphrase = settings.get_password("ibanity_key_passphrase")
-
-        key_bytes = key_pem.encode("utf-8")
-        if b"ENCRYPTED" in key_bytes and passphrase:
-            password = passphrase.encode("utf-8")
-            private_key = load_pem_private_key(key_bytes, password=password)
-            decrypted_key = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-        else:
-            decrypted_key = key_bytes
-
-        key_file = tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".pem", delete=False, prefix="ponto_oauth_key_"
-        )
-        key_file.write(decrypted_key)
-        key_file.close()
-
-        self._cert_files = (cert_file.name, key_file.name)
+        self._cert_files = self._cert_manager.get_cert_files()
         return self._cert_files
 
     def exchange_authorization_code(self, code: str) -> Dict[str, str]:
