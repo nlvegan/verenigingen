@@ -10,8 +10,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from verenigingen.utils.application_helpers import check_application_status as check_application_status_util
 from verenigingen.utils.application_helpers import (
+    check_application_status as check_application_status_util,
     create_address_from_application,
     create_member_from_application,
     create_pending_chapter_membership,
@@ -20,25 +20,23 @@ from verenigingen.utils.application_helpers import (
     generate_application_id,
     get_form_data,
     get_member_field_info,
-)
-from verenigingen.utils.application_helpers import get_membership_fee_info as get_membership_fee_info_util
-from verenigingen.utils.application_helpers import (
+    get_membership_fee_info as get_membership_fee_info_util,
     get_membership_type_details as get_membership_type_details_util,
-)
-from verenigingen.utils.application_helpers import load_draft_application as load_draft_application_util
-from verenigingen.utils.application_helpers import parse_application_data
-from verenigingen.utils.application_helpers import save_draft_application as save_draft_application_util
-from verenigingen.utils.application_helpers import (
+    load_draft_application as load_draft_application_util,
+    parse_application_data,
+    save_draft_application as save_draft_application_util,
     suggest_membership_amounts as suggest_membership_amounts_util,
+    update_member_from_reapplication,
 )
-from verenigingen.utils.application_helpers import update_member_from_reapplication
 from verenigingen.utils.application_notifications import (
     check_overdue_applications,
     send_payment_confirmation_email,
     send_rejection_email,
 )
-from verenigingen.utils.application_payments import get_payment_methods as get_payment_methods_util
-from verenigingen.utils.application_payments import process_application_payment
+from verenigingen.utils.application_payments import (
+    get_payment_methods as get_payment_methods_util,
+    process_application_payment,
+)
 from verenigingen.utils.config_manager import ConfigManager
 
 # Import enhanced utilities
@@ -64,24 +62,16 @@ from verenigingen.utils.validation.api_validators import (
 # Import our utility modules
 from verenigingen.utils.validation.application_validators import (
     check_application_eligibility as check_application_eligibility_util,
-)
-from verenigingen.utils.validation.application_validators import validate_address as validate_address_util
-from verenigingen.utils.validation.application_validators import (
+    validate_address as validate_address_util,
     validate_birth_date as validate_birth_date_util,
-)
-from verenigingen.utils.validation.application_validators import (
     validate_custom_amount as validate_custom_amount_util,
-)
-from verenigingen.utils.validation.application_validators import validate_email as validate_email_util
-from verenigingen.utils.validation.application_validators import validate_membership_amount_selection
-from verenigingen.utils.validation.application_validators import validate_name as validate_name_util
-from verenigingen.utils.validation.application_validators import (
+    validate_email as validate_email_util,
+    validate_membership_amount_selection,
+    validate_name as validate_name_util,
     validate_phone_number as validate_phone_number_util,
-)
-from verenigingen.utils.validation.application_validators import (
     validate_postal_code as validate_postal_code_util,
+    validate_required_fields,
 )
-from verenigingen.utils.validation.application_validators import validate_required_fields
 
 # Utility functions
 

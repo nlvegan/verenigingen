@@ -23,9 +23,11 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 
-from verenigingen.utils.error_handling import PermissionError as VPermissionError
-from verenigingen.utils.error_handling import ValidationError as VValidationError
-from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.error_handling import (
+    PermissionError as VPermissionError,
+    ValidationError as VValidationError,
+    log_error,
+)
 
 # Lazy import to avoid circular dependency - get_auth_manager imported when needed
 from verenigingen.utils.security.csrf_protection import CSRFProtection

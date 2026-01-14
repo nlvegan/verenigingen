@@ -23,11 +23,9 @@ def _import_monitoring_functions():
     """Import monitoring functions with error handling."""
     try:
         # Import the monitoring module functions  # noqa: E402
-        from monitoring.zabbix_integration import (  # noqa: E402
+        from monitoring.zabbix_integration import (  # noqa: E402  # noqa: E402
             get_metrics_for_zabbix as _get_metrics_for_zabbix,
-        )
-        from monitoring.zabbix_integration import health_check as _health_check  # noqa: E402
-        from monitoring.zabbix_integration import (  # noqa: E402
+            health_check as _health_check,  # noqa: E402
             zabbix_webhook_receiver as _zabbix_webhook_receiver,
         )
 

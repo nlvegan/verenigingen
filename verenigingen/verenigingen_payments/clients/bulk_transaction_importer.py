@@ -13,8 +13,7 @@ from frappe.utils import formatdate, getdate
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.validation.iban_validator import validate_iban
 
-from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
-from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
+from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, ImmutableAuditTrail as AuditTrail
 from ..core.mollie_base_client import MollieBaseClient
 from .balances_client import BalancesClient
 from .payments_client import PaymentsClient

@@ -16,8 +16,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
-from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
-from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
+from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, ImmutableAuditTrail as AuditTrail
 from ..services.mollie_configuration_service import get_mollie_config
 
 

@@ -36,7 +36,6 @@ TRANSACTION_TYPE_MAPPING = {
     "FactuurbetalingVerstuurd": "Payment Entry",
     "GeldOntvangen": "Journal Entry",
     "GeldUitgegeven": "Journal Entry",
-    "Memoriaal": "Journal Entry",
     "BeginBalans": "Journal Entry",
     # Numeric types from REST API
     0: "Journal Entry",  # Opening Balance

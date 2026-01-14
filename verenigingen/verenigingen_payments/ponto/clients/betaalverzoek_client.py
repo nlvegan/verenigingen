@@ -96,7 +96,6 @@ def sanitize_sepa_text(text: str, field_name: str = "text") -> str:
         """: "'",  # smart double quote to apostrophe
         """: "'",  # smart double quote to apostrophe
         "'": "'",  # smart single quote to apostrophe
-        "'": "'",  # smart single quote to apostrophe
         "€": "EUR",  # euro symbol to text
         "&": "+",  # ampersand to plus
         ";": ",",  # semicolon to comma

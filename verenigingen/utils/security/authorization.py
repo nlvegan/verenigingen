@@ -12,8 +12,7 @@ from typing import Any, Callable, Dict, List, Optional
 import frappe
 from frappe import _
 
-from verenigingen.utils.error_handling import PermissionError as VerenigingenPermissionError
-from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.error_handling import PermissionError as VerenigingenPermissionError, log_error
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, log_security_event
 from verenigingen.utils.security.types import OperationType
 

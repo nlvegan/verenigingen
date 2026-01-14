@@ -19,8 +19,7 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.settlements_client import SettlementsClient
-from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
-from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
+from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, ImmutableAuditTrail as AuditTrail
 from ..core.models.chargeback import ChargebackReason
 
 

@@ -35,7 +35,10 @@ from collections import defaultdict
 import json
 
 # Import all validators
+# Add archived folder for archived validators
 sys.path.insert(0, str(Path(__file__).parent))
+# Add parent folder for import_path_validator (moved out of archived)
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import validators - using superior AST analyzer for field validation
 from ast_field_analyzer_improved_complete import ASTFieldAnalyzer, ValidationIssue

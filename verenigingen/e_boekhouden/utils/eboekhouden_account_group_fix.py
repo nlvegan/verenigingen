@@ -10,18 +10,14 @@ This file will be removed in a future version.
 
 import frappe
 
-from verenigingen.e_boekhouden.services.account_diagnostics_service import AccountDiagnosticsService
 from verenigingen.e_boekhouden.services.account_diagnostics_service import (
+    AccountDiagnosticsService,
     check_tax_accounts as new_check_tax_accounts,
-)
-from verenigingen.e_boekhouden.services.account_diagnostics_service import (
     diagnose_account_structure as new_diagnose_account_structure,
-)
-from verenigingen.e_boekhouden.services.account_diagnostics_service import (
     find_misplaced_accounts as new_find_misplaced_accounts,
 )
-from verenigingen.e_boekhouden.services.account_organization_service import AccountOrganizationService
 from verenigingen.e_boekhouden.services.account_organization_service import (
+    AccountOrganizationService,
     organize_balance_sheet_accounts as new_organize_balance_sheet_accounts,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api

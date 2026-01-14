@@ -13,16 +13,17 @@ from typing import Any, Dict, Optional
 
 import frappe
 
-# Import configuration service for cached settings access
-from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
-
-from ..exceptions import MolliePaymentError, MollieWebhookError
 from verenigingen.verenigingen_payments.core.resilience import (
     CircuitBreakerConfig,
     RetryConfig,
     with_circuit_breaker,
     with_retry,
 )
+
+# Import configuration service for cached settings access
+from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+
+from ..exceptions import MolliePaymentError, MollieWebhookError
 
 
 class MollieClient:

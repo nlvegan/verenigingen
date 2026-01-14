@@ -58,8 +58,6 @@ from verenigingen.services.member.utils.member_age_service import (
 # Extracted services
 from verenigingen.services.member.utils.membership_duration_service import (
     calculate_total_membership_days as calculate_duration_days,
-)
-from verenigingen.services.member.utils.membership_duration_service import (
     format_duration_human_readable,
     update_member_duration_fields,
 )

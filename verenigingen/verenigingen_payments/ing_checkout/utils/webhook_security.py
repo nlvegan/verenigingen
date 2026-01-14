@@ -43,9 +43,11 @@ from frappe.utils import cint
 
 from verenigingen.utils.service_user import get_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
-from verenigingen.utils.webhook.logging import compute_webhook_hash as _unified_compute_hash
-from verenigingen.utils.webhook.logging import create_webhook_log as _unified_create_log
-from verenigingen.utils.webhook.logging import is_duplicate_webhook as _unified_is_duplicate
+from verenigingen.utils.webhook.logging import (
+    compute_webhook_hash as _unified_compute_hash,
+    create_webhook_log as _unified_create_log,
+    is_duplicate_webhook as _unified_is_duplicate,
+)
 
 # Cache for Pay.nl IP addresses (refreshed every hour)
 _paynl_ip_cache = {"ips": [], "last_updated": None}

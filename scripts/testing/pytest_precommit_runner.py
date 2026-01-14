@@ -9,11 +9,23 @@ import sys
 import subprocess
 from pathlib import Path
 
+def get_current_site(bench_path: Path) -> str:
+    """Get the current site from bench configuration."""
+    currentsite_file = bench_path / "sites" / "currentsite.txt"
+    if currentsite_file.exists():
+        site = currentsite_file.read_text().strip()
+        if site:
+            return site
+    # Fallback to default site
+    return "veg11.veganisme.org"
+
+
 def run_pytest_for_precommit():
     """Run critical tests for pre-commit using bench command."""
     # Get the bench path
     bench_path = Path(__file__).resolve().parent.parent.parent.parent.parent
     app_path = bench_path / "apps" / "verenigingen"
+    site = get_current_site(bench_path)
     
     # Check if critical test files exist
     critical_tests = [
@@ -37,7 +49,7 @@ def run_pytest_for_precommit():
     ]
     
     cmd = [
-        "bench", "--site", "dev.veganisme.net", 
+        "bench", "--site", site,
         "run-tests",
         "--app", "verenigingen",
         "--module", test_modules[0],  # Start with validation regression
