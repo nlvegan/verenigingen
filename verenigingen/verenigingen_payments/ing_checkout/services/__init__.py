@@ -4,7 +4,16 @@
 """
 ING Checkout Services
 
-- ideal_service: iDEAL payment order creation and processing
 - mandate_service: SEPA Direct Debit mandate lifecycle management
-- debit_service: Direct debit execution
+- transaction_service: Payment Entry creation and transaction handling
 """
+
+from .mandate_service import MandateService, get_mandate_service
+from .transaction_service import TransactionService, get_transaction_service
+
+__all__ = [
+    "MandateService",
+    "get_mandate_service",
+    "TransactionService",
+    "get_transaction_service",
+]

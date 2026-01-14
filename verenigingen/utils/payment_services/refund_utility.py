@@ -17,10 +17,10 @@ from verenigingen.utils.payment_services.constants import (
     LOG_CATEGORY_VALIDATION,
     MAX_REFUND_DESCRIPTION_LENGTH,
     MIN_REFUND_AMOUNT,
-    MOLLIE_VALID_PREFIXES,
     REFUND_QUERY_BATCH_SIZE,
     STANDARD_ERROR_RESPONSE,
     STANDARD_SUCCESS_RESPONSE,
+    is_valid_mollie_payment_id,
 )
 from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
@@ -96,8 +96,13 @@ def _create_success_response(message: str, data: Optional[Any] = None) -> Dict[s
 
 
 def _validate_mollie_payment_id(payment_id: str) -> bool:
-    """Validate Mollie payment ID format using constants."""
-    return payment_id and payment_id.startswith(MOLLIE_VALID_PREFIXES)
+    """
+    Validate Mollie payment ID format.
+
+    Note: This is a local wrapper for backward compatibility.
+    Use is_valid_mollie_payment_id from constants module for new code.
+    """
+    return is_valid_mollie_payment_id(payment_id)
 
 
 def _validate_refund_amount(amount: float, max_amount: float) -> Optional[Dict[str, Any]]:
@@ -299,7 +304,7 @@ def get_payment_refund_info(payment_entry_name: str) -> Dict[str, Any]:
             return _create_error_response("Payment Entry not found", "PAYMENT_ENTRY_NOT_FOUND")
 
         mollie_payment_id = payment_entry.reference_no
-        if not mollie_payment_id or not mollie_payment_id.startswith(("tr_", "test_")):
+        if not is_valid_mollie_payment_id(mollie_payment_id):
             return _create_error_response("Payment was not processed via Mollie", "NOT_MOLLIE_PAYMENT")
 
         # Get existing refunds and chargebacks
@@ -431,7 +436,7 @@ def get_donation_refund_info(donation_name: str) -> Dict[str, Any]:
 
         # Check if any original payments can be refunded
         can_refund = any(
-            pe.reference_no and pe.reference_no.startswith(("tr_", "test_"))
+            is_valid_mollie_payment_id(pe.reference_no)
             for pe in original_payments
             if pe.docstatus == 1
         )
@@ -513,7 +518,7 @@ def initiate_donation_refund(
         mollie_payments = [
             pe
             for pe in original_payments
-            if pe.docstatus == 1 and pe.reference_no and pe.reference_no.startswith(("tr_", "test_"))
+            if pe.docstatus == 1 and is_valid_mollie_payment_id(pe.reference_no)
         ]
 
         if not mollie_payments:

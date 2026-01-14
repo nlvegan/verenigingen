@@ -64,3 +64,42 @@ LOG_CATEGORY_REFUND = "Refund Processing"
 LOG_CATEGORY_WEBHOOK = "Webhook Processing"
 LOG_CATEGORY_VALIDATION = "Input Validation"
 LOG_CATEGORY_SECURITY = "Security"
+
+
+def is_valid_mollie_payment_id(payment_id: str) -> bool:
+    """
+    Validate that a payment ID has a valid Mollie payment ID format.
+
+    Args:
+        payment_id: The payment ID to validate
+
+    Returns:
+        True if the payment ID starts with a valid Mollie prefix, False otherwise
+    """
+    return bool(payment_id and payment_id.startswith(MOLLIE_VALID_PREFIXES))
+
+
+def is_valid_mollie_customer_id(customer_id: str) -> bool:
+    """
+    Validate that a customer ID has a valid Mollie customer ID format.
+
+    Args:
+        customer_id: The customer ID to validate
+
+    Returns:
+        True if the customer ID starts with a valid Mollie prefix, False otherwise
+    """
+    return bool(customer_id and customer_id.startswith(MOLLIE_VALID_CUSTOMER_PREFIXES))
+
+
+def is_valid_mollie_refund_id(refund_id: str) -> bool:
+    """
+    Validate that a refund ID has a valid Mollie refund ID format.
+
+    Args:
+        refund_id: The refund ID to validate
+
+    Returns:
+        True if the refund ID starts with a valid Mollie prefix, False otherwise
+    """
+    return bool(refund_id and refund_id.startswith(MOLLIE_VALID_REFUND_PREFIXES))

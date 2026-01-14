@@ -303,6 +303,108 @@ class TestPontoClient(FrappeTestCase):
             self.assertIn("json", call_kwargs.kwargs)
             self.assertEqual(call_kwargs.kwargs["json"], test_data)
 
+    def test_post_request_400_raises_api_error(self):
+        """Test that 400 response raises PontoAPIError for POST."""
+        from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError
+
+        client = PontoClient()
+
+        with patch.object(client._session, "post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.ok = False
+            mock_response.status_code = 400
+            mock_response.text = "Bad Request"
+            mock_response.json.return_value = PontoTestDataFactory.create_api_error_response(
+                status_code=400,
+                error_code="invalidRequest",
+                error_detail="Invalid payment data",
+            )
+            mock_post.return_value = mock_response
+
+            with self.assertRaises(PontoAPIError):
+                client.post("/payment-initiation-requests", data={"data": {}})
+
+    def test_post_request_401_triggers_token_refresh(self):
+        """Test that 401 response triggers token refresh and retry for POST."""
+        from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+
+        client = PontoClient()
+
+        call_count = 0
+
+        def mock_post_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+
+            mock_response = MagicMock()
+
+            if call_count == 1:
+                # First call returns 401
+                mock_response.ok = False
+                mock_response.status_code = 401
+                mock_response.text = "Unauthorized"
+                mock_response.json.return_value = {"error": "unauthorized"}
+            else:
+                # Retry after token refresh succeeds
+                mock_response.ok = True
+                mock_response.status_code = 201
+                mock_response.json.return_value = {"data": {"id": "new-payment"}}
+
+            return mock_response
+
+        with patch.object(client._session, "post", side_effect=mock_post_side_effect):
+            with patch.object(client._token_manager, "refresh_token") as mock_refresh:
+                mock_refresh.return_value = "new_access_token"
+
+                result = client.post("/payment-initiation-requests", data={"data": {}})
+
+                # Should have called refresh
+                mock_refresh.assert_called_once()
+                # Should have retried the request
+                self.assertEqual(call_count, 2)
+                self.assertEqual(result["data"]["id"], "new-payment")
+
+    def test_post_request_429_raises_rate_limit_error(self):
+        """Test that 429 response raises PontoRateLimitError for POST."""
+        from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoRateLimitError
+
+        client = PontoClient()
+
+        with patch.object(client._session, "post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.ok = False
+            mock_response.status_code = 429
+            mock_response.headers = {"Retry-After": "30"}
+            mock_response.text = "Rate limit exceeded"
+            mock_response.json.return_value = {"error": "rate_limited"}
+            mock_post.return_value = mock_response
+
+            with self.assertRaises(PontoRateLimitError) as ctx:
+                client.post("/payment-initiation-requests", data={"data": {}})
+
+            # Should include retry-after info
+            self.assertIn("30", str(ctx.exception) + str(ctx.exception.details))
+
+    def test_post_request_500_raises_api_error(self):
+        """Test that 500 response raises PontoAPIError for POST."""
+        from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError
+
+        client = PontoClient()
+
+        with patch.object(client._session, "post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.ok = False
+            mock_response.status_code = 500
+            mock_response.text = "Internal Server Error"
+            mock_response.json.return_value = {"error": "internal_error"}
+            mock_post.return_value = mock_response
+
+            with self.assertRaises(PontoAPIError):
+                client.post("/payment-initiation-requests", data={"data": {}})
+
     # -------------------------------------------------------------------------
     # DELETE Request Tests
     # -------------------------------------------------------------------------
@@ -322,6 +424,90 @@ class TestPontoClient(FrappeTestCase):
 
             # Should not raise
             client.delete("/payment-initiation-requests/pir-123")
+
+    def test_delete_request_404_raises_api_error(self):
+        """Test that 404 response raises PontoAPIError for DELETE."""
+        from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError
+
+        client = PontoClient()
+
+        with patch.object(client._session, "delete") as mock_delete:
+            mock_response = MagicMock()
+            mock_response.ok = False
+            mock_response.status_code = 404
+            mock_response.text = "Not found"
+            mock_response.json.return_value = PontoTestDataFactory.create_api_error_response(
+                status_code=404,
+                error_code="resourceNotFound",
+                error_detail="Payment request not found",
+            )
+            mock_delete.return_value = mock_response
+
+            with self.assertRaises(PontoAPIError):
+                client.delete("/payment-initiation-requests/nonexistent")
+
+    def test_delete_request_401_triggers_token_refresh(self):
+        """Test that 401 response triggers token refresh and retry for DELETE."""
+        from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+
+        client = PontoClient()
+
+        call_count = 0
+
+        def mock_delete_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+
+            mock_response = MagicMock()
+
+            if call_count == 1:
+                # First call returns 401
+                mock_response.ok = False
+                mock_response.status_code = 401
+                mock_response.text = "Unauthorized"
+                mock_response.json.return_value = {"error": "unauthorized"}
+            else:
+                # Retry after token refresh succeeds
+                mock_response.ok = True
+                mock_response.status_code = 204
+                mock_response.text = ""
+
+            return mock_response
+
+        with patch.object(client._session, "delete", side_effect=mock_delete_side_effect):
+            with patch.object(client._token_manager, "refresh_token") as mock_refresh:
+                mock_refresh.return_value = "new_access_token"
+
+                # Should not raise
+                client.delete("/payment-initiation-requests/pir-123")
+
+                # Should have called refresh
+                mock_refresh.assert_called_once()
+                # Should have retried the request
+                self.assertEqual(call_count, 2)
+
+    def test_delete_request_429_raises_rate_limit_error(self):
+        """Test that 429 response raises PontoRateLimitError for DELETE."""
+        from verenigingen.verenigingen_payments.ponto.core.ponto_client import PontoClient
+        from verenigingen.verenigingen_payments.ponto.exceptions import PontoRateLimitError
+
+        client = PontoClient()
+
+        with patch.object(client._session, "delete") as mock_delete:
+            mock_response = MagicMock()
+            mock_response.ok = False
+            mock_response.status_code = 429
+            mock_response.headers = {"Retry-After": "45"}
+            mock_response.text = "Rate limit exceeded"
+            mock_response.json.return_value = {"error": "rate_limited"}
+            mock_delete.return_value = mock_response
+
+            with self.assertRaises(PontoRateLimitError) as ctx:
+                client.delete("/payment-initiation-requests/pir-123")
+
+            # Should include retry-after info
+            self.assertIn("45", str(ctx.exception) + str(ctx.exception.details))
 
     # -------------------------------------------------------------------------
     # Pagination Tests
