@@ -484,13 +484,21 @@ class ImportPathValidator:
         return '\n'.join(report)
 
 
+def _get_default_app_path():
+    """Dynamically determine the app path based on script location."""
+    # Script is at: <app_root>/scripts/validation/import_path_validator.py
+    # So app_root is 2 levels up from the script's directory
+    script_path = Path(__file__).resolve()
+    return str(script_path.parent.parent.parent)
+
+
 def main():
     """Main function for CLI usage"""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Import Path Validator')
-    parser.add_argument('--app-path', default='/home/frappe/frappe-bench/apps/verenigingen',
-                       help='Path to the Frappe app')
+    parser.add_argument('--app-path', default=_get_default_app_path(),
+                       help='Path to the Frappe app (auto-detected from script location)')
     parser.add_argument('--file', type=str,
                        help='Validate single file')
     parser.add_argument('--verbose', action='store_true',

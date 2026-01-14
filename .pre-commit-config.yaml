@@ -197,7 +197,7 @@ repos:
       - id: import-path-validator
         name: 🔍 Import Path Validation
         description: Validates that Python import statements reference modules that actually exist
-        entry: python scripts/validation/archived/import_path_validator.py --quick
+        entry: python scripts/validation/import_path_validator.py --quick
         language: system
         pass_filenames: true
         files: '\.py$'
