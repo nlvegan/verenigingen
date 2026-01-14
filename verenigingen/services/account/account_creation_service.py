@@ -198,6 +198,13 @@ class AccountCreationService(StatelessService):
             Tuple of (success, error_message)
             - (True, None) if linked successfully
             - (False, "error description") if linking failed
+
+        Note:
+            This method uses frappe.db.set_value() which updates the database
+            directly but does NOT update the in-memory member.user attribute.
+            If callers need to access member.user after this call, they must
+            call member.reload() to fetch the updated value from the database.
+            The commit ensures subsequent database reads will see the change.
         """
         # Verify user exists
         user_data = frappe.db.get_value("User", user_name, ["first_name", "last_name", "email"], as_dict=True)

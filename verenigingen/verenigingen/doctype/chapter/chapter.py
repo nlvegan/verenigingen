@@ -162,7 +162,8 @@ class Chapter(Document):
         """After insert hook"""
         # Create corresponding Department for ERPNext integration
         self._sync_department()
-        # Cost center creation removed - will be re-implemented later
+        # Create corresponding Cost Center for financial tracking
+        self._create_chapter_cost_center()
 
     def after_save(self):
         """After save hook - streamlined with safe operations"""
