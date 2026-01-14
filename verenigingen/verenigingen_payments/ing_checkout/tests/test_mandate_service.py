@@ -38,11 +38,11 @@ class TestMandateService(IntegrationTestCase):
 
     @patch(
         "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.settings",
-        new_callable=lambda: property(lambda self: {"service_id": "SL-1234", "terms_and_conditions_url": "/terms"}),
+        new_callable=lambda: property(
+            lambda self: {"service_id": "SL-1234", "terms_and_conditions_url": "/terms"}
+        ),
     )
-    @patch(
-        "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client"
-    )
+    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
     def test_create_mandate_for_member_success(self, mock_client_prop, mock_settings):
         """Test successful mandate creation for member."""
         from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
@@ -97,9 +97,7 @@ class TestMandateService(IntegrationTestCase):
                 self.assertEqual(result["mandate_id"], "MD-123456789")
                 mock_client.create_mandate.assert_called_once()
 
-    @patch(
-        "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client"
-    )
+    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
     def test_create_mandate_for_member_no_sepa_mandate(self, mock_client):
         """Test mandate creation fails when member has no SEPA mandate."""
         from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
@@ -118,9 +116,7 @@ class TestMandateService(IntegrationTestCase):
             self.assertFalse(result["success"])
             self.assertIn("no active SEPA mandate", result["error"].lower())
 
-    @patch(
-        "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client"
-    )
+    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
     def test_create_mandate_for_member_inactive_sepa_mandate(self, mock_client):
         """Test mandate creation fails when SEPA mandate is inactive."""
         from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
@@ -153,9 +149,7 @@ class TestMandateService(IntegrationTestCase):
             self.assertFalse(result["success"])
             self.assertIn("no active SEPA mandate", result["error"].lower())
 
-    @patch(
-        "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client"
-    )
+    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
     @patch("frappe.log_error")
     def test_create_mandate_for_member_api_error(self, mock_log_error, mock_client_prop):
         """Test mandate creation handles API errors gracefully."""

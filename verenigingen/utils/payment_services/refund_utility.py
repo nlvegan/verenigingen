@@ -436,9 +436,7 @@ def get_donation_refund_info(donation_name: str) -> Dict[str, Any]:
 
         # Check if any original payments can be refunded
         can_refund = any(
-            is_valid_mollie_payment_id(pe.reference_no)
-            for pe in original_payments
-            if pe.docstatus == 1
+            is_valid_mollie_payment_id(pe.reference_no) for pe in original_payments if pe.docstatus == 1
         )
 
         return _create_success_response(
