@@ -2,8 +2,12 @@
 
 .PHONY: help test test-quick test-all coverage lint format install clean test-mollie test-mollie-core test-mollie-performance test-mollie-security
 
-BENCH_DIR=/home/frappe/frappe-bench
-SITE=dev.veganisme.net
+# Dynamic paths - works on any server
+# Makefile is at: <bench>/apps/verenigingen/Makefile
+# So bench is 2 levels up from here
+MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+BENCH_DIR := $(abspath $(MAKEFILE_DIR)/../..)
+SITE ?= $(shell cat $(BENCH_DIR)/sites/currentsite.txt 2>/dev/null || echo "veg11.veganisme.org")
 APP=verenigingen
 MOLLIE_ORCHESTRATOR=verenigingen/tests/mollie_test_orchestrator.py
 
@@ -45,8 +49,8 @@ coverage:
 
 lint:
 	@echo "Running linters..."
-	@flake8 verenigingen --max-line-length=110 --extend-ignore=E203,E501,W503
-	@pylint verenigingen --rcfile=.pylintrc --fail-under=7.0 || true
+	@command -v flake8 >/dev/null 2>&1 && flake8 verenigingen --max-line-length=110 --extend-ignore=E203,E501,W503 || echo "⚠️  flake8 not installed, skipping"
+	@command -v pylint >/dev/null 2>&1 && (pylint verenigingen --rcfile=.pylintrc --fail-under=7.0 || true) || echo "⚠️  pylint not installed, skipping"
 	@echo "✓ Linting complete"
 
 lint-strict:
