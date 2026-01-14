@@ -3,9 +3,8 @@
 Test Quality Enforcement Script
 ==============================
 
-Pre-commit hook to prevent problematic testing patterns that create false confidence.
-This script blocks new mock abuse, permission bypasses, and ensures compliance with
-testing standards established in the Testing Reformation Plan.
+Pre-commit hook to enforce tiered testing standards based on test type.
+Implements the testing strategy from TESTING_STANDARDS.md.
 
 Usage:
     python scripts/validation/test_quality_enforcer.py [files...]
@@ -15,12 +14,19 @@ Exit codes:
     1: Validation failures found
     2: Script error
 
-Validation Rules:
-- Block new database operation mocks
-- Require justification for external service mocks
-- Prevent permission bypasses in test files
-- Enforce Enhanced Test Factory usage for integration tests
-- Validate field references against DocType schemas
+Tiered Validation Rules:
+- Tier 1 (Unit tests): Mocks allowed for isolated service testing
+  - Path: tests/unit/ or *_unit.py or *_unit_test.py
+  - Database mocks permitted for testing pure business logic
+
+- Tier 2 (Integration tests): External mocks only
+  - Path: tests/integration/ or tests/ (default) or *_integration.py
+  - Database mocks BLOCKED - use real operations with Enhanced Test Factory
+  - External service mocks (email, HTTP, etc.) allowed with justification
+
+- Tier 3 (Security tests): No mocking permitted
+  - Path: tests/security/ or *_security.py or *_permission*.py
+  - ALL mocks blocked - must test real permission boundaries
 """
 
 import os
@@ -31,33 +37,41 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
 
+class TestTier:
+    """Test tier enumeration"""
+    UNIT = 1        # Unit tests - mocks allowed
+    INTEGRATION = 2  # Integration tests - external mocks only
+    SECURITY = 3     # Security tests - no mocks allowed
+
+
 class TestQualityEnforcer:
-    """Enforces test quality standards and blocks problematic patterns"""
-    
+    """Enforces tiered test quality standards"""
+
     def __init__(self):
         self.errors = []
         self.warnings = []
-        
-        # Prohibited mock patterns (refined to avoid false positives)
-        self.prohibited_mocks = [
-            # Core database operations that must never be mocked
+
+        # Database operation mock patterns (blocked in Tier 2+)
+        self.database_mocks = [
             r"patch\s*\(\s*['\"]frappe\.get_doc['\"]",
             r"patch\s*\(\s*['\"]frappe\.get_all['\"]",
             r"patch\s*\(\s*['\"]frappe\.db\.exists['\"]",
             r"patch\s*\(\s*['\"]frappe\.db\.set_value['\"]",
             r"patch\s*\(\s*['\"]frappe\.db\.sql['\"]",
             r"patch\s*\(\s*['\"]frappe\.db\.get_list['\"]",
-            r"patch\s*\(\s*['\"]frappe\.db\.count['\"]"
+            r"patch\s*\(\s*['\"]frappe\.db\.count['\"]",
+            r"patch\s*\(\s*['\"]frappe\.db\.get_value['\"]",
+            r"patch\s*\(\s*['\"]frappe\.new_doc['\"]",
         ]
-        
-        # Configuration access patterns (allowed for external service config)
+
+        # Configuration access patterns (always allowed - external service config)
         self.allowed_config_mocks = [
             r"frappe\.db\.get_single_value.*Settings",
             r"frappe\.db\.get_global_config",
-            r"frappe\.db\.get_single.*Settings"
+            r"frappe\.db\.get_single.*Settings",
         ]
-        
-        # Mock justification taxonomy - categorized by justification type
+
+        # External service mocks (allowed in Tier 1 & 2, blocked in Tier 3)
         self.external_service_mocks = [
             r"patch\s*\(\s*['\"]frappe\.sendmail['\"]",  # Email service
             r"patch\s*\(\s*['\"]requests\.post['\"]",    # HTTP requests
@@ -90,37 +104,85 @@ class TestQualityEnforcer:
             r"frappe\.session\.user\s*=\s*['\"]Administrator['\"]" # Direct session manipulation
         ]
 
+    def _determine_test_tier(self, file_path: str) -> int:
+        """
+        Determine which testing tier a file belongs to.
+
+        Tier 1 (Unit): tests/unit/, *_unit.py, *_unit_test.py
+        Tier 2 (Integration): tests/integration/, tests/, *_integration.py (default)
+        Tier 3 (Security): tests/security/, *_security.py, *_permission*.py
+        """
+        path_lower = file_path.lower()
+        name = Path(file_path).name.lower()
+
+        # Tier 3: Security tests - most restrictive
+        if any([
+            "tests/security/" in path_lower,
+            "/security/tests/" in path_lower,
+            name.endswith("_security.py"),
+            name.endswith("_security_test.py"),
+            "permission" in name and "test" in name,
+        ]):
+            return TestTier.SECURITY
+
+        # Tier 1: Unit tests - least restrictive
+        if any([
+            "tests/unit/" in path_lower,
+            "/unit/tests/" in path_lower,
+            name.endswith("_unit.py"),
+            name.endswith("_unit_test.py"),
+        ]):
+            return TestTier.UNIT
+
+        # Tier 2: Integration tests - default for everything else
+        return TestTier.INTEGRATION
+
+    def _get_tier_name(self, tier: int) -> str:
+        """Get human-readable tier name"""
+        return {
+            TestTier.UNIT: "Unit (Tier 1)",
+            TestTier.INTEGRATION: "Integration (Tier 2)",
+            TestTier.SECURITY: "Security (Tier 3)",
+        }.get(tier, "Unknown")
+
     def validate_file(self, file_path: str) -> bool:
-        """Validate a single test file against quality standards"""
+        """Validate a single test file against tiered quality standards"""
         if not self._is_test_file(file_path):
             return True
-            
+
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
-                
+
+            # Determine which tier this test belongs to
+            tier = self._determine_test_tier(file_path)
             file_valid = True
-            
-            # Check for prohibited mock patterns
-            file_valid &= self._check_prohibited_mocks(file_path, content)
-            
-            # Check for never-mock business logic patterns
+
+            # Apply tier-specific validation rules
+            if tier == TestTier.SECURITY:
+                # Tier 3: Block ALL mocks
+                file_valid &= self._check_all_mocks_blocked(file_path, content)
+            elif tier == TestTier.INTEGRATION:
+                # Tier 2: Block database mocks, allow external service mocks
+                file_valid &= self._check_database_mocks(file_path, content)
+                file_valid &= self._check_mock_justifications(file_path, content)
+            # Tier 1 (Unit): All mocks allowed - no mock checks
+
+            # Always check for business logic mocks (never allowed in any tier)
             file_valid &= self._check_never_mock_patterns(file_path, content)
-            
-            # Check for permission bypasses
+
+            # Check for permission bypasses (context-aware)
             file_valid &= self._check_permission_bypasses(file_path, content)
-            
-            # Check mock justifications
-            file_valid &= self._check_mock_justifications(file_path, content)
-            
+
             # Check Enhanced Test Factory usage for integration tests
-            file_valid &= self._check_enhanced_test_factory_usage(file_path, content)
-            
+            if tier == TestTier.INTEGRATION:
+                file_valid &= self._check_enhanced_test_factory_usage(file_path, content)
+
             # Validate field references
             file_valid &= self._check_field_references(file_path, content)
-            
+
             return file_valid
-            
+
         except Exception as e:
             self.errors.append(f"{file_path}: Error reading file - {str(e)}")
             return False
@@ -139,31 +201,55 @@ class TestQualityEnforcer:
         
         return any(test_indicators) and path.suffix == '.py'
 
-    def _check_prohibited_mocks(self, file_path: str, content: str) -> bool:
-        """Check for prohibited database operation mocks"""
+    def _check_database_mocks(self, file_path: str, content: str) -> bool:
+        """Check for database operation mocks (blocked in Tier 2 integration tests)"""
         valid = True
-        lines = content.split('\n')
-        
+        lines = content.split("\n")
+
         for line_num, line in enumerate(lines, 1):
-            # Check if line contains any prohibited mock patterns
-            for pattern in self.prohibited_mocks:
+            for pattern in self.database_mocks:
                 if re.search(pattern, line, re.IGNORECASE):
                     # Check if this is an allowed configuration access pattern
-                    is_allowed = False
-                    for allowed_pattern in self.allowed_config_mocks:
-                        if re.search(allowed_pattern, line, re.IGNORECASE):
-                            is_allowed = True
-                            break
-                    
+                    is_allowed = any(
+                        re.search(allowed_pattern, line, re.IGNORECASE)
+                        for allowed_pattern in self.allowed_config_mocks
+                    )
+
                     if not is_allowed:
                         self.errors.append(
-                            f"{file_path}:{line_num}: PROHIBITED mock pattern detected: {line.strip()}\n"
+                            f"{file_path}:{line_num}: DATABASE MOCK in integration test: {line.strip()}\n"
                             f"  -> Database operations must not be mocked in integration tests\n"
                             f"  -> Use real database operations with Enhanced Test Factory\n"
-                            f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns"
+                            f"  -> Move to tests/unit/ if testing isolated service logic\n"
+                            f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md"
                         )
                         valid = False
-                    
+
+        return valid
+
+    def _check_all_mocks_blocked(self, file_path: str, content: str) -> bool:
+        """Check that NO mocks are used (Tier 3 security tests)"""
+        valid = True
+        lines = content.split("\n")
+
+        # Any patch() call is forbidden in security tests
+        mock_pattern = r"@?patch\s*\("
+
+        for line_num, line in enumerate(lines, 1):
+            # Skip comments
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+
+            if re.search(mock_pattern, line, re.IGNORECASE):
+                self.errors.append(
+                    f"{file_path}:{line_num}: MOCK in security test: {line.strip()}\n"
+                    f"  -> Security/permission tests must NOT use any mocks\n"
+                    f"  -> Test real permission boundaries with actual users/roles\n"
+                    f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md (Tier 3)"
+                )
+                valid = False
+
         return valid
 
     def _check_never_mock_patterns(self, file_path: str, content: str) -> bool:
@@ -299,37 +385,26 @@ class TestQualityEnforcer:
         return valid
 
     def _check_enhanced_test_factory_usage(self, file_path: str, content: str) -> bool:
-        """Check that integration tests use Enhanced Test Factory"""
-        # Skip this check for unit tests
-        if 'unit/' in file_path or '_unit.py' in file_path:
-            return True
-            
+        """Check that integration tests use Enhanced Test Factory (Tier 2 only)"""
         valid = True
-        
-        # Check for integration test indicators
-        integration_indicators = [
-            'integration/',
-            'test_.*_integration.py',
-            '_integration.py',
-            'test_.*_real.py',
-            '_real.py'
-        ]
-        
-        is_integration_test = any(re.search(indicator, file_path) 
-                                 for indicator in integration_indicators)
-        
-        if is_integration_test:
-            # Check for Enhanced Test Factory usage
-            if 'from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase' not in content:
-                if 'class Test' in content and 'TestCase' in content:
-                    self.errors.append(
-                        f"{file_path}: Integration test must use Enhanced Test Factory\n"
-                        f"  -> Import: from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase\n"
-                        f"  -> Inherit from: class TestMyFeature(EnhancedTestCase)\n"
-                        f"  -> See docs/testing/TESTING_STANDARDS.md for examples"
-                    )
-                    valid = False
-                    
+
+        # Check for Enhanced Test Factory usage in integration tests
+        has_test_class = "class Test" in content and "TestCase" in content
+        has_enhanced_factory = (
+            "from verenigingen.tests.fixtures.enhanced_test_factory import" in content
+            or "EnhancedTestCase" in content
+            or "IntegrationTestCase" in content
+        )
+
+        if has_test_class and not has_enhanced_factory:
+            self.warnings.append(
+                f"{file_path}: Integration test should use Enhanced Test Factory\n"
+                f"  -> Import: from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase\n"
+                f"  -> Or use IntegrationTestCase base class\n"
+                f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md"
+            )
+            # Downgrade to warning - not blocking
+
         return valid
 
     def _check_field_references(self, file_path: str, content: str) -> bool:

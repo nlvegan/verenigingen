@@ -344,24 +344,32 @@ class FrappeHooksValidator:
                 print()
 
 
+def _get_default_app_path() -> str:
+    """Determine the app path dynamically based on script location"""
+    script_path = Path(__file__).resolve()
+    # Script is at: apps/verenigingen/scripts/validation/archived/frappe_hooks_validator.py
+    # App root is: apps/verenigingen/
+    return str(script_path.parent.parent.parent.parent)
+
+
 def main():
     """Main entry point"""
     import sys
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Validate hooks and event handlers")
     parser.add_argument(
         "--app-path",
-        default="/home/frappe/frappe-bench/apps/verenigingen",
-        help="Path to the app directory"
+        default=_get_default_app_path(),
+        help="Path to the app directory",
     )
-    
+
     args = parser.parse_args()
-    
+
     validator = FrappeHooksValidator(args.app_path)
     issues = validator.validate()
     validator.print_summary()
-    
+
     # Exit with error if issues found
     if issues:
         sys.exit(1)
