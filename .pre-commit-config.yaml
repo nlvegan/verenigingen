@@ -345,7 +345,7 @@ repos:
         description: Validate JavaScript to Python API parameter consistency
         entry: python scripts/validation/production/js_python_parameter_validator_enhanced.py
         language: system
-        pass_filenames: true
+        pass_filenames: false
         files: '\.(js|py)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.(js|py)|debug_|.*_debug\.(js|py)|scripts/testing/|scripts/debug/|node_modules/|archived_.*)'

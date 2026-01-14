@@ -4,6 +4,13 @@
 
 set -e
 
+# Check if bandit is installed
+if ! command -v bandit &> /dev/null; then
+    echo "⚠️  Bandit not installed. Skipping security scan."
+    echo "   Install with: pip install bandit"
+    exit 0
+fi
+
 echo "🔍 Running focused bandit security scan..."
 
 # Core application files (security-critical)
