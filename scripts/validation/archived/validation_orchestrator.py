@@ -40,10 +40,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Add parent folder for import_path_validator (moved out of archived)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Import validators - using superior AST analyzer for field validation
+# Import import_path_validator FIRST - other validators modify sys.path on import
+from import_path_validator import ImportPathValidator, ImportViolation
+
+# Import other validators - these modify sys.path during import so must come after
 from ast_field_analyzer_improved_complete import ASTFieldAnalyzer, ValidationIssue
 from select_field_value_validator import SelectFieldValueValidator, SelectFieldViolation
-from import_path_validator import ImportPathValidator, ImportViolation
 
 
 @dataclass
