@@ -3,6 +3,16 @@ Role-Based Access Control and Authorization System for SEPA Operations
 
 This module provides comprehensive authorization checks, role-based access control,
 and permission validation for sensitive SEPA operations with granular controls.
+
+CONSOLIDATION NOTE:
+As of January 2026, SEPA authorization now uses Role Profiles for consistency
+with the main API Security Framework. The ROLE_PROFILE_PERMISSIONS mapping uses
+the same Role Profile names as authorization_policy.py's ROLE_PROFILE_SECURITY_MAPPING.
+
+Role Profile-based authorization:
+- Uses User.role_profile_name (direct assignment)
+- Cached with 5-minute TTL via authorization_engine.py
+- Aligns with the 7-rule authorization decision chain
 """
 
 from enum import Enum
@@ -14,6 +24,7 @@ from frappe import _
 
 from verenigingen.utils.error_handling import PermissionError as VerenigingenPermissionError, log_error
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, log_security_event
+from verenigingen.utils.security.authorization_engine import get_authorization_engine
 from verenigingen.utils.security.types import OperationType
 
 
@@ -63,12 +74,28 @@ class SEPAAuthorizationManager:
     """
     Comprehensive authorization manager for SEPA operations
 
-    Provides role-based access control with granular permissions,
+    Provides Role Profile-based access control with granular permissions,
     context-aware authorization, and audit logging.
+
+    CONSOLIDATION: Now uses Role Profile names that align with
+    authorization_policy.py's ROLE_PROFILE_SECURITY_MAPPING.
     """
 
-    # Role-based permission matrix
-    ROLE_PERMISSIONS = {
+    # Role Profile-based permission matrix
+    # Keys are Role Profile names from User.role_profile_name
+    # Also includes individual Frappe role names for backwards compatibility
+    # (used by the fallback in get_user_permissions() when no role profile matches)
+    #
+    # Aligns with authorization_policy.py's ROLE_PROFILE_SECURITY_MAPPING
+    ROLE_PROFILE_PERMISSIONS = {
+        # =========================================================================
+        # Frappe System Roles (backwards compatibility)
+        # =========================================================================
+        # These entries allow users with individual Frappe roles (but no role
+        # profile assignment) to still access SEPA operations via the backwards
+        # compatibility fallback in get_user_permissions().
+        #
+        # System Manager: Frappe's built-in admin role - full SEPA access
         "System Manager": [
             SEPAPermissionLevel.READ,
             SEPAPermissionLevel.VALIDATE,
@@ -77,6 +104,24 @@ class SEPAAuthorizationManager:
             SEPAPermissionLevel.ADMIN,
             SEPAPermissionLevel.AUDIT,
         ],
+        # Verenigingen Governance Auditor: Individual Frappe role for audit access
+        "Verenigingen Governance Auditor": [
+            SEPAPermissionLevel.READ,
+            SEPAPermissionLevel.AUDIT,
+        ],
+        # =========================================================================
+        # Verenigingen Role Profiles (primary authorization)
+        # =========================================================================
+        # System Administrator: Full access to all SEPA operations
+        "Verenigingen System Administrator": [
+            SEPAPermissionLevel.READ,
+            SEPAPermissionLevel.VALIDATE,
+            SEPAPermissionLevel.CREATE,
+            SEPAPermissionLevel.PROCESS,
+            SEPAPermissionLevel.ADMIN,
+            SEPAPermissionLevel.AUDIT,
+        ],
+        # Administrator: Full operational access, no system admin
         "Verenigingen Administrator": [
             SEPAPermissionLevel.READ,
             SEPAPermissionLevel.VALIDATE,
@@ -84,12 +129,7 @@ class SEPAAuthorizationManager:
             SEPAPermissionLevel.PROCESS,
             SEPAPermissionLevel.AUDIT,
         ],
-        "Verenigingen Staff": [
-            SEPAPermissionLevel.READ,
-            SEPAPermissionLevel.VALIDATE,
-            SEPAPermissionLevel.CREATE,
-            SEPAPermissionLevel.PROCESS,
-        ],
+        # Treasurer: Full financial access including audit
         "Verenigingen Treasurer": [
             SEPAPermissionLevel.READ,
             SEPAPermissionLevel.VALIDATE,
@@ -97,8 +137,36 @@ class SEPAAuthorizationManager:
             SEPAPermissionLevel.PROCESS,
             SEPAPermissionLevel.AUDIT,
         ],
-        "Verenigingen Governance Auditor": [SEPAPermissionLevel.READ, SEPAPermissionLevel.AUDIT],
+        # National Board Member: Full operational access for national oversight
+        "Verenigingen National Board Member": [
+            SEPAPermissionLevel.READ,
+            SEPAPermissionLevel.VALIDATE,
+            SEPAPermissionLevel.CREATE,
+            SEPAPermissionLevel.PROCESS,
+            SEPAPermissionLevel.AUDIT,
+        ],
+        # Staff: Operational access without audit
+        "Verenigingen Staff": [
+            SEPAPermissionLevel.READ,
+            SEPAPermissionLevel.VALIDATE,
+            SEPAPermissionLevel.CREATE,
+            SEPAPermissionLevel.PROCESS,
+        ],
+        # Chapter Board Member: Limited to read and validate
+        "Verenigingen Chapter Board Member": [
+            SEPAPermissionLevel.READ,
+            SEPAPermissionLevel.VALIDATE,
+        ],
+        # Auditor: Read-only with audit access (was "Verenigingen Governance Auditor")
+        "Verenigingen Auditor": [
+            SEPAPermissionLevel.READ,
+            SEPAPermissionLevel.AUDIT,
+        ],
     }
+
+    # Legacy alias for backwards compatibility during transition
+    # TODO: Remove after verifying all usages are updated
+    ROLE_PERMISSIONS = ROLE_PROFILE_PERMISSIONS
 
     # Operation permission requirements
     OPERATION_REQUIREMENTS = {
@@ -168,27 +236,43 @@ class SEPAAuthorizationManager:
 
     def get_user_permissions(self, user: str = None) -> List[SEPAPermissionLevel]:
         """
-        Get SEPA permission levels for user based on roles
+        Get SEPA permission levels for user based on Role Profiles.
+
+        Uses the authorization engine's cached role profile lookup for consistency
+        with the main API Security Framework.
 
         Args:
             user: User email (defaults to current user)
 
         Returns:
-            List of permission levels
+            List of permission levels granted by the user's Role Profile
         """
         if not user:
             user = frappe.session.user
 
+        # System users (Administrator, System) always have all permissions
         if user in ["Administrator", "System"]:
             return list(SEPAPermissionLevel)
 
         try:
-            user_roles = frappe.get_roles(user)
+            # Get user's role profiles from the authorization engine (cached)
+            auth_engine = get_authorization_engine()
+            user_role_profiles = auth_engine.get_user_role_profiles(user)
             permissions = set()
 
-            for role in user_roles:
-                if role in self.ROLE_PERMISSIONS:
-                    permissions.update(self.ROLE_PERMISSIONS[role])
+            # Check each assigned role profile
+            for role_profile in user_role_profiles:
+                if role_profile in self.ROLE_PROFILE_PERMISSIONS:
+                    permissions.update(self.ROLE_PROFILE_PERMISSIONS[role_profile])
+
+            # Fallback: Also check individual roles for backwards compatibility
+            # This allows users with matching role names (but no role profile) to still work
+            # TODO: Remove this fallback after migration is complete
+            if not permissions:
+                user_roles = frappe.get_roles(user)
+                for role in user_roles:
+                    if role in self.ROLE_PROFILE_PERMISSIONS:
+                        permissions.update(self.ROLE_PROFILE_PERMISSIONS[role])
 
             return list(permissions)
 
@@ -553,16 +637,20 @@ def require_sepa_admin(func):
 def get_user_sepa_permissions(user: str = None):
     # Utility operation: SEPA permission retrieval
     """
-    Get SEPA permissions for user
+    Get SEPA permissions for user based on Role Profile assignment.
+
+    Permissions are now determined by the user's Role Profile (User.role_profile_name)
+    rather than individual role memberships.
 
     Args:
         user: User email (defaults to current user)
 
     Returns:
-        Dictionary with user permissions
+        Dictionary with user permissions, role profiles, and available operations
     """
     try:
         auth_manager = get_auth_manager()
+        auth_engine = get_authorization_engine()
 
         if not user:
             user = frappe.session.user
@@ -574,7 +662,8 @@ def get_user_sepa_permissions(user: str = None):
                 frappe.throw(_("Access denied"), frappe.PermissionError)
 
         permissions = auth_manager.get_user_permissions(user)
-        user_roles = frappe.get_roles(user)
+        user_role_profiles = auth_engine.get_user_role_profiles(user)
+        user_roles = frappe.get_roles(user)  # Include for backwards compatibility
 
         # Get available operations
         available_operations = {}
@@ -585,7 +674,8 @@ def get_user_sepa_permissions(user: str = None):
             "success": True,
             "user": user,
             "permissions": [p.value for p in permissions],
-            "roles": user_roles,
+            "role_profiles": user_role_profiles,  # Primary: Role Profile-based auth
+            "roles": user_roles,  # Legacy: kept for backwards compatibility
             "available_operations": available_operations,
         }
 
@@ -676,7 +766,9 @@ def setup_authorization():
         AuditEventType.CONFIGURATION_CHANGE.value,
         details={
             "configuration_type": "authorization_system_initialized",
-            "role_permissions": {k: [p.value for p in v] for k, v in _auth_manager.ROLE_PERMISSIONS.items()},
+            "role_profile_permissions": {
+                k: [p.value for p in v] for k, v in _auth_manager.ROLE_PROFILE_PERMISSIONS.items()
+            },
             "operation_requirements": {
                 k.value: v.value for k, v in _auth_manager.OPERATION_REQUIREMENTS.items()
             },
