@@ -44,10 +44,18 @@ from verenigingen.utils.security.environment_validator import (
     EnvironmentValidator,
     get_environment_validator,
 )
+from verenigingen.utils.security.frappe_whitelist_adapter import (
+    FrappeWhitelistAdapter,
+    get_frappe_whitelist_adapter,
+)
 from verenigingen.utils.security.input_validator import InputValidator, get_input_validator
 from verenigingen.utils.security.rate_limit_engine import (
     RateLimitEngine,
     get_rate_limit_engine,
+)
+from verenigingen.utils.security.self_service_access_controller import (
+    SelfServiceAccessController,
+    get_self_service_controller,
 )
 from verenigingen.utils.security.types import (
     AuditEventType,
@@ -60,194 +68,8 @@ from verenigingen.utils.security.types import (
 )
 from verenigingen.utils.validation.api_validators import APIValidator
 
-
-def _safe_debug_log(message: str) -> None:
-    """Safely log debug messages, handling cases where Frappe isn't fully initialized.
-
-    This is needed because decorators execute at import time, before Frappe has
-    a site context. frappe.logger() fails without a site context.
-    """
-    try:
-        # Check if we have a valid site context
-        if hasattr(frappe.local, "site") and frappe.local.site:
-            frappe.logger("verenigingen.security").debug(message)
-    except Exception:
-        # Silently ignore logging failures during import
-        pass
-
-
-# SecurityProfile is now imported from types.py for better modularity
-
-
-class FrappeWhitelistAdapter:
-    """
-    Façade for Frappe whitelist registration.
-
-    This class encapsulates the complex logic for registering decorated
-    functions with Frappe's whitelist system. It handles:
-    - Attribute preservation through decorator chains
-    - Adding wrappers to frappe.whitelisted collection
-    - Registering HTTP methods in allowed_http_methods_for_whitelisted_func
-
-    PHASE 1 NOTE: This façade is defined here to verify behavior. In Phase 3,
-    it will be moved to its own file (frappe_whitelist_adapter.py).
-
-    INVARIANTS:
-    - Never adds non-whitelisted functions to Frappe's whitelist (fail-closed)
-    - Preserves HTTP method restrictions from inner function
-    - Defaults to POST-only when no methods specified (security default)
-    """
-
-    def preserve_whitelist_attribute(self, wrapper: Callable, func: Callable) -> None:
-        """
-        Preserve __func_is_whitelisted__ attribute from inner function to wrapper.
-
-        This handles the complex chain of decorators and wrapped functions
-        that may occur in real-world usage.
-        """
-        # First, check direct attribute
-        if hasattr(func, "__func_is_whitelisted__"):
-            wrapper.__func_is_whitelisted__ = func.__func_is_whitelisted__
-            _safe_debug_log(f"Preserved __func_is_whitelisted__ from func: {func.__func_is_whitelisted__}")
-            return
-
-        # Check for allow_guest attribute (legacy pattern)
-        if hasattr(func, "allow_guest") and func.allow_guest:
-            wrapper.__func_is_whitelisted__ = True
-            _safe_debug_log("Set __func_is_whitelisted__ from allow_guest")
-            return
-
-        # Check wrapped function if exists
-        if hasattr(func, "__wrapped__"):
-            wrapped_func = func.__wrapped__
-            if hasattr(wrapped_func, "__func_is_whitelisted__"):
-                wrapper.__func_is_whitelisted__ = wrapped_func.__func_is_whitelisted__
-                _safe_debug_log(
-                    f"Preserved __func_is_whitelisted__ from wrapped: {wrapped_func.__func_is_whitelisted__}"
-                )
-                return
-
-            # Go deeper if needed
-            if hasattr(wrapped_func, "__wrapped__") and hasattr(
-                wrapped_func.__wrapped__, "__func_is_whitelisted__"
-            ):
-                wrapper.__func_is_whitelisted__ = wrapped_func.__wrapped__.__func_is_whitelisted__
-                _safe_debug_log(
-                    f"Preserved __func_is_whitelisted__ from deep wrapped: {wrapped_func.__wrapped__.__func_is_whitelisted__}"
-                )
-                return
-
-        # Fallback: check if function is in Frappe's whitelist registry
-        if not hasattr(wrapper, "__func_is_whitelisted__"):
-            method_path = f"{func.__module__}.{func.__name__}"
-            if method_path in getattr(frappe, "_whitelisted_methods", set()):
-                wrapper.__func_is_whitelisted__ = True
-                _safe_debug_log(f"Set __func_is_whitelisted__ from whitelist registry for {method_path}")
-            else:
-                # SECURITY FIX: Fail-closed behavior - do NOT assume whitelisted
-                frappe.logger("verenigingen.api_security").warning(
-                    f"Security decorator applied to function {method_path} which is not in "
-                    f"Frappe's whitelist registry. Function will NOT be treated as whitelisted. "
-                    f"Ensure @frappe.whitelist() is applied BEFORE security decorators."
-                )
-                _safe_debug_log(f"Fail-closed: NOT setting __func_is_whitelisted__ for {method_path}")
-
-    def preserve_common_attributes(self, wrapper: Callable, func: Callable) -> None:
-        """Preserve other common Frappe attributes from inner function."""
-        for attr in ["allow_guest", "_original_func_name"]:
-            if hasattr(func, attr):
-                setattr(wrapper, attr, getattr(func, attr))
-
-    def is_inner_whitelisted(self, func: Callable) -> bool:
-        """Check if the inner function was whitelisted."""
-        if not hasattr(frappe, "whitelisted"):
-            return False
-        return (
-            func in frappe.whitelisted
-            or getattr(func, "__func_is_whitelisted__", False)
-            or (hasattr(func, "__wrapped__") and func.__wrapped__ in frappe.whitelisted)
-        )
-
-    def register_wrapper_in_whitelist(self, wrapper: Callable, func: Callable) -> None:
-        """
-        Add wrapper to Frappe's whitelist collection.
-
-        Frappe's is_whitelisted() checks `if method not in whitelisted`,
-        NOT function attributes. We must explicitly add our wrapper.
-        """
-        if not hasattr(frappe, "whitelisted"):
-            return
-
-        if self.is_inner_whitelisted(func):
-            # Handle both set and list types (Frappe version differences)
-            if isinstance(frappe.whitelisted, set):
-                frappe.whitelisted.add(wrapper)
-            elif isinstance(frappe.whitelisted, list):
-                if wrapper not in frappe.whitelisted:
-                    frappe.whitelisted.append(wrapper)
-            _safe_debug_log(f"Added wrapper to frappe.whitelisted for {func.__name__}")
-
-    def get_allowed_http_methods(self, func: Callable) -> Optional[List[str]]:
-        """Get allowed HTTP methods for a function from Frappe's registry."""
-        if not hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
-            return None
-
-        http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
-
-        if func in http_methods_dict:
-            return http_methods_dict[func]
-        if hasattr(func, "__wrapped__") and func.__wrapped__ in http_methods_dict:
-            return http_methods_dict[func.__wrapped__]
-
-        return None
-
-    def register_http_methods(self, wrapper: Callable, func: Callable) -> None:
-        """
-        Register allowed HTTP methods for wrapper in Frappe's dict.
-
-        SECURITY: Defaults to POST-only when no methods are specified.
-        """
-        if not hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
-            return
-
-        http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
-        allowed_methods = self.get_allowed_http_methods(func)
-
-        if allowed_methods is not None:
-            http_methods_dict[wrapper] = allowed_methods
-            _safe_debug_log(
-                f"Added wrapper to allowed_http_methods_for_whitelisted_func for {func.__name__}: {allowed_methods}"
-            )
-        elif self.is_inner_whitelisted(func):
-            # SECURITY FIX: Default to POST only for stricter security
-            http_methods_dict[wrapper] = ["POST"]
-            _safe_debug_log(
-                f"Added wrapper to allowed_http_methods_for_whitelisted_func with "
-                f"security default (POST only) for {func.__name__}"
-            )
-
-    def register_wrapper(self, wrapper: Callable, func: Callable) -> None:
-        """
-        Complete registration of wrapper with Frappe's whitelist system.
-
-        This is the main entry point that performs all registration steps.
-        """
-        self.preserve_whitelist_attribute(wrapper, func)
-        self.preserve_common_attributes(wrapper, func)
-        self.register_wrapper_in_whitelist(wrapper, func)
-        self.register_http_methods(wrapper, func)
-
-
-# Singleton instance for convenience
-_frappe_whitelist_adapter = None
-
-
-def get_frappe_whitelist_adapter() -> FrappeWhitelistAdapter:
-    """Get singleton FrappeWhitelistAdapter instance."""
-    global _frappe_whitelist_adapter
-    if _frappe_whitelist_adapter is None:
-        _frappe_whitelist_adapter = FrappeWhitelistAdapter()
-    return _frappe_whitelist_adapter
+# FrappeWhitelistAdapter is now imported from frappe_whitelist_adapter.py (Phase 3 refactoring)
+# SecurityProfile is imported from types.py for better modularity
 
 
 class APISecurityFramework:
@@ -348,6 +170,7 @@ class APISecurityFramework:
         audit_emitter: AuditEmitter = None,
         input_validator: InputValidator = None,
         environment_validator: EnvironmentValidator = None,
+        self_service_controller: SelfServiceAccessController = None,
     ):
         """
         Initialize the security framework with injectable components.
@@ -361,6 +184,7 @@ class APISecurityFramework:
             audit_emitter: Audit emitter (uses singleton if None)
             input_validator: Input validator (uses singleton if None)
             environment_validator: Environment validator (uses singleton if None)
+            self_service_controller: Self-service access controller (uses singleton if None)
         """
         # Injectable components with sensible defaults
         self.auth_engine = auth_engine or get_authorization_engine()
@@ -368,6 +192,7 @@ class APISecurityFramework:
         self.audit_emitter = audit_emitter or get_audit_emitter()
         self.input_validator = input_validator or get_input_validator()
         self.environment_validator = environment_validator or get_environment_validator()
+        self.self_service_controller = self_service_controller or get_self_service_controller()
 
         # Legacy components (keeping for backwards compatibility)
         self.audit_logger = None  # Lazy initialization
@@ -900,147 +725,20 @@ class APISecurityFramework:
         return self.input_validator.validate_list(data, max_length)
 
     def _validate_self_service_access(self, **kwargs) -> bool:
-        """Validate that user can only access their own data in self-service operations"""
-        current_user = frappe.session.user
+        """
+        Validate that user can only access their own data in self-service operations.
 
-        # Skip validation for system users
-        if current_user in ("Administrator", "Guest"):
-            return True
-
-        # Get user's member record
-        try:
-            user_member = frappe.db.get_value("Member", {"email": current_user}, "name")
-        except Exception:
-            user_member = None
-
-        # Check various patterns for member identification in kwargs
-        target_member = None
-        member_fields = ["member", "member_name", "member_id", "volunteer"]
-
-        for field in member_fields:
-            if field in kwargs and kwargs[field]:
-                if field == "volunteer":
-                    # For volunteer operations, get the linked member
-                    try:
-                        volunteer_doc = frappe.get_doc("Volunteer", kwargs[field])
-                        if hasattr(volunteer_doc, "member") and volunteer_doc.member:
-                            target_member = volunteer_doc.member
-                    except Exception:
-                        pass
-                else:
-                    target_member = kwargs[field]
-                break
-
-        # SECURITY FIX: Handle implicit self-service operations more carefully
-        if not target_member:
-            # For truly implicit self-service operations (like expense submission), validate carefully
-            if not user_member:
-                raise VPermissionError(
-                    _(
-                        "Access denied: No member record found for user. Self-service operations require valid member account."
-                    )
-                )
-
-            # Log this case for monitoring - implicit self-service should be rare
-            frappe.logger("verenigingen.api_security").info(
-                f"Implicit self-service operation detected for user {current_user}. "
-                f"Consider adding explicit member identification to API parameters for better security."
-            )
-
-            # Allow implicit self-service but only for users with valid member records
-            return True
-
-        # If we found a target member, validate access
-        if target_member and user_member:
-            if target_member != user_member:
-                raise VPermissionError(
-                    _("Access denied: You can only perform this operation on your own data")
-                )
-        elif target_member and not user_member:
-            raise VPermissionError(_("Access denied: Unable to verify member access for this user"))
-
-        return True
+        Delegates to SelfServiceAccessController.
+        """
+        return self.self_service_controller.validate_access(**kwargs)
 
     def _validate_self_service_request_content(self, user_member, **kwargs) -> bool:
         """
         Deep validation of request content for self-service operations.
-        This catches parameter tampering where users try to access other users' data.
+
+        Delegates to SelfServiceAccessController.
         """
-        violations = []
-
-        def inspect_data(data, path=""):
-            """Recursively inspect data for member/volunteer references"""
-            if isinstance(data, dict):
-                for key, value in data.items():
-                    current_path = f"{path}.{key}" if path else key
-
-                    # Check for member-related fields
-                    if key in ["member", "member_name", "member_id"]:
-                        if value and value != user_member:
-                            violations.append(
-                                {"field": current_path, "attempted_value": value, "user_member": user_member}
-                            )
-
-                    # Check for volunteer-related fields
-                    elif key in ["volunteer", "volunteer_name", "volunteer_id"]:
-                        if value:
-                            try:
-                                # Get member linked to this volunteer
-                                volunteer_member = frappe.db.get_value("Volunteer", value, "member")
-                                if volunteer_member and volunteer_member != user_member:
-                                    violations.append(
-                                        {
-                                            "field": current_path,
-                                            "attempted_value": value,
-                                            "linked_member": volunteer_member,
-                                            "user_member": user_member,
-                                        }
-                                    )
-                            except Exception:
-                                # If volunteer doesn't exist, that's also suspicious
-                                violations.append(
-                                    {
-                                        "field": current_path,
-                                        "attempted_value": value,
-                                        "error": "Invalid volunteer reference",
-                                    }
-                                )
-
-                    # Recursively check nested structures
-                    elif isinstance(value, (dict, list)):
-                        inspect_data(value, current_path)
-
-            elif isinstance(data, list):
-                for i, item in enumerate(data):
-                    inspect_data(item, f"{path}[{i}]")
-
-        # Inspect all parameters
-        for key, value in kwargs.items():
-            if isinstance(value, (dict, list)):
-                inspect_data(value, key)
-
-        # If violations found, log and raise error
-        if violations:
-            self._get_audit_logger().log_event(
-                AuditEventType.SELF_SERVICE_VIOLATION,
-                AuditSeverity.ERROR,
-                details={
-                    "user": frappe.session.user,
-                    "user_member": user_member,
-                    "violations": violations,
-                    "function": getattr(frappe.local, "form_dict", {}).get("cmd", "unknown"),
-                    "ip_address": self._get_client_ip(),
-                },
-            )
-
-            raise VPermissionError(
-                _(
-                    "Access denied: Self-service operations can only be performed on your own data. "
-                    "Attempted access to other member/volunteer data has been logged."
-                )
-            )
-
-        return True
+        return self.self_service_controller.validate_request_content(user_member, **kwargs)
 
     def check_critical_operation_integration(self, func: Callable, **kwargs) -> dict:
         """

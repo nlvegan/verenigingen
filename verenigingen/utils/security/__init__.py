@@ -17,6 +17,8 @@ Architecture (see docs/REFACTOR_API_SECURITY_FRAMEWORK.md):
 - environment_validator.py: Environment-based access control
 - rate_limit_engine.py: Rate limiting with COR integration
 - audit_emitter.py: Security audit event emission
+- frappe_whitelist_adapter.py: Façade for Frappe whitelist registration
+- self_service_access_controller.py: Self-service access validation with TOCTOU protection
 - api_security_framework.py: Orchestrator (uses all above)
 """
 
@@ -25,10 +27,8 @@ Architecture (see docs/REFACTOR_API_SECURITY_FRAMEWORK.md):
 # ============================================================================
 from .api_security_framework import (
     APISecurityFramework,
-    FrappeWhitelistAdapter,
     api_security_framework,
     critical_api,
-    get_frappe_whitelist_adapter,
     get_security_framework,
     high_security_api,
     public_api,
@@ -73,12 +73,22 @@ from .csrf_protection import CSRFProtection, require_csrf_token, setup_csrf_prot
 # I/O layer modules (depend on types, may use Frappe)
 # ============================================================================
 from .environment_validator import EnvironmentValidator, get_environment_validator
+
+# ============================================================================
+# Frappe Whitelist Adapter (extracted for modularity)
+# ============================================================================
+from .frappe_whitelist_adapter import FrappeWhitelistAdapter, get_frappe_whitelist_adapter
 from .input_validator import InputValidator, get_input_validator
 
 # ============================================================================
 # Rate Limit Engine (COR integration)
 # ============================================================================
 from .rate_limit_engine import RateLimitEngine, RateLimitResult, get_rate_limit_engine
+
+# ============================================================================
+# Self-Service Access Controller (TOCTOU protection)
+# ============================================================================
+from .self_service_access_controller import SelfServiceAccessController, get_self_service_controller
 from .types import (
     AuditEventType,
     AuditSeverity,
@@ -120,6 +130,9 @@ __all__ = [
     # Environment Validator
     "EnvironmentValidator",
     "get_environment_validator",
+    # Self-Service Access Controller
+    "SelfServiceAccessController",
+    "get_self_service_controller",
     # API Security Framework
     "APISecurityFramework",
     "api_security_framework",
