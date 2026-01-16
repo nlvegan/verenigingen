@@ -1667,9 +1667,16 @@ def api_security_framework(
                 wrapper.__func_is_whitelisted__ = True
                 _safe_debug_log(f"Set __func_is_whitelisted__ from whitelist registry for {method_path}")
             else:
-                # As a last resort, assume True since our decorator is typically only used on whitelisted functions
-                wrapper.__func_is_whitelisted__ = True
-                _safe_debug_log(f"Fallback: Set __func_is_whitelisted__ = True for {method_path}")
+                # SECURITY FIX: Fail-closed behavior - do NOT assume whitelisted
+                # If function is not in Frappe's whitelist registry, it should not be
+                # treated as whitelisted. This prevents accidental exposure of internal functions.
+                frappe.logger("verenigingen.api_security").warning(
+                    f"Security decorator applied to function {method_path} which is not in "
+                    f"Frappe's whitelist registry. Function will NOT be treated as whitelisted. "
+                    f"Ensure @frappe.whitelist() is applied BEFORE security decorators."
+                )
+                # Do NOT set __func_is_whitelisted__ - let Frappe reject if truly not whitelisted
+                _safe_debug_log(f"Fail-closed: NOT setting __func_is_whitelisted__ for {method_path}")
 
         # Also preserve other common Frappe attributes
         for attr in ["allow_guest", "_original_func_name"]:
@@ -1718,10 +1725,13 @@ def api_security_framework(
                     f"Added wrapper to allowed_http_methods_for_whitelisted_func for {func.__name__}: {allowed_methods}"
                 )
             elif "inner_was_whitelisted" in locals() and inner_was_whitelisted:
-                # Default to GET and POST if inner was whitelisted but not in http_methods dict
-                http_methods_dict[wrapper] = ["GET", "POST"]
+                # SECURITY FIX: Default to POST only for stricter security
+                # Mutation endpoints should not allow GET; read endpoints should explicitly
+                # declare their methods via @frappe.whitelist(methods=["GET"])
+                http_methods_dict[wrapper] = ["POST"]
                 _safe_debug_log(
-                    f"Added wrapper to allowed_http_methods_for_whitelisted_func with default methods for {func.__name__}"
+                    f"Added wrapper to allowed_http_methods_for_whitelisted_func with "
+                    f"security default (POST only) for {func.__name__}"
                 )
 
         return wrapper

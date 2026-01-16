@@ -64,6 +64,16 @@ ESCALATION_ALLOWED_ROLES = frozenset(
     ]
 )
 
+# Roles allowed to use bypass_validations parameter
+# This is more restrictive than escalation - only technical staff who understand
+# the security implications should be allowed to bypass validations
+BYPASS_VALIDATION_ALLOWED_ROLES = frozenset(
+    [
+        "System Manager",
+        "Verenigingen System Administrator",
+    ]
+)
+
 # Minimum justification length for audit compliance
 MIN_JUSTIFICATION_LENGTH = 10
 
@@ -133,6 +143,35 @@ def can_request_system_escalation(user: str = None) -> bool:
         return bool(user_roles & ESCALATION_ALLOWED_ROLES)
     except Exception as e:
         frappe.logger().warning(f"Could not check escalation permissions for user {user}: {e}")
+        return False
+
+
+def can_use_bypass_validations(user: str = None) -> bool:
+    """
+    Check if the specified user is allowed to use bypass_validations.
+
+    This is more restrictive than escalation permissions - only technical staff
+    who understand the security implications of bypassing validations should be
+    allowed to use this feature.
+
+    Args:
+        user: Username to check (defaults to current session user)
+
+    Returns:
+        True if user can use bypass_validations, False otherwise
+    """
+    if user is None:
+        user = frappe.session.user
+
+    # Administrator can always bypass validations
+    if user == "Administrator":
+        return True
+
+    try:
+        user_roles = set(frappe.get_roles(user))
+        return bool(user_roles & BYPASS_VALIDATION_ALLOWED_ROLES)
+    except Exception as e:
+        frappe.logger().warning(f"Could not check bypass_validations permissions for user {user}: {e}")
         return False
 
 
@@ -546,6 +585,7 @@ def secure_document_operation(
     4. Document state management
     5. Justification validation for audit compliance
     6. Role-based escalation gating
+    7. Role-based bypass_validations gating
 
     Args:
         operation: Operation to perform ("create", "save", "delete", etc.)
@@ -554,14 +594,16 @@ def secure_document_operation(
         required_permissions: Additional permissions to validate
         allow_system_user: Whether to fall back to system user if current user lacks permissions
         validate_business_rules: Whether to validate business rules before operation
-        bypass_validations: List of validations to bypass (e.g., ["link_validation"])
+        bypass_validations: List of validations to bypass (e.g., ["link_validation"]).
+            SECURITY: Only System Manager and Verenigingen System Administrator roles
+            can use this parameter.
 
     Returns:
         SecureOperationResult with success status and audit information
 
     Raises:
         frappe.ValidationError: If justification is invalid
-        frappe.PermissionError: If user cannot request escalation when needed
+        frappe.PermissionError: If user cannot request escalation or bypass_validations
         ConfigurationError: If system user is not properly configured
     """
     operation_id = f"{operation}_{doc.doctype}_{int(time.time() * 1000)}"
@@ -570,6 +612,20 @@ def secure_document_operation(
 
     # Step 0: Validate justification upfront for audit compliance
     validated_justification = validate_justification(justification, operation)
+
+    # Step 0.5: Validate role-gating for bypass_validations
+    # Only System Manager and Verenigingen System Administrator can use bypass_validations
+    if bypass_validations and not can_use_bypass_validations(original_user):
+        frappe.logger().warning(
+            f"SECURITY: User {original_user} attempted to use bypass_validations={bypass_validations} "
+            f"for {operation} on {doc.doctype} but lacks bypass privileges [{operation_id}]"
+        )
+        raise frappe.PermissionError(
+            _(
+                "You do not have permission to bypass validations. "
+                "This feature is restricted to System Administrators."
+            )
+        )
 
     result = SecureOperationResult(True, operation_id)
     result.add_audit_entry(

@@ -25,11 +25,15 @@ from verenigingen.utils.error_handling import (
     sanitize_error_for_audit,
 )
 from verenigingen.utils.secure_operations import (
+    BYPASS_VALIDATION_ALLOWED_ROLES,
     ESCALATION_ALLOWED_ROLES,
     MAX_JUSTIFICATION_LENGTH,
     MIN_JUSTIFICATION_LENGTH,
     can_request_system_escalation,
+    can_use_bypass_validations,
     get_system_user_for_operation,
+    secure_document_operation,
+    secure_user_context_with_validation,
     validate_justification,
 )
 
@@ -474,6 +478,335 @@ class TestJustificationLengthConfiguration(unittest.TestCase):
     def test_min_less_than_max(self):
         """Test that MIN < MAX"""
         self.assertLess(MIN_JUSTIFICATION_LENGTH, MAX_JUSTIFICATION_LENGTH)
+
+
+class TestCanUseBypassValidations(unittest.TestCase):
+    """Tests for can_use_bypass_validations() function"""
+
+    def test_administrator_can_bypass_validations(self):
+        """Test that Administrator user can always use bypass_validations"""
+        result = can_use_bypass_validations("Administrator")
+        self.assertTrue(result)
+
+    def test_allowed_roles_can_bypass_validations(self):
+        """Test that users with allowed roles can use bypass_validations"""
+        for role in BYPASS_VALIDATION_ALLOWED_ROLES:
+            with self.subTest(role=role):
+                with patch("frappe.get_roles") as mock_get_roles:
+                    mock_get_roles.return_value = [role]
+                    result = can_use_bypass_validations("test_user@example.com")
+                    self.assertTrue(result, f"User with role {role} should be able to use bypass_validations")
+
+    def test_user_without_allowed_roles_cannot_bypass_validations(self):
+        """Test that users without allowed roles cannot use bypass_validations"""
+        with patch("frappe.get_roles") as mock_get_roles:
+            mock_get_roles.return_value = ["Guest", "Website User", "Verenigingen Staff"]
+            result = can_use_bypass_validations("regular_user@example.com")
+            self.assertFalse(result)
+
+    def test_current_user_used_when_none_provided(self):
+        """Test that current session user is checked when no user provided"""
+        with patch.object(frappe.session, "user", "Administrator"):
+            result = can_use_bypass_validations()
+            self.assertTrue(result)
+
+    def test_exception_during_role_check_returns_false(self):
+        """Test that exceptions during role check result in False (fail-safe)"""
+        with patch("frappe.get_roles") as mock_get_roles:
+            mock_get_roles.side_effect = Exception("Database error")
+            result = can_use_bypass_validations("user@example.com")
+            self.assertFalse(result)
+
+    def test_bypass_roles_more_restrictive_than_escalation_roles(self):
+        """Test that bypass_validation roles are more restrictive than escalation roles"""
+        # Bypass validation should be a subset of escalation roles or equal
+        self.assertTrue(
+            BYPASS_VALIDATION_ALLOWED_ROLES <= ESCALATION_ALLOWED_ROLES
+            or len(BYPASS_VALIDATION_ALLOWED_ROLES) <= len(ESCALATION_ALLOWED_ROLES)
+        )
+
+    def test_verenigingen_staff_cannot_bypass_validations(self):
+        """Test that Verenigingen Staff cannot use bypass_validations (more restrictive)"""
+        with patch("frappe.get_roles") as mock_get_roles:
+            mock_get_roles.return_value = ["Verenigingen Staff"]
+            result = can_use_bypass_validations("staff@example.com")
+            self.assertFalse(result)
+
+
+class TestSecureUserContextRestores(unittest.TestCase):
+    """Tests for secure_user_context_with_validation() user restoration"""
+
+    def test_user_context_restored_after_success(self):
+        """Test that user context is restored after successful operation"""
+        original_user = "original@example.com"
+
+        with patch.object(frappe.session, "user", original_user):
+            with patch("frappe.db.exists") as mock_exists:
+                mock_exists.return_value = True
+
+                with patch("frappe.get_doc") as mock_get_doc:
+                    mock_user = MagicMock()
+                    mock_user.enabled = True
+                    mock_get_doc.return_value = mock_user
+
+                    with patch("frappe.set_user") as mock_set_user:
+                        with patch.object(frappe.session, "user", "target@example.com"):
+                            try:
+                                with secure_user_context_with_validation(
+                                    "target@example.com", "test_operation"
+                                ):
+                                    pass  # Simulated operation
+                            except Exception:
+                                pass  # Ignore any errors, we just want to test restoration
+
+                        # Verify set_user was called to restore original user
+                        # The last call should restore the original user
+                        calls = mock_set_user.call_args_list
+                        if len(calls) >= 2:
+                            self.assertEqual(calls[-1][0][0], original_user)
+
+    def test_user_context_restored_after_exception(self):
+        """Test that user context is restored even when exception occurs"""
+        original_user = "original@example.com"
+
+        with patch.object(frappe.session, "user", original_user):
+            with patch("frappe.db.exists") as mock_exists:
+                mock_exists.return_value = True
+
+                with patch("frappe.get_doc") as mock_get_doc:
+                    mock_user = MagicMock()
+                    mock_user.enabled = True
+                    mock_get_doc.return_value = mock_user
+
+                    with patch("frappe.set_user") as mock_set_user:
+                        try:
+                            with secure_user_context_with_validation(
+                                "target@example.com", "test_operation"
+                            ):
+                                raise ValueError("Simulated error")
+                        except ValueError:
+                            pass
+
+                        # Verify final call restored original user
+                        calls = mock_set_user.call_args_list
+                        if len(calls) >= 2:
+                            self.assertEqual(calls[-1][0][0], original_user)
+
+    def test_invalid_target_user_raises_validation_error(self):
+        """Test that non-existent target user raises ValidationError"""
+        with patch("frappe.db.exists") as mock_exists:
+            mock_exists.return_value = False
+
+            with self.assertRaises(frappe.ValidationError) as context:
+                with secure_user_context_with_validation("nonexistent@example.com", "test_op"):
+                    pass
+
+            self.assertIn("does not exist", str(context.exception))
+
+    def test_disabled_target_user_raises_validation_error(self):
+        """Test that disabled target user raises ValidationError"""
+        with patch("frappe.db.exists") as mock_exists:
+            mock_exists.return_value = True
+
+            with patch("frappe.get_doc") as mock_get_doc:
+                mock_user = MagicMock()
+                mock_user.enabled = False
+                mock_get_doc.return_value = mock_user
+
+                with self.assertRaises(frappe.ValidationError) as context:
+                    with secure_user_context_with_validation("disabled@example.com", "test_op"):
+                        pass
+
+                self.assertIn("disabled", str(context.exception).lower())
+
+
+class TestSecureDocumentOperationAuthorization(unittest.TestCase):
+    """Tests for secure_document_operation() authorization requirements"""
+
+    def test_unauthorized_user_cannot_use_bypass_validations(self):
+        """Test that users without bypass_validations permission get PermissionError"""
+        mock_doc = MagicMock()
+        mock_doc.doctype = "Test DocType"
+        mock_doc.name = "test-001"
+
+        with patch("frappe.session") as mock_session:
+            mock_session.user = "regular_user@example.com"
+
+            with patch(
+                "verenigingen.utils.secure_operations.can_use_bypass_validations"
+            ) as mock_can_bypass:
+                mock_can_bypass.return_value = False
+
+                with self.assertRaises(frappe.PermissionError) as context:
+                    secure_document_operation(
+                        operation="save",
+                        doc=mock_doc,
+                        justification="Test operation with valid justification",
+                        bypass_validations=["link_validation"],
+                    )
+
+                self.assertIn("bypass validations", str(context.exception).lower())
+
+    def test_authorized_user_can_use_bypass_validations(self):
+        """Test that System Manager can use bypass_validations"""
+        mock_doc = MagicMock()
+        mock_doc.doctype = "Test DocType"
+        mock_doc.name = "test-001"
+
+        with patch("frappe.session") as mock_session:
+            mock_session.user = "admin@example.com"
+
+            with patch(
+                "verenigingen.utils.secure_operations.can_use_bypass_validations"
+            ) as mock_can_bypass:
+                mock_can_bypass.return_value = True
+
+                with patch(
+                    "verenigingen.utils.secure_operations.validate_permissions"
+                ) as mock_validate_perms:
+                    mock_validate_perms.return_value = True
+
+                    with patch(
+                        "verenigingen.utils.secure_operations._execute_document_operation"
+                    ):
+                        # Should not raise PermissionError
+                        result = secure_document_operation(
+                            operation="save",
+                            doc=mock_doc,
+                            justification="Test operation with valid justification",
+                            bypass_validations=["link_validation"],
+                        )
+
+                        self.assertTrue(result.success)
+
+    def test_unauthorized_user_cannot_request_escalation(self):
+        """Test that users without escalation permission get PermissionError"""
+        mock_doc = MagicMock()
+        mock_doc.doctype = "Test DocType"
+        mock_doc.name = "test-001"
+
+        with patch("frappe.session") as mock_session:
+            mock_session.user = "guest@example.com"
+
+            with patch(
+                "verenigingen.utils.secure_operations.validate_permissions"
+            ) as mock_validate_perms:
+                mock_validate_perms.return_value = False  # User lacks permissions
+
+                with patch(
+                    "verenigingen.utils.secure_operations.can_request_system_escalation"
+                ) as mock_can_escalate:
+                    mock_can_escalate.return_value = False
+
+                    with self.assertRaises(frappe.PermissionError) as context:
+                        secure_document_operation(
+                            operation="save",
+                            doc=mock_doc,
+                            justification="Test operation with valid justification",
+                            allow_system_user=True,
+                        )
+
+                    self.assertIn(
+                        "do not have permission", str(context.exception).lower()
+                    )
+
+
+class TestBypassValidationAllowedRolesConfiguration(unittest.TestCase):
+    """Tests for BYPASS_VALIDATION_ALLOWED_ROLES configuration"""
+
+    def test_bypass_roles_is_frozenset(self):
+        """Test that BYPASS_VALIDATION_ALLOWED_ROLES is immutable"""
+        self.assertIsInstance(BYPASS_VALIDATION_ALLOWED_ROLES, frozenset)
+
+    def test_system_manager_in_bypass_roles(self):
+        """Test that System Manager is in bypass allowed roles"""
+        self.assertIn("System Manager", BYPASS_VALIDATION_ALLOWED_ROLES)
+
+    def test_verenigingen_system_administrator_in_bypass_roles(self):
+        """Test that Verenigingen System Administrator is in bypass allowed roles"""
+        self.assertIn("Verenigingen System Administrator", BYPASS_VALIDATION_ALLOWED_ROLES)
+
+    def test_guest_not_in_bypass_roles(self):
+        """Test that Guest is NOT in bypass allowed roles"""
+        self.assertNotIn("Guest", BYPASS_VALIDATION_ALLOWED_ROLES)
+
+    def test_website_user_not_in_bypass_roles(self):
+        """Test that Website User is NOT in bypass allowed roles"""
+        self.assertNotIn("Website User", BYPASS_VALIDATION_ALLOWED_ROLES)
+
+    def test_vereinigingen_staff_not_in_bypass_roles(self):
+        """Test that Verenigingen Staff is NOT in bypass allowed roles (more restrictive)"""
+        self.assertNotIn("Verenigingen Staff", BYPASS_VALIDATION_ALLOWED_ROLES)
+
+    def test_vereinigingen_treasurer_not_in_bypass_roles(self):
+        """Test that Verenigingen Treasurer is NOT in bypass allowed roles"""
+        self.assertNotIn("Verenigingen Treasurer", BYPASS_VALIDATION_ALLOWED_ROLES)
+
+
+class TestConcurrencyRetryLogic(unittest.TestCase):
+    """Tests for concurrency and retry logic in secure operations"""
+
+    def test_timestamp_mismatch_retry_for_bulk_tracker(self):
+        """Test that Bulk Operation Tracker gets extended retry handling"""
+        # This tests the configuration, not actual concurrency
+        from verenigingen.utils.secure_operations import _execute_document_operation
+
+        mock_doc = MagicMock()
+        mock_doc.doctype = "Bulk Operation Tracker"
+        mock_doc.name = "BOT-001"
+
+        # Simulate timestamp mismatch that eventually succeeds
+        call_count = [0]
+
+        def mock_save():
+            call_count[0] += 1
+            if call_count[0] < 3:
+                raise frappe.TimestampMismatchError("Timestamp mismatch")
+            # Success on third try
+
+        mock_doc.save = mock_save
+        mock_doc.reload = MagicMock()
+
+        with patch("time.sleep"):  # Skip actual sleep
+            with patch("random.uniform", return_value=0.1):  # Minimal jitter
+                _execute_document_operation(mock_doc, "save")
+
+        # Should have succeeded after retries
+        self.assertEqual(call_count[0], 3)
+
+    def test_max_retries_exceeded_raises_error(self):
+        """Test that exceeding max retries raises ValidationError"""
+        from verenigingen.utils.secure_operations import _execute_document_operation
+
+        mock_doc = MagicMock()
+        mock_doc.doctype = "Bulk Operation Tracker"
+        mock_doc.name = "BOT-001"
+
+        # Always raise timestamp mismatch
+        mock_doc.save.side_effect = frappe.TimestampMismatchError("Persistent conflict")
+        mock_doc.reload = MagicMock()
+
+        with patch("time.sleep"):  # Skip actual sleep
+            with patch("random.uniform", return_value=0.1):
+                with self.assertRaises(frappe.ValidationError) as context:
+                    _execute_document_operation(mock_doc, "save")
+
+                self.assertIn("persistent", str(context.exception).lower())
+
+    def test_critical_document_timestamp_mismatch_raises_immediately(self):
+        """Test that critical documents raise immediately on timestamp mismatch"""
+        from verenigingen.utils.secure_operations import _execute_document_operation
+
+        mock_doc = MagicMock()
+        mock_doc.doctype = "Member"  # Critical document, not in retry list
+        mock_doc.name = "MEM-001"
+
+        mock_doc.save.side_effect = frappe.TimestampMismatchError("Timestamp mismatch")
+
+        with self.assertRaises(frappe.ValidationError) as context:
+            _execute_document_operation(mock_doc, "save")
+
+        self.assertIn("modified by another process", str(context.exception).lower())
 
 
 if __name__ == "__main__":

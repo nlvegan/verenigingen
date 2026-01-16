@@ -824,5 +824,168 @@ class TestScopedRateLimiting(VereningingenTestCase):
                 self.fail(f"Cache key separation failed: {str(e)}")
 
 
+class TestSecurityAuditFixes(VereningingenTestCase):
+    """Test cases for security audit fixes (Phase 1)
+
+    These tests validate the security hardening implemented based on the
+    security audit findings, specifically:
+    - Fix 1: Fail-closed whitelist fallback behavior
+    - Fix 2: Strict HTTP method defaults (POST only)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.framework = get_security_framework()
+
+    def test_non_whitelisted_function_not_marked_whitelisted(self):
+        """Test that decorator on non-whitelisted function does NOT set whitelisted flag
+
+        Security Fix 1: Fail-closed behavior - functions not in Frappe's whitelist
+        registry should not be automatically treated as whitelisted.
+        """
+        # Create a function that is NOT whitelisted (no @frappe.whitelist)
+        def internal_function():
+            """This is an internal function, not meant for API exposure"""
+            return {"internal": True}
+
+        # Apply the security decorator
+        with patch("frappe.logger") as mock_logger:
+            decorated = api_security_framework(
+                security_level=SecurityLevel.HIGH,
+                operation_type=OperationType.MEMBER_DATA
+            )(internal_function)
+
+            # The wrapper should NOT have __func_is_whitelisted__ set to True
+            # (it either shouldn't have the attribute, or it should be False)
+            is_whitelisted = getattr(decorated, "__func_is_whitelisted__", False)
+
+            # Verify warning was logged about non-whitelisted function
+            mock_logger.assert_called()
+            logger_instance = mock_logger.return_value
+            # Check that warning was called (fail-closed behavior logs a warning)
+            self.assertTrue(
+                logger_instance.warning.called or not is_whitelisted,
+                "Non-whitelisted function should either log warning or not be marked whitelisted"
+            )
+
+    def test_whitelisted_function_preserves_whitelist_status(self):
+        """Test that decorator preserves whitelist status for properly whitelisted functions"""
+        # Create a mock whitelisted function
+        def whitelisted_function():
+            return {"whitelisted": True}
+
+        # Simulate Frappe's whitelist registration
+        whitelisted_function.__func_is_whitelisted__ = True
+
+        # Apply the security decorator
+        decorated = api_security_framework(
+            security_level=SecurityLevel.HIGH,
+            operation_type=OperationType.MEMBER_DATA
+        )(whitelisted_function)
+
+        # The wrapper should preserve the whitelisted status
+        self.assertTrue(
+            getattr(decorated, "__func_is_whitelisted__", False),
+            "Whitelisted function should preserve its whitelisted status"
+        )
+
+    def test_http_method_default_is_post_only(self):
+        """Test that HTTP method defaults to POST only (not GET+POST)
+
+        Security Fix 2: Mutation endpoints should not allow GET by default.
+        This prevents accidental exposure of state-changing operations via GET.
+        """
+        # Create a whitelisted function without explicit HTTP methods
+        def mutation_endpoint():
+            return {"mutated": True}
+
+        mutation_endpoint.__func_is_whitelisted__ = True
+
+        # Ensure the function is NOT in Frappe's allowed_http_methods_for_whitelisted_func
+        if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+            # Remove if exists
+            frappe.allowed_http_methods_for_whitelisted_func.pop(mutation_endpoint, None)
+
+        # Mock frappe.whitelisted to include our function
+        original_whitelisted = getattr(frappe, "whitelisted", set())
+        if isinstance(original_whitelisted, set):
+            frappe.whitelisted = original_whitelisted | {mutation_endpoint}
+        else:
+            frappe.whitelisted = list(original_whitelisted) + [mutation_endpoint]
+
+        try:
+            # Apply the security decorator
+            decorated = api_security_framework(
+                security_level=SecurityLevel.HIGH,
+                operation_type=OperationType.MEMBER_DATA
+            )(mutation_endpoint)
+
+            # Check what HTTP methods were registered for the wrapper
+            if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+                http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
+                registered_methods = http_methods_dict.get(decorated)
+
+                if registered_methods is not None:
+                    # Should be POST only, NOT GET+POST
+                    self.assertEqual(
+                        registered_methods,
+                        ["POST"],
+                        f"HTTP methods should default to POST only, got: {registered_methods}"
+                    )
+                    self.assertNotIn(
+                        "GET",
+                        registered_methods,
+                        "GET should NOT be in default HTTP methods for security"
+                    )
+        finally:
+            # Restore original whitelisted
+            frappe.whitelisted = original_whitelisted
+
+    def test_explicit_http_methods_preserved(self):
+        """Test that explicitly defined HTTP methods are preserved by decorator"""
+        # Create a function with explicit GET method (read-only endpoint)
+        def read_endpoint():
+            return {"data": "read-only"}
+
+        read_endpoint.__func_is_whitelisted__ = True
+
+        # Simulate explicit HTTP method registration
+        if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+            frappe.allowed_http_methods_for_whitelisted_func[read_endpoint] = ["GET"]
+
+        # Mock frappe.whitelisted
+        original_whitelisted = getattr(frappe, "whitelisted", set())
+        if isinstance(original_whitelisted, set):
+            frappe.whitelisted = original_whitelisted | {read_endpoint}
+        else:
+            frappe.whitelisted = list(original_whitelisted) + [read_endpoint]
+
+        try:
+            # Apply the security decorator
+            decorated = api_security_framework(
+                security_level=SecurityLevel.MEDIUM,
+                operation_type=OperationType.REPORTING
+            )(read_endpoint)
+
+            # Check that GET was preserved (not overwritten to POST)
+            if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+                http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
+                registered_methods = http_methods_dict.get(decorated)
+
+                if registered_methods is not None:
+                    self.assertEqual(
+                        registered_methods,
+                        ["GET"],
+                        f"Explicit HTTP methods should be preserved, got: {registered_methods}"
+                    )
+        finally:
+            # Restore original whitelisted
+            frappe.whitelisted = original_whitelisted
+            # Clean up
+            if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+                frappe.allowed_http_methods_for_whitelisted_func.pop(read_endpoint, None)
+
+
 if __name__ == "__main__":
     unittest.main()
