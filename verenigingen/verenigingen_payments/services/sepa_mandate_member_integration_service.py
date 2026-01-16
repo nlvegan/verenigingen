@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.utils import now
 
+from verenigingen.utils.error_handling import sanitize_error_for_audit
+
 
 class SEPAMandateMemberIntegrationService:
     """Service for SEPA mandate member integration and relationship management"""
@@ -301,23 +303,6 @@ class SEPAMandateMemberIntegrationService:
                 "execution_source": "unknown",
             }
 
-    def _sanitize_error_message(self, error: str) -> str:
-        """
-        Sanitize error message to remove stack traces and sensitive information.
-
-        Args:
-            error: Raw error message
-
-        Returns:
-            Sanitized error message (first line only, max 500 chars)
-        """
-        if not error:
-            return None
-        # Take only the first line to remove stack traces
-        first_line = str(error).split("\n")[0]
-        # Limit length to prevent overly long audit entries
-        return first_line[:500] if len(first_line) > 500 else first_line
-
     def _create_sepa_audit_log(self, audit_data: Dict) -> None:
         """
         Create comprehensive audit log for SEPA operations.
@@ -330,8 +315,14 @@ class SEPAMandateMemberIntegrationService:
             if frappe.flags.in_test:
                 return
 
-            # Sanitize error message to remove stack traces and PII
-            sanitized_error = self._sanitize_error_message(audit_data.get("error"))
+            # Sanitize error message using centralized utility
+            # Removes stack traces, redacts PII (emails/phones), limits length
+            sanitized_error = sanitize_error_for_audit(
+                audit_data.get("error"),
+                max_length=500,
+                remove_stack_trace=True,
+                redact_pii=True,
+            )
 
             # Create audit log entry with all required fields for regulatory compliance
             audit_log = frappe.get_doc(

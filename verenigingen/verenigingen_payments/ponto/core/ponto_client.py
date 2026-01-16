@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import frappe
 import requests
 
+from verenigingen.utils.error_handling import sanitize_error_for_display
 from verenigingen.verenigingen_payments.core.resilience import (
     CircuitBreakerConfig,
     RetryConfig,
@@ -43,9 +44,8 @@ def _sanitize_error_message(detailed_message: str, generic_message: str) -> str:
     """
     Return appropriate error message based on user permissions.
 
-    System Managers get detailed technical information for debugging.
-    Regular users get a generic, user-friendly message to avoid
-    exposing internal endpoints, API responses, or system details.
+    Uses centralized sanitize_error_for_display utility for role-based
+    error message display.
 
     Args:
         detailed_message: Full technical error message for admins
@@ -54,15 +54,7 @@ def _sanitize_error_message(detailed_message: str, generic_message: str) -> str:
     Returns:
         str: Appropriate message based on user role
     """
-    try:
-        # System Managers and Administrators get detailed errors
-        user_roles = frappe.get_roles()
-        if "System Manager" in user_roles or "Administrator" in user_roles:
-            return detailed_message
-        return generic_message
-    except Exception:
-        # If role check fails, return generic message for safety
-        return generic_message
+    return sanitize_error_for_display(detailed_message, generic_message)
 
 
 class PontoClient:

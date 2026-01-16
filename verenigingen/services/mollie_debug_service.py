@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
     AuditEventType,
@@ -1462,27 +1463,23 @@ class MollieDebugService(StatelessService):
         """
         Sanitize error messages to prevent information disclosure.
 
+        Uses centralized sanitize_error_for_audit utility with keyword filtering
+        enabled to catch API keys, internal system info, and database details.
+
         Args:
             error_msg: Raw error message
 
         Returns:
             str: Sanitized error message safe for client display
         """
-        error_lower = error_msg.lower()
-
-        # Check for API key exposure
-        if "test_" in error_msg or "live_" in error_msg:
-            return "API authentication error - check configuration"
-
-        # Check for internal system information
-        if any(keyword in error_lower for keyword in ["internal", "traceback", "file", "line"]):
-            return "Internal system error - contact administrator"
-
-        # Check for database information
-        if any(keyword in error_lower for keyword in ["database", "sql", "query"]):
-            return "Data access error - contact administrator"
-
-        return error_msg
+        return sanitize_error_for_audit(
+            error_msg,
+            max_length=500,
+            remove_stack_trace=True,
+            redact_pii=True,
+            filter_sensitive_keywords=True,
+            fallback_message="Internal error - contact administrator",
+        ) or error_msg
 
     def create_subscription(
         self,

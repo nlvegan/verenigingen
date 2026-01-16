@@ -24,6 +24,7 @@ from verenigingen.utils.account_creation_manager import queue_bulk_account_creat
 from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
 from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
+from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 # ==================== CONSTANTS ====================
@@ -42,14 +43,12 @@ def _sql_placeholders(count: int) -> str:
     return ", ".join(["%s"] * count)
 
 
-# PII patterns for sanitization
-_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-_PHONE_PATTERN = re.compile(r"\+?\d{10,15}|\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4}")
-
-
 def _sanitize_error_message(message: str) -> str:
     """
     Sanitize PII (email addresses, phone numbers) from error messages.
+
+    Uses centralized sanitize_error_for_audit utility for consistent
+    PII redaction across the application.
 
     Args:
         message: Error message that may contain PII
@@ -57,9 +56,12 @@ def _sanitize_error_message(message: str) -> str:
     Returns:
         Sanitized message with PII redacted
     """
-    sanitized = _EMAIL_PATTERN.sub("[EMAIL REDACTED]", message)
-    sanitized = _PHONE_PATTERN.sub("[PHONE REDACTED]", sanitized)
-    return sanitized
+    return sanitize_error_for_audit(
+        message,
+        max_length=1000,
+        remove_stack_trace=False,  # Preserve structure for import errors
+        redact_pii=True,
+    ) or message
 
 
 def _check_duplicate_vip_id(vip_user_id: str, mapped_data: List[Dict]) -> List[str]:

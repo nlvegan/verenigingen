@@ -612,3 +612,196 @@ def validate_member_for_user(user: str = None, custom_message: str = None) -> st
         frappe.throw(_(message), frappe.DoesNotExistError)
 
     return member
+
+
+# =============================================================================
+# Error Message Sanitization Utilities
+# =============================================================================
+# These utilities provide consistent error sanitization across the application
+# for audit logs, API responses, and user-facing error messages.
+
+import re
+
+# PII patterns for sanitization
+_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+_PHONE_PATTERN = re.compile(r"\+?\d{10,15}|\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4}")
+
+# Sensitive keyword patterns that indicate internal system information
+_SENSITIVE_KEYWORDS = frozenset([
+    "traceback",
+    "file",
+    "line",
+    "internal",
+    "database",
+    "sql",
+    "query",
+    "password",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+])
+
+# API key patterns (Mollie, Stripe, etc.)
+_API_KEY_PATTERNS = ["test_", "live_", "sk_", "pk_", "bearer "]
+
+
+def sanitize_error_for_audit(
+    error: Union[str, Exception],
+    max_length: int = 500,
+    remove_stack_trace: bool = True,
+    redact_pii: bool = True,
+    filter_sensitive_keywords: bool = False,
+    fallback_message: str = None,
+) -> Optional[str]:
+    """
+    Sanitize error message for safe storage in audit logs.
+
+    This is the primary utility for cleaning error messages before storing
+    them in audit logs, displaying to users, or including in API responses.
+
+    Args:
+        error: Raw error message or Exception object
+        max_length: Maximum character length (default: 500)
+        remove_stack_trace: Remove multi-line stack traces, keep first line only
+        redact_pii: Redact email addresses and phone numbers
+        filter_sensitive_keywords: Replace messages containing sensitive keywords
+                                   with generic message
+        fallback_message: Message to use when sensitive keywords detected
+                         (default: "Internal error - contact administrator")
+
+    Returns:
+        Sanitized error message safe for audit storage, or None if input is empty
+
+    Examples:
+        >>> sanitize_error_for_audit("Simple error")
+        'Simple error'
+
+        >>> sanitize_error_for_audit("Error\\n  File '/path/to/file.py'")
+        'Error'
+
+        >>> sanitize_error_for_audit("Failed for user@example.com")
+        'Failed for [EMAIL REDACTED]'
+
+        >>> sanitize_error_for_audit("Database query failed", filter_sensitive_keywords=True)
+        'Internal error - contact administrator'
+    """
+    if error is None:
+        return None
+
+    # Convert Exception to string
+    error_str = str(error) if isinstance(error, Exception) else str(error)
+
+    if not error_str or not error_str.strip():
+        return None
+
+    # Step 1: Remove stack traces (keep first line only)
+    if remove_stack_trace:
+        error_str = error_str.split("\n")[0]
+
+    # Step 2: Check for API key exposure
+    error_lower = error_str.lower()
+    for pattern in _API_KEY_PATTERNS:
+        if pattern in error_lower:
+            return fallback_message or "API authentication error - check configuration"
+
+    # Step 3: Filter sensitive keywords if requested
+    if filter_sensitive_keywords:
+        if any(keyword in error_lower for keyword in _SENSITIVE_KEYWORDS):
+            return fallback_message or "Internal error - contact administrator"
+
+    # Step 4: Redact PII (emails and phone numbers)
+    if redact_pii:
+        error_str = _EMAIL_PATTERN.sub("[EMAIL REDACTED]", error_str)
+        error_str = _PHONE_PATTERN.sub("[PHONE REDACTED]", error_str)
+
+    # Step 5: Truncate to max length
+    if len(error_str) > max_length:
+        error_str = error_str[:max_length]
+
+    return error_str.strip()
+
+
+def sanitize_error_for_display(
+    detailed_message: str,
+    generic_message: str = "An error occurred. Please contact support.",
+    admin_roles: tuple = ("System Manager", "Administrator"),
+) -> str:
+    """
+    Return appropriate error message based on user permissions.
+
+    System Managers and Administrators get detailed technical information
+    for debugging. Regular users get a generic, user-friendly message to
+    avoid exposing internal endpoints, API responses, or system details.
+
+    Args:
+        detailed_message: Full technical error message for admins
+        generic_message: User-friendly message for regular users
+        admin_roles: Tuple of roles that should see detailed messages
+
+    Returns:
+        Appropriate message based on user role
+
+    Examples:
+        >>> # For System Manager:
+        >>> sanitize_error_for_display("Database connection timeout", "Service unavailable")
+        'Database connection timeout'
+
+        >>> # For regular user:
+        >>> sanitize_error_for_display("Database connection timeout", "Service unavailable")
+        'Service unavailable'
+    """
+    try:
+        user_roles = frappe.get_roles()
+        if any(role in user_roles for role in admin_roles):
+            return detailed_message
+        return generic_message
+    except Exception:
+        # If role check fails, return generic message for safety
+        return generic_message
+
+
+def sanitize_error_for_api_response(
+    error: Union[str, Exception],
+    include_details_for_admins: bool = True,
+    generic_message: str = "An error occurred processing your request.",
+) -> Dict[str, str]:
+    """
+    Prepare error information for API response with appropriate detail level.
+
+    Args:
+        error: Raw error message or Exception object
+        include_details_for_admins: Include technical details for admin users
+        generic_message: Message for non-admin users
+
+    Returns:
+        Dict with 'message' and optionally 'details' keys
+
+    Examples:
+        >>> sanitize_error_for_api_response(ValueError("Invalid IBAN"))
+        {'message': 'Invalid IBAN'}  # For admin
+        {'message': 'An error occurred processing your request.'}  # For user
+    """
+    error_str = str(error) if isinstance(error, Exception) else str(error)
+
+    # Always sanitize for PII
+    sanitized = sanitize_error_for_audit(
+        error_str,
+        max_length=1000,
+        remove_stack_trace=True,
+        redact_pii=True,
+        filter_sensitive_keywords=False,
+    )
+
+    if include_details_for_admins:
+        try:
+            user_roles = frappe.get_roles()
+            if "System Manager" in user_roles or "Administrator" in user_roles:
+                return {
+                    "message": sanitized or generic_message,
+                    "error_type": type(error).__name__ if isinstance(error, Exception) else "Error",
+                }
+        except Exception:
+            pass
+
+    return {"message": generic_message}
