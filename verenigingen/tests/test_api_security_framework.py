@@ -745,47 +745,107 @@ class TestScopedRateLimiting(VereningingenTestCase):
         finally:
             frappe.delete_doc("Critical Operation Rule", unique_op, force=True, ignore_permissions=True)
 
-    def test_batch_context_skips_rate_limiting_without_batch_limits(self):
-        """Test that batch context skips rate limiting when batch limits not configured.
+    def test_batch_context_skips_rate_limiting_for_low_security_without_batch_limits(self):
+        """Test that batch context skips rate limiting for LOW/MEDIUM security operations.
 
-        This is intentional behavior: background jobs should not be blocked by
+        For LOW/MEDIUM security operations, background jobs should not be blocked by
         interactive rate limits, allowing them to process large volumes of data.
         When batch limits aren't explicitly configured, rate limiting is bypassed.
+
+        Note: CRITICAL/HIGH operations DO enforce rate limits even without batch config
+        (see test_critical_operation_enforces_rate_limit_in_background).
         """
         from verenigingen.utils.security.types import ExecutionContext
 
-        # Create a COR without batch limits
+        # Create a COR with batch limits explicitly set to 0 - use LOW security level
+        # Note: DocType has default of 5000, so we must explicitly set to 0 to test bypass
         cor = frappe.get_doc({
             "doctype": "Critical Operation Rule",
-            "operation_name": "test_no_batch_limits",
-            "operation_type": "admin",
-            "security_level": "high",
+            "operation_name": "test_low_security_no_batch_limits",
+            "operation_type": "utility",
+            "security_level": "low",  # LOW security - rate limiting bypassed in batch context
             "enabled": 1,
             "rate_limit_calls": 5,
-            "rate_limit_period_seconds": 3600
-            # No batch_rate_limit_calls configured - rate limiting should be skipped
+            "rate_limit_period_seconds": 3600,
+            "batch_rate_limit_calls": 0  # Explicitly disable batch limits
         })
         cor.insert(ignore_if_duplicate=True)
         frappe.db.commit()
 
-        # Clear any existing rate limit cache
-        frappe.cache().delete_keys("cor_rate_limit:*test_no_batch_limits*")
+        try:
+            # Clear any existing rate limit cache
+            frappe.cache().delete_keys("cor_rate_limit:*test_low_security_no_batch_limits*")
 
-        # Mock context detection to return BACKGROUND_JOB and bypass in_test check
-        with patch.object(self.framework, '_detect_execution_context', return_value=ExecutionContext.BACKGROUND_JOB):
-            original_in_test = frappe.flags.in_test
-            frappe.flags.in_test = False
+            # Mock context detection to return BACKGROUND_JOB and bypass in_test check
+            with patch.object(self.framework, '_detect_execution_context', return_value=ExecutionContext.BACKGROUND_JOB):
+                original_in_test = frappe.flags.in_test
+                frappe.flags.in_test = False
 
-            try:
-                profile = self.framework.get_security_profile(SecurityLevel.HIGH)
+                try:
+                    profile = self.framework.get_security_profile(SecurityLevel.LOW)
 
-                # Without batch limits configured, rate limiting should be skipped
-                # So even many calls should succeed (beyond interactive limit of 5)
-                for i in range(10):
-                    result = self.framework.validate_rate_limits(profile, "test_no_batch_limits")
-                    self.assertTrue(result, f"Call {i+1} should succeed - rate limiting should be skipped")
-            finally:
-                frappe.flags.in_test = original_in_test
+                    # For LOW security without batch limits, rate limiting should be skipped
+                    # So even many calls should succeed (beyond interactive limit of 5)
+                    for i in range(10):
+                        result = self.framework.validate_rate_limits(profile, "test_low_security_no_batch_limits")
+                        self.assertTrue(result, f"Call {i+1} should succeed - rate limiting should be skipped for LOW security")
+                finally:
+                    frappe.flags.in_test = original_in_test
+        finally:
+            frappe.delete_doc("Critical Operation Rule", "test_low_security_no_batch_limits", force=True, ignore_permissions=True)
+
+    def test_critical_operation_enforces_rate_limit_in_background(self):
+        """Test that CRITICAL/HIGH operations enforce rate limits even in background context.
+
+        Security Fix: For CRITICAL/HIGH security operations, rate limiting should NOT
+        be bypassed in background context when batch limits aren't configured.
+        Instead, interactive limits are inherited to prevent rate limit evasion attacks.
+        """
+        from verenigingen.utils.security.types import ExecutionContext
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
+
+        # Create a COR with batch limits explicitly set to 0 - use HIGH security level
+        # Note: DocType has default of 5000, so we must explicitly set to 0 to test inheritance
+        cor = frappe.get_doc({
+            "doctype": "Critical Operation Rule",
+            "operation_name": "test_high_security_no_batch_limits",
+            "operation_type": "financial",
+            "security_level": "high",  # HIGH security - rate limiting enforced in batch context
+            "enabled": 1,
+            "rate_limit_calls": 3,  # Low limit to test enforcement
+            "rate_limit_period_seconds": 3600,
+            "batch_rate_limit_calls": 0  # Explicitly disable - should inherit interactive limits
+        })
+        cor.insert(ignore_if_duplicate=True)
+        frappe.db.commit()
+
+        try:
+            # Clear any existing rate limit cache
+            frappe.cache().delete_keys("cor_rate_limit:*test_high_security_no_batch_limits*")
+
+            # Mock context detection to return BACKGROUND_JOB and bypass in_test check
+            with patch.object(self.framework, '_detect_execution_context', return_value=ExecutionContext.BACKGROUND_JOB):
+                original_in_test = frappe.flags.in_test
+                frappe.flags.in_test = False
+
+                try:
+                    profile = self.framework.get_security_profile(SecurityLevel.HIGH)
+
+                    # First 3 calls should succeed (within inherited interactive limit)
+                    for i in range(3):
+                        result = self.framework.validate_rate_limits(profile, "test_high_security_no_batch_limits")
+                        self.assertTrue(result, f"Call {i+1} should succeed (within limit)")
+
+                    # 4th call should fail - rate limit exceeded
+                    with self.assertRaises(VPermissionError) as context:
+                        self.framework.validate_rate_limits(profile, "test_high_security_no_batch_limits")
+
+                    self.assertIn("Rate limit exceeded", str(context.exception))
+
+                finally:
+                    frappe.flags.in_test = original_in_test
+        finally:
+            frappe.delete_doc("Critical Operation Rule", "test_high_security_no_batch_limits", force=True, ignore_permissions=True)
 
     def test_separate_cache_keys_for_batch_and_interactive(self):
         """Test that batch and interactive contexts use separate cache keys"""

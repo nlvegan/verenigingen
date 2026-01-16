@@ -294,6 +294,7 @@ class APISecurityFramework:
             "batch_rate_limit_calls",
             "batch_rate_limit_period_seconds",
             "apply_batch_limits_to",
+            "security_level",  # Added for rate limit enforcement in background context
         ]
 
         # Try to find specific COR record for this operation
@@ -890,11 +891,27 @@ class APISecurityFramework:
                         f"Using batch rate limits for {operation_name} in {context.value} context: {max_calls}/{period_seconds}s"
                     )
                 else:
-                    # Batch context but no batch limits configured - SKIP rate limiting for background jobs
-                    frappe.logger("verenigingen.rate_limit").debug(
-                        f"No batch limits configured for {operation_name}, skipping rate limits for {context.value} context"
-                    )
-                    return True  # Allow without rate limiting
+                    # Batch context but no batch limits configured
+                    # SECURITY FIX: For CRITICAL/HIGH operations, inherit interactive limits
+                    # instead of bypassing rate limiting entirely. This prevents attackers from
+                    # evading rate limits by triggering background job execution.
+                    security_level = (cor_record.get("security_level") or "").lower()
+                    if security_level in ["critical", "high"]:
+                        # Inherit interactive limits for security-sensitive operations
+                        frappe.logger("verenigingen.rate_limit").warning(
+                            f"No batch limits configured for {security_level.upper()} operation "
+                            f"{operation_name} in {context.value} context. "
+                            f"Inheriting interactive limits ({max_calls}/{period_seconds}s) for security."
+                        )
+                        # Continue with interactive limits (max_calls, period_seconds already set)
+                        limit_type = "batch_inherited"  # Separate cache key to not interfere with interactive
+                    else:
+                        # For MEDIUM/LOW operations, allow bypass in batch context
+                        frappe.logger("verenigingen.rate_limit").debug(
+                            f"No batch limits configured for {operation_name}, "
+                            f"skipping rate limits for {context.value} context"
+                        )
+                        return True  # Allow without rate limiting
 
             # Build cache key based on scope - include limit_type to separate batch/interactive counters
             if scope == "global":
