@@ -41,6 +41,100 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.error_handling import (
+    ConfigurationError,
+    mask_iban,
+    sanitize_audit_details,
+    sanitize_error_for_audit,
+)
+
+# =============================================================================
+# Security Configuration
+# =============================================================================
+
+# Roles allowed to trigger system user escalation
+# These roles represent trusted internal staff who can request elevated operations
+ESCALATION_ALLOWED_ROLES = frozenset(
+    [
+        "System Manager",
+        "Verenigingen Administrator",
+        "Verenigingen System Administrator",
+        "Verenigingen Staff",
+        "Verenigingen Treasurer",
+    ]
+)
+
+# Minimum justification length for audit compliance
+MIN_JUSTIFICATION_LENGTH = 10
+
+# Maximum justification length to prevent abuse
+MAX_JUSTIFICATION_LENGTH = 500
+
+
+def validate_justification(justification: str, operation: str) -> str:
+    """
+    Validate and sanitize justification string for audit compliance.
+
+    Args:
+        justification: The justification string to validate
+        operation: Operation name for error messages
+
+    Returns:
+        Sanitized justification string
+
+    Raises:
+        frappe.ValidationError: If justification is invalid
+    """
+    if not justification:
+        raise frappe.ValidationError(_("Justification is required for operation '{0}'").format(operation))
+
+    # Strip whitespace
+    justification = justification.strip()
+
+    if len(justification) < MIN_JUSTIFICATION_LENGTH:
+        raise frappe.ValidationError(
+            _("Justification must be at least {0} characters for operation '{1}'").format(
+                MIN_JUSTIFICATION_LENGTH, operation
+            )
+        )
+
+    if len(justification) > MAX_JUSTIFICATION_LENGTH:
+        # Truncate with indicator rather than rejecting
+        justification = justification[: MAX_JUSTIFICATION_LENGTH - 3] + "..."
+        frappe.logger().warning(
+            f"Justification truncated to {MAX_JUSTIFICATION_LENGTH} chars for operation {operation}"
+        )
+
+    return justification
+
+
+def can_request_system_escalation(user: str = None) -> bool:
+    """
+    Check if the specified user is allowed to request system user escalation.
+
+    This prevents unprivileged users from triggering operations that would
+    run with elevated system user permissions.
+
+    Args:
+        user: Username to check (defaults to current session user)
+
+    Returns:
+        True if user can request escalation, False otherwise
+    """
+    if user is None:
+        user = frappe.session.user
+
+    # Administrator can always escalate (but won't be used as fallback anymore)
+    if user == "Administrator":
+        return True
+
+    try:
+        user_roles = set(frappe.get_roles(user))
+        return bool(user_roles & ESCALATION_ALLOWED_ROLES)
+    except Exception as e:
+        frappe.logger().warning(f"Could not check escalation permissions for user {user}: {e}")
+        return False
+
 
 class SecureOperationResult:
     """Result object for secure operations"""
@@ -63,18 +157,22 @@ class SecureOperationResult:
         self.warnings.append(message)
 
     def add_audit_entry(self, operation: str, doc_type: str, doc_name: str, details: Dict = None):
+        # Sanitize details to remove PII and sensitive data
+        sanitized_details = sanitize_audit_details(details) if details else {}
+
         entry = {
             "timestamp": now_datetime(),
             "operation": operation,
             "doc_type": doc_type,
             "doc_name": doc_name,
-            "details": details or {},
+            "details": sanitized_details,
             "user": frappe.session.user,
             "operation_id": self.operation_id,
         }
         self.audit_trail.append(entry)
 
-        # Log for system monitoring
+        # Log for system monitoring (doc_name may contain PII, but this goes to
+        # application logs which are access-controlled, not user-visible)
         frappe.logger().info(
             f"SECURE_OPERATION_AUDIT: {operation} {doc_type}:{doc_name} "
             f"by {frappe.session.user} [{self.operation_id}]"
@@ -280,10 +378,16 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
                             f"Security validation failed: DocType '{doctype}' does not exist"
                         )
                         return False
-                    if not frappe.has_permission(doctype, perm_type):
+
+                    # SECURITY FIX: Pass document context when checking permissions
+                    # for the same DocType as the operation document. This ensures
+                    # owner-based and document-specific permissions are respected.
+                    perm_doc = doc if doctype == doc.doctype else None
+                    if not frappe.has_permission(doctype, perm_type, doc=perm_doc):
                         frappe.logger().warning(
                             f"Specific permission check failed: {frappe.session.user} "
                             f"lacks {perm_type} permission for {doctype}"
+                            f"{' (with doc context)' if perm_doc else ''}"
                         )
                         return False
 
@@ -296,28 +400,74 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
 
 def get_system_user_for_operation(operation_context: str) -> str:
     """
-    Get appropriate system user for the operation context
+    Get appropriate system user for the operation context.
+
+    SECURITY: This function no longer falls back to Administrator.
+    If creation_user is not properly configured, operations will fail
+    with a clear error message rather than silently elevating to Administrator.
 
     Args:
         operation_context: Description of the operation requiring system privileges
 
     Returns:
         str: Username of system user to use
+
+    Raises:
+        ConfigurationError: If creation_user is not configured or invalid
     """
     try:
-        # Try to get configured creation user from settings
         settings = frappe.get_single("Verenigingen Settings")
-        if settings.creation_user and frappe.db.exists("User", settings.creation_user):
-            user_doc = frappe.get_doc("User", settings.creation_user)
-            if user_doc.enabled:
-                return settings.creation_user
 
-        # Fallback to Administrator if settings user not available
-        return "Administrator"
+        if not settings.creation_user:
+            frappe.logger().error(
+                f"SECURITY: creation_user not configured in Verenigingen Settings. "
+                f"Operation '{operation_context}' cannot proceed with system privileges."
+            )
+            raise ConfigurationError(
+                _(
+                    "System user for automated operations is not configured. "
+                    "Please set 'Creation User' in Verenigingen Settings."
+                )
+            )
 
+        if not frappe.db.exists("User", settings.creation_user):
+            frappe.logger().error(
+                f"SECURITY: Configured creation_user '{settings.creation_user}' does not exist. "
+                f"Operation '{operation_context}' cannot proceed."
+            )
+            raise ConfigurationError(
+                _(
+                    "Configured system user '{0}' does not exist. "
+                    "Please update 'Creation User' in Verenigingen Settings."
+                ).format(settings.creation_user)
+            )
+
+        user_doc = frappe.get_doc("User", settings.creation_user)
+        if not user_doc.enabled:
+            frappe.logger().error(
+                f"SECURITY: Configured creation_user '{settings.creation_user}' is disabled. "
+                f"Operation '{operation_context}' cannot proceed."
+            )
+            raise ConfigurationError(
+                _(
+                    "Configured system user '{0}' is disabled. "
+                    "Please enable this user or update 'Creation User' in Verenigingen Settings."
+                ).format(settings.creation_user)
+            )
+
+        return settings.creation_user
+
+    except ConfigurationError:
+        # Re-raise configuration errors without wrapping
+        raise
     except Exception as e:
-        frappe.logger().warning(f"Could not get system user: {e}, using Administrator")
-        return "Administrator"
+        frappe.logger().error(f"SECURITY: Failed to get system user for operation '{operation_context}': {e}")
+        raise ConfigurationError(
+            _(
+                "Could not determine system user for operation. "
+                "Please check Verenigingen Settings configuration."
+            )
+        ) from e
 
 
 @contextmanager
@@ -394,11 +544,13 @@ def secure_document_operation(
     2. Proper audit trail
     3. Error handling and rollback
     4. Document state management
+    5. Justification validation for audit compliance
+    6. Role-based escalation gating
 
     Args:
         operation: Operation to perform ("create", "save", "delete", etc.)
         doc: Document to operate on
-        justification: Business justification for the operation
+        justification: Business justification for the operation (min 10 chars required)
         required_permissions: Additional permissions to validate
         allow_system_user: Whether to fall back to system user if current user lacks permissions
         validate_business_rules: Whether to validate business rules before operation
@@ -406,16 +558,29 @@ def secure_document_operation(
 
     Returns:
         SecureOperationResult with success status and audit information
+
+    Raises:
+        frappe.ValidationError: If justification is invalid
+        frappe.PermissionError: If user cannot request escalation when needed
+        ConfigurationError: If system user is not properly configured
     """
     operation_id = f"{operation}_{doc.doctype}_{int(time.time() * 1000)}"
     start_time = time.time()
+    original_user = frappe.session.user
+
+    # Step 0: Validate justification upfront for audit compliance
+    validated_justification = validate_justification(justification, operation)
 
     result = SecureOperationResult(True, operation_id)
     result.add_audit_entry(
         "operation_start",
         doc.doctype,
         getattr(doc, "name", "new"),
-        {"operation": operation, "justification": justification, "original_user": frappe.session.user},
+        {
+            "operation": operation,
+            "justification": validated_justification,
+            "original_user": original_user,
+        },
     )
 
     try:
@@ -442,11 +607,24 @@ def secure_document_operation(
             )
 
         elif allow_system_user:
-            # Current user lacks permissions - use system user with proper validation
-            system_user = get_system_user_for_operation(justification)
+            # Current user lacks permissions - check if they can request escalation
+            if not can_request_system_escalation(original_user):
+                frappe.logger().warning(
+                    f"SECURITY: User {original_user} attempted system escalation for "
+                    f"{operation} on {doc.doctype} but lacks escalation privileges [{operation_id}]"
+                )
+                raise frappe.PermissionError(
+                    _(
+                        "You do not have permission to request elevated system operations. "
+                        "Please contact an administrator."
+                    )
+                )
+
+            # User is authorized to request escalation - get system user
+            system_user = get_system_user_for_operation(validated_justification)
 
             frappe.logger().info(
-                f"SECURE_OP: {frappe.session.user} lacks permissions, "
+                f"SECURE_OP: {original_user} lacks permissions, "
                 f"using system user {system_user} for {operation} [{operation_id}]"
             )
 

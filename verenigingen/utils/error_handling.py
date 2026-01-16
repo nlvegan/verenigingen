@@ -624,6 +624,10 @@ def validate_member_for_user(user: str = None, custom_message: str = None) -> st
 # PII patterns for sanitization
 _EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 _PHONE_PATTERN = re.compile(r"\+?\d{10,15}|\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4}")
+# IBAN pattern: 2 letter country code + 2 check digits + 10-30 alphanumeric (BBAN)
+# Uses explicit character class without spaces to avoid over-matching
+# Matches: NL91ABNA0417164300, DE89370400440532013000, etc.
+_IBAN_PATTERN = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b", re.IGNORECASE)
 
 # Sensitive keyword patterns that indicate internal system information
 _SENSITIVE_KEYWORDS = frozenset(
@@ -647,6 +651,57 @@ _SENSITIVE_KEYWORDS = frozenset(
 _API_KEY_PATTERNS = ["test_", "live_", "sk_", "pk_", "bearer "]
 
 
+def mask_iban(iban: str, style: str = "standard") -> str:
+    """
+    Centralized IBAN masking for audit logs, notifications, and error messages.
+
+    This is the canonical IBAN masking function for the application. All IBAN
+    masking should use this function to ensure consistency.
+
+    Args:
+        iban: The IBAN to mask
+        style: Masking style - "standard" (country code + last 4) or
+               "brief" (first 4 + last 4, for user notifications)
+
+    Returns:
+        Masked IBAN string
+
+    Examples:
+        >>> mask_iban("NL91ABNA0417164300")
+        'NL**************4300'
+
+        >>> mask_iban("NL91ABNA0417164300", style="brief")
+        'NL91****4300'
+
+        >>> mask_iban("DE89 3704 0044 0532 0130 00")
+        'DE******************3000'
+    """
+    if not iban:
+        return iban
+
+    # Remove spaces for processing
+    cleaned = iban.replace(" ", "").upper()
+
+    if style == "brief":
+        # Show first 4 + last 4 (user-friendly for notifications)
+        if len(cleaned) < 8:
+            return iban  # Too short to mask meaningfully
+        return f"{cleaned[:4]}****{cleaned[-4:]}"
+    else:
+        # Standard: Show country code (2 chars) + masked middle + last 4 digits
+        # This provides maximum security while maintaining country identification
+        if len(cleaned) >= 6:
+            return f"{cleaned[:2]}{'*' * (len(cleaned) - 6)}{cleaned[-4:]}"
+        else:
+            # Very short - mask entirely
+            return "*" * len(cleaned)
+
+
+def _redact_iban_match(match: re.Match) -> str:
+    """Replacement function for IBAN pattern matches."""
+    return mask_iban(match.group(0))
+
+
 def sanitize_error_for_audit(
     error: Union[str, Exception],
     max_length: int = 500,
@@ -665,7 +720,7 @@ def sanitize_error_for_audit(
         error: Raw error message or Exception object
         max_length: Maximum character length (default: 500)
         remove_stack_trace: Remove multi-line stack traces, keep first line only
-        redact_pii: Redact email addresses and phone numbers
+        redact_pii: Redact email addresses, phone numbers, and IBANs
         filter_sensitive_keywords: Replace messages containing sensitive keywords
                                    with generic message
         fallback_message: Message to use when sensitive keywords detected
@@ -683,6 +738,9 @@ def sanitize_error_for_audit(
 
         >>> sanitize_error_for_audit("Failed for user@example.com")
         'Failed for [EMAIL REDACTED]'
+
+        >>> sanitize_error_for_audit("IBAN NL91ABNA0417164300 invalid")
+        'IBAN NL**************4300 invalid'
 
         >>> sanitize_error_for_audit("Database query failed", filter_sensitive_keywords=True)
         'Internal error - contact administrator'
@@ -711,9 +769,12 @@ def sanitize_error_for_audit(
         if any(keyword in error_lower for keyword in _SENSITIVE_KEYWORDS):
             return fallback_message or "Internal error - contact administrator"
 
-    # Step 4: Redact PII (emails and phone numbers)
+    # Step 4: Redact PII (emails, IBANs, and phone numbers)
+    # IMPORTANT: Process IBANs BEFORE phone numbers because phone pattern
+    # would otherwise match numeric portions of IBANs and corrupt them
     if redact_pii:
         error_str = _EMAIL_PATTERN.sub("[EMAIL REDACTED]", error_str)
+        error_str = _IBAN_PATTERN.sub(_redact_iban_match, error_str)
         error_str = _PHONE_PATTERN.sub("[PHONE REDACTED]", error_str)
 
     # Step 5: Truncate to max length
@@ -806,3 +867,61 @@ def sanitize_error_for_api_response(
             pass
 
     return {"message": generic_message}
+
+
+def sanitize_audit_details(details: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize audit details dictionary to remove/mask sensitive information.
+
+    This ensures PII and sensitive data are not stored in audit logs.
+    Use this function before writing audit entries to ensure compliance
+    with data protection requirements.
+
+    Args:
+        details: Dictionary of audit details
+
+    Returns:
+        Sanitized dictionary safe for audit storage
+
+    Examples:
+        >>> sanitize_audit_details({"iban": "NL91ABNA0417164300", "amount": 100})
+        {'iban': 'NL**************4300', 'amount': '100'}
+
+        >>> sanitize_audit_details({"password": "secret123"})
+        {'password': '[REDACTED]'}
+    """
+    if not details:
+        return {}
+
+    sanitized = {}
+    for key, value in details.items():
+        if value is None:
+            sanitized[key] = None
+            continue
+
+        str_value = str(value)
+
+        # Special handling for known sensitive fields
+        if key in ("iban", "bank_account", "account_number"):
+            sanitized[key] = mask_iban(str_value) if str_value else None
+        elif key in ("error", "traceback", "message"):
+            # Sanitize error messages
+            sanitized[key] = sanitize_error_for_audit(
+                str_value,
+                max_length=500,
+                remove_stack_trace=True,
+                redact_pii=True,
+            )
+        elif key in ("password", "secret", "token", "api_key"):
+            # Never store these
+            sanitized[key] = "[REDACTED]"
+        else:
+            # General sanitization for other fields
+            sanitized[key] = sanitize_error_for_audit(
+                str_value,
+                max_length=1000,
+                remove_stack_trace=False,
+                redact_pii=True,
+            )
+
+    return sanitized

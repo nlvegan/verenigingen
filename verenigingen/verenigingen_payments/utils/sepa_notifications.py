@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.error_handling import mask_iban
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
@@ -559,12 +560,11 @@ class SEPAMandateNotificationManager:
             )
 
     def _mask_iban(self, iban):
-        """Mask IBAN for security"""
-        if not iban or len(iban) < 8:
-            return iban
+        """Mask IBAN for security using centralized utility.
 
-        # Show first 4 and last 4 characters
-        return f"{iban[:4]}****{iban[-4:]}"
+        Uses 'brief' style (first 4 + last 4) for user-friendly notifications.
+        """
+        return mask_iban(iban, style="brief")
 
     def _get_bank_name(self, iban):
         """Get bank name from IBAN"""
