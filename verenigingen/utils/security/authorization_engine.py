@@ -29,10 +29,15 @@ class AuthorizationEngine:
     - All authorization decisions go through AuthorizationPolicy.decide()
     - User role profiles are cached with versioned keys for efficient invalidation
     - Cache is invalidated on role changes via invalidate_user_cache()
+
+    MULTI-WORKER SAFETY:
+    - Cache version is stored in Redis (not process memory) so all workers
+      share the same version. This ensures cache invalidation works correctly
+      in multi-worker deployments (e.g., gunicorn with multiple workers).
     """
 
-    # Global cache version - increment to invalidate all cached profiles
-    _cache_version = 1
+    # Redis key for shared cache version (not process-local)
+    CACHE_VERSION_KEY = "auth_engine:role_profile_cache_version"
 
     def __init__(self, policy: AuthorizationPolicy = None):
         """
@@ -134,14 +139,30 @@ class AuthorizationEngine:
             )
             return []
 
+    def _get_cache_version(self) -> int:
+        """
+        Get current cache version from Redis (shared across all workers).
+
+        If no version exists in Redis, initializes to 1.
+        """
+        version = frappe.cache.get_value(self.CACHE_VERSION_KEY)
+        if version is None:
+            # Initialize version in Redis
+            frappe.cache.set_value(self.CACHE_VERSION_KEY, 1)
+            return 1
+        return int(version)
+
     def _get_versioned_cache_key(self, user: str) -> str:
         """
         Get versioned cache key for user role profiles.
 
         Using versioned keys allows O(1) bulk invalidation by incrementing
         the version number, rather than scanning for all user keys.
+
+        The version is stored in Redis so all workers share the same version.
         """
-        return f"user_role_profiles_v{self._cache_version}:{user}"
+        version = self._get_cache_version()
+        return f"user_role_profiles_v{version}:{user}"
 
     def invalidate_user_cache(self, user: str = None):
         """
@@ -158,18 +179,22 @@ class AuthorizationEngine:
                 f"Invalidated role profile cache for user: {user}"
             )
         else:
-            # Increment version to invalidate all cached profiles
+            # Increment version in Redis to invalidate all cached profiles
             # This is O(1) rather than O(N) key deletion
-            AuthorizationEngine._cache_version += 1
+            # All workers will see the new version since it's stored in Redis
+            current_version = self._get_cache_version()
+            new_version = current_version + 1
+            frappe.cache.set_value(self.CACHE_VERSION_KEY, new_version)
             frappe.logger("verenigingen.api_security").info(
-                f"Incremented cache version to {AuthorizationEngine._cache_version}, "
-                "all role profile caches invalidated"
+                f"Incremented cache version to {new_version}, "
+                "all role profile caches invalidated (shared across all workers)"
             )
 
     @classmethod
     def get_cache_version(cls) -> int:
-        """Get current cache version (useful for debugging)."""
-        return cls._cache_version
+        """Get current cache version from Redis (useful for debugging)."""
+        version = frappe.cache.get_value(cls.CACHE_VERSION_KEY)
+        return int(version) if version is not None else 1
 
 
 # Singleton instance for convenience

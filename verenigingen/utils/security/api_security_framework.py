@@ -509,6 +509,38 @@ class APISecurityFramework:
             # In production, return generic message
             raise VPermissionError(_("Access denied. You do not have permission for this operation."))
 
+    # Headers that are safe to log (no secrets, tokens, or PII)
+    SAFE_HEADERS_FOR_LOGGING = frozenset(
+        [
+            "content-type",
+            "content-length",
+            "accept",
+            "accept-encoding",
+            "accept-language",
+            "user-agent",
+            "host",
+            "origin",
+            "referer",
+            "x-requested-with",
+        ]
+    )
+
+    def _get_safe_headers_for_logging(self) -> dict:
+        """
+        Extract only safe headers for logging.
+
+        SECURITY: Never log Authorization, Cookie, X-Frappe-CSRF-Token, or other
+        headers that may contain secrets, tokens, or session identifiers.
+        """
+        if not frappe.request or not hasattr(frappe.request, "headers"):
+            return {}
+
+        safe_headers = {}
+        for header_name, header_value in frappe.request.headers:
+            if header_name.lower() in self.SAFE_HEADERS_FOR_LOGGING:
+                safe_headers[header_name] = header_value
+        return safe_headers
+
     def validate_request_method(self, profile: SecurityProfile) -> bool:
         """Validate HTTP method is allowed"""
         if not frappe.request:
@@ -516,32 +548,23 @@ class APISecurityFramework:
 
         method = frappe.request.method
 
-        # DEBUG: Add detailed logging for method detection issues
-        # Safely check for JSON data without triggering Werkzeug's JSON parsing
-        has_json_data = False
-        if hasattr(frappe.request, "content_type"):
-            content_type = getattr(frappe.request, "content_type", "")
-            has_json_data = content_type and "application/json" in content_type
-
-        debug_info = {
-            "detected_method": method,
-            "allowed_methods": list(profile.allowed_methods),
-            "request_headers": dict(frappe.request.headers) if hasattr(frappe.request, "headers") else {},
-            "content_type": getattr(frappe.request, "content_type", "N/A"),
-            "has_form_data": bool(getattr(frappe.request, "form", None)),
-            "has_json_data": has_json_data,
-            "request_url": getattr(frappe.request, "url", "N/A"),
-        }
-
-        frappe.logger("verenigingen.api_security").info(f"HTTP Method Validation Debug: {debug_info}")
-
         if method not in profile.allowed_methods:
-            # Enhanced error with debug info
-            error_msg = _("Method {0} not allowed. Allowed methods: {1}. Debug: {2}").format(
-                method, ", ".join(profile.allowed_methods), debug_info
+            # Log failure with safe debug info only (no sensitive headers)
+            debug_info = {
+                "detected_method": method,
+                "allowed_methods": list(profile.allowed_methods),
+                "content_type": getattr(frappe.request, "content_type", "N/A"),
+                "request_url": getattr(frappe.request, "url", "N/A"),
+            }
+            frappe.logger("verenigingen.api_security").warning(
+                f"Method validation failed: {method} not in {profile.allowed_methods}"
             )
-            frappe.logger("verenigingen.api_security").error(f"Method validation failed: {error_msg}")
-            raise VPermissionError(error_msg)
+            # Error message to user should not include debug info
+            raise VPermissionError(
+                _("Method {0} not allowed. Allowed methods: {1}").format(
+                    method, ", ".join(profile.allowed_methods)
+                )
+            )
 
         return True
 
