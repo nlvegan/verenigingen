@@ -757,6 +757,11 @@ class TestScopedRateLimiting(VereningingenTestCase):
         """
         from verenigingen.utils.security.types import ExecutionContext
 
+        # Delete any existing COR to ensure clean test state
+        if frappe.db.exists("Critical Operation Rule", "test_low_security_no_batch_limits"):
+            frappe.delete_doc("Critical Operation Rule", "test_low_security_no_batch_limits", force=True, ignore_permissions=True)
+            frappe.db.commit()
+
         # Create a COR with batch limits explicitly set to 0 - use LOW security level
         # Note: DocType has default of 5000, so we must explicitly set to 0 to test bypass
         cor = frappe.get_doc({
@@ -769,7 +774,7 @@ class TestScopedRateLimiting(VereningingenTestCase):
             "rate_limit_period_seconds": 3600,
             "batch_rate_limit_calls": 0  # Explicitly disable batch limits
         })
-        cor.insert(ignore_if_duplicate=True)
+        cor.insert()
         frappe.db.commit()
 
         try:
@@ -804,6 +809,11 @@ class TestScopedRateLimiting(VereningingenTestCase):
         from verenigingen.utils.security.types import ExecutionContext
         from verenigingen.utils.error_handling import PermissionError as VPermissionError
 
+        # Delete any existing COR to ensure clean test state
+        if frappe.db.exists("Critical Operation Rule", "test_high_security_no_batch_limits"):
+            frappe.delete_doc("Critical Operation Rule", "test_high_security_no_batch_limits", force=True, ignore_permissions=True)
+            frappe.db.commit()
+
         # Create a COR with batch limits explicitly set to 0 - use HIGH security level
         # Note: DocType has default of 5000, so we must explicitly set to 0 to test inheritance
         cor = frappe.get_doc({
@@ -816,7 +826,7 @@ class TestScopedRateLimiting(VereningingenTestCase):
             "rate_limit_period_seconds": 3600,
             "batch_rate_limit_calls": 0  # Explicitly disable - should inherit interactive limits
         })
-        cor.insert(ignore_if_duplicate=True)
+        cor.insert()
         frappe.db.commit()
 
         try:
