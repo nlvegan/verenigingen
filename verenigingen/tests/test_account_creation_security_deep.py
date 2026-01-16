@@ -24,7 +24,7 @@ import frappe
 from frappe import _
 from frappe.utils import now, add_days, getdate
 import json
-from unittest.mock import patch, MagicMock
+# Note: unittest.mock imports removed - tests now use self.as_user() context manager
 
 from verenigingen.utils.account_creation_manager import (
     AccountCreationManager,
@@ -291,8 +291,8 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Administrator"]
         )
 
-        # Use patch to simulate the admin user context
-        with patch.object(frappe.session, "user", admin_user.email):
+        # Use as_user context manager to simulate the admin user context
+        with self.as_user(admin_user.email):
             # Attempt to assign System Manager role (should fail)
             request_data = {
                 "doctype": "Account Creation Request",
@@ -384,8 +384,8 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Member"]  # Lower privilege
         )
 
-        # Use patch to simulate the malicious user context
-        with patch.object(frappe.session, "user", malicious_user.email):
+        # Use as_user context manager to simulate the malicious user context
+        with self.as_user(malicious_user.email):
             # Attempt to process request with hijacked session
             manager = AccountCreationManager(request.name)
 
@@ -584,8 +584,8 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
             roles=["Verenigingen Member"]
         )
 
-        # Use patch to simulate the unauthorized user context
-        with patch.object(frappe.session, "user", unauth_user.email):
+        # Use as_user context manager to simulate the unauthorized user context
+        with self.as_user(unauth_user.email):
             # Attempt unauthorized operation - should raise either PermissionError type
             try:
                 queue_account_creation_for_member(member.name)
