@@ -49,6 +49,58 @@ from verenigingen.utils.error_handling import (
 )
 
 # =============================================================================
+# Impersonation Stack - Prevents nested impersonation attacks
+# =============================================================================
+# Thread-local storage for tracking active impersonations
+import threading
+
+_impersonation_stack = threading.local()
+
+
+def _get_impersonation_stack() -> list:
+    """Get the current thread's impersonation stack."""
+    if not hasattr(_impersonation_stack, "stack"):
+        _impersonation_stack.stack = []
+    return _impersonation_stack.stack
+
+
+def _is_nested_impersonation() -> bool:
+    """Check if we're already in an impersonation context."""
+    return len(_get_impersonation_stack()) > 0
+
+
+# =============================================================================
+# Observability Metrics
+# =============================================================================
+# Simple counters for monitoring - can be exported to Prometheus/StatsD
+
+_metrics = threading.local()
+
+
+def _get_metrics() -> dict:
+    """Get thread-local metrics counters."""
+    if not hasattr(_metrics, "counters"):
+        _metrics.counters = {
+            "retries": 0,
+            "impersonations": 0,
+            "bypass_used": 0,
+            "escalation_denied": 0,
+            "bypass_denied": 0,
+        }
+    return _metrics.counters
+
+
+def increment_metric(name: str, value: int = 1):
+    """Increment a metric counter and log it."""
+    counters = _get_metrics()
+    if name in counters:
+        counters[name] += value
+        # Log for observability tools that scrape logs
+        frappe.logger("verenigingen.secure_ops.metrics").info(
+            f"METRIC:{name}={counters[name]} increment={value}"
+        )
+
+# =============================================================================
 # Security Configuration
 # =============================================================================
 
@@ -79,6 +131,66 @@ MIN_JUSTIFICATION_LENGTH = 10
 
 # Maximum justification length to prevent abuse
 MAX_JUSTIFICATION_LENGTH = 500
+
+
+def verify_document_integrity(doc, bypass_validations: List[str] = None) -> List[str]:
+    """
+    Verify document integrity after a save operation that used bypass_validations.
+
+    This function checks for common integrity issues that might have been
+    introduced by bypassing validations, such as broken links.
+
+    Args:
+        doc: Document that was saved with bypass
+        bypass_validations: List of validations that were bypassed
+
+    Returns:
+        List of integrity violation messages (empty if document is valid)
+    """
+    violations = []
+
+    if not bypass_validations:
+        return violations
+
+    try:
+        # If link validation was bypassed, verify links are actually valid
+        if "link_validation" in bypass_validations:
+            # Check all Link fields in the document
+            meta = frappe.get_meta(doc.doctype)
+            for df in meta.get_link_fields():
+                field_value = doc.get(df.fieldname)
+                if field_value:
+                    # Verify the linked document exists
+                    if not frappe.db.exists(df.options, field_value):
+                        violations.append(
+                            f"Broken link in {df.fieldname}: {df.options} '{field_value}' does not exist"
+                        )
+
+            # Check child tables for broken links
+            for df in meta.get_table_fields():
+                child_table = doc.get(df.fieldname) or []
+                child_meta = frappe.get_meta(df.options)
+                for i, row in enumerate(child_table):
+                    for child_df in child_meta.get_link_fields():
+                        field_value = row.get(child_df.fieldname)
+                        if field_value:
+                            if not frappe.db.exists(child_df.options, field_value):
+                                violations.append(
+                                    f"Broken link in {df.fieldname}[{i}].{child_df.fieldname}: "
+                                    f"{child_df.options} '{field_value}' does not exist"
+                                )
+
+        if violations:
+            frappe.logger().warning(
+                f"INTEGRITY_VIOLATION: Document {doc.doctype}:{doc.name} has {len(violations)} "
+                f"integrity issues after bypass: {violations}"
+            )
+
+    except Exception as e:
+        frappe.logger().error(f"Error during integrity verification: {e}")
+        violations.append(f"Integrity verification failed: {str(e)}")
+
+    return violations
 
 
 def validate_justification(justification: str, operation: str) -> str:
@@ -252,6 +364,7 @@ def _execute_document_operation(
                 break  # Success - exit retry loop
             except frappe.TimestampMismatchError as e:
                 retry_count += 1
+                increment_metric("retries")  # Track retry attempts for observability
 
                 # Handle concurrent updates gracefully for monitoring/tracking DocTypes
                 # These are non-critical updates that can tolerate stale data
@@ -512,19 +625,53 @@ def get_system_user_for_operation(operation_context: str) -> str:
 @contextmanager
 def secure_user_context_with_validation(target_user: str, operation_description: str):
     """
-    Secure context manager that switches users WITH proper permission validation
+    Secure context manager that switches users WITH proper permission validation.
 
     This corrects the fundamental flaw in the original implementation by ensuring
     permission validation occurs within the secure context.
+
+    Security Features:
+    - Prevents nested impersonation attacks
+    - Restores full session state (not just user)
+    - Emits observability metrics
+    - Comprehensive audit logging
     """
     operation_id = f"{operation_description}_{int(time.time() * 1000)}"
     original_user = frappe.session.user
     start_time = time.time()
 
+    # SECURITY: Prevent nested impersonation attacks
+    # Nested impersonation can lead to privilege confusion and audit trail issues
+    if _is_nested_impersonation():
+        current_stack = _get_impersonation_stack()
+        frappe.logger().error(
+            f"SECURITY: Nested impersonation attempt blocked. "
+            f"Current stack: {current_stack}, attempted: {target_user} [{operation_id}]"
+        )
+        raise frappe.PermissionError(
+            _("Nested impersonation is not allowed. Complete the current operation first.")
+        )
+
+    # Capture full session state for restoration
+    original_session_data = {
+        "user": frappe.session.user,
+        "sid": getattr(frappe.session, "sid", None),
+        "data": dict(frappe.session.data) if hasattr(frappe.session, "data") else {},
+    }
+
     frappe.logger().info(
         f"SECURE_CONTEXT_START: {original_user} -> {target_user} "
         f"for {operation_description} [{operation_id}]"
     )
+
+    # Track this impersonation in the stack
+    impersonation_entry = {
+        "original_user": original_user,
+        "target_user": target_user,
+        "operation_id": operation_id,
+        "timestamp": time.time(),
+    }
+    _get_impersonation_stack().append(impersonation_entry)
 
     try:
         # Validate target user
@@ -538,6 +685,9 @@ def secure_user_context_with_validation(target_user: str, operation_description:
         # Switch context
         frappe.set_user(target_user)
 
+        # Emit impersonation metric
+        increment_metric("impersonations")
+
         # Create result object for tracking
         result = SecureOperationResult(True, operation_id)
 
@@ -548,9 +698,19 @@ def secure_user_context_with_validation(target_user: str, operation_description:
         raise
 
     finally:
+        # Always pop from impersonation stack
+        stack = _get_impersonation_stack()
+        if stack and stack[-1]["operation_id"] == operation_id:
+            stack.pop()
+
         try:
-            # Always restore original context
-            frappe.set_user(original_user)
+            # Restore original user context
+            frappe.set_user(original_session_data["user"])
+
+            # Restore additional session data if it was present
+            if original_session_data["sid"]:
+                frappe.session.sid = original_session_data["sid"]
+
             duration = time.time() - start_time
 
             frappe.logger().info(
@@ -563,7 +723,9 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 f"CRITICAL: Failed to restore user context: {restore_error} [{operation_id}]"
             )
             # Force session restoration
-            frappe.session.user = original_user
+            frappe.session.user = original_session_data["user"]
+            if original_session_data["sid"]:
+                frappe.session.sid = original_session_data["sid"]
 
 
 def secure_document_operation(
@@ -616,6 +778,7 @@ def secure_document_operation(
     # Step 0.5: Validate role-gating for bypass_validations
     # Only System Manager and Verenigingen System Administrator can use bypass_validations
     if bypass_validations and not can_use_bypass_validations(original_user):
+        increment_metric("bypass_denied")
         frappe.logger().warning(
             f"SECURITY: User {original_user} attempted to use bypass_validations={bypass_validations} "
             f"for {operation} on {doc.doctype} but lacks bypass privileges [{operation_id}]"
@@ -627,6 +790,10 @@ def secure_document_operation(
             )
         )
 
+    # Track bypass usage for metrics
+    if bypass_validations:
+        increment_metric("bypass_used")
+
     result = SecureOperationResult(True, operation_id)
     result.add_audit_entry(
         "operation_start",
@@ -636,6 +803,7 @@ def secure_document_operation(
             "operation": operation,
             "justification": validated_justification,
             "original_user": original_user,
+            "bypass_validations": bypass_validations or [],  # AUDIT: Record bypasses
         },
     )
 
@@ -653,18 +821,30 @@ def secure_document_operation(
             # Perform operation with current user
             _execute_document_operation(doc, operation, bypass_validations, justification)
 
+            # SECURITY: Post-validation after bypass to verify document integrity
+            if bypass_validations:
+                integrity_violations = verify_document_integrity(doc, bypass_validations)
+                for violation in integrity_violations:
+                    result.add_warning(f"INTEGRITY: {violation}")
+
             result.doc_name = doc.name
             result.document = doc  # Add document reference to result
             result.add_audit_entry(
                 "operation_success",
                 doc.doctype,
                 doc.name,
-                {"performed_by": frappe.session.user, "permission_source": "current_user"},
+                {
+                    "performed_by": frappe.session.user,
+                    "permission_source": "current_user",
+                    "bypass_validations": bypass_validations or [],
+                    "integrity_warnings": len(integrity_violations) if bypass_validations else 0,
+                },
             )
 
         elif allow_system_user:
             # Current user lacks permissions - check if they can request escalation
             if not can_request_system_escalation(original_user):
+                increment_metric("escalation_denied")
                 frappe.logger().warning(
                     f"SECURITY: User {original_user} attempted system escalation for "
                     f"{operation} on {doc.doctype} but lacks escalation privileges [{operation_id}]"
@@ -695,6 +875,14 @@ def secure_document_operation(
                 # Perform operation as system user
                 _execute_document_operation(doc, operation, bypass_validations, justification)
 
+                # SECURITY: Post-validation after bypass to verify document integrity
+                integrity_warnings_count = 0
+                if bypass_validations:
+                    integrity_violations = verify_document_integrity(doc, bypass_validations)
+                    integrity_warnings_count = len(integrity_violations)
+                    for violation in integrity_violations:
+                        result.add_warning(f"INTEGRITY: {violation}")
+
                 result.doc_name = doc.name
                 result.document = doc  # Add document reference to result
                 result.add_audit_entry(
@@ -707,6 +895,8 @@ def secure_document_operation(
                         "permission_source": "system_user",
                         "system_user": system_user,
                         "justification": justification,
+                        "bypass_validations": bypass_validations or [],
+                        "integrity_warnings": integrity_warnings_count,
                     },
                 )
         else:
