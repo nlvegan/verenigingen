@@ -56,12 +56,15 @@ def _sanitize_error_message(message: str) -> str:
     Returns:
         Sanitized message with PII redacted
     """
-    return sanitize_error_for_audit(
-        message,
-        max_length=1000,
-        remove_stack_trace=False,  # Preserve structure for import errors
-        redact_pii=True,
-    ) or message
+    return (
+        sanitize_error_for_audit(
+            message,
+            max_length=1000,
+            remove_stack_trace=False,  # Preserve structure for import errors
+            redact_pii=True,
+        )
+        or message
+    )
 
 
 def _check_duplicate_vip_id(vip_user_id: str, mapped_data: List[Dict]) -> List[str]:

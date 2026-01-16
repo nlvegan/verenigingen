@@ -62,6 +62,7 @@ Date: 2025-08-02
 Version: 1.0
 """
 
+import re
 import time
 import traceback
 from functools import wraps
@@ -620,27 +621,27 @@ def validate_member_for_user(user: str = None, custom_message: str = None) -> st
 # These utilities provide consistent error sanitization across the application
 # for audit logs, API responses, and user-facing error messages.
 
-import re
-
 # PII patterns for sanitization
 _EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 _PHONE_PATTERN = re.compile(r"\+?\d{10,15}|\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4}")
 
 # Sensitive keyword patterns that indicate internal system information
-_SENSITIVE_KEYWORDS = frozenset([
-    "traceback",
-    "file",
-    "line",
-    "internal",
-    "database",
-    "sql",
-    "query",
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-])
+_SENSITIVE_KEYWORDS = frozenset(
+    [
+        "traceback",
+        "file",
+        "line",
+        "internal",
+        "database",
+        "sql",
+        "query",
+        "password",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+    ]
+)
 
 # API key patterns (Mollie, Stripe, etc.)
 _API_KEY_PATTERNS = ["test_", "live_", "sk_", "pk_", "bearer "]

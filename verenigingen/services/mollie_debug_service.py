@@ -1472,14 +1472,17 @@ class MollieDebugService(StatelessService):
         Returns:
             str: Sanitized error message safe for client display
         """
-        return sanitize_error_for_audit(
-            error_msg,
-            max_length=500,
-            remove_stack_trace=True,
-            redact_pii=True,
-            filter_sensitive_keywords=True,
-            fallback_message="Internal error - contact administrator",
-        ) or error_msg
+        return (
+            sanitize_error_for_audit(
+                error_msg,
+                max_length=500,
+                remove_stack_trace=True,
+                redact_pii=True,
+                filter_sensitive_keywords=True,
+                fallback_message="Internal error - contact administrator",
+            )
+            or error_msg
+        )
 
     def create_subscription(
         self,
