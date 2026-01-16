@@ -4,9 +4,16 @@ Security Framework Type Definitions
 Centralized location for all enums and constants used across the security framework.
 This module eliminates circular import issues and provides a single source of truth
 for security-related type definitions.
+
+DEPENDENCY RULES:
+- This is the lowest layer of the security module
+- No other security modules should be imported here
+- All other security modules MAY import from this module
 """
 
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import List, Optional
 
 
 class SecurityLevel(Enum):
@@ -115,6 +122,63 @@ class AuditSeverity(Enum):
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
+
+
+# ============================================================================
+# Data Classes for Security Framework Components
+# ============================================================================
+
+
+@dataclass
+class AuthResult:
+    """
+    Result of an authorization decision.
+
+    This is returned by AuthorizationPolicy.decide() and contains all information
+    needed for audit logging and error reporting.
+
+    Attributes:
+        granted: Whether access was granted
+        rule_matched: Which rule determined the outcome (e.g., "rule_4_role_profile", "rule_7_deny")
+        auth_path: The authorization path for audit (e.g., "role_profile:Verenigingen Administrator")
+        reason: Human-readable reason (especially for denials)
+    """
+
+    granted: bool
+    rule_matched: str
+    auth_path: str = ""
+    reason: str = ""
+
+
+@dataclass
+class SecurityProfile:
+    """
+    Security profile defining requirements for each security level.
+
+    This is a data transfer object that carries security configuration
+    for an API endpoint. It does NOT contain business logic.
+    """
+
+    level: SecurityLevel
+    required_roles: List[str] = field(default_factory=list)
+    required_permissions: List[str] = field(default_factory=list)
+    requires_csrf: bool = True
+    requires_audit: bool = True
+    input_validation: bool = True
+    ip_restrictions: bool = False
+    business_hours_only: bool = False
+    max_request_size: int = 1024 * 1024  # 1MB default
+    allowed_methods: List[str] = field(default_factory=lambda: ["GET", "POST"])
+    allowed_environments: Optional[List["EnvironmentLevel"]] = None
+
+    def __post_init__(self):
+        """Set default environments if not provided."""
+        if self.allowed_environments is None:
+            self.allowed_environments = [
+                EnvironmentLevel.PRODUCTION,
+                EnvironmentLevel.STAGING,
+                EnvironmentLevel.DEVELOPMENT,
+            ]
 
 
 # Note: Security decorators (utility_api, development_only_api, etc.) are now

@@ -28,9 +28,18 @@ from verenigingen.utils.error_handling import (
     ValidationError as VValidationError,
     log_error,
 )
+from verenigingen.utils.security.authorization_policy import (
+    AuthorizationPolicy,
+    get_authorization_policy,
+)
 
 # Lazy import to avoid circular dependency - get_auth_manager imported when needed
 from verenigingen.utils.security.csrf_protection import CSRFProtection
+from verenigingen.utils.security.environment_validator import (
+    EnvironmentValidator,
+    get_environment_validator,
+)
+from verenigingen.utils.security.input_validator import InputValidator, get_input_validator
 
 # Note: Removed SEPA rate limiter import - now using COR-based rate limiting
 from verenigingen.utils.security.types import (
@@ -40,6 +49,7 @@ from verenigingen.utils.security.types import (
     ExecutionContext,
     OperationType,
     SecurityLevel,
+    SecurityProfile,
 )
 from verenigingen.utils.validation.api_validators import APIValidator
 
@@ -59,39 +69,178 @@ def _safe_debug_log(message: str) -> None:
         pass
 
 
-class SecurityProfile:
-    """Security profile defining requirements for each security level"""
+# SecurityProfile is now imported from types.py for better modularity
 
-    def __init__(
-        self,
-        level: SecurityLevel,
-        required_roles: List[str] = None,
-        required_permissions: List[str] = None,
-        requires_csrf: bool = True,
-        requires_audit: bool = True,
-        input_validation: bool = True,
-        ip_restrictions: bool = False,
-        business_hours_only: bool = False,
-        max_request_size: int = 1024 * 1024,  # 1MB default
-        allowed_methods: List[str] = None,
-        allowed_environments: List[EnvironmentLevel] = None,
-    ):
-        self.level = level
-        self.required_roles = required_roles or []
-        self.required_permissions = required_permissions or []
-        # Note: Rate limiting now handled entirely by COR records
-        self.requires_csrf = requires_csrf
-        self.requires_audit = requires_audit
-        self.input_validation = input_validation
-        self.ip_restrictions = ip_restrictions
-        self.business_hours_only = business_hours_only
-        self.max_request_size = max_request_size
-        self.allowed_methods = allowed_methods or ["GET", "POST"]
-        self.allowed_environments = allowed_environments or [
-            EnvironmentLevel.PRODUCTION,
-            EnvironmentLevel.STAGING,
-            EnvironmentLevel.DEVELOPMENT,
-        ]
+
+class FrappeWhitelistAdapter:
+    """
+    Façade for Frappe whitelist registration.
+
+    This class encapsulates the complex logic for registering decorated
+    functions with Frappe's whitelist system. It handles:
+    - Attribute preservation through decorator chains
+    - Adding wrappers to frappe.whitelisted collection
+    - Registering HTTP methods in allowed_http_methods_for_whitelisted_func
+
+    PHASE 1 NOTE: This façade is defined here to verify behavior. In Phase 3,
+    it will be moved to its own file (frappe_whitelist_adapter.py).
+
+    INVARIANTS:
+    - Never adds non-whitelisted functions to Frappe's whitelist (fail-closed)
+    - Preserves HTTP method restrictions from inner function
+    - Defaults to POST-only when no methods specified (security default)
+    """
+
+    def preserve_whitelist_attribute(self, wrapper: Callable, func: Callable) -> None:
+        """
+        Preserve __func_is_whitelisted__ attribute from inner function to wrapper.
+
+        This handles the complex chain of decorators and wrapped functions
+        that may occur in real-world usage.
+        """
+        # First, check direct attribute
+        if hasattr(func, "__func_is_whitelisted__"):
+            wrapper.__func_is_whitelisted__ = func.__func_is_whitelisted__
+            _safe_debug_log(f"Preserved __func_is_whitelisted__ from func: {func.__func_is_whitelisted__}")
+            return
+
+        # Check for allow_guest attribute (legacy pattern)
+        if hasattr(func, "allow_guest") and func.allow_guest:
+            wrapper.__func_is_whitelisted__ = True
+            _safe_debug_log("Set __func_is_whitelisted__ from allow_guest")
+            return
+
+        # Check wrapped function if exists
+        if hasattr(func, "__wrapped__"):
+            wrapped_func = func.__wrapped__
+            if hasattr(wrapped_func, "__func_is_whitelisted__"):
+                wrapper.__func_is_whitelisted__ = wrapped_func.__func_is_whitelisted__
+                _safe_debug_log(
+                    f"Preserved __func_is_whitelisted__ from wrapped: {wrapped_func.__func_is_whitelisted__}"
+                )
+                return
+
+            # Go deeper if needed
+            if hasattr(wrapped_func, "__wrapped__") and hasattr(
+                wrapped_func.__wrapped__, "__func_is_whitelisted__"
+            ):
+                wrapper.__func_is_whitelisted__ = wrapped_func.__wrapped__.__func_is_whitelisted__
+                _safe_debug_log(
+                    f"Preserved __func_is_whitelisted__ from deep wrapped: {wrapped_func.__wrapped__.__func_is_whitelisted__}"
+                )
+                return
+
+        # Fallback: check if function is in Frappe's whitelist registry
+        if not hasattr(wrapper, "__func_is_whitelisted__"):
+            method_path = f"{func.__module__}.{func.__name__}"
+            if method_path in getattr(frappe, "_whitelisted_methods", set()):
+                wrapper.__func_is_whitelisted__ = True
+                _safe_debug_log(f"Set __func_is_whitelisted__ from whitelist registry for {method_path}")
+            else:
+                # SECURITY FIX: Fail-closed behavior - do NOT assume whitelisted
+                frappe.logger("verenigingen.api_security").warning(
+                    f"Security decorator applied to function {method_path} which is not in "
+                    f"Frappe's whitelist registry. Function will NOT be treated as whitelisted. "
+                    f"Ensure @frappe.whitelist() is applied BEFORE security decorators."
+                )
+                _safe_debug_log(f"Fail-closed: NOT setting __func_is_whitelisted__ for {method_path}")
+
+    def preserve_common_attributes(self, wrapper: Callable, func: Callable) -> None:
+        """Preserve other common Frappe attributes from inner function."""
+        for attr in ["allow_guest", "_original_func_name"]:
+            if hasattr(func, attr):
+                setattr(wrapper, attr, getattr(func, attr))
+
+    def is_inner_whitelisted(self, func: Callable) -> bool:
+        """Check if the inner function was whitelisted."""
+        if not hasattr(frappe, "whitelisted"):
+            return False
+        return (
+            func in frappe.whitelisted
+            or getattr(func, "__func_is_whitelisted__", False)
+            or (hasattr(func, "__wrapped__") and func.__wrapped__ in frappe.whitelisted)
+        )
+
+    def register_wrapper_in_whitelist(self, wrapper: Callable, func: Callable) -> None:
+        """
+        Add wrapper to Frappe's whitelist collection.
+
+        Frappe's is_whitelisted() checks `if method not in whitelisted`,
+        NOT function attributes. We must explicitly add our wrapper.
+        """
+        if not hasattr(frappe, "whitelisted"):
+            return
+
+        if self.is_inner_whitelisted(func):
+            # Handle both set and list types (Frappe version differences)
+            if isinstance(frappe.whitelisted, set):
+                frappe.whitelisted.add(wrapper)
+            elif isinstance(frappe.whitelisted, list):
+                if wrapper not in frappe.whitelisted:
+                    frappe.whitelisted.append(wrapper)
+            _safe_debug_log(f"Added wrapper to frappe.whitelisted for {func.__name__}")
+
+    def get_allowed_http_methods(self, func: Callable) -> Optional[List[str]]:
+        """Get allowed HTTP methods for a function from Frappe's registry."""
+        if not hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+            return None
+
+        http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
+
+        if func in http_methods_dict:
+            return http_methods_dict[func]
+        if hasattr(func, "__wrapped__") and func.__wrapped__ in http_methods_dict:
+            return http_methods_dict[func.__wrapped__]
+
+        return None
+
+    def register_http_methods(self, wrapper: Callable, func: Callable) -> None:
+        """
+        Register allowed HTTP methods for wrapper in Frappe's dict.
+
+        SECURITY: Defaults to POST-only when no methods are specified.
+        """
+        if not hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
+            return
+
+        http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
+        allowed_methods = self.get_allowed_http_methods(func)
+
+        if allowed_methods is not None:
+            http_methods_dict[wrapper] = allowed_methods
+            _safe_debug_log(
+                f"Added wrapper to allowed_http_methods_for_whitelisted_func for {func.__name__}: {allowed_methods}"
+            )
+        elif self.is_inner_whitelisted(func):
+            # SECURITY FIX: Default to POST only for stricter security
+            http_methods_dict[wrapper] = ["POST"]
+            _safe_debug_log(
+                f"Added wrapper to allowed_http_methods_for_whitelisted_func with "
+                f"security default (POST only) for {func.__name__}"
+            )
+
+    def register_wrapper(self, wrapper: Callable, func: Callable) -> None:
+        """
+        Complete registration of wrapper with Frappe's whitelist system.
+
+        This is the main entry point that performs all registration steps.
+        """
+        self.preserve_whitelist_attribute(wrapper, func)
+        self.preserve_common_attributes(wrapper, func)
+        self.register_wrapper_in_whitelist(wrapper, func)
+        self.register_http_methods(wrapper, func)
+
+
+# Singleton instance for convenience
+_frappe_whitelist_adapter = None
+
+
+def get_frappe_whitelist_adapter() -> FrappeWhitelistAdapter:
+    """Get singleton FrappeWhitelistAdapter instance."""
+    global _frappe_whitelist_adapter
+    if _frappe_whitelist_adapter is None:
+        _frappe_whitelist_adapter = FrappeWhitelistAdapter()
+    return _frappe_whitelist_adapter
 
 
 class APISecurityFramework:
@@ -178,50 +327,12 @@ class APISecurityFramework:
     }
 
     # Role Profile to Security Level mapping
-    # This replaces hardcoded role lists with role profile-based access
-    ROLE_PROFILE_SECURITY_MAPPING = {
-        "Verenigingen System Administrator": [
-            SecurityLevel.CRITICAL,
-            SecurityLevel.HIGH,
-            SecurityLevel.MEDIUM,
-            SecurityLevel.LOW,
-        ],
-        "Verenigingen Administrator": [
-            SecurityLevel.CRITICAL,
-            SecurityLevel.HIGH,
-            SecurityLevel.MEDIUM,
-            SecurityLevel.LOW,
-        ],
-        "Verenigingen Treasurer": [
-            SecurityLevel.CRITICAL,
-            SecurityLevel.HIGH,
-            SecurityLevel.MEDIUM,
-        ],  # Full financial access
-        "Verenigingen National Board Member": [
-            SecurityLevel.CRITICAL,
-            SecurityLevel.HIGH,
-            SecurityLevel.MEDIUM,
-        ],  # National oversight
-        "Verenigingen Staff": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
-        "Verenigingen Chapter Board Member": [
-            SecurityLevel.HIGH,
-            SecurityLevel.MEDIUM,
-            SecurityLevel.LOW,
-        ],  # + contextual for their chapter (HIGH for member data access)
-        "Verenigingen Auditor": [SecurityLevel.MEDIUM, SecurityLevel.LOW],  # Audit/compliance access
-        "Verenigingen Team Leader": [SecurityLevel.LOW],  # + contextual for their team
-        "Verenigingen Member": [SecurityLevel.LOW],
-        "Verenigingen Volunteer": [
-            SecurityLevel.MEDIUM,
-            SecurityLevel.LOW,
-        ],  # MEDIUM for self_service_only operations
-        "Verenigingen Webhook User": [
-            SecurityLevel.HIGH,
-            SecurityLevel.MEDIUM,
-            SecurityLevel.LOW,
-            SecurityLevel.PUBLIC,
-        ],  # Service account for webhooks and background automation
-    }
+    # Now delegated to AuthorizationPolicy for pure logic separation
+    # This property maintains backwards compatibility
+    @property
+    def ROLE_PROFILE_SECURITY_MAPPING(self):
+        """Get mapping from AuthorizationPolicy (backwards compatibility)."""
+        return get_authorization_policy().ROLE_PROFILE_SECURITY_MAPPING
 
     def __init__(self):
         """Initialize the security framework"""
@@ -415,37 +526,21 @@ class APISecurityFramework:
         """
         Detect the current deployment environment.
 
+        Delegates to EnvironmentValidator.
+
         Returns:
             EnvironmentLevel: Current environment (DEVELOPMENT, STAGING, or PRODUCTION)
         """
-        # Check Frappe developer mode first
-        if frappe.conf.get("developer_mode", False):
-            return EnvironmentLevel.DEVELOPMENT
-
-        # Check custom environment configuration
-        env = frappe.conf.get("deployment_environment")
-        if env:
-            try:
-                return EnvironmentLevel(env.lower())
-            except ValueError:
-                pass  # Invalid environment, fall through to default
-
-        # Check site-specific environment indicator
-        site_env = frappe.conf.get("environment")
-        if site_env:
-            try:
-                return EnvironmentLevel(site_env.lower())
-            except ValueError:
-                pass  # Invalid environment, fall through to default
-
-        # Default to production for safety - restricts access by default
-        return EnvironmentLevel.PRODUCTION
+        validator = get_environment_validator()
+        return validator.get_current_environment()
 
     def validate_environment_access(
         self, profile: SecurityProfile, current_env: EnvironmentLevel = None
     ) -> bool:
         """
         Validate that the current environment is allowed for this security profile.
+
+        Delegates to EnvironmentValidator.
 
         Args:
             profile: Security profile containing environment restrictions
@@ -457,19 +552,8 @@ class APISecurityFramework:
         Raises:
             VPermissionError: If current environment is not allowed
         """
-        if current_env is None:
-            current_env = self.get_current_environment()
-
-        if current_env not in profile.allowed_environments:
-            allowed_envs = [env.value for env in profile.allowed_environments]
-            raise VPermissionError(
-                _(
-                    f"Function not available in {current_env.value} environment. "  # noqa: E713
-                    f"Allowed environments: {', '.join(allowed_envs)}"
-                )
-            )
-
-        return True
+        validator = get_environment_validator()
+        return validator.validate_access(profile, current_env)
 
     def _validate_role_profile_configuration(self):
         """Validate that all configured role profiles exist in the system"""
@@ -613,12 +697,15 @@ class APISecurityFramework:
                 )
 
     def _role_profile_grants_access(self, role_profile: str, required_level: SecurityLevel) -> bool:
-        """Check if a role profile grants access to the required security level"""
-        allowed_levels = self.ROLE_PROFILE_SECURITY_MAPPING.get(role_profile, [])
-        return required_level in allowed_levels
+        """Check if a role profile grants access to the required security level.
+
+        Delegates to AuthorizationPolicy.
+        """
+        policy = get_authorization_policy()
+        return policy.role_profile_grants_access(role_profile, required_level)
 
     def _validate_role_profile_access(self, required_level: SecurityLevel, user: str = None) -> bool:
-        """Check if user's role profiles grant required security level"""
+        """Check if user's role profiles grant required security level."""
         user_profiles = self._get_user_role_profiles(user)
 
         for profile in user_profiles:
@@ -637,24 +724,13 @@ class APISecurityFramework:
         """
         Validate user authentication and authorization.
 
-        Authorization Decision Table
-        ============================
+        This method is the I/O layer that:
+        1. Fetches user profiles and roles from Frappe
+        2. Delegates the decision to AuthorizationPolicy.decide()
+        3. Logs the result
+        4. Raises appropriate error if denied
 
-        The authorization model uses a priority-ordered decision chain. The FIRST
-        matching rule grants access; if no rule matches, access is denied.
-
-        Priority | Rule                           | Levels Affected      | Description
-        ---------|--------------------------------|----------------------|----------------------------------
-        1        | PUBLIC level                   | PUBLIC only          | No authentication required
-        2        | Guest check                    | All except PUBLIC    | Reject unauthenticated users
-        3        | LOW level                      | LOW only             | Any authenticated user allowed
-        4        | Role Profile (primary)         | MEDIUM, HIGH, CRIT   | User's assigned role profile grants access
-        5        | Individual Role (secondary)    | MEDIUM, HIGH, CRIT   | User role name matches profile name in mapping
-        6        | System Manager exception       | MEDIUM only          | System Manager gets MEDIUM access
-        7        | DENY                           | All                  | No matching rule found
-
-        Note: Hardcoded `required_roles` in SecurityProfile are DEPRECATED and ignored.
-        All authorization should go through Role Profiles (Rule 4) or Individual Roles (Rule 5).
+        See AuthorizationPolicy for the decision table documentation.
 
         Args:
             profile: SecurityProfile with the required security level
@@ -669,57 +745,32 @@ class APISecurityFramework:
         if not user:
             user = frappe.session.user
 
-        # Track authorization path for audit logging
-        auth_path = None
-
-        # ===== RULE 1: PUBLIC level - no authentication required =====
-        if profile.level == SecurityLevel.PUBLIC:
-            return True
-
-        # ===== RULE 2: Reject unauthenticated users =====
-        if user == "Guest":
-            raise VPermissionError(_("Authentication required for this endpoint"))
-
-        # ===== RULE 3: LOW level - any authenticated user =====
-        if profile.level == SecurityLevel.LOW:
-            frappe.logger("verenigingen.api_security").debug(
-                f"AUTH_GRANTED: user={user} level=LOW rule=3_any_authenticated"
-            )
-            return True
-
-        # ===== RULE 4: Primary - Role Profile authorization =====
+        # Fetch user data (I/O layer)
         user_profiles = self._get_user_role_profiles(user)
-        for profile_name in user_profiles:
-            if self._role_profile_grants_access(profile_name, profile.level):
-                auth_path = f"role_profile:{profile_name}"
-                frappe.logger("verenigingen.api_security").debug(
-                    f"AUTH_GRANTED: user={user} level={profile.level.value} rule=4_role_profile path={auth_path}"
-                )
-                return True
-
-        # ===== RULE 5: Secondary - Individual role matches profile name =====
-        # This supports backwards compatibility where role names match profile names
         user_roles = frappe.get_roles(user)
-        for role in user_roles:
-            allowed_levels = self.ROLE_PROFILE_SECURITY_MAPPING.get(role, [])
-            if profile.level in allowed_levels:
-                auth_path = f"individual_role:{role}"
-                frappe.logger("verenigingen.api_security").debug(
-                    f"AUTH_GRANTED: user={user} level={profile.level.value} rule=5_individual_role path={auth_path}"
-                )
-                return True
+        is_authenticated = user != "Guest"
 
-        # ===== RULE 6: System Manager exception for MEDIUM =====
-        if "System Manager" in user_roles and profile.level == SecurityLevel.MEDIUM:
-            auth_path = "system_manager_exception"
+        # Delegate to pure policy for decision
+        policy = get_authorization_policy()
+        result = policy.decide(
+            required_level=profile.level,
+            user_profiles=user_profiles,
+            user_roles=user_roles,
+            is_authenticated=is_authenticated,
+        )
+
+        # Log the result
+        if result.granted:
             frappe.logger("verenigingen.api_security").debug(
-                f"AUTH_GRANTED: user={user} level=MEDIUM rule=6_system_manager"
+                f"AUTH_GRANTED: user={user} level={profile.level.value} "
+                f"rule={result.rule_matched} path={result.auth_path}"
             )
             return True
 
-        # ===== RULE 7: DENY - No matching authorization rule =====
+        # Handle denial
         frappe.logger("verenigingen.api_security").warning(
             f"AUTH_DENIED: user={user} level={profile.level.value} "
+            f"rule={result.rule_matched} "
             f"profiles={user_profiles} roles={user_roles[:5]}..."  # Truncate for log safety
         )
 
@@ -736,9 +787,7 @@ class APISecurityFramework:
             )
         else:
             # In production, return generic message
-            raise VPermissionError(
-                _("Access denied. You do not have permission for this operation.")
-            )
+            raise VPermissionError(_("Access denied. You do not have permission for this operation."))
 
     def validate_request_method(self, profile: SecurityProfile) -> bool:
         """Validate HTTP method is allowed"""
@@ -1057,126 +1106,26 @@ class APISecurityFramework:
     def validate_input_data(
         self, profile: SecurityProfile, operation_type: OperationType = None, **kwargs
     ) -> Dict[str, Any]:
-        """Validate and sanitize input data"""
+        """
+        Validate and sanitize input data.
+
+        Delegates to InputValidator for actual validation logic.
+        """
         if not profile.input_validation:
             return kwargs
 
-        validated_data = {}
-
-        # Determine appropriate max_length based on operation type
-        max_length = 1000  # default
-        if operation_type == OperationType.MEMBER_DATA:
-            max_length = 5000  # Allow larger data for membership applications and member data
-        elif operation_type == OperationType.REPORTING:
-            max_length = 2000  # Allow larger data for reports
-        elif operation_type == OperationType.FINANCIAL:
-            max_length = 100000  # Allow large JSON payloads for batch financial operations
-        elif operation_type == OperationType.ADMIN:
-            # Admin operations may include bulk operations with large arrays
-            max_length = 50000  # Allow larger payloads for bulk admin operations
-
-        for key, value in kwargs.items():
-            # Skip None values
-            if value is None:
-                validated_data[key] = value
-                continue
-
-            # Sanitize string inputs
-            if isinstance(value, str):
-                # Skip validation for file/attachment data
-                # File data is typically base64 encoded and can be very large
-                file_related_keys = ["filedata", "file_content", "content", "data", "file"]
-                is_file_data = False
-
-                # Check if key suggests file data
-                if any(file_key in key.lower() for file_key in file_related_keys):
-                    is_file_data = True
-
-                # Check if value looks like base64 data (heuristic: starts with data:image or very long alphanumeric)
-                if not is_file_data and len(value) > 1000:
-                    if value.startswith("data:") or (
-                        len(value) > 10000
-                        and value.replace("/", "").replace("+", "").replace("=", "").isalnum()
-                    ):
-                        is_file_data = True
-
-                # Skip validation for file data - Frappe handles file uploads separately
-                if is_file_data:
-                    validated_data[key] = value
-                    continue
-
-                # Decode HTML entities first (common issue with form submissions)
-                import html
-
-                decoded_value = html.unescape(value)
-
-                # Check if this looks like a JSON array or object
-                # This handles bulk operations that pass arrays as JSON strings
-                is_json_payload = False
-                if decoded_value.strip().startswith(("[", "{")):
-                    try:
-                        json.loads(decoded_value)
-                        is_json_payload = True
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-
-                # Skip text sanitization for valid JSON payloads
-                # json.loads() already validates the input safely, and sanitize_text()
-                # would corrupt JSON by escaping double quotes to &quot;
-                if is_json_payload:
-                    # Just validate length for JSON payloads
-                    effective_max_length = 100000
-                    if len(decoded_value) > effective_max_length:
-                        raise VValidationError(
-                            f"JSON payload too long (max {effective_max_length} characters)"
-                        )
-                    validated_data[key] = decoded_value
-                else:
-                    validated_data[key] = APIValidator.sanitize_text(decoded_value, max_length=max_length)
-            elif isinstance(value, dict):
-                # Recursively validate dict inputs
-                validated_data[key] = self._validate_dict_input(value, max_length)
-            elif isinstance(value, list):
-                # Validate list inputs
-                validated_data[key] = self._validate_list_input(value, max_length)
-            else:
-                validated_data[key] = value
-
-        return validated_data
+        validator = get_input_validator()
+        return validator.validate(operation_type=operation_type, **kwargs)
 
     def _validate_dict_input(self, data: Dict[str, Any], max_length: int = 500) -> Dict[str, Any]:
-        """Validate dictionary input data"""
-        validated = {}
-        for key, value in data.items():
-            if isinstance(value, str):
-                import html
-
-                decoded_value = html.unescape(value)
-                validated[key] = APIValidator.sanitize_text(decoded_value, max_length=max_length)
-            elif isinstance(value, dict):
-                validated[key] = self._validate_dict_input(value, max_length)
-            elif isinstance(value, list):
-                validated[key] = self._validate_list_input(value, max_length)
-            else:
-                validated[key] = value
-        return validated
+        """Validate dictionary input data. Delegates to InputValidator."""
+        validator = get_input_validator()
+        return validator.validate_dict(data, max_length)
 
     def _validate_list_input(self, data: List[Any], max_length: int = 500) -> List[Any]:
-        """Validate list input data"""
-        validated = []
-        for item in data:
-            if isinstance(item, str):
-                import html
-
-                decoded_item = html.unescape(item)
-                validated.append(APIValidator.sanitize_text(decoded_item, max_length=max_length))
-            elif isinstance(item, dict):
-                validated.append(self._validate_dict_input(item, max_length))
-            elif isinstance(item, list):
-                validated.append(self._validate_list_input(item, max_length))
-            else:
-                validated.append(item)
-        return validated
+        """Validate list input data. Delegates to InputValidator."""
+        validator = get_input_validator()
+        return validator.validate_list(data, max_length)
 
     def _validate_self_service_access(self, **kwargs) -> bool:
         """Validate that user can only access their own data in self-service operations"""
@@ -1683,112 +1632,10 @@ def api_security_framework(
         wrapper._security_level = security_level
         wrapper._operation_type = operation_type
 
-        # Preserve Frappe whitelist attribute (critical for admin tools)
-        # Enhanced preservation logic to handle all Frappe whitelist scenarios
-
-        # First, check direct attribute
-        if hasattr(func, "__func_is_whitelisted__"):
-            wrapper.__func_is_whitelisted__ = func.__func_is_whitelisted__
-            _safe_debug_log(f"Preserved __func_is_whitelisted__ from func: {func.__func_is_whitelisted__}")
-
-        # Check for allow_guest attribute (legacy pattern)
-        elif hasattr(func, "allow_guest") and func.allow_guest:
-            wrapper.__func_is_whitelisted__ = True
-            _safe_debug_log("Set __func_is_whitelisted__ from allow_guest")
-
-        # Check wrapped function if exists
-        elif hasattr(func, "__wrapped__"):
-            wrapped_func = func.__wrapped__
-            if hasattr(wrapped_func, "__func_is_whitelisted__"):
-                wrapper.__func_is_whitelisted__ = wrapped_func.__func_is_whitelisted__
-                _safe_debug_log(
-                    f"Preserved __func_is_whitelisted__ from wrapped: {wrapped_func.__func_is_whitelisted__}"
-                )
-
-            # Go deeper if needed
-            elif hasattr(wrapped_func, "__wrapped__") and hasattr(
-                wrapped_func.__wrapped__, "__func_is_whitelisted__"
-            ):
-                wrapper.__func_is_whitelisted__ = wrapped_func.__wrapped__.__func_is_whitelisted__
-                _safe_debug_log(
-                    f"Preserved __func_is_whitelisted__ from deep wrapped: {wrapped_func.__wrapped__.__func_is_whitelisted__}"
-                )
-
-        # Force set to True if we know this function should be whitelisted
-        # This is a fallback for cases where the attribute chain is broken
-        if not hasattr(wrapper, "__func_is_whitelisted__"):
-            # Check if this function is explicitly in frappe's whitelist registry
-            method_path = f"{func.__module__}.{func.__name__}"
-            if method_path in getattr(frappe, "_whitelisted_methods", set()):
-                wrapper.__func_is_whitelisted__ = True
-                _safe_debug_log(f"Set __func_is_whitelisted__ from whitelist registry for {method_path}")
-            else:
-                # SECURITY FIX: Fail-closed behavior - do NOT assume whitelisted
-                # If function is not in Frappe's whitelist registry, it should not be
-                # treated as whitelisted. This prevents accidental exposure of internal functions.
-                frappe.logger("verenigingen.api_security").warning(
-                    f"Security decorator applied to function {method_path} which is not in "
-                    f"Frappe's whitelist registry. Function will NOT be treated as whitelisted. "
-                    f"Ensure @frappe.whitelist() is applied BEFORE security decorators."
-                )
-                # Do NOT set __func_is_whitelisted__ - let Frappe reject if truly not whitelisted
-                _safe_debug_log(f"Fail-closed: NOT setting __func_is_whitelisted__ for {method_path}")
-
-        # Also preserve other common Frappe attributes
-        for attr in ["allow_guest", "_original_func_name"]:
-            if hasattr(func, attr):
-                setattr(wrapper, attr, getattr(func, attr))
-
-        # CRITICAL FIX: Add wrapper to Frappe's whitelist collections
-        # Frappe's is_whitelisted() checks `if method not in whitelisted`,
-        # NOT function attributes. When our decorator wraps a whitelisted function,
-        # the NEW wrapper function is not in the collection - causing "not whitelisted" errors.
-        # We must explicitly add our wrapper to the collection.
-        # Note: frappe.whitelisted can be a set OR list depending on Frappe version
-        if hasattr(frappe, "whitelisted"):
-            # Check if inner function was whitelisted
-            inner_was_whitelisted = (
-                func in frappe.whitelisted
-                or getattr(func, "__func_is_whitelisted__", False)
-                or (hasattr(func, "__wrapped__") and func.__wrapped__ in frappe.whitelisted)
-            )
-            if inner_was_whitelisted:
-                # Handle both set and list types
-                if isinstance(frappe.whitelisted, set):
-                    frappe.whitelisted.add(wrapper)
-                elif isinstance(frappe.whitelisted, list):
-                    if wrapper not in frappe.whitelisted:
-                        frappe.whitelisted.append(wrapper)
-                _safe_debug_log(f"Added wrapper to frappe.whitelisted for {func.__name__}")
-
-        # CRITICAL FIX 2: Add wrapper to allowed_http_methods_for_whitelisted_func
-        # Frappe also has a dict mapping function objects to allowed HTTP methods.
-        # When our decorator wraps a function, the wrapper isn't in this dict,
-        # causing KeyError in is_valid_http_method().
-        if hasattr(frappe, "allowed_http_methods_for_whitelisted_func"):
-            http_methods_dict = frappe.allowed_http_methods_for_whitelisted_func
-            # Try to find the allowed methods from the inner function
-            allowed_methods = None
-            if func in http_methods_dict:
-                allowed_methods = http_methods_dict[func]
-            elif hasattr(func, "__wrapped__") and func.__wrapped__ in http_methods_dict:
-                allowed_methods = http_methods_dict[func.__wrapped__]
-
-            # If we found allowed methods (or if inner was whitelisted), register wrapper
-            if allowed_methods is not None:
-                http_methods_dict[wrapper] = allowed_methods
-                _safe_debug_log(
-                    f"Added wrapper to allowed_http_methods_for_whitelisted_func for {func.__name__}: {allowed_methods}"
-                )
-            elif "inner_was_whitelisted" in locals() and inner_was_whitelisted:
-                # SECURITY FIX: Default to POST only for stricter security
-                # Mutation endpoints should not allow GET; read endpoints should explicitly
-                # declare their methods via @frappe.whitelist(methods=["GET"])
-                http_methods_dict[wrapper] = ["POST"]
-                _safe_debug_log(
-                    f"Added wrapper to allowed_http_methods_for_whitelisted_func with "
-                    f"security default (POST only) for {func.__name__}"
-                )
+        # Register wrapper with Frappe's whitelist system using the adapter
+        # This handles all the complex logic for attribute preservation and registration
+        adapter = get_frappe_whitelist_adapter()
+        adapter.register_wrapper(wrapper, func)
 
         return wrapper
 

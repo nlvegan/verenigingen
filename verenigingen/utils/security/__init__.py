@@ -1,15 +1,45 @@
 """
-Security Package for Verenigingen SEPA Operations
+Security Package for Verenigingen Operations
 
-This package provides comprehensive security measures for SEPA operations including:
+This package provides comprehensive security measures including:
+- API Security Framework (decorators, authorization, rate limiting)
 - CSRF protection
-- Rate limiting (via Critical Operation Rules - COR)
 - Role-based authorization
 - Comprehensive audit logging
 
 All security measures are configured to work together seamlessly.
+
+Architecture (see docs/REFACTOR_API_SECURITY_FRAMEWORK.md):
+- types.py: Shared enums and data classes (lowest layer)
+- authorization_policy.py: Pure authorization decision logic
+- input_validator.py: Pure input validation
+- environment_validator.py: Environment-based access control
+- api_security_framework.py: Orchestrator (uses all above)
 """
 
+# ============================================================================
+# Types (lowest layer - no dependencies)
+# ============================================================================
+# ============================================================================
+# API Security Framework (orchestrator)
+# ============================================================================
+from .api_security_framework import (
+    APISecurityFramework,
+    FrappeWhitelistAdapter,
+    api_security_framework,
+    critical_api,
+    get_frappe_whitelist_adapter,
+    get_security_framework,
+    high_security_api,
+    public_api,
+    standard_api,
+    utility_api,
+    webhook_api,
+)
+
+# ============================================================================
+# Legacy SEPA-specific security (maintained for backwards compatibility)
+# ============================================================================
 from .audit_logging import SEPAAuditLogger, audit_log, setup_audit_logging
 from .authorization import (
     SEPAAuthorizationManager,
@@ -19,21 +49,65 @@ from .authorization import (
     setup_authorization,
 )
 
-# Context validators removed - functionality moved to api_security_framework
+# ============================================================================
+# Pure logic modules (depend only on types)
+# ============================================================================
+from .authorization_policy import AuthorizationPolicy, get_authorization_policy
 from .csrf_protection import CSRFProtection, require_csrf_token, setup_csrf_protection
 
-# Rate limiting moved to COR (Critical Operation Rules) - database-configurable
-# Old rate_limiting.py and rate_limiter.py removed
-from .types import AuditEventType, AuditSeverity
+# ============================================================================
+# I/O layer modules (depend on types, may use Frappe)
+# ============================================================================
+from .environment_validator import EnvironmentValidator, get_environment_validator
+from .input_validator import InputValidator, get_input_validator
+from .types import (
+    AuditEventType,
+    AuditSeverity,
+    AuthResult,
+    EnvironmentLevel,
+    ExecutionContext,
+    OperationType,
+    SecurityLevel,
+    SecurityProfile,
+)
 
 __all__ = [
+    # Types
+    "SecurityLevel",
+    "EnvironmentLevel",
+    "OperationType",
+    "ExecutionContext",
+    "AuditEventType",
+    "AuditSeverity",
+    "AuthResult",
+    "SecurityProfile",
+    # Authorization Policy (pure logic)
+    "AuthorizationPolicy",
+    "get_authorization_policy",
+    # Input Validator (pure logic)
+    "InputValidator",
+    "get_input_validator",
+    # Environment Validator
+    "EnvironmentValidator",
+    "get_environment_validator",
+    # API Security Framework
+    "APISecurityFramework",
+    "api_security_framework",
+    "get_security_framework",
+    "FrappeWhitelistAdapter",
+    "get_frappe_whitelist_adapter",
+    # Convenience decorators
+    "critical_api",
+    "high_security_api",
+    "standard_api",
+    "utility_api",
+    "public_api",
+    "webhook_api",
     # CSRF Protection
     "CSRFProtection",
     "require_csrf_token",
     "setup_csrf_protection",
-    # Rate Limiting - now handled by COR (Critical Operation Rules)
-    # Use @standard_api, @utility_api etc. from api_security_framework
-    # Authorization
+    # SEPA Authorization (legacy)
     "SEPAAuthorizationManager",
     "SEPAOperation",
     "SEPAPermissionLevel",
@@ -41,8 +115,6 @@ __all__ = [
     "setup_authorization",
     # Audit Logging
     "SEPAAuditLogger",
-    "AuditEventType",
-    "AuditSeverity",
     "audit_log",
     "setup_audit_logging",
     # Setup
