@@ -12,14 +12,14 @@ All security measures are configured to work together seamlessly.
 Architecture (see docs/REFACTOR_API_SECURITY_FRAMEWORK.md):
 - types.py: Shared enums and data classes (lowest layer)
 - authorization_policy.py: Pure authorization decision logic
+- authorization_engine.py: Authorization I/O layer (uses policy)
 - input_validator.py: Pure input validation
 - environment_validator.py: Environment-based access control
+- rate_limit_engine.py: Rate limiting with COR integration
+- audit_emitter.py: Security audit event emission
 - api_security_framework.py: Orchestrator (uses all above)
 """
 
-# ============================================================================
-# Types (lowest layer - no dependencies)
-# ============================================================================
 # ============================================================================
 # API Security Framework (orchestrator)
 # ============================================================================
@@ -38,6 +38,11 @@ from .api_security_framework import (
 )
 
 # ============================================================================
+# Audit Emitter (simplified interface for API security)
+# ============================================================================
+from .audit_emitter import AuditEmitter, get_audit_emitter
+
+# ============================================================================
 # Legacy SEPA-specific security (maintained for backwards compatibility)
 # ============================================================================
 from .audit_logging import SEPAAuditLogger, audit_log, setup_audit_logging
@@ -47,6 +52,15 @@ from .authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
     setup_authorization,
+)
+
+# ============================================================================
+# Authorization Engine (I/O layer for authorization)
+# ============================================================================
+from .authorization_engine import (
+    AuthorizationEngine,
+    get_authorization_engine,
+    invalidate_user_role_cache,
 )
 
 # ============================================================================
@@ -60,6 +74,11 @@ from .csrf_protection import CSRFProtection, require_csrf_token, setup_csrf_prot
 # ============================================================================
 from .environment_validator import EnvironmentValidator, get_environment_validator
 from .input_validator import InputValidator, get_input_validator
+
+# ============================================================================
+# Rate Limit Engine (COR integration)
+# ============================================================================
+from .rate_limit_engine import RateLimitEngine, RateLimitResult, get_rate_limit_engine
 from .types import (
     AuditEventType,
     AuditSeverity,
@@ -84,6 +103,17 @@ __all__ = [
     # Authorization Policy (pure logic)
     "AuthorizationPolicy",
     "get_authorization_policy",
+    # Authorization Engine (I/O layer)
+    "AuthorizationEngine",
+    "get_authorization_engine",
+    "invalidate_user_role_cache",
+    # Rate Limit Engine
+    "RateLimitEngine",
+    "RateLimitResult",
+    "get_rate_limit_engine",
+    # Audit Emitter
+    "AuditEmitter",
+    "get_audit_emitter",
     # Input Validator (pure logic)
     "InputValidator",
     "get_input_validator",

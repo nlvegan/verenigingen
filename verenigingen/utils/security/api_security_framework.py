@@ -28,6 +28,11 @@ from verenigingen.utils.error_handling import (
     ValidationError as VValidationError,
     log_error,
 )
+from verenigingen.utils.security.audit_emitter import AuditEmitter, get_audit_emitter
+from verenigingen.utils.security.authorization_engine import (
+    AuthorizationEngine,
+    get_authorization_engine,
+)
 from verenigingen.utils.security.authorization_policy import (
     AuthorizationPolicy,
     get_authorization_policy,
@@ -40,8 +45,10 @@ from verenigingen.utils.security.environment_validator import (
     get_environment_validator,
 )
 from verenigingen.utils.security.input_validator import InputValidator, get_input_validator
-
-# Note: Removed SEPA rate limiter import - now using COR-based rate limiting
+from verenigingen.utils.security.rate_limit_engine import (
+    RateLimitEngine,
+    get_rate_limit_engine,
+)
 from verenigingen.utils.security.types import (
     AuditEventType,
     AuditSeverity,
@@ -334,13 +341,37 @@ class APISecurityFramework:
         """Get mapping from AuthorizationPolicy (backwards compatibility)."""
         return get_authorization_policy().ROLE_PROFILE_SECURITY_MAPPING
 
-    def __init__(self):
-        """Initialize the security framework"""
-        # Initialize audit logger as None to avoid circular dependency
-        # It will be lazily initialized when first needed
-        self.audit_logger = None
+    def __init__(
+        self,
+        auth_engine: AuthorizationEngine = None,
+        rate_limiter: RateLimitEngine = None,
+        audit_emitter: AuditEmitter = None,
+        input_validator: InputValidator = None,
+        environment_validator: EnvironmentValidator = None,
+    ):
+        """
+        Initialize the security framework with injectable components.
+
+        All components are optional and will use singleton instances if not provided.
+        This allows for easy testing by injecting mock components.
+
+        Args:
+            auth_engine: Authorization engine (uses singleton if None)
+            rate_limiter: Rate limit engine (uses singleton if None)
+            audit_emitter: Audit emitter (uses singleton if None)
+            input_validator: Input validator (uses singleton if None)
+            environment_validator: Environment validator (uses singleton if None)
+        """
+        # Injectable components with sensible defaults
+        self.auth_engine = auth_engine or get_authorization_engine()
+        self.rate_limiter = rate_limiter or get_rate_limit_engine()
+        self.audit_emitter = audit_emitter or get_audit_emitter()
+        self.input_validator = input_validator or get_input_validator()
+        self.environment_validator = environment_validator or get_environment_validator()
+
+        # Legacy components (keeping for backwards compatibility)
+        self.audit_logger = None  # Lazy initialization
         self.auth_manager = None  # Lazy loading to avoid circular import
-        # Note: Removed SEPA rate limiter - now using COR-based rate limiting directly
         self.csrf_protection = CSRFProtection()
 
         # Validate role profile configuration on initialization
@@ -724,12 +755,7 @@ class APISecurityFramework:
         """
         Validate user authentication and authorization.
 
-        This method is the I/O layer that:
-        1. Fetches user profiles and roles from Frappe
-        2. Delegates the decision to AuthorizationPolicy.decide()
-        3. Logs the result
-        4. Raises appropriate error if denied
-
+        Delegates to AuthorizationEngine for the actual authorization check.
         See AuthorizationPolicy for the decision table documentation.
 
         Args:
@@ -745,19 +771,8 @@ class APISecurityFramework:
         if not user:
             user = frappe.session.user
 
-        # Fetch user data (I/O layer)
-        user_profiles = self._get_user_role_profiles(user)
-        user_roles = frappe.get_roles(user)
-        is_authenticated = user != "Guest"
-
-        # Delegate to pure policy for decision
-        policy = get_authorization_policy()
-        result = policy.decide(
-            required_level=profile.level,
-            user_profiles=user_profiles,
-            user_roles=user_roles,
-            is_authenticated=is_authenticated,
-        )
+        # Delegate to authorization engine
+        result = self.auth_engine.authorize(user, profile.level)
 
         # Log the result
         if result.granted:
@@ -767,7 +782,10 @@ class APISecurityFramework:
             )
             return True
 
-        # Handle denial
+        # Handle denial - get user info for logging
+        user_profiles = self.auth_engine.get_user_role_profiles(user)
+        user_roles = frappe.get_roles(user)
+
         frappe.logger("verenigingen.api_security").warning(
             f"AUTH_DENIED: user={user} level={profile.level.value} "
             f"rule={result.rule_matched} "
@@ -926,182 +944,54 @@ class APISecurityFramework:
             raise VPermissionError(_("CSRF validation failed: {0}").format(str(e)))
 
     def validate_rate_limits(self, profile: SecurityProfile, operation_key: str) -> bool:
-        """Validate rate limits using COR records with context-aware batch support"""
+        """
+        Validate rate limits using COR records with context-aware batch support.
+
+        Delegates to RateLimitEngine for the actual rate limit check.
+        """
         try:
-            # Skip rate limiting during test execution
-            if getattr(frappe.flags, "in_test", False):
-                return True
-
-            # Extract operation name from operation key
-            # e.g., "verenigingen.verenigingen_payments.mollie.api.payment_webhook.handle_mollie_payment_webhook"
-            # -> "handle_mollie_payment_webhook"
-            operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
-
-            # Get COR configuration for this operation
-            cor_record = self._get_cor_config(operation_name)
-
-            # If no COR found, refuse to proceed (no hardcoded fallback)
-            if not cor_record:
-                raise VPermissionError(
-                    _("No rate limiting configuration found for operation: {0}").format(operation_name)
-                )
-
-            # Detect execution context
+            # Detect execution context (keep on framework for backwards compatibility)
             context = self._detect_execution_context()
 
-            # Determine which rate limits to apply based on context
-            # Start with interactive limits as defaults
-            max_calls = cor_record.rate_limit_calls or 10
-            period_seconds = cor_record.rate_limit_period_seconds or 3600
-            scope = cor_record.rate_limit_scope or "per_user"
-            limit_type = "interactive"
+            # Delegate to rate limit engine with context
+            result = self.rate_limiter.check_rate_limit(operation_key, context=context)
 
-            # Use batch limits if:
-            # 1. We're in a background job or scheduled task context
-            # 2. The COR has batch limits configured
-            # 3. The COR allows batch limits for this context
-            if context in [ExecutionContext.BACKGROUND_JOB, ExecutionContext.SCHEDULED_TASK]:
-                apply_to = cor_record.get("apply_batch_limits_to", "Both")
-                should_use_batch = (
-                    (apply_to == "Both")
-                    or (apply_to == "Background Jobs" and context == ExecutionContext.BACKGROUND_JOB)
-                    or (apply_to == "Scheduled Tasks" and context == ExecutionContext.SCHEDULED_TASK)
+            if not result.allowed:
+                # Log rate limit exceeded via audit emitter
+                self.audit_emitter.log_rate_limit_exceeded(
+                    user=frappe.session.user,
+                    operation=operation_key,
+                    current_count=result.current_count,
+                    max_calls=result.max_calls,
                 )
-
-                # Only use batch limits if they're actually configured
-                batch_calls = cor_record.get("batch_rate_limit_calls")
-                if should_use_batch and batch_calls:
-                    max_calls = batch_calls
-                    # Fall back to interactive period if batch period not set
-                    period_seconds = cor_record.get("batch_rate_limit_period_seconds") or period_seconds
-                    limit_type = "batch"
-                    frappe.logger("verenigingen.rate_limit").debug(
-                        f"Using batch rate limits for {operation_name} in {context.value} context: {max_calls}/{period_seconds}s"
-                    )
-                else:
-                    # Batch context but no batch limits configured
-                    # SECURITY FIX: For CRITICAL/HIGH operations, inherit interactive limits
-                    # instead of bypassing rate limiting entirely. This prevents attackers from
-                    # evading rate limits by triggering background job execution.
-                    security_level = (cor_record.get("security_level") or "").lower()
-                    if security_level in ["critical", "high"]:
-                        # Inherit interactive limits for security-sensitive operations
-                        frappe.logger("verenigingen.rate_limit").warning(
-                            f"No batch limits configured for {security_level.upper()} operation "
-                            f"{operation_name} in {context.value} context. "
-                            f"Inheriting interactive limits ({max_calls}/{period_seconds}s) for security."
-                        )
-                        # Continue with interactive limits (max_calls, period_seconds already set)
-                        limit_type = "batch_inherited"  # Separate cache key to not interfere with interactive
-                    else:
-                        # For MEDIUM/LOW operations, allow bypass in batch context
-                        frappe.logger("verenigingen.rate_limit").debug(
-                            f"No batch limits configured for {operation_name}, "
-                            f"skipping rate limits for {context.value} context"
-                        )
-                        return True  # Allow without rate limiting
-
-            # Build cache key based on scope - include limit_type to separate batch/interactive counters
-            if scope == "global":
-                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}"
-            elif scope == "per_ip":
-                client_ip = self._get_client_ip()
-                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{client_ip}"
-            else:  # per_user (default)
-                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
-
-            # Atomic increment to avoid race conditions
-            # incrby returns the new value after increment, creates key with 0 if not exists
-            new_count = frappe.cache.incrby(cache_key, 1)
-
-            # Set TTL on first request (when counter was just created)
-            if new_count == 1:
-                frappe.cache.expire(cache_key, period_seconds)
-
-            if new_count > max_calls:
                 raise VPermissionError(
                     _("Rate limit exceeded: {0}/{1} requests per {2} seconds for {3}").format(
-                        new_count, max_calls, period_seconds, operation_name
+                        result.current_count,
+                        result.max_calls,
+                        result.period_seconds,
+                        operation_key.split(".")[-1] if "." in operation_key else operation_key,
                     )
                 )
 
             return True
 
+        except VPermissionError:
+            raise  # Re-raise rate limit errors as-is
         except Exception as e:
             self._get_audit_logger().log_event(
                 AuditEventType.RATE_LIMIT_EXCEEDED,
                 AuditSeverity.WARNING,
                 details={"operation": operation_key, "error": str(e)},
             )
-            if isinstance(e, VPermissionError):
-                raise  # Re-raise rate limit errors as-is
-            else:
-                raise VPermissionError(_("Rate limit validation failed: {0}").format(str(e)))
+            raise VPermissionError(_("Rate limit validation failed: {0}").format(str(e)))
 
     def get_cor_rate_limit_headers(self, operation_key: str) -> Dict[str, str]:
-        """Get COR-based rate limit headers for HTTP responses"""
-        try:
-            # Extract operation name from operation key
-            operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
+        """
+        Get COR-based rate limit headers for HTTP responses.
 
-            # Try to find specific COR record for this operation
-            cor_record = frappe.db.get_value(
-                "Critical Operation Rule",
-                {"operation_name": operation_name, "enabled": 1},
-                ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
-                as_dict=True,
-            )
-
-            # If no specific COR found, use generic fallback
-            if not cor_record:
-                cor_record = frappe.db.get_value(
-                    "Critical Operation Rule",
-                    {"operation_name": "_generic_api_fallback", "enabled": 1},
-                    ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
-                    as_dict=True,
-                )
-
-            # If still no COR found, return empty headers
-            if not cor_record:
-                return {}
-
-            max_calls = cor_record.rate_limit_calls
-            period_seconds = cor_record.rate_limit_period_seconds
-            scope = cor_record.rate_limit_scope or "per_user"
-
-            # Build cache key based on scope (same logic as validate_rate_limits)
-            # Headers are for HTTP responses, so use "interactive" limit_type
-            limit_type = "interactive"
-            if scope == "global":
-                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}"
-            elif scope == "per_ip":
-                # Use getattr to safely access request which may not exist outside HTTP context
-                request = getattr(frappe.local, "request", None)
-                client_ip = request.environ.get("REMOTE_ADDR", "unknown") if request else "unknown"
-                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{client_ip}"
-            else:  # per_user (default)
-                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
-
-            # Get current usage without modifying it
-            current_count = int(frappe.cache().get(cache_key) or 0)
-            remaining = max(0, max_calls - current_count)
-
-            # Calculate reset time (current time + period)
-            import time
-
-            reset_time = int(time.time() + period_seconds)
-
-            return {
-                "X-RateLimit-Limit": str(max_calls),
-                "X-RateLimit-Remaining": str(remaining),
-                "X-RateLimit-Reset": str(reset_time),
-                "X-RateLimit-Window": str(period_seconds),
-            }
-
-        except Exception as e:
-            # Log the error but don't fail the request
-            frappe.log_error(f"Failed to get COR rate limit headers: {str(e)}", "Rate Limiting Headers")
-            return {}
+        Delegates to RateLimitEngine for header generation.
+        """
+        return self.rate_limiter.get_rate_limit_headers(operation_key)
 
     def validate_input_data(
         self, profile: SecurityProfile, operation_type: OperationType = None, **kwargs
@@ -1114,18 +1004,15 @@ class APISecurityFramework:
         if not profile.input_validation:
             return kwargs
 
-        validator = get_input_validator()
-        return validator.validate(operation_type=operation_type, **kwargs)
+        return self.input_validator.validate(operation_type=operation_type, **kwargs)
 
     def _validate_dict_input(self, data: Dict[str, Any], max_length: int = 500) -> Dict[str, Any]:
         """Validate dictionary input data. Delegates to InputValidator."""
-        validator = get_input_validator()
-        return validator.validate_dict(data, max_length)
+        return self.input_validator.validate_dict(data, max_length)
 
     def _validate_list_input(self, data: List[Any], max_length: int = 500) -> List[Any]:
         """Validate list input data. Delegates to InputValidator."""
-        validator = get_input_validator()
-        return validator.validate_list(data, max_length)
+        return self.input_validator.validate_list(data, max_length)
 
     def _validate_self_service_access(self, **kwargs) -> bool:
         """Validate that user can only access their own data in self-service operations"""
@@ -1357,64 +1244,23 @@ class APISecurityFramework:
         error: str = None,
         **context,
     ):
-        """Log audit event for API call"""
+        """
+        Log audit event for API call.
+
+        Delegates to AuditEmitter which handles filtering logic for
+        read-only operations and skip lists.
+        """
         if not profile.requires_audit:
             return
 
-        # Skip audit logging for read-only operations to prevent unnecessary audit clutter
-        # Only log operations that modify data or access sensitive information
-        func_name = func.__name__.lower()
-        read_only_prefixes = [
-            "get_",
-            "list_",
-            "check_",
-            "validate_",
-            "test_",
-            "analyze_",
-            "can_",
-            "has_",
-            "is_",
-            "show_",
-            "display_",
-            "view_",
-            "fetch_",
-        ]
-
-        # Skip audit logging for read-only functions unless they failed or access sensitive data
-        if success and any(func_name.startswith(prefix) for prefix in read_only_prefixes):
-            # Only log read-only operations if they're high security or critical
-            if profile.level not in [SecurityLevel.CRITICAL, SecurityLevel.HIGH]:
-                return
-
-            # Skip common status/permission check functions that don't access sensitive data
-            skip_functions = [
-                "can_suspend_member",
-                "get_suspension_status",
-                "can_terminate_member",
-                "is_chapter_management_enabled",
-                "check_donor_exists",
-                "get_member_termination_status",
-                "check_sepa_mandate_status",
-            ]
-
-            if func_name in skip_functions:
-                return
-
-        event_type = "api_call_success" if success else "api_call_failed"
-        severity = AuditSeverity.INFO if success else AuditSeverity.ERROR
-
-        details = {
-            "function": func.__name__,
-            "module": func.__module__,
-            "security_level": profile.level.value,
-            "execution_time_ms": round(execution_time * 1000, 2) if execution_time else None,
+        self.audit_emitter.log_api_call(
+            func=func,
+            security_level=profile.level,
+            success=success,
+            execution_time=execution_time,
+            error=error,
             **context,
-        }
-
-        if error:
-            details["error"] = str(error)
-
-        self._get_audit_logger().log_event(event_type, severity, details=details)
+        )
 
     def create_security_response_headers(
         self, profile: SecurityProfile, operation_key: str = None
