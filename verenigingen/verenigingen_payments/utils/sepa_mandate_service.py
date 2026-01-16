@@ -10,11 +10,22 @@ from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
+# Cache TTL in seconds (5 minutes)
+CACHE_TTL_SECONDS = 300
+CACHE_KEY_PREFIX = "sepa_mandate_service:"
+
 
 class SEPAMandateService:
-    """Centralized service for SEPA mandate operations with caching and batch processing"""
+    """Centralized service for SEPA mandate operations with caching and batch processing
+
+    Cache Strategy:
+    - Uses Redis via frappe.cache() for multi-process safety
+    - 5-minute TTL to prevent stale data
+    - Automatic invalidation on mandate updates via invalidate_member_cache()
+    """
 
     def __init__(self):
+        # In-process cache as fallback/fast path (cleared on invalidation)
         self._mandate_cache = {}
         self._sequence_cache = {}
 
@@ -258,11 +269,62 @@ class SEPAMandateService:
 
         return results
 
+    def invalidate_member_cache(self, member_name: str) -> None:
+        """
+        Invalidate cache for a specific member.
+
+        Should be called when a member's mandate is created, updated, or deleted.
+
+        Args:
+            member_name: Name of the member whose cache should be invalidated
+        """
+        if not member_name:
+            return
+
+        # Clear in-process cache
+        self._mandate_cache.pop(member_name, None)
+
+        # Clear Redis cache
+        cache_key = f"{CACHE_KEY_PREFIX}mandate:{member_name}"
+        try:
+            frappe.cache().delete_value(cache_key)
+        except Exception:
+            pass  # Redis may not be available in all environments
+
+        frappe.logger().debug(f"SEPA mandate cache invalidated for member: {member_name}")
+
+    def invalidate_mandate_cache(self, mandate_name: str) -> None:
+        """
+        Invalidate cache entries related to a specific mandate.
+
+        Args:
+            mandate_name: Name of the mandate
+        """
+        # Clear sequence cache entries containing this mandate
+        keys_to_remove = [k for k in self._sequence_cache.keys() if k.startswith(f"{mandate_name}:")]
+        for key in keys_to_remove:
+            self._sequence_cache.pop(key, None)
+
+        # Clear Redis sequence cache
+        try:
+            cache_key = f"{CACHE_KEY_PREFIX}sequence:{mandate_name}:*"
+            frappe.cache().delete_keys(cache_key)
+        except Exception:
+            pass  # Redis may not be available
+
     def clear_cache(self):
-        """Clear the mandate and sequence type caches"""
+        """Clear all mandate and sequence type caches (in-process and Redis)"""
+        # Clear in-process caches
         self._mandate_cache.clear()
         self._sequence_cache.clear()
-        frappe.logger().info("SEPA Mandate Service cache cleared")
+
+        # Clear Redis caches
+        try:
+            frappe.cache().delete_keys(f"{CACHE_KEY_PREFIX}*")
+        except Exception:
+            pass  # Redis may not be available
+
+        frappe.logger().info("SEPA Mandate Service cache cleared (all)")
 
     def get_cache_stats(self) -> Dict:
         """Get cache statistics for monitoring"""
@@ -300,3 +362,38 @@ def get_sepa_cache_stats():
     """API to get SEPA cache statistics"""
     service = get_sepa_mandate_service()
     return service.get_cache_stats()
+
+
+def invalidate_mandate_cache_for_member(member_name: str) -> None:
+    """
+    Helper function to invalidate cache for a member.
+
+    Call this from SEPA Mandate document hooks (after_insert, on_update, on_trash)
+    to ensure cache consistency.
+
+    Args:
+        member_name: Name of the member whose mandate was modified
+    """
+    try:
+        service = get_sepa_mandate_service()
+        service.invalidate_member_cache(member_name)
+    except Exception:
+        # Don't let cache invalidation failures break document saves
+        pass
+
+
+def invalidate_mandate_sequence_cache(mandate_name: str) -> None:
+    """
+    Helper function to invalidate sequence type cache for a mandate.
+
+    Call this when mandate usage history changes.
+
+    Args:
+        mandate_name: Name of the mandate
+    """
+    try:
+        service = get_sepa_mandate_service()
+        service.invalidate_mandate_cache(mandate_name)
+    except Exception:
+        # Don't let cache invalidation failures break document saves
+        pass

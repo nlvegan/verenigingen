@@ -20,44 +20,79 @@ class SEPAMandateIdentityService:
     def __init__(self):
         self._settings_cache = None
 
-    def generate_mandate_id(self, mandate_doc=None) -> str:
+    def generate_mandate_id(self, mandate_doc=None, max_retries: int = 3) -> str:
         """
-        Generate unique mandate ID using configurable pattern.
+        Generate unique mandate ID using configurable pattern with retry logic.
+
+        Uses retry mechanism to handle race conditions where concurrent processes
+        might generate the same ID. The DB has a unique constraint on mandate_id,
+        so duplicates will be caught and retried.
 
         Args:
             mandate_doc: Optional mandate document for context
+            max_retries: Maximum number of generation attempts (default: 3)
 
         Returns:
             Generated mandate ID
 
         Raises:
-            Exception: If ID generation fails
+            Exception: If ID generation fails after all retries
         """
-        try:
-            # Get the naming pattern and starting counter from settings
-            settings = self._get_settings()
-            naming_pattern = (
-                settings.sepa_mandate_naming_pattern
-                if settings.sepa_mandate_naming_pattern
-                else "MANDATE-.YY.-.MM.-.####"
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # Get the naming pattern and starting counter from settings
+                settings = self._get_settings()
+                naming_pattern = (
+                    settings.sepa_mandate_naming_pattern
+                    if settings.sepa_mandate_naming_pattern
+                    else "MANDATE-.YY.-.MM.-.####"
+                )
+                # Handle invalid starting counter values by defaulting to 1
+                starting_counter = 1
+                if settings.sepa_mandate_starting_counter:
+                    try:
+                        starting_counter = int(settings.sepa_mandate_starting_counter)
+                    except (ValueError, TypeError):
+                        starting_counter = 1
+
+                # Generate mandate_id with custom counter logic
+                mandate_id = self._generate_mandate_id_with_counter(naming_pattern, starting_counter)
+
+                # Verify uniqueness before returning (handles race condition)
+                if self.ensure_mandate_uniqueness(mandate_id):
+                    return mandate_id
+
+                # ID already exists (race condition), retry
+                frappe.logger().warning(
+                    f"Mandate ID collision detected: {mandate_id}, retrying (attempt {attempt + 1}/{max_retries})"
+                )
+                continue
+
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                # Check if this is a duplicate key error (race condition at DB level)
+                if "duplicate" in error_str or "unique" in error_str:
+                    frappe.logger().warning(
+                        f"Mandate ID duplicate key error, retrying (attempt {attempt + 1}/{max_retries})"
+                    )
+                    continue
+                # For other errors, log and try fallback
+                break
+
+        # All retries exhausted or non-recoverable error
+        if last_error:
+            frappe.log_error(
+                f"Error in generate_mandate_id after {max_retries} attempts: {str(last_error)}",
+                "SEPA Mandate ID Generation",
             )
-            # Handle invalid starting counter values by defaulting to 1
-            starting_counter = 1
-            if settings.sepa_mandate_starting_counter:
-                try:
-                    starting_counter = int(settings.sepa_mandate_starting_counter)
-                except (ValueError, TypeError):
-                    starting_counter = 1
 
-            # Generate mandate_id with custom counter logic
-            return self._generate_mandate_id_with_counter(naming_pattern, starting_counter)
+        # Fallback to Frappe's autoname which has its own collision handling
+        from frappe.model.naming import make_autoname
 
-        except Exception as e:
-            # Log the error and fallback to default pattern
-            frappe.log_error(f"Error in generate_mandate_id: {str(e)}", "SEPA Mandate ID Generation")
-            from frappe.model.naming import make_autoname
-
-            return make_autoname("MANDATE-.YY.-.MM.-.####")
+        return make_autoname("MANDATE-.YY.-.MM.-.####")
 
     def _generate_mandate_id_with_counter(self, pattern: str, starting_counter: int) -> str:
         """

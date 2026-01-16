@@ -205,13 +205,15 @@ class SEPAMandateValidationService:
         try:
             # Check mandate ID uniqueness
             if mandate_doc.mandate_id:
-                existing_mandate = frappe.db.exists(
-                    "SEPA Mandate",
-                    {
-                        "mandate_id": mandate_doc.mandate_id,
-                        "name": ["!=", mandate_doc.name] if mandate_doc.name else ["is", "set"],
-                    },
-                )
+                # Build filters for uniqueness check
+                filters = {"mandate_id": mandate_doc.mandate_id}
+
+                # For existing documents, exclude self from the check
+                # For new documents (no name yet), check all mandates
+                if mandate_doc.name:
+                    filters["name"] = ["!=", mandate_doc.name]
+
+                existing_mandate = frappe.db.exists("SEPA Mandate", filters)
 
                 if existing_mandate:
                     validation_result["errors"].append(

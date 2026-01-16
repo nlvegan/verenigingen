@@ -256,16 +256,15 @@ class APISecurityFramework:
         """Check if the current request is using API key authentication"""
         try:
             auth_header = frappe.get_request_header("Authorization")
-            frappe.logger("verenigingen.api_security").info(
-                f"API key detection: Authorization header = {auth_header[:20] + '...' if auth_header else 'None'}"
+            # SECURITY: Only log presence and type, never log token content
+            has_header = bool(auth_header)
+            is_token_auth = has_header and auth_header.startswith("token ")
+            frappe.logger("verenigingen.api_security").debug(
+                f"API key detection: header_present={has_header}, is_token_auth={is_token_auth}"
             )
-            if auth_header and auth_header.startswith("token "):
-                frappe.logger("verenigingen.api_security").info("API key authentication detected")
-                return True
-            frappe.logger("verenigingen.api_security").info("No API key authentication detected")
-            return False
+            return is_token_auth
         except (RuntimeError, AttributeError) as e:
-            frappe.logger("verenigingen.api_security").info(f"API key detection error: {e}")
+            frappe.logger("verenigingen.api_security").debug(f"API key detection error: {type(e).__name__}")
             return False
 
     def _get_client_ip(self) -> str:

@@ -301,6 +301,23 @@ class SEPAMandateMemberIntegrationService:
                 "execution_source": "unknown",
             }
 
+    def _sanitize_error_message(self, error: str) -> str:
+        """
+        Sanitize error message to remove stack traces and sensitive information.
+
+        Args:
+            error: Raw error message
+
+        Returns:
+            Sanitized error message (first line only, max 500 chars)
+        """
+        if not error:
+            return None
+        # Take only the first line to remove stack traces
+        first_line = str(error).split("\n")[0]
+        # Limit length to prevent overly long audit entries
+        return first_line[:500] if len(first_line) > 500 else first_line
+
     def _create_sepa_audit_log(self, audit_data: Dict) -> None:
         """
         Create comprehensive audit log for SEPA operations.
@@ -313,6 +330,9 @@ class SEPAMandateMemberIntegrationService:
             if frappe.flags.in_test:
                 return
 
+            # Sanitize error message to remove stack traces and PII
+            sanitized_error = self._sanitize_error_message(audit_data.get("error"))
+
             # Create audit log entry with all required fields for regulatory compliance
             audit_log = frappe.get_doc(
                 {
@@ -324,7 +344,7 @@ class SEPAMandateMemberIntegrationService:
                     "mandate_reference": audit_data.get("mandate_id"),
                     "action": audit_data.get("action"),
                     "status": audit_data.get("status"),
-                    "error_message": audit_data.get("error"),
+                    "error_message": sanitized_error,
                     "ip_address": audit_data.get("ip_address"),
                     "user_agent": audit_data.get("user_agent"),
                     "trace_id": audit_data.get("trace_id"),
@@ -334,15 +354,17 @@ class SEPAMandateMemberIntegrationService:
                 }
             )
 
-            # Insert without triggering additional validations/hooks for performance
-            audit_log.insert(ignore_permissions=True, ignore_mandatory=True)
+            # Insert with ignore_permissions=True (audit logs need to bypass user perms)
+            # Note: Removed ignore_mandatory=True - audit schema should define required fields properly
+            audit_log.insert(ignore_permissions=True)
 
             frappe.logger().debug(f"SEPA audit log created: {audit_log.name}")
 
         except Exception as e:
             # Log audit creation errors but don't fail the main operation
+            # SECURITY: Don't log full audit_data as it may contain sensitive information
             frappe.log_error(
-                f"Failed to create SEPA audit log: {str(e)}. Audit data: {audit_data}",
+                f"Failed to create SEPA audit log for operation '{audit_data.get('operation')}': {str(e)[:200]}",
                 "SEPA Audit Log Creation Error",
             )
 

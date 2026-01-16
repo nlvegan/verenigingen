@@ -20,6 +20,9 @@ from verenigingen.verenigingen_payments.services.sepa_mandate_member_integration
 from verenigingen.verenigingen_payments.services.sepa_mandate_validation_service import (
     sepa_mandate_validation_service,
 )
+from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
+    invalidate_mandate_cache_for_member,
+)
 
 
 class SEPAMandate(Document):
@@ -118,6 +121,10 @@ class SEPAMandate(Document):
         if result["notifications_sent"]:
             frappe.logger().info(f"Mandate creation notifications sent: {result['notifications_sent']}")
 
+        # Invalidate cache for this member to ensure fresh data on next lookup
+        if self.member:
+            invalidate_mandate_cache_for_member(self.member)
+
     def on_update(self):
         """Handle mandate update using lifecycle service"""
         result = sepa_mandate_lifecycle_service.handle_mandate_update(self)
@@ -132,6 +139,10 @@ class SEPAMandate(Document):
         if result["notifications_sent"]:
             frappe.logger().info(f"Mandate update notifications sent: {result['notifications_sent']}")
 
+        # Invalidate cache for this member to ensure fresh data on next lookup
+        if self.member:
+            invalidate_mandate_cache_for_member(self.member)
+
     def update_member_sepa_mandates_table(self):
         """Update the member's SEPA mandates child table using member integration service"""
         if not self.member:
@@ -145,6 +156,13 @@ class SEPAMandate(Document):
         # Show warnings if any
         for warning in result.get("warnings", []):
             frappe.msgprint(warning, alert=True)
+
+    def on_trash(self):
+        """Handle mandate deletion - invalidate cache"""
+        # Invalidate cache for this member to ensure deleted mandate
+        # doesn't appear in cached queries
+        if self.member:
+            invalidate_mandate_cache_for_member(self.member)
 
 
 def has_permission(doc, user=None, ptype=None):
