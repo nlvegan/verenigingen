@@ -675,9 +675,16 @@ class APISecurityFramework:
             )
             raise VPermissionError(_("CSRF validation failed: {0}").format(str(e)))
 
-    def validate_rate_limits(self, profile: SecurityProfile, operation_key: str) -> bool:
+    def validate_rate_limits(
+        self, profile: SecurityProfile, operation_key: str, force_check: bool = False
+    ) -> bool:
         """
         Validate rate limits using COR records with context-aware batch support.
+
+        Args:
+            profile: Security profile for the operation
+            operation_key: Full operation key
+            force_check: If True, bypass test environment skip (for testing rate limiting itself)
 
         Delegates to RateLimitEngine for the actual rate limit check.
         """
@@ -686,7 +693,9 @@ class APISecurityFramework:
             context = self._detect_execution_context()
 
             # Delegate to rate limit engine with context
-            result = self.rate_limiter.check_rate_limit(operation_key, context=context)
+            result = self.rate_limiter.check_rate_limit(
+                operation_key, context=context, force_check=force_check
+            )
 
             if not result.allowed:
                 # Log rate limit exceeded via audit emitter

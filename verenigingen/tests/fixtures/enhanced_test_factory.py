@@ -2106,7 +2106,7 @@ class EnhancedTestCase(FrappeTestCase):
         from unittest.mock import patch
 
         # Mock the validate_rate_limits method to always return True in tests
-        def mock_rate_limit_validation(self, profile, operation_key):
+        def mock_rate_limit_validation(self, profile, operation_key, force_check=False):
             """Mock rate limit validation - always passes in tests"""
             return True
 

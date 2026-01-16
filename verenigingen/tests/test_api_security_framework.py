@@ -830,30 +830,42 @@ class TestScopedRateLimiting(VereningingenTestCase):
         frappe.db.commit()
 
         try:
-            # Clear any existing rate limit cache
-            frappe.cache().delete_keys("cor_rate_limit:*test_high_security_no_batch_limits*")
+            # Clear any existing rate limit cache using Redis directly
+            # Frappe cache may have a key prefix, so we need to clear the right keys
+            import redis
+            redis_url = frappe.conf.redis_cache or "redis://localhost:6379"
+            r = redis.from_url(redis_url)
+            # Find and delete all keys matching our operation name
+            keys = list(r.scan_iter("*test_high_security_no_batch_limits*"))
+            if keys:
+                r.delete(*keys)
 
-            # Mock context detection to return BACKGROUND_JOB and bypass in_test check
-            with patch.object(self.framework, '_detect_execution_context', return_value=ExecutionContext.BACKGROUND_JOB):
-                original_in_test = frappe.flags.in_test
-                frappe.flags.in_test = False
+            # Test the rate limiter directly to bypass framework mock
+            # Use force_check=True to bypass test environment skip
+            rate_limiter = self.framework.rate_limiter
 
-                try:
-                    profile = self.framework.get_security_profile(SecurityLevel.HIGH)
+            # First 3 calls should succeed (within inherited interactive limit)
+            for i in range(3):
+                result = rate_limiter.check_rate_limit(
+                    "test_high_security_no_batch_limits",
+                    context=ExecutionContext.BACKGROUND_JOB,
+                    force_check=True,
+                )
+                self.assertTrue(result.allowed, f"Call {i+1} should succeed (within limit)")
+                self.assertEqual(
+                    result.limit_type,
+                    "batch_inherited",
+                    f"Should use inherited limits for HIGH security in batch context",
+                )
 
-                    # First 3 calls should succeed (within inherited interactive limit)
-                    for i in range(3):
-                        result = self.framework.validate_rate_limits(profile, "test_high_security_no_batch_limits")
-                        self.assertTrue(result, f"Call {i+1} should succeed (within limit)")
-
-                    # 4th call should fail - rate limit exceeded
-                    with self.assertRaises(VPermissionError) as context:
-                        self.framework.validate_rate_limits(profile, "test_high_security_no_batch_limits")
-
-                    self.assertIn("Rate limit exceeded", str(context.exception))
-
-                finally:
-                    frappe.flags.in_test = original_in_test
+            # 4th call should fail - rate limit exceeded
+            result = rate_limiter.check_rate_limit(
+                "test_high_security_no_batch_limits",
+                context=ExecutionContext.BACKGROUND_JOB,
+                force_check=True,
+            )
+            self.assertFalse(result.allowed, "4th call should exceed rate limit")
+            self.assertIn("Rate limit exceeded", result.reason)
         finally:
             frappe.delete_doc("Critical Operation Rule", "test_high_security_no_batch_limits", force=True, ignore_permissions=True)
 

@@ -282,7 +282,7 @@ class VereningingenTestCase(FrappeTestCase):
         self._active_mocks.append(csrf_mock)
 
         # Mock rate limiting to bypass limits in tests
-        def mock_rate_limit_validation(self, profile, operation_key):
+        def mock_rate_limit_validation(self, profile, operation_key, force_check=False):
             """Mock rate limit validation - always passes in tests"""
             return True
 

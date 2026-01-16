@@ -47,13 +47,16 @@ class RateLimitEngine:
         """Initialize rate limit engine."""
         pass
 
-    def check_rate_limit(self, operation_key: str, context: ExecutionContext = None) -> RateLimitResult:
+    def check_rate_limit(
+        self, operation_key: str, context: ExecutionContext = None, force_check: bool = False
+    ) -> RateLimitResult:
         """
         Check if operation is within rate limits.
 
         Args:
             operation_key: Full operation key (e.g., "module.submodule.function_name")
             context: Execution context (auto-detected if not provided)
+            force_check: If True, bypass test environment skip (for testing rate limiting itself)
 
         Returns:
             RateLimitResult with check outcome
@@ -61,8 +64,8 @@ class RateLimitEngine:
         Raises:
             VPermissionError: If no COR configuration found
         """
-        # Skip rate limiting during test execution
-        if getattr(frappe.flags, "in_test", False):
+        # Skip rate limiting during test execution (unless force_check is True)
+        if not force_check and getattr(frappe.flags, "in_test", False):
             return RateLimitResult(
                 allowed=True,
                 current_count=0,
