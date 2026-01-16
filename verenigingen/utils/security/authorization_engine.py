@@ -117,6 +117,9 @@ class AuthorizationEngine:
             # Only direct role profile assignments grant security level access.
 
             # Cache the result (empty list means user has no role profiles)
+            # TTL: 5 minutes (300s) - short cache for security-sensitive data
+            # Shorter TTL ensures role profile changes are picked up quickly
+            # vs. long TTL (24h) which would delay security changes
             frappe.cache.set_value(cache_key, role_profiles, expires_in_sec=300)
 
             frappe.logger("verenigingen.api_security").debug(

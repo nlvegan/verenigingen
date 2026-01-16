@@ -418,45 +418,9 @@ class APISecurityFramework:
             pass
         return "test_environment"
 
-    def _get_cor_config(self, operation_name: str) -> Optional[Dict[str, Any]]:
-        """
-        Get Critical Operation Rule configuration for an operation.
-
-        Args:
-            operation_name: Name of the operation to get config for
-
-        Returns:
-            dict: COR configuration or None if not found
-        """
-        # Fields to fetch from COR
-        fields = [
-            "rate_limit_calls",
-            "rate_limit_period_seconds",
-            "rate_limit_scope",
-            "batch_rate_limit_calls",
-            "batch_rate_limit_period_seconds",
-            "apply_batch_limits_to",
-            "security_level",  # Added for rate limit enforcement in background context
-        ]
-
-        # Try to find specific COR record for this operation
-        cor_record = frappe.db.get_value(
-            "Critical Operation Rule",
-            {"operation_name": operation_name, "enabled": 1},
-            fields,
-            as_dict=True,
-        )
-
-        # If no specific COR found, use generic fallback
-        if not cor_record:
-            cor_record = frappe.db.get_value(
-                "Critical Operation Rule",
-                {"operation_name": "_generic_api_fallback", "enabled": 1},
-                fields,
-                as_dict=True,
-            )
-
-        return cor_record
+    # NOTE: _get_cor_config was removed in Phase 2 refactoring.
+    # COR config is now fetched by RateLimitEngine._get_cor_config()
+    # which is called via self.rate_limiter.check_rate_limit()
 
     def _detect_execution_context(self) -> ExecutionContext:
         """
@@ -630,102 +594,23 @@ class APISecurityFramework:
             )
 
     def _get_user_role_profiles(self, user: str = None) -> List[str]:
-        """Get user's role profiles from Frappe's Role Profile system with caching"""
-        if not user:
-            user = frappe.session.user
-
-        # Use versioned cache key to avoid O(N) Redis KEYS on bulk invalidation
-        cache_key = self._get_versioned_cache_key(user)
-        cached_profiles = frappe.cache.get_value(cache_key)
-
-        if cached_profiles is not None:
-            return cached_profiles
-
-        # SECURITY FIX: Get user's directly assigned role profiles only
-        try:
-            role_profiles = []
-
-            # Method 1: Get role profile directly assigned to user in User DocType
-            user_role_profile = frappe.db.get_value("User", user, "role_profile_name")
-            if user_role_profile:
-                # Verify the role profile actually exists
-                if frappe.db.exists("Role Profile", user_role_profile):
-                    role_profiles.append(user_role_profile)
-                    frappe.logger("verenigingen.api_security").debug(
-                        f"Found direct role profile assignment: {user_role_profile}"
-                    )
-                else:
-                    frappe.logger("verenigingen.api_security").warning(
-                        f"User {user} has invalid role profile assignment: {user_role_profile}"
-                    )
-
-            # Note: We intentionally do NOT query role intersections as that would
-            # create privilege escalation vulnerabilities (QCE finding)
-
-            # Cache the result for 24 hours (role profiles are static data)
-            frappe.cache.set_value(cache_key, role_profiles, expires_in_sec=86400)
-
-            return role_profiles
-
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").error(
-                f"Failed to get role profiles for user {user}: {str(e)}"
-            )
-            return []
-
-    # Cache version key - increment to invalidate all caches without KEYS command
-    CACHE_VERSION_KEY = "user_role_profiles:version"
-
-    @staticmethod
-    def _get_cache_version() -> int:
-        """Get current cache version for role profile caching."""
-        version = frappe.cache.get_value(APISecurityFramework.CACHE_VERSION_KEY)
-        if version is None:
-            version = 1
-            frappe.cache.set_value(APISecurityFramework.CACHE_VERSION_KEY, version)
-        return int(version)
-
-    @staticmethod
-    def _get_versioned_cache_key(user: str) -> str:
-        """Get versioned cache key for user role profiles.
-
-        Using versioned keys allows bulk invalidation by incrementing the version,
-        which avoids the O(N) Redis KEYS command that can block under load.
         """
-        version = APISecurityFramework._get_cache_version()
-        return f"user_role_profiles:v{version}:{user}"
+        Get user's role profiles from Frappe's Role Profile system.
+
+        Delegates to AuthorizationEngine for actual implementation.
+        """
+        return self.auth_engine.get_user_role_profiles(user)
 
     @staticmethod
     def invalidate_user_role_cache(user: str = None):
-        """Invalidate cached role profiles for a user (or all users if none specified).
-
-        For single user: Deletes the specific cache key.
-        For all users: Increments the cache version, causing all existing cached
-        entries to become orphaned (they will expire via TTL). This avoids the
-        O(N) Redis KEYS command which can block Redis under load.
         """
-        if user:
-            # Invalidate specific user's cache
-            cache_key = APISecurityFramework._get_versioned_cache_key(user)
-            frappe.cache.delete_value(cache_key)
-            frappe.logger("verenigingen.api_security").info(
-                f"Invalidated role profile cache for user: {user}"
-            )
-        else:
-            # Invalidate ALL user role profile caches by incrementing version
-            # Old versioned keys will be orphaned and expire via their TTL
-            # This is O(1) instead of O(N) like Redis KEYS command
-            try:
-                current_version = APISecurityFramework._get_cache_version()
-                new_version = current_version + 1
-                frappe.cache.set_value(APISecurityFramework.CACHE_VERSION_KEY, new_version)
-                frappe.logger("verenigingen.api_security").info(
-                    f"Invalidated all role profile caches by incrementing version: {current_version} → {new_version}"
-                )
-            except Exception as e:
-                frappe.logger("verenigingen.api_security").error(
-                    f"Failed to invalidate role profile caches: {str(e)}"
-                )
+        Invalidate cached role profiles for a user (or all users if none specified).
+
+        Delegates to authorization_engine.invalidate_user_role_cache().
+        """
+        from verenigingen.utils.security.authorization_engine import invalidate_user_role_cache
+
+        invalidate_user_role_cache(user)
 
     def _role_profile_grants_access(self, role_profile: str, required_level: SecurityLevel) -> bool:
         """Check if a role profile grants access to the required security level.
