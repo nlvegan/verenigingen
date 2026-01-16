@@ -98,6 +98,7 @@ jobs:
         pip install pathlib
 
     - name: Fast Field Validation (PR Check)
+      id: validation
       run: |
         cd scripts/validation
         python enhanced_field_reference_validator.py --pre-commit || echo "Field validation completed with issues"
