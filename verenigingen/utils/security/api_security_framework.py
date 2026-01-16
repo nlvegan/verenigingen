@@ -81,10 +81,11 @@ class APISecurityFramework:
     """
 
     # Predefined security profiles
+    # Note: Authorization is handled via ROLE_PROFILE_SECURITY_MAPPING in authorization_policy.py
+    # These profiles define operational constraints, not role-based access control
     SECURITY_PROFILES = {
         SecurityLevel.CRITICAL: SecurityProfile(
             level=SecurityLevel.CRITICAL,
-            required_roles=["System Manager", "Verenigingen Administrator"],
             requires_csrf=True,
             requires_audit=True,
             input_validation=True,
@@ -95,7 +96,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.HIGH: SecurityProfile(
             level=SecurityLevel.HIGH,
-            required_roles=["System Manager", "Verenigingen Administrator", "Verenigingen Staff"],
             requires_csrf=True,
             requires_audit=True,
             input_validation=True,
@@ -106,12 +106,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.MEDIUM: SecurityProfile(
             level=SecurityLevel.MEDIUM,
-            required_roles=[
-                "System Manager",
-                "Verenigingen Administrator",
-                "Verenigingen Staff",
-                "Verenigingen Staff",
-            ],
             requires_csrf=False,  # Most read operations
             requires_audit=False,  # Reduce audit volume - only audit critical/high operations
             input_validation=True,
@@ -122,7 +116,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.LOW: SecurityProfile(
             level=SecurityLevel.LOW,
-            required_roles=[],  # Any authenticated user
             requires_csrf=False,
             requires_audit=False,  # No audit logging for low security operations
             input_validation=True,
@@ -133,7 +126,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.PUBLIC: SecurityProfile(
             level=SecurityLevel.PUBLIC,
-            required_roles=[],
             requires_csrf=False,
             requires_audit=False,
             input_validation=True,
@@ -892,7 +884,6 @@ def get_security_framework() -> APISecurityFramework:
 def api_security_framework(
     security_level: SecurityLevel = None,
     operation_type: OperationType = None,
-    roles: List[str] = None,
     permissions: List[str] = None,
     validation_schema: Dict[str, Any] = None,
     audit_level: str = "standard",
@@ -908,12 +899,14 @@ def api_security_framework(
     and configuration. This is the main decorator that should be used on all
     API endpoints.
 
+    Authorization is handled via ROLE_PROFILE_SECURITY_MAPPING in authorization_policy.py,
+    not through role parameters on individual endpoints.
+
     Usage:
         @frappe.whitelist()
         @api_security_framework(
             security_level=SecurityLevel.HIGH,
             operation_type=OperationType.MEMBER_DATA,
-            roles=["Verenigingen Administrator"],
             audit_level="detailed"
         )
         def my_secure_api_function(param1, param2):
@@ -922,9 +915,7 @@ def api_security_framework(
     Args:
         security_level: Override security classification
         operation_type: Type of operation for automatic classification
-        roles: Additional role requirements
         permissions: Additional permission requirements
-        rate_limit: Custom rate limit configuration
         validation_schema: Custom validation schema
         audit_level: Audit logging level (standard, detailed, minimal)
         custom_validators: Additional custom validation functions
@@ -942,8 +933,6 @@ def api_security_framework(
             profile = framework.get_security_profile(level)
 
             # Override profile settings if specified
-            if roles:
-                profile.required_roles.extend(roles)
             if allowed_environments:
                 profile.allowed_environments = allowed_environments
             if max_request_size is not None:
@@ -1372,7 +1361,6 @@ def get_security_framework_status():
             "environment_levels": [env.value for env in EnvironmentLevel],
             "default_profiles": {
                 level.value: {
-                    "required_roles": profile.required_roles,
                     "requires_csrf": profile.requires_csrf,
                     "requires_audit": profile.requires_audit,
                     "max_request_size": profile.max_request_size,

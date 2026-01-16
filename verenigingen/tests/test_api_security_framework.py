@@ -81,11 +81,11 @@ class TestAPISecurityFramework(VereningingenTestCase):
         self.assertTrue(critical_profile.requires_csrf)
         self.assertTrue(critical_profile.requires_audit)
         self.assertTrue(critical_profile.ip_restrictions)
-        self.assertIn("System Manager", critical_profile.required_roles)
+        # Note: Authorization is now handled via ROLE_PROFILE_SECURITY_MAPPING
+        # in authorization_policy.py, not via required_roles on profiles
 
         public_profile = self.framework.get_security_profile(SecurityLevel.PUBLIC)
         self.assertFalse(public_profile.requires_csrf)
-        self.assertEqual(public_profile.required_roles, [])
 
     def test_authentication_validation(self):
         """Test authentication validation logic"""
