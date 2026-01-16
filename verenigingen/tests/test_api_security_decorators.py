@@ -423,11 +423,10 @@ class TestAPISecurityDecorators(EnhancedTestCase):
 
     def test_custom_security_configuration(self):
         """Test custom security configuration with api_security_framework decorator"""
-        
+
         @api_security_framework(
             security_level=SecurityLevel.HIGH,
             operation_type=OperationType.MEMBER_DATA,
-            roles=["Custom Role", "Verenigingen Administrator"],
             audit_level="detailed"
         )
         def test_custom_security_function():

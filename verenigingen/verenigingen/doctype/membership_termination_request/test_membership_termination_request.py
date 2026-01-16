@@ -4,6 +4,8 @@ Comprehensive Test Suite for Membership Termination Request
 Tests all aspects of the termination workflow including business logic, validation, and integration
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import add_days, add_months, now_datetime, today
 
