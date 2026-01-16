@@ -42,8 +42,21 @@ class InputValidator:
     }
     DEFAULT_MAX_LENGTH = 1000
 
-    # Keys that suggest file data (skip validation)
-    FILE_RELATED_KEYS = ["filedata", "file_content", "content", "data", "file"]
+    # Keys that definitively indicate file/attachment data (skip sanitization)
+    # SECURITY: Keep this list narrow - generic keys like "content" or "data" are NOT
+    # included because they could match legitimate text fields that need sanitization
+    FILE_RELATED_KEYS = frozenset(
+        [
+            "filedata",
+            "file_content",
+            "file_data",
+            "attachment_data",
+            "attachment_content",
+            "base64_file",
+            "uploaded_file",
+            "file_upload",
+        ]
+    )
 
     def get_max_length(self, operation_type: OperationType = None) -> int:
         """Get appropriate max_length based on operation type."""
@@ -59,19 +72,51 @@ class InputValidator:
         """
         return html.unescape(value)
 
-    def is_file_data(self, key: str, value: str) -> bool:
-        """Check if value appears to be file/attachment data."""
-        # Check if key suggests file data
-        if any(file_key in key.lower() for file_key in self.FILE_RELATED_KEYS):
+    def _looks_like_binary_data(self, value: str) -> bool:
+        """
+        Check if value looks like binary/base64 encoded data.
+
+        Returns True for:
+        - Data URIs (data:image/png;base64,...)
+        - Long base64-like strings (>10KB, alphanumeric with base64 chars)
+        """
+        if not value or len(value) < 1000:
+            return False
+
+        # Data URI format (common for file uploads)
+        if value.startswith("data:"):
             return True
 
-        # Check if value looks like base64 data
-        if len(value) > 1000:
-            if value.startswith("data:"):
+        # Very long alphanumeric string with base64 characters (likely base64)
+        if len(value) > 10000:
+            # Base64 uses A-Z, a-z, 0-9, +, /, and = for padding
+            base64_chars = value.replace("/", "").replace("+", "").replace("=", "")
+            if base64_chars.isalnum():
                 return True
-            # Very long alphanumeric string (likely base64)
-            if len(value) > 10000 and value.replace("/", "").replace("+", "").replace("=", "").isalnum():
-                return True
+
+        return False
+
+    def is_file_data(self, key: str, value: str) -> bool:
+        """
+        Check if value appears to be file/attachment data.
+
+        SECURITY: This check is intentionally strict to avoid bypassing sanitization.
+        Returns True only when:
+        1. Key exactly matches a known file-related key, OR
+        2. Value looks like binary/base64 data (data: URI or long base64)
+
+        Generic keys like "content" or "data" are NOT matched to prevent
+        attackers from bypassing XSS sanitization by naming fields cleverly.
+        """
+        # Check for exact key match (case-insensitive)
+        key_lower = key.lower()
+        if key_lower in self.FILE_RELATED_KEYS:
+            return True
+
+        # Check if value looks like binary/base64 data regardless of key
+        # This catches legitimate file uploads with non-standard key names
+        if self._looks_like_binary_data(value):
+            return True
 
         return False
 

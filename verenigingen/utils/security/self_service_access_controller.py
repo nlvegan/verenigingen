@@ -107,11 +107,14 @@ class SelfServiceAccessController:
             pass
         return None
 
-    def validate_access(self, **kwargs) -> bool:
+    def validate_access(self, implicit_allowed: bool = False, **kwargs) -> bool:
         """
         Validate that user can only access their own data in self-service operations.
 
         Args:
+            implicit_allowed: If True, allow operations without explicit member parameter
+                (the operation will default to the current user's member). If False
+                (default), operations MUST have an explicit member parameter.
             **kwargs: Request parameters to validate
 
         Returns:
@@ -119,6 +122,11 @@ class SelfServiceAccessController:
 
         Raises:
             VPermissionError: If access is denied
+
+        SECURITY NOTE:
+        implicit_allowed=False (default) is the safe choice. Only set to True for
+        endpoints that are explicitly designed to operate on "current user's data"
+        without a member parameter (e.g., get_my_profile, update_my_preferences).
         """
         current_user = frappe.session.user
 
@@ -134,7 +142,7 @@ class SelfServiceAccessController:
 
         # Handle implicit self-service (no explicit target)
         if not target_member:
-            return self._handle_implicit_self_service(current_user, user_member)
+            return self._handle_implicit_self_service(current_user, user_member, implicit_allowed)
 
         # Validate explicit target access
         return self._validate_target_access(target_member, user_member)
@@ -158,20 +166,33 @@ class SelfServiceAccessController:
                     return kwargs[field]
         return None
 
-    def _handle_implicit_self_service(self, current_user: str, user_member: Optional[str]) -> bool:
+    def _handle_implicit_self_service(
+        self, current_user: str, user_member: Optional[str], implicit_allowed: bool
+    ) -> bool:
         """
         Handle self-service operations without explicit member target.
 
         Args:
             current_user: Current session user
             user_member: User's linked member record
+            implicit_allowed: Whether implicit self-service is allowed for this endpoint
 
         Returns:
             True if implicit self-service is allowed
 
         Raises:
-            VPermissionError: If user has no member record
+            VPermissionError: If implicit self-service is not allowed or user has no member record
         """
+        # SECURITY: Reject implicit self-service unless explicitly allowed
+        # This prevents accidental "any member can call this" vulnerabilities
+        if not implicit_allowed:
+            raise VPermissionError(
+                _(
+                    "Access denied: This self-service operation requires an explicit member parameter. "
+                    "Please specify which member record this operation should act on."
+                )
+            )
+
         if not user_member:
             raise VPermissionError(
                 _(
@@ -180,10 +201,9 @@ class SelfServiceAccessController:
                 )
             )
 
-        # Log for monitoring - implicit self-service should be rare
-        frappe.logger("verenigingen.api_security").info(
-            f"Implicit self-service operation detected for user {current_user}. "
-            f"Consider adding explicit member identification to API parameters for better security."
+        # Log for monitoring - implicit self-service operations
+        frappe.logger("verenigingen.api_security").debug(
+            f"Implicit self-service operation for user {current_user} (member: {user_member})"
         )
 
         return True
