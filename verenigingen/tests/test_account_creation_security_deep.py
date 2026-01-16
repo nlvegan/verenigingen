@@ -210,9 +210,11 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
         )
 
         # Create permission test scenario
+        # Note: System Manager is NOT authorized for business logic operations like
+        # account creation - only Verenigingen-specific roles have that access
         scenario = self.create_permission_test_scenario(
-            authorized_roles=["System Manager", "Verenigingen Administrator"],
-            unauthorized_roles=["Verenigingen Member", "Verenigingen Volunteer"]
+            authorized_roles=["Verenigingen Administrator"],
+            unauthorized_roles=["System Manager", "Verenigingen Member", "Verenigingen Volunteer"]
         )
 
         # Test authorized users can create requests
@@ -289,9 +291,8 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Administrator"]
         )
 
-        frappe.set_user(admin_user.email)  # Switch to non-System Manager admin
-
-        try:
+        # Use patch to simulate the admin user context
+        with patch.object(frappe.session, "user", admin_user.email):
             # Attempt to assign System Manager role (should fail)
             request_data = {
                 "doctype": "Account Creation Request",
@@ -310,8 +311,6 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
                 self.fail("Expected exception for role escalation attempt")
             except (frappe.PermissionError, frappe.ValidationError, VPermissionError):
                 pass  # Expected - role escalation blocked
-        finally:
-            frappe.set_user("Administrator")  # Reset to admin
             
     def test_audit_trail_tampering_prevention(self):
         """Test that audit trails cannot be tampered with"""
@@ -385,9 +384,8 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Member"]  # Lower privilege
         )
 
-        frappe.set_user(malicious_user.email)  # Switch to malicious user
-
-        try:
+        # Use patch to simulate the malicious user context
+        with patch.object(frappe.session, "user", malicious_user.email):
             # Attempt to process request with hijacked session
             manager = AccountCreationManager(request.name)
 
@@ -398,8 +396,6 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
                 self.fail("Expected exception for session hijacking attempt")
             except (frappe.PermissionError, frappe.ValidationError, VPermissionError):
                 pass  # Expected - session hijacking blocked
-        finally:
-            frappe.set_user("Administrator")  # Reset to admin
             
     def test_data_exposure_prevention(self):
         """Test prevention of sensitive data exposure"""
@@ -588,17 +584,14 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
             roles=["Verenigingen Member"]
         )
 
-        frappe.set_user(unauth_user.email)  # Switch to unauthorized user
-
-        try:
+        # Use patch to simulate the unauthorized user context
+        with patch.object(frappe.session, "user", unauth_user.email):
             # Attempt unauthorized operation - should raise either PermissionError type
             try:
                 queue_account_creation_for_member(member.name)
                 self.fail("Expected PermissionError for unauthorized user")
             except (frappe.PermissionError, VPermissionError):
                 pass  # Expected - unauthorized user denied access
-        finally:
-            frappe.set_user("Administrator")  # Reset to admin
 
         # Note: In a production system, this would check actual security logs
         # For testing, we verify the error was properly raised and would be logged
