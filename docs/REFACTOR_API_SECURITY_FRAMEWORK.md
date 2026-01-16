@@ -21,8 +21,9 @@ Split into focused modules with clear boundaries:
 verenigingen/utils/security/
 ├── __init__.py                      # Re-export public API (backwards compat)
 ├── api_security_framework.py        # Orchestration only (~300 lines)
-├── authorization_engine.py          # Auth decisions (~250 lines)
-├── rate_limit_engine.py             # Rate limiting (~300 lines)
+├── authorization_policy.py          # Pure decision logic (~100 lines)
+├── authorization_engine.py          # Auth I/O + policy (~200 lines)
+├── rate_limit_engine.py             # Rate limiting (~350 lines)
 ├── frappe_whitelist_adapter.py      # Frappe integration (~200 lines)
 ├── audit_emitter.py                 # Audit logging (~150 lines)
 ├── input_validator.py               # Input sanitization (~150 lines)
@@ -31,35 +32,114 @@ verenigingen/utils/security/
 └── decorators.py                    # Convenience decorators (~200 lines)
 ```
 
+## Dependency Graph
+
+Explicit layering to prevent circular imports:
+
+```
+                    ┌─────────────────────────────────┐
+                    │      decorators.py              │  ← Public API
+                    │  api_security_framework.py      │  ← Orchestrator
+                    └───────────────┬─────────────────┘
+                                    │ imports
+        ┌───────────────────────────┼───────────────────────────┐
+        │                           │                           │
+        ▼                           ▼                           ▼
+┌───────────────────┐   ┌───────────────────┐   ┌───────────────────┐
+│ authorization_    │   │ rate_limit_       │   │ frappe_whitelist_ │
+│ engine.py         │   │ engine.py         │   │ adapter.py        │
+└────────┬──────────┘   └───────────────────┘   └───────────────────┘
+         │ imports                │                       │
+         ▼                        │                       │
+┌───────────────────┐             │                       │
+│ authorization_    │             │                       │
+│ policy.py         │             │                       │
+└───────────────────┘             │                       │
+                                  │                       │
+        ┌─────────────────────────┼───────────────────────┘
+        │                         │
+        ▼                         ▼
+┌───────────────────┐   ┌───────────────────┐   ┌───────────────────┐
+│ audit_emitter.py  │   │ self_service_     │   │ input_validator.py│
+│                   │   │ access.py         │   │ environment_      │
+│                   │   │                   │   │ validator.py      │
+└───────────────────┘   └───────────────────┘   └───────────────────┘
+                                  │
+                                  ▼
+                        ┌───────────────────┐
+                        │    types.py       │  ← Shared types (SecurityLevel, etc.)
+                        └───────────────────┘
+
+IMPORT RULES:
+- Lower layers MUST NOT import higher layers
+- Siblings at same level MAY import each other only if documented
+- All modules MAY import types.py
+- Only orchestrator imports frappe_whitelist_adapter
+```
+
 ## Module Responsibilities
 
-### 1. `authorization_engine.py` (~250 lines)
+### 1a. `authorization_policy.py` (~100 lines) - NEW
 
-**Responsibility:** Authorization decisions only
+**Responsibility:** Pure authorization decision logic (no I/O)
+
+```python
+@dataclass
+class AuthResult:
+    granted: bool
+    rule_matched: str  # e.g., "rule_4_role_profile", "rule_7_deny"
+    auth_path: str     # e.g., "role_profile:Verenigingen Administrator"
+
+class AuthorizationPolicy:
+    """
+    Pure decision table - no Frappe, no cache, no I/O.
+
+    INVARIANTS:
+    - Deny by default (Rule 7 always exists)
+    - Every decision logs auth_path for audit
+    - Error categories are consistent (AuthDenied, AuthExpired, etc.)
+    """
+
+    ROLE_PROFILE_SECURITY_MAPPING = {...}
+
+    def decide(
+        self,
+        level: SecurityLevel,
+        user_profiles: List[str],
+        user_roles: List[str],
+        is_authenticated: bool
+    ) -> AuthResult:
+        """Pure function: inputs → decision. No side effects."""
+```
+
+**Dependencies:** types.py only (truly pure)
+
+### 1b. `authorization_engine.py` (~200 lines)
+
+**Responsibility:** Fetch user data, call policy, manage cache
 
 ```python
 class AuthorizationEngine:
     """
-    Single source of truth for authorization decisions.
-
-    Decision Table:
-    1. PUBLIC → allow
-    2. Guest → deny
-    3. LOW → any authenticated
-    4. Role Profile match → allow
-    5. Individual role match → allow
-    6. System Manager + MEDIUM → allow
-    7. Default → deny
+    I/O layer for authorization. Fetches roles/profiles, delegates to policy.
     """
 
-    ROLE_PROFILE_SECURITY_MAPPING = {...}  # Move from APISecurityFramework
+    def __init__(self, policy: AuthorizationPolicy = None, cache_backend=None):
+        self.policy = policy or AuthorizationPolicy()
+        self.cache = cache_backend or FrappeCache()
 
-    def authorize(self, user: str, level: SecurityLevel) -> AuthResult
+    def authorize(self, user: str, level: SecurityLevel) -> AuthResult:
+        """Fetch user data from Frappe, delegate to policy."""
+        profiles = self.get_user_role_profiles(user)
+        roles = frappe.get_roles(user)
+        is_auth = user != "Guest"
+        return self.policy.decide(level, profiles, roles, is_auth)
+
     def get_user_role_profiles(self, user: str) -> List[str]
     def invalidate_cache(self, user: str = None)
 ```
 
-**Dependencies:** None (pure authorization logic)
+**Dependencies:** authorization_policy.py, Frappe (for DB/cache)
 
 ### 2. `rate_limit_engine.py` (~300 lines)
 
@@ -187,14 +267,24 @@ class APISecurityFramework:
     - Rate limiting (via RateLimitEngine)
     - Audit logging (via AuditEmitter)
     - Input validation (via InputValidator)
+
+    Components are injectable for testing and future evolution.
     """
 
-    def __init__(self):
-        self.auth_engine = AuthorizationEngine()
-        self.rate_limiter = RateLimitEngine()
-        self.audit = AuditEmitter()
-        self.input_validator = InputValidator()
-        self.whitelist_adapter = FrappeWhitelistAdapter()
+    def __init__(
+        self,
+        auth_engine: AuthorizationEngine = None,
+        rate_limiter: RateLimitEngine = None,
+        audit: AuditEmitter = None,
+        input_validator: InputValidator = None,
+        whitelist_adapter: FrappeWhitelistAdapter = None,
+    ):
+        # Injectable components with sensible defaults
+        self.auth_engine = auth_engine or AuthorizationEngine()
+        self.rate_limiter = rate_limiter or RateLimitEngine()
+        self.audit = audit or AuditEmitter()
+        self.input_validator = input_validator or InputValidator()
+        self.whitelist_adapter = whitelist_adapter or FrappeWhitelistAdapter()
 
     def validate_request(self, profile: SecurityProfile) -> bool:
         """Main validation entry point."""
@@ -205,28 +295,90 @@ def api_security_framework(...):
     ...
 ```
 
+**Testing benefits of injection:**
+```python
+# Test: rate limiter denies
+mock_limiter = Mock(spec=RateLimitEngine)
+mock_limiter.check_rate_limit.return_value = RateLimitResult(allowed=False)
+framework = APISecurityFramework(rate_limiter=mock_limiter)
+# No monkeypatching needed!
+
+# Test: auth engine returns specific path
+mock_auth = Mock(spec=AuthorizationEngine)
+mock_auth.authorize.return_value = AuthResult(granted=True, rule="rule_5")
+framework = APISecurityFramework(auth_engine=mock_auth)
+```
+
 ## Migration Strategy
 
-### Phase 1: Extract Pure Logic (Low Risk)
-1. Extract `InputValidator` (no dependencies)
-2. Extract `EnvironmentValidator` (minimal dependencies)
-3. Add re-exports in `__init__.py` for backwards compatibility
+### Phase 1: Extract Pure Logic + Create Façades (Low Risk)
+
+**Goal:** Extract no-dependency modules AND create façade classes for risky extractions.
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 1.1 | Extract `types.py` (SecurityLevel, AuthResult, etc.) | `import types` works |
+| 1.2 | Extract `InputValidator` class | Input validation tests pass |
+| 1.3 | Extract `EnvironmentValidator` class | Environment tests pass |
+| 1.4 | Extract `AuthorizationPolicy` (pure decision logic) | Policy unit tests pass |
+| 1.5 | **Create `FrappeWhitelistAdapter` façade IN SAME FILE** | All decorator tests pass |
+| 1.6 | Add re-exports in `__init__.py` | Import from package works |
+
+**Why 1.5 matters:** The Frappe whitelist adapter is "spooky action at a distance." Creating
+the façade class NOW (same file, same behavior) means Phase 3 becomes a FILE MOVE, not a
+BEHAVIOR CHANGE. This dramatically reduces risk.
+
+```python
+# In api_security_framework.py (Phase 1)
+class FrappeWhitelistAdapter:
+    """Façade for Frappe whitelist registration. Will be moved to own file in Phase 3."""
+
+    def register_wrapper(self, wrapper, inner, http_methods):
+        # Same code that's currently inline in the decorator
+        ...
+
+    def preserve_attributes(self, wrapper, inner):
+        # Same code that's currently inline
+        ...
+
+# Decorator now calls:
+adapter = FrappeWhitelistAdapter()
+adapter.register_wrapper(wrapper, inner, methods)
+```
 
 ### Phase 2: Extract Auth & Rate Limiting (Medium Risk)
-4. Extract `AuthorizationEngine` (cache logic, role profiles)
-5. Extract `RateLimitEngine` (COR integration, Redis)
-6. Update `APISecurityFramework` to use new classes
 
-### Phase 3: Extract Frappe Integration (Higher Risk)
-7. Extract `FrappeWhitelistAdapter` (Frappe internals)
-8. Extract `AuditEmitter`
-9. Extract `SelfServiceAccessController`
+**Goal:** Extract I/O-dependent engines with injectable dependencies.
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 2.1 | Extract `AuthorizationEngine` (uses policy) | Auth integration tests pass |
+| 2.2 | Extract `RateLimitEngine` | Rate limit tests pass |
+| 2.3 | Extract `AuditEmitter` | Audit logging tests pass |
+| 2.4 | Update `APISecurityFramework.__init__` for injection | Injection tests pass |
+| 2.5 | Verify all existing tests still pass | Full test suite green |
+
+### Phase 3: Extract Adapters (File Moves, Low Risk Now)
+
+**Goal:** Move façades to own files. Behavior already verified in Phase 1.
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 3.1 | Move `FrappeWhitelistAdapter` to own file | Import works, tests pass |
+| 3.2 | Extract `SelfServiceAccessController` | Self-service tests pass |
+| 3.3 | Update imports in orchestrator | No import errors |
 
 ### Phase 4: Finalize (Cleanup)
-10. Extract `decorators.py`
-11. Slim down `api_security_framework.py` to orchestrator
-12. Update all imports across codebase
-13. Comprehensive test suite for each module
+
+**Goal:** Final organization and documentation.
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 4.1 | Extract `decorators.py` | All decorator imports work |
+| 4.2 | Slim `api_security_framework.py` to orchestrator only | < 350 lines |
+| 4.3 | Update all imports across codebase | `grep` shows no old imports |
+| 4.4 | Add module docstrings with dependency rules | Docs complete |
+| 4.5 | Comprehensive integration test suite | All tests pass |
 
 ## Backwards Compatibility
 
@@ -289,10 +441,15 @@ The existing `test_api_security_framework.py` becomes an integration test suite.
 
 1. All existing tests pass
 2. No public API changes (backwards compatible)
-3. Each module < 300 lines
+3. Each module is "small enough to review" (~300 lines guideline, not hard gate)
 4. Each module has single responsibility
-5. Clear dependency graph (no cycles)
+5. Clear dependency graph (no cycles) - see diagram above
 6. Performance unchanged (benchmark before/after)
+7. **Invariants codified:**
+   - Deny-by-default enforced in AuthorizationPolicy
+   - Every auth decision includes `auth_path` for audit trail
+   - Consistent error categories (AuthDenied, RateLimitExceeded, ValidationFailed)
+   - No Frappe imports in pure modules (types.py, authorization_policy.py, input_validator.py)
 
 ## Not In Scope
 
