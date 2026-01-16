@@ -872,11 +872,15 @@ class APISecurityFramework:
             headers.update(rate_headers)
 
         # Security headers
+        # Note: X-XSS-Protection is intentionally NOT included because:
+        # - It's deprecated and removed from modern browsers (Chrome 78+, Edge 79+)
+        # - The browser's built-in XSS filter could be exploited in some cases
+        # - Content-Security-Policy is the modern replacement
+        # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-XSS-Protection
         headers.update(
             {
                 "X-Content-Type-Options": "nosniff",
                 "X-Frame-Options": "DENY",
-                "X-XSS-Protection": "1; mode=block",
                 "Referrer-Policy": "strict-origin-when-cross-origin",
             }
         )
