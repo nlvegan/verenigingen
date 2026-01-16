@@ -519,8 +519,8 @@ class APISecurityFramework:
         if not user:
             user = frappe.session.user
 
-        # Use cache to avoid repeated database queries (5 minute cache)
-        cache_key = f"user_role_profiles:{user}"
+        # Use versioned cache key to avoid O(N) Redis KEYS on bulk invalidation
+        cache_key = self._get_versioned_cache_key(user)
         cached_profiles = frappe.cache.get_value(cache_key)
 
         if cached_profiles is not None:
@@ -558,43 +558,55 @@ class APISecurityFramework:
             )
             return []
 
+    # Cache version key - increment to invalidate all caches without KEYS command
+    CACHE_VERSION_KEY = "user_role_profiles:version"
+
+    @staticmethod
+    def _get_cache_version() -> int:
+        """Get current cache version for role profile caching."""
+        version = frappe.cache.get_value(APISecurityFramework.CACHE_VERSION_KEY)
+        if version is None:
+            version = 1
+            frappe.cache.set_value(APISecurityFramework.CACHE_VERSION_KEY, version)
+        return int(version)
+
+    @staticmethod
+    def _get_versioned_cache_key(user: str) -> str:
+        """Get versioned cache key for user role profiles.
+
+        Using versioned keys allows bulk invalidation by incrementing the version,
+        which avoids the O(N) Redis KEYS command that can block under load.
+        """
+        version = APISecurityFramework._get_cache_version()
+        return f"user_role_profiles:v{version}:{user}"
+
     @staticmethod
     def invalidate_user_role_cache(user: str = None):
-        """Invalidate cached role profiles for a user (or all users if none specified)"""
+        """Invalidate cached role profiles for a user (or all users if none specified).
+
+        For single user: Deletes the specific cache key.
+        For all users: Increments the cache version, causing all existing cached
+        entries to become orphaned (they will expire via TTL). This avoids the
+        O(N) Redis KEYS command which can block Redis under load.
+        """
         if user:
             # Invalidate specific user's cache
-            cache_key = f"user_role_profiles:{user}"
+            cache_key = APISecurityFramework._get_versioned_cache_key(user)
             frappe.cache.delete_value(cache_key)
             frappe.logger("verenigingen.api_security").info(
                 f"Invalidated role profile cache for user: {user}"
             )
         else:
-            # Invalidate all user role profile caches (nuclear option)
-            # Get all cache keys matching the pattern and delete them
+            # Invalidate ALL user role profile caches by incrementing version
+            # Old versioned keys will be orphaned and expire via their TTL
+            # This is O(1) instead of O(N) like Redis KEYS command
             try:
-                # Use Frappe's cache API to get Redis connection
-                cache = frappe.cache()
-
-                # Try to get the underlying Redis client
-                # In Frappe v15, this is accessed through the internal attribute
-                if hasattr(cache, "redis_cache"):
-                    redis_client = cache.redis_cache
-                elif hasattr(cache, "get_redis_connection"):
-                    redis_client = cache.get_redis_connection()
-                else:
-                    # Fallback: manually clear known cache keys (less efficient but safe)
-                    frappe.logger("verenigingen.api_security").warning(
-                        "Cannot access Redis client directly - cache invalidation may be incomplete"
-                    )
-                    return
-
-                pattern = "user_role_profiles:*"
-                keys = redis_client.keys(pattern)
-                if keys:
-                    redis_client.delete(*keys)
-                    frappe.logger("verenigingen.api_security").info(
-                        f"Invalidated {len(keys)} user role profile cache entries"
-                    )
+                current_version = APISecurityFramework._get_cache_version()
+                new_version = current_version + 1
+                frappe.cache.set_value(APISecurityFramework.CACHE_VERSION_KEY, new_version)
+                frappe.logger("verenigingen.api_security").info(
+                    f"Invalidated all role profile caches by incrementing version: {current_version} → {new_version}"
+                )
             except Exception as e:
                 frappe.logger("verenigingen.api_security").error(
                     f"Failed to invalidate role profile caches: {str(e)}"
@@ -622,84 +634,111 @@ class APISecurityFramework:
         return False
 
     def validate_authentication(self, profile: SecurityProfile, user: str = None) -> bool:
-        """Validate user authentication and authorization"""
+        """
+        Validate user authentication and authorization.
+
+        Authorization Decision Table
+        ============================
+
+        The authorization model uses a priority-ordered decision chain. The FIRST
+        matching rule grants access; if no rule matches, access is denied.
+
+        Priority | Rule                           | Levels Affected      | Description
+        ---------|--------------------------------|----------------------|----------------------------------
+        1        | PUBLIC level                   | PUBLIC only          | No authentication required
+        2        | Guest check                    | All except PUBLIC    | Reject unauthenticated users
+        3        | LOW level                      | LOW only             | Any authenticated user allowed
+        4        | Role Profile (primary)         | MEDIUM, HIGH, CRIT   | User's assigned role profile grants access
+        5        | Individual Role (secondary)    | MEDIUM, HIGH, CRIT   | User role name matches profile name in mapping
+        6        | System Manager exception       | MEDIUM only          | System Manager gets MEDIUM access
+        7        | DENY                           | All                  | No matching rule found
+
+        Note: Hardcoded `required_roles` in SecurityProfile are DEPRECATED and ignored.
+        All authorization should go through Role Profiles (Rule 4) or Individual Roles (Rule 5).
+
+        Args:
+            profile: SecurityProfile with the required security level
+            user: User to validate (defaults to current session user)
+
+        Returns:
+            True if authorized
+
+        Raises:
+            VPermissionError: If authorization fails
+        """
         if not user:
             user = frappe.session.user
 
-        # Public endpoints don't require authentication
+        # Track authorization path for audit logging
+        auth_path = None
+
+        # ===== RULE 1: PUBLIC level - no authentication required =====
         if profile.level == SecurityLevel.PUBLIC:
             return True
 
-        # Check if user is authenticated
+        # ===== RULE 2: Reject unauthenticated users =====
         if user == "Guest":
             raise VPermissionError(_("Authentication required for this endpoint"))
 
-        # LOW security level: Any authenticated user is allowed
-        # This matches the SecurityProfile definition: required_roles=[], # Any authenticated user
+        # ===== RULE 3: LOW level - any authenticated user =====
         if profile.level == SecurityLevel.LOW:
             frappe.logger("verenigingen.api_security").debug(
-                f"Access granted: LOW security level allows any authenticated user ({user})"
+                f"AUTH_GRANTED: user={user} level=LOW rule=3_any_authenticated"
             )
             return True
 
-        # Primary authorization: Check role profile access
-        if self._validate_role_profile_access(profile.level, user):
-            return True
+        # ===== RULE 4: Primary - Role Profile authorization =====
+        user_profiles = self._get_user_role_profiles(user)
+        for profile_name in user_profiles:
+            if self._role_profile_grants_access(profile_name, profile.level):
+                auth_path = f"role_profile:{profile_name}"
+                frappe.logger("verenigingen.api_security").debug(
+                    f"AUTH_GRANTED: user={user} level={profile.level.value} rule=4_role_profile path={auth_path}"
+                )
+                return True
 
-        # Get user roles once for efficiency
+        # ===== RULE 5: Secondary - Individual role matches profile name =====
+        # This supports backwards compatibility where role names match profile names
         user_roles = frappe.get_roles(user)
-
-        # Secondary authorization: Check individual roles against security mapping
-        # This allows users with individual roles (not role profiles) to access APIs
-        # if their role name matches a role profile name in the security mapping
         for role in user_roles:
             allowed_levels = self.ROLE_PROFILE_SECURITY_MAPPING.get(role, [])
             if profile.level in allowed_levels:
+                auth_path = f"individual_role:{role}"
                 frappe.logger("verenigingen.api_security").debug(
-                    f"Access granted via individual role: {role} → {profile.level.value}"
+                    f"AUTH_GRANTED: user={user} level={profile.level.value} rule=5_individual_role path={auth_path}"
                 )
                 return True
 
-        # Fallback authorization: Check hardcoded required roles (for backwards compatibility)
-        if profile.required_roles:
-            if any(role in user_roles for role in profile.required_roles):
-                frappe.logger("verenigingen.api_security").debug(
-                    f"Access granted via fallback hardcoded roles: {profile.required_roles}"
-                )
-                return True
-
-        # System Manager should have access to low and medium security operations
-        try:
-            has_system_manager = "System Manager" in user_roles
-            is_low_or_medium = profile.level in [SecurityLevel.LOW, SecurityLevel.MEDIUM]
-
-            frappe.logger("verenigingen.api_security").info(
-                f"System Manager check: has_role={has_system_manager}, level={profile.level.value}, is_low_or_medium={is_low_or_medium}"
+        # ===== RULE 6: System Manager exception for MEDIUM =====
+        if "System Manager" in user_roles and profile.level == SecurityLevel.MEDIUM:
+            auth_path = "system_manager_exception"
+            frappe.logger("verenigingen.api_security").debug(
+                f"AUTH_GRANTED: user={user} level=MEDIUM rule=6_system_manager"
             )
+            return True
 
-            if has_system_manager and is_low_or_medium:
-                frappe.logger("verenigingen.api_security").info(
-                    f"Access granted: System Manager has access to {profile.level.value} operations"
-                )
-                return True
-        except Exception as e:
-            frappe.logger("verenigingen.api_security").error(f"Error in System Manager check: {str(e)}")
-
-        # Collect user info for error message
-        user_profiles = self._get_user_role_profiles(user)
-
-        # Deny access with detailed error message
-        error_details = []
-        if user_profiles:
-            error_details.append(f"Role profiles: {', '.join(user_profiles)}")
-        if user_roles:
-            error_details.append(f"Individual roles: {', '.join(user_roles)}")
-
-        raise VPermissionError(
-            _("Access denied. Required security level: {0}. Your access: {1}").format(
-                profile.level.value, "; ".join(error_details) if error_details else "No roles assigned"
-            )
+        # ===== RULE 7: DENY - No matching authorization rule =====
+        frappe.logger("verenigingen.api_security").warning(
+            f"AUTH_DENIED: user={user} level={profile.level.value} "
+            f"profiles={user_profiles} roles={user_roles[:5]}..."  # Truncate for log safety
         )
+
+        # Return generic error to client (avoid information leakage)
+        # Detailed info is in server logs for debugging
+        if frappe.conf.get("developer_mode"):
+            # In dev mode, show details for debugging
+            raise VPermissionError(
+                _("Access denied. Required: {0}. Your profiles: {1}, roles: {2}").format(
+                    profile.level.value,
+                    user_profiles or "none",
+                    ", ".join(user_roles[:5]) + ("..." if len(user_roles) > 5 else ""),
+                )
+            )
+        else:
+            # In production, return generic message
+            raise VPermissionError(
+                _("Access denied. You do not have permission for this operation.")
+            )
 
     def validate_request_method(self, profile: SecurityProfile) -> bool:
         """Validate HTTP method is allowed"""
