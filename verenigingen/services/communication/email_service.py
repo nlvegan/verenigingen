@@ -456,6 +456,9 @@ class EmailService(StatelessService):
 
                 # Check notification-specific settings if key provided
                 if notification_key:
+                    # Validate notification_key exists in registry
+                    self._validate_notification_key(notification_key)
+
                     if not config_service.is_notification_enabled(notification_key):
                         self.logger.info(f"Notification '{notification_key}' disabled in Email Configuration")
                         return create_service_result(
@@ -666,6 +669,34 @@ class EmailService(StatelessService):
                     config_service.record_send(notification_key, recipient)
         except Exception as e:
             self.logger.debug(f"Cooldown recording failed: {e}")
+
+    def _validate_notification_key(self, notification_key: str) -> bool:
+        """Validate that a notification_key exists in the registry.
+
+        Logs a warning if the key is not found but does not raise an exception.
+        This allows emails to still be sent while alerting developers to add
+        missing keys to the registry.
+
+        Args:
+            notification_key: The notification type key to validate.
+
+        Returns:
+            True if key exists in registry, False otherwise.
+        """
+        try:
+            from verenigingen.notification_registry import NOTIFICATION_KEYS
+
+            if notification_key not in NOTIFICATION_KEYS:
+                self.logger.warning(
+                    f"notification_key '{notification_key}' not found in NOTIFICATION_KEYS registry. "
+                    f"Add it to verenigingen/notification_registry.py for proper configuration control. "
+                    f"Email will still be sent."
+                )
+                return False
+            return True
+        except ImportError:
+            # Registry module not available - skip validation
+            return True
 
     def _get_template(self, template_name: str) -> Optional[Dict[str, Any]]:
         """Load email template with bounded caching."""
