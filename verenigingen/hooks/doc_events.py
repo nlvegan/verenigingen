@@ -234,11 +234,9 @@ doc_events = {
         # validate: now handled in controller validate() method
         "on_update_after_submit": "verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.handle_status_change",
     },
-    "Expulsion Report Entry": {
-        "validate": "verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.validate",
-        "after_insert": "verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.notify_governance_team",
-        "before_save": "verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.update_status_based_on_appeals",
-    },
+    # Note: Expulsion Report Entry hooks removed - these were incorrectly
+    # referencing controller methods (validate, before_save, after_insert)
+    # which are already called automatically by Frappe via the controller.
     # =========================================================================
     # SETTINGS
     # =========================================================================
