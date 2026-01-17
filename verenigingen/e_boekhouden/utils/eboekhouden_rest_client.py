@@ -12,6 +12,7 @@ Key Features:
     * Cached ledger and relation data for performance optimization
     * Real-time progress updates during large data imports
     * Comprehensive error handling and logging
+    * Automatic retry with exponential backoff for transient errors
 
 Integration Context:
     This client is used as part of the comprehensive eBoekhouden migration system
@@ -28,280 +29,57 @@ Configuration:
     - api_url: REST API endpoint (default: https://api.e-boekhouden.nl)
     - api_token: Authentication token (stored encrypted)
     - source_application: Application identifier for API requests
+
+Note:
+    This client inherits token management and retry logic from EBoekhoudenHTTPClientMixin.
 """
 
-import time
-from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import frappe
 import requests
-from requests.exceptions import ConnectionError, RequestException, Timeout
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
+from .http_client_mixin import EBoekhoudenHTTPClientMixin
 
-class EBoekhoudenRESTClient:
+
+class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
     """
     REST API client for eBoekhouden integration with advanced session management.
 
     This client provides a robust interface for accessing eBoekhouden's REST API
     endpoints, specifically designed to handle large-scale data migrations and
-    real-time integrations. It implements session-based authentication, intelligent
-    caching, and pagination to efficiently process thousands of financial records.
+    real-time integrations. It inherits session-based authentication and retry
+    logic from EBoekhoudenHTTPClientMixin and adds intelligent caching and
+    pagination to efficiently process thousands of financial records.
 
     Attributes:
         settings: eBoekhouden configuration settings
         base_url: API endpoint URL
         api_token: Encrypted authentication token
-        _session_token: Cached session token for API requests
-        _token_obtained_at: Timestamp when token was acquired (for expiry tracking)
+        _session_token: Cached session token for API requests (inherited)
+        _token_obtained_at: Timestamp when token was acquired (inherited)
         _ledger_cache: Cached chart of accounts data
         _relation_cache: Cached customer/supplier data
     """
 
-    # Token lifetime configuration
-    # e-Boekhouden tokens expire after ~60 minutes; use 55 minutes for safety margin
-    TOKEN_TTL_MINUTES = 55
-
-    # Retry configuration for transient errors
-    MAX_RETRIES = 3
-    RETRY_BACKOFF_FACTOR = 1.0  # Base delay in seconds (1s, 2s, 4s with exponential backoff)
-    RETRY_STATUS_CODES = (429, 500, 502, 503, 504)  # Status codes that trigger retry
-    AUTH_REFRESH_STATUS_CODES = (401, 403)  # Status codes that trigger token refresh
-
     def __init__(self, settings=None):
-        if not settings:
-            settings = frappe.get_single("E-Boekhouden Settings")
-
-        self.settings = settings
-        self.base_url = settings.api_url if hasattr(settings, "api_url") else "https://api.e-boekhouden.nl"
-        self.api_token = settings.get_password("api_token") if hasattr(settings, "api_token") else None
-
-        if not self.api_token:
-            raise ValueError("API token is required for REST API access")
-
-        # Session token will be obtained on first use
-        self._session_token = None
-        self._token_obtained_at = None  # Track when token was acquired for expiry
-
-        # Cache for lookup data to improve performance during bulk operations
-        self._ledger_cache = None
-        self._relation_cache = None
-
-    def _token_is_expired(self) -> bool:
         """
-        Check if the cached session token has expired.
+        Initialize the REST client with optional settings.
 
-        Uses TOKEN_TTL_MINUTES to determine if the token is still valid.
-        e-Boekhouden tokens typically expire after ~60 minutes; we use
-        55 minutes as a safety margin to avoid mid-request expiry.
-
-        Returns:
-            bool: True if token is expired or missing, False if still valid
-        """
-        if not self._session_token or not self._token_obtained_at:
-            return True
-
-        expiry_time = self._token_obtained_at + timedelta(minutes=self.TOKEN_TTL_MINUTES)
-        is_expired = datetime.now() >= expiry_time
-
-        if is_expired:
-            frappe.logger().debug(
-                f"E-Boekhouden token expired (obtained at {self._token_obtained_at}, "
-                f"TTL={self.TOKEN_TTL_MINUTES}min)"
-            )
-
-        return is_expired
-
-    def _get_session_token(self):
-        """
-        Obtain and cache session token for API authentication.
-
-        Session tokens are required for all REST API calls and have a limited
-        lifetime (~60 minutes). This method handles token acquisition, caching,
-        and automatic refresh when the token expires.
-
-        Returns:
-            str: Valid session token for API requests
-            None: If authentication fails
+        Args:
+            settings: E-Boekhouden Settings document, or None to load automatically
 
         Raises:
             ValueError: If API token is not configured
         """
-        # Return cached token if still valid
-        if not self._token_is_expired():
-            return self._session_token
+        # Initialize token management and HTTP client from mixin
+        self._init_http_client(settings)
 
-        try:
-            session_url = f"{self.base_url}/v1/session"
-            session_data = {
-                "accessToken": self.api_token,
-                "source": self.settings.source_application or "Verenigingen ERPNext",
-            }
-
-            response = requests.post(session_url, json=session_data, timeout=30)
-
-            if response.status_code == 200:
-                session_response = response.json()
-                self._session_token = session_response.get("token")
-                self._token_obtained_at = datetime.now()
-
-                frappe.logger().debug(f"E-Boekhouden session token acquired at {self._token_obtained_at}")
-
-                return self._session_token
-            else:
-                frappe.log_error(
-                    f"Session token request failed: {response.status_code} - {response.text}",
-                    "E-Boekhouden REST",
-                )
-                return None
-
-        except Exception as e:
-            frappe.log_error(f"Error getting session token: {str(e)}", "E-Boekhouden REST")
-            return None
-
-    def invalidate_token(self):
-        """
-        Invalidate the cached session token, forcing refresh on next request.
-
-        Use this method when:
-        - A 401/403 response indicates the token may be invalid
-        - You need to force a fresh token for testing
-        - Recovering from API errors that may be token-related
-        """
-        if self._session_token:
-            frappe.logger().debug("E-Boekhouden session token invalidated")
-        self._session_token = None
-        self._token_obtained_at = None
-
-    def _get_headers(self):
-        """
-        Build HTTP headers for authenticated API requests.
-
-        Returns:
-            dict: Headers including authorization token and content type
-
-        Raises:
-            ValueError: If session token cannot be obtained
-        """
-        token = self._get_session_token()
-        if not token:
-            raise ValueError("Failed to obtain session token")
-
-        return {"Authorization": token, "Content-Type": "application/json", "Accept": "application/json"}
-
-    def _request_with_retry(
-        self,
-        method: str,
-        url: str,
-        params: Optional[Dict] = None,
-        json_data: Optional[Dict] = None,
-        timeout: int = 30,
-    ) -> requests.Response:
-        """
-        Make HTTP request with automatic retry and token refresh.
-
-        This method provides resilient HTTP requests by:
-        - Retrying on transient errors (429, 5xx) with exponential backoff
-        - Automatically refreshing token on 401/403 and retrying once
-        - Logging retry attempts for debugging
-
-        Args:
-            method: HTTP method ('GET' or 'POST')
-            url: Full URL to request
-            params: Query parameters for GET requests
-            json_data: JSON body for POST requests
-            timeout: Request timeout in seconds
-
-        Returns:
-            requests.Response: The successful response
-
-        Raises:
-            requests.RequestException: If all retries are exhausted
-            ValueError: If session token cannot be obtained
-        """
-        last_exception = None
-        token_refreshed = False
-
-        for attempt in range(self.MAX_RETRIES + 1):
-            try:
-                headers = self._get_headers()
-
-                if method.upper() == "GET":
-                    response = requests.get(url, headers=headers, params=params, timeout=timeout)
-                else:
-                    response = requests.post(url, headers=headers, json=json_data, timeout=timeout)
-
-                # Check for auth errors - refresh token and retry once
-                if response.status_code in self.AUTH_REFRESH_STATUS_CODES:
-                    if not token_refreshed:
-                        frappe.logger().info(
-                            f"E-Boekhouden API returned {response.status_code}, "
-                            f"refreshing token and retrying"
-                        )
-                        self.invalidate_token()
-                        token_refreshed = True
-                        continue  # Retry with fresh token
-                    else:
-                        # Already refreshed token, don't retry again
-                        frappe.log_error(
-                            f"E-Boekhouden API returned {response.status_code} after token refresh",
-                            "E-Boekhouden REST Auth Error",
-                        )
-                        return response
-
-                # Check for retryable status codes
-                if response.status_code in self.RETRY_STATUS_CODES:
-                    if attempt < self.MAX_RETRIES:
-                        delay = self.RETRY_BACKOFF_FACTOR * (2**attempt)
-                        frappe.logger().warning(
-                            f"E-Boekhouden API returned {response.status_code}, "
-                            f"retrying in {delay}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
-                        )
-                        time.sleep(delay)
-                        continue
-                    else:
-                        frappe.log_error(
-                            f"E-Boekhouden API returned {response.status_code} after "
-                            f"{self.MAX_RETRIES} retries",
-                            "E-Boekhouden REST Retry Exhausted",
-                        )
-                        return response
-
-                # Success or non-retryable error
-                return response
-
-            except (Timeout, ConnectionError) as e:
-                last_exception = e
-                if attempt < self.MAX_RETRIES:
-                    delay = self.RETRY_BACKOFF_FACTOR * (2**attempt)
-                    error_type = "Timeout" if isinstance(e, Timeout) else "Connection error"
-                    frappe.logger().warning(
-                        f"E-Boekhouden API {error_type}, retrying in {delay}s "
-                        f"(attempt {attempt + 1}/{self.MAX_RETRIES}): {str(e)}"
-                    )
-                    time.sleep(delay)
-                    continue
-                else:
-                    frappe.log_error(
-                        f"E-Boekhouden API failed after {self.MAX_RETRIES} retries: {str(e)}",
-                        "E-Boekhouden REST Connection Error",
-                    )
-                    raise
-
-            except RequestException as e:
-                # Non-retryable request exception
-                frappe.log_error(
-                    f"E-Boekhouden API request failed: {str(e)}",
-                    "E-Boekhouden REST Request Error",
-                )
-                raise
-
-        # Should not reach here, but just in case
-        if last_exception:
-            raise last_exception
-        raise RequestException(f"Request failed after {self.MAX_RETRIES} retries")
+        # Cache for lookup data to improve performance during bulk operations
+        self._ledger_cache = None
+        self._relation_cache = None
 
     def get_mutations(self, limit=2000, offset=0, date_from=None, date_to=None) -> Dict[str, Any]:
         """

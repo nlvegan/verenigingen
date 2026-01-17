@@ -3,6 +3,10 @@ E-Boekhouden API Integration Utilities
 
 This module provides utilities for integrating with the e-Boekhouden.nl API
 for migrating accounting data to ERPNext.
+
+Note:
+    This client now inherits token management and retry logic from
+    EBoekhoudenHTTPClientMixin for improved reliability and consistency.
 """
 
 import json
@@ -18,12 +22,30 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 
+from .http_client_mixin import EBoekhoudenHTTPClientMixin
 
-class EBoekhoudenAPI:
-    """E-Boekhouden API client"""
+
+class EBoekhoudenAPI(EBoekhoudenHTTPClientMixin):
+    """
+    E-Boekhouden API client for general API access.
+
+    This client provides methods for accessing various e-Boekhouden API endpoints
+    including chart of accounts, relations, cost centers, and mutations.
+
+    Now inherits token caching and retry logic from EBoekhoudenHTTPClientMixin
+    for improved performance and reliability.
+    """
 
     def __init__(self, settings=None):
-        """Initialize API client with settings"""
+        """
+        Initialize API client with settings.
+
+        Args:
+            settings: E-Boekhouden Settings document, or None to load automatically
+
+        Raises:
+            ValueError: If settings not found or API token not configured
+        """
         if not settings:
             from verenigingen.utils.settings_utils import get_e_boekhouden_settings
 
@@ -31,82 +53,50 @@ class EBoekhoudenAPI:
             if not settings:
                 raise ValueError("E-Boekhouden Settings not found or not accessible")
 
-        self.settings = settings
+        # Initialize token management and HTTP client from mixin
+        self._init_http_client(settings)
 
-        # Ensure API URL has proper scheme
-        api_url = settings.api_url.rstrip("/")  # Remove trailing slash
-        if not api_url.startswith(("http://", "https://")):
-            # Default to https if no scheme provided
-            api_url = f"https://{api_url}"
-        self.base_url = api_url
-
-        self.api_token = settings.get_password("api_token")
+        # Keep source as instance attribute for backward compatibility
         self.source = settings.source_application or "Verenigingen ERPNext"
 
-        # Validate required settings
-        if not self.base_url or self.base_url == "https://":
-            raise ValueError("E-Boekhouden API URL is not configured")
-        if not self.api_token:
-            raise ValueError("E-Boekhouden API token is not configured")
-
     def get_session_token(self):
-        """Get session token using API token"""
-        try:
-            session_url = f"{self.base_url}/v1/session"
-            session_data = {"accessToken": self.api_token, "source": self.source}
+        """
+        Get session token using API token.
 
-            frappe.logger().debug(f"Requesting session token from: {session_url}")
-            response = requests.post(session_url, json=session_data, timeout=30)
+        This method is kept for backward compatibility but now uses
+        the mixin's cached token management internally.
 
-            if response.status_code == 200:
-                session_response = response.json()
-                return session_response.get("token")
-            else:
-                error_msg = f"Session token request failed: {response.status_code} - {response.text}"
-                frappe.log_error(error_msg, "E-Boekhouden API")
-                frappe.msgprint(error_msg, title="E-Boekhouden API Error", indicator="red")
-                return None
-
-        except Exception as e:
-            error_msg = f"Error getting session token from {self.base_url}: {str(e)}"
-            frappe.log_error(error_msg, "E-Boekhouden API")
-            frappe.msgprint(error_msg, title="E-Boekhouden API Error", indicator="red")
-            return None
+        Returns:
+            str: Valid session token, or None if authentication fails
+        """
+        return self._get_session_token()
 
     def make_request(self, endpoint, method="GET", params=None):
-        """Make API request to e-Boekhouden"""
-        try:
-            # Get session token first
-            session_token = self.get_session_token()
-            if not session_token:
-                return {"success": False, "error": "Failed to get session token"}
+        """
+        Make API request to e-Boekhouden with automatic retry.
 
-            headers = {
-                "Authorization": session_token,
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            }
+        Uses the mixin's _make_simple_request for consistent retry and
+        token refresh behavior.
 
-            url = f"{self.base_url}/{endpoint}"
+        Args:
+            endpoint: API endpoint (e.g., "v1/ledger")
+            method: HTTP method (GET or POST)
+            params: Query parameters for GET, JSON body for POST
 
-            if method.upper() == "GET":
-                response = requests.get(url, headers=headers, params=params, timeout=120)
-            else:
-                response = requests.post(url, headers=headers, json=params, timeout=120)
+        Returns:
+            dict: Response containing success, data/error, and status_code
+        """
+        url = f"{self.base_url}/{endpoint}"
 
-            if response.status_code == 200:
-                return {"success": True, "data": response.text, "status_code": response.status_code}
-            else:
-                return {
-                    "success": False,
-                    "error": f"HTTP {response.status_code}: {response.text[:500]}",
-                    "status_code": response.status_code,
-                }
+        if method.upper() == "GET":
+            success, data, status_code = self._make_simple_request("GET", url, params=params, timeout=120)
+        else:
+            success, data, status_code = self._make_simple_request("POST", url, json_data=params, timeout=120)
 
-        except requests.exceptions.Timeout:
-            return {"success": False, "error": "Request timeout - API call took too long"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        if success:
+            return {"success": True, "data": data, "status_code": status_code}
+        else:
+            return {"success": False, "error": data, "status_code": status_code}
 
     def get_chart_of_accounts(self):
         """Get Chart of Accounts (Ledgers) - fetches ALL accounts with pagination"""
