@@ -30,6 +30,7 @@ Configuration:
     - source_application: Application identifier for API requests
 """
 
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import frappe
@@ -52,9 +53,14 @@ class EBoekhoudenRESTClient:
         base_url: API endpoint URL
         api_token: Encrypted authentication token
         _session_token: Cached session token for API requests
+        _token_obtained_at: Timestamp when token was acquired (for expiry tracking)
         _ledger_cache: Cached chart of accounts data
         _relation_cache: Cached customer/supplier data
     """
+
+    # Token lifetime configuration
+    # e-Boekhouden tokens expire after ~60 minutes; use 55 minutes for safety margin
+    TOKEN_TTL_MINUTES = 55
 
     def __init__(self, settings=None):
         if not settings:
@@ -69,18 +75,44 @@ class EBoekhoudenRESTClient:
 
         # Session token will be obtained on first use
         self._session_token = None
+        self._token_obtained_at = None  # Track when token was acquired for expiry
 
         # Cache for lookup data to improve performance during bulk operations
         self._ledger_cache = None
         self._relation_cache = None
+
+    def _token_is_expired(self) -> bool:
+        """
+        Check if the cached session token has expired.
+
+        Uses TOKEN_TTL_MINUTES to determine if the token is still valid.
+        e-Boekhouden tokens typically expire after ~60 minutes; we use
+        55 minutes as a safety margin to avoid mid-request expiry.
+
+        Returns:
+            bool: True if token is expired or missing, False if still valid
+        """
+        if not self._session_token or not self._token_obtained_at:
+            return True
+
+        expiry_time = self._token_obtained_at + timedelta(minutes=self.TOKEN_TTL_MINUTES)
+        is_expired = datetime.now() >= expiry_time
+
+        if is_expired:
+            frappe.logger().debug(
+                f"E-Boekhouden token expired (obtained at {self._token_obtained_at}, "
+                f"TTL={self.TOKEN_TTL_MINUTES}min)"
+            )
+
+        return is_expired
 
     def _get_session_token(self):
         """
         Obtain and cache session token for API authentication.
 
         Session tokens are required for all REST API calls and have a limited
-        lifetime. This method handles token acquisition and caching to minimize
-        authentication overhead during bulk operations.
+        lifetime (~60 minutes). This method handles token acquisition, caching,
+        and automatic refresh when the token expires.
 
         Returns:
             str: Valid session token for API requests
@@ -89,7 +121,8 @@ class EBoekhoudenRESTClient:
         Raises:
             ValueError: If API token is not configured
         """
-        if self._session_token:
+        # Return cached token if still valid
+        if not self._token_is_expired():
             return self._session_token
 
         try:
@@ -104,6 +137,10 @@ class EBoekhoudenRESTClient:
             if response.status_code == 200:
                 session_response = response.json()
                 self._session_token = session_response.get("token")
+                self._token_obtained_at = datetime.now()
+
+                frappe.logger().debug(f"E-Boekhouden session token acquired at {self._token_obtained_at}")
+
                 return self._session_token
             else:
                 frappe.log_error(
@@ -115,6 +152,20 @@ class EBoekhoudenRESTClient:
         except Exception as e:
             frappe.log_error(f"Error getting session token: {str(e)}", "E-Boekhouden REST")
             return None
+
+    def invalidate_token(self):
+        """
+        Invalidate the cached session token, forcing refresh on next request.
+
+        Use this method when:
+        - A 401/403 response indicates the token may be invalid
+        - You need to force a fresh token for testing
+        - Recovering from API errors that may be token-related
+        """
+        if self._session_token:
+            frappe.logger().debug("E-Boekhouden session token invalidated")
+        self._session_token = None
+        self._token_obtained_at = None
 
     def _get_headers(self):
         """
