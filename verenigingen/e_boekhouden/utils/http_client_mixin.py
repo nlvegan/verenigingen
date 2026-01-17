@@ -22,7 +22,7 @@ Key Features:
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
@@ -49,14 +49,7 @@ class HTTPClientMetrics:
 
     def to_dict(self) -> Dict[str, int]:
         """Return metrics as dictionary for logging/monitoring."""
-        return {
-            "requests_total": self.requests_total,
-            "requests_success": self.requests_success,
-            "requests_failed": self.requests_failed,
-            "retries_total": self.retries_total,
-            "token_refreshes": self.token_refreshes,
-            "rate_limits_hit": self.rate_limits_hit,
-        }
+        return asdict(self)
 
 
 class EBoekhoudenHTTPClientMixin:
@@ -137,6 +130,9 @@ class EBoekhoudenHTTPClientMixin:
 
         # Thread safety: lock for token operations
         self._token_lock = threading.Lock()
+
+        # Thread safety: lock for metrics updates (+=  is not atomic)
+        self._metrics_lock = threading.Lock()
 
         # Metrics for monitoring
         self.metrics = HTTPClientMetrics()
@@ -297,7 +293,20 @@ class EBoekhoudenHTTPClientMixin:
 
     def reset_metrics(self) -> None:
         """Reset all metrics counters to zero."""
-        self.metrics = HTTPClientMetrics()
+        with self._metrics_lock:
+            self.metrics = HTTPClientMetrics()
+
+    def _increment_metric(self, metric_name: str, value: int = 1) -> None:
+        """
+        Thread-safe increment of a metric counter.
+
+        Args:
+            metric_name: Name of the metric attribute to increment
+            value: Amount to increment by (default: 1)
+        """
+        with self._metrics_lock:
+            current = getattr(self.metrics, metric_name)
+            setattr(self.metrics, metric_name, current + value)
 
     def _request_with_retry(
         self,
@@ -334,7 +343,7 @@ class EBoekhoudenHTTPClientMixin:
         last_exception = None
         response = None
         headers = self._get_headers()
-        self.metrics.requests_total += 1
+        self._increment_metric("requests_total")
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -355,13 +364,13 @@ class EBoekhoudenHTTPClientMixin:
                         )
                         self.invalidate_token()
                         headers = self._get_headers()  # Get fresh headers with new token
-                        self.metrics.retries_total += 1
+                        self._increment_metric("retries_total")
                         continue  # Retry with new token
 
                 # Handle retryable errors with backoff (respects Retry-After header)
                 if response.status_code in self.RETRY_STATUS_CODES:
                     if response.status_code == 429:
-                        self.metrics.rate_limits_hit += 1
+                        self._increment_metric("rate_limits_hit")
 
                     if attempt < self.MAX_RETRIES:
                         delay = self._get_retry_delay(response, attempt)
@@ -370,14 +379,14 @@ class EBoekhoudenHTTPClientMixin:
                             f"retrying in {delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
                         )
                         time.sleep(delay)
-                        self.metrics.retries_total += 1
+                        self._increment_metric("retries_total")
                         continue
 
                 # Success or non-retryable error
                 if response.status_code == 200:
-                    self.metrics.requests_success += 1
+                    self._increment_metric("requests_success")
                 else:
-                    self.metrics.requests_failed += 1
+                    self._increment_metric("requests_failed")
 
                 return response
 
@@ -391,19 +400,19 @@ class EBoekhoudenHTTPClientMixin:
                         f"retrying in {delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
                     )
                     time.sleep(delay)
-                    self.metrics.retries_total += 1
+                    self._increment_metric("retries_total")
                     continue
-                self.metrics.requests_failed += 1
+                self._increment_metric("requests_failed")
                 raise
 
             except RequestException as e:
                 # Non-retryable request errors
-                self.metrics.requests_failed += 1
+                self._increment_metric("requests_failed")
                 frappe.log_error(f"E-Boekhouden API request failed: {str(e)}", "E-Boekhouden REST")
                 raise
 
         # If we get here, all retries were exhausted
-        self.metrics.requests_failed += 1
+        self._increment_metric("requests_failed")
         if last_exception:
             raise last_exception
 
