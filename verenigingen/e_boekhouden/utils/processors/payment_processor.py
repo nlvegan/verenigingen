@@ -9,6 +9,12 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.data_integrity import (
+    insert_with_duplicate_handling,
+    mask_pii_in_mutation,
+    safe_log_mutation_error,
+)
+
 from .base_processor import BaseTransactionProcessor
 
 
@@ -66,13 +72,14 @@ class PaymentProcessor(BaseTransactionProcessor):
                     f"⚠️ WARNING: Type {mutation_type} mutation {mutation_id} has NEGATIVE row amount "
                     f"({row_amount}), which violates the unsigned assumption. This may affect refund detection."
                 )
-                frappe.log_error(
+                # Log with PII masked for privacy compliance
+                safe_log_mutation_error(
                     title=f"Unexpected Negative Row Amount - Mutation {mutation_id}",
-                    message=f"Type {mutation_type} mutation {mutation_id} has negative row amount: {row_amount}\n"
+                    mutation=mutation,
+                    additional_context=f"Type {mutation_type} mutation {mutation_id} has negative row amount: {row_amount}\n"
                     f"Expected: positive (unsigned) amounts\n"
                     f"Raw amount: {raw_amount}\n"
-                    f"This may indicate E-Boekhouden API behavior change.\n"
-                    f"Full mutation: {frappe.as_json(mutation, indent=2)}",
+                    f"This may indicate E-Boekhouden API behavior change.",
                 )
 
             # Type 3: Exclude negative amounts WITHOUT invoice ref (generic refunds → Journal Entry)
@@ -235,9 +242,10 @@ class PaymentProcessor(BaseTransactionProcessor):
                 if not row_ledger_id:
                     error_msg = f"Row {idx + 1} missing ledgerId (amount: {row_amount})"
                     self.debug_info.append(f"❌ {error_msg}")
-                    frappe.log_error(
+                    safe_log_mutation_error(
                         title=f"Missing Row Ledger ID - Mutation {mutation_id}",
-                        message=f"{error_msg}\nRow data: {frappe.as_json(row)}\nMutation: {frappe.as_json(mutation)}",
+                        mutation=mutation,
+                        additional_context=f"{error_msg}\nRow data (PII masked): {frappe.as_json(mask_pii_in_mutation(row))}",
                     )
                     raise Exception(error_msg)
 
@@ -282,9 +290,10 @@ class PaymentProcessor(BaseTransactionProcessor):
                 else:
                     error_msg = f"Failed to map row {idx + 1} ledger {row_ledger_id} to account"
                     self.debug_info.append(f"❌ {error_msg}")
-                    frappe.log_error(
+                    safe_log_mutation_error(
                         title=f"Row Account Mapping Failed - Mutation {mutation_id}",
-                        message=f"{error_msg}\nRow data: {frappe.as_json(row)}\nMutation: {frappe.as_json(mutation)}",
+                        mutation=mutation,
+                        additional_context=f"{error_msg}\nRow data (PII masked): {frappe.as_json(mask_pii_in_mutation(row))}",
                     )
                     raise Exception(error_msg)
 
@@ -314,9 +323,10 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             error_msg = "\n".join(error_details)
             self.debug_info.append(f"❌ {error_msg}")
-            frappe.log_error(
+            safe_log_mutation_error(
                 title=f"No Valid Rows - Mutation {mutation_id}",
-                message=f"{error_msg}\n\nFull mutation:\n{frappe.as_json(mutation, indent=2)}",
+                mutation=mutation,
+                additional_context=error_msg,
             )
             raise Exception(f"No valid row entries found for mutation {mutation_id}")
 
@@ -346,9 +356,11 @@ class PaymentProcessor(BaseTransactionProcessor):
             # Party extraction failure is critical - we need to know the party
             error_msg = f"Failed to extract party information from mutation {mutation_id}: {str(e)}"
             self.debug_info.append(f"❌ {error_msg}")
-            frappe.log_error(
+            safe_log_mutation_error(
                 title=f"Party Extraction Error - Mutation {mutation_id}",
-                message=f"{error_msg}\n\n{frappe.get_traceback()}\n\nMutation:\n{frappe.as_json(mutation)}",
+                mutation=mutation,
+                error=e,
+                additional_context=error_msg,
             )
             raise  # Re-raise to fail fast
 
@@ -469,10 +481,16 @@ class PaymentProcessor(BaseTransactionProcessor):
                     f"{len(row_entries)} expense line(s) debited"
                 )
 
-            # Insert Journal Entry
-            je.insert()
+            # Insert Journal Entry with race condition handling
+            je, was_duplicate = insert_with_duplicate_handling(je)
 
-            # Create Bank Transaction with party information
+            if was_duplicate:
+                self.debug_info.append(
+                    f"✅ Found existing Journal Entry: {je.name} (duplicate race condition handled)"
+                )
+                return je
+
+            # Create Bank Transaction with party information (only for new JE)
             bank_transaction_name = self._create_bank_transaction_for_journal_entry(
                 mutation, je, gl_account, bank_account_name, party_info
             )
@@ -491,9 +509,11 @@ class PaymentProcessor(BaseTransactionProcessor):
         except Exception as e:
             error_msg = f"Failed to create Journal Entry: {str(e)}"
             self.debug_info.append(f"❌ {error_msg}")
-            frappe.log_error(
+            safe_log_mutation_error(
                 title=f"Money Transfer Journal Entry Error - Mutation {mutation_id}",
-                message=f"{error_msg}\n\nMutation:\n{frappe.as_json(mutation)}",
+                mutation=mutation,
+                error=e,
+                additional_context=error_msg,
             )
             raise
 

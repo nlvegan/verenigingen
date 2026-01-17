@@ -12,6 +12,7 @@ Key Features:
     * Cached ledger and relation data for performance optimization
     * Real-time progress updates during large data imports
     * Comprehensive error handling and logging
+    * Automatic retry with exponential backoff for transient errors
 
 Integration Context:
     This client is used as part of the comprehensive eBoekhouden migration system
@@ -28,6 +29,9 @@ Configuration:
     - api_url: REST API endpoint (default: https://api.e-boekhouden.nl)
     - api_token: Authentication token (stored encrypted)
     - source_application: Application identifier for API requests
+
+Note:
+    This client inherits token management and retry logic from EBoekhoudenHTTPClientMixin.
 """
 
 from typing import Any, Dict, Optional
@@ -37,100 +41,45 @@ import requests
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
+from .http_client_mixin import EBoekhoudenHTTPClientMixin
 
-class EBoekhoudenRESTClient:
+
+class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
     """
     REST API client for eBoekhouden integration with advanced session management.
 
     This client provides a robust interface for accessing eBoekhouden's REST API
     endpoints, specifically designed to handle large-scale data migrations and
-    real-time integrations. It implements session-based authentication, intelligent
-    caching, and pagination to efficiently process thousands of financial records.
+    real-time integrations. It inherits session-based authentication and retry
+    logic from EBoekhoudenHTTPClientMixin and adds intelligent caching and
+    pagination to efficiently process thousands of financial records.
 
     Attributes:
         settings: eBoekhouden configuration settings
         base_url: API endpoint URL
         api_token: Encrypted authentication token
-        _session_token: Cached session token for API requests
+        _session_token: Cached session token for API requests (inherited)
+        _token_obtained_at: Timestamp when token was acquired (inherited)
         _ledger_cache: Cached chart of accounts data
         _relation_cache: Cached customer/supplier data
     """
 
     def __init__(self, settings=None):
-        if not settings:
-            settings = frappe.get_single("E-Boekhouden Settings")
-
-        self.settings = settings
-        self.base_url = settings.api_url if hasattr(settings, "api_url") else "https://api.e-boekhouden.nl"
-        self.api_token = settings.get_password("api_token") if hasattr(settings, "api_token") else None
-
-        if not self.api_token:
-            raise ValueError("API token is required for REST API access")
-
-        # Session token will be obtained on first use
-        self._session_token = None
-
-        # Cache for lookup data to improve performance during bulk operations
-        self._ledger_cache = None
-        self._relation_cache = None
-
-    def _get_session_token(self):
         """
-        Obtain and cache session token for API authentication.
+        Initialize the REST client with optional settings.
 
-        Session tokens are required for all REST API calls and have a limited
-        lifetime. This method handles token acquisition and caching to minimize
-        authentication overhead during bulk operations.
-
-        Returns:
-            str: Valid session token for API requests
-            None: If authentication fails
+        Args:
+            settings: E-Boekhouden Settings document, or None to load automatically
 
         Raises:
             ValueError: If API token is not configured
         """
-        if self._session_token:
-            return self._session_token
+        # Initialize token management and HTTP client from mixin
+        self._init_http_client(settings)
 
-        try:
-            session_url = f"{self.base_url}/v1/session"
-            session_data = {
-                "accessToken": self.api_token,
-                "source": self.settings.source_application or "Verenigingen ERPNext",
-            }
-
-            response = requests.post(session_url, json=session_data, timeout=30)
-
-            if response.status_code == 200:
-                session_response = response.json()
-                self._session_token = session_response.get("token")
-                return self._session_token
-            else:
-                frappe.log_error(
-                    f"Session token request failed: {response.status_code} - {response.text}",
-                    "E-Boekhouden REST",
-                )
-                return None
-
-        except Exception as e:
-            frappe.log_error(f"Error getting session token: {str(e)}", "E-Boekhouden REST")
-            return None
-
-    def _get_headers(self):
-        """
-        Build HTTP headers for authenticated API requests.
-
-        Returns:
-            dict: Headers including authorization token and content type
-
-        Raises:
-            ValueError: If session token cannot be obtained
-        """
-        token = self._get_session_token()
-        if not token:
-            raise ValueError("Failed to obtain session token")
-
-        return {"Authorization": token, "Content-Type": "application/json", "Accept": "application/json"}
+        # Cache for lookup data to improve performance during bulk operations
+        self._ledger_cache = None
+        self._relation_cache = None
 
     def get_mutations(self, limit=2000, offset=0, date_from=None, date_to=None) -> Dict[str, Any]:
         """
@@ -172,7 +121,7 @@ class EBoekhoudenRESTClient:
             if date_to:
                 params["to"] = date_to
 
-            response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+            response = self._request_with_retry("GET", url, params=params)
 
             if response.status_code == 200:
                 response_data = response.json()
@@ -228,7 +177,7 @@ class EBoekhoudenRESTClient:
         """
         try:
             url = f"{self.base_url}/v1/mutation/{mutation_id}"
-            response = requests.get(url, headers=self._get_headers(), timeout=30)
+            response = self._request_with_retry("GET", url)
 
             if response.status_code == 200:
                 return response.json()
@@ -323,7 +272,7 @@ class EBoekhoudenRESTClient:
 
             while True:
                 params = {"limit": limit, "offset": offset}
-                response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+                response = self._request_with_retry("GET", url, params=params)
 
                 if response.status_code != 200:
                     return {"success": False, "error": f"Failed to get ledgers: {response.status_code}"}
@@ -377,7 +326,7 @@ class EBoekhoudenRESTClient:
 
             while True:
                 params = {"limit": limit, "offset": offset}
-                response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+                response = self._request_with_retry("GET", url, params=params)
 
                 if response.status_code != 200:
                     return {"success": False, "error": f"Failed to get relations: {response.status_code}"}

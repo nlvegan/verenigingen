@@ -27,6 +27,11 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.e_boekhouden.utils.data_integrity import (
+    safe_log_mutation_error,
+    submit_with_duplicate_handling,
+)
+
 from .base_processor import BaseTransactionProcessor
 
 
@@ -155,9 +160,11 @@ class StockProcessor(BaseTransactionProcessor):
 
         except Exception as e:
             self.debug_info.append(f"❌ Error creating Stock Reconciliation: {str(e)}")
-            frappe.log_error(
+            safe_log_mutation_error(
                 title=f"Stock Processor Error - Mutation {mutation_id}",
-                message=f"Error: {str(e)}\n\nMutation data:\n{frappe.as_json(mutation)}",
+                mutation=mutation,
+                error=e,
+                additional_context=f"Error creating Stock Reconciliation",
             )
             return None
 
@@ -216,12 +223,16 @@ class StockProcessor(BaseTransactionProcessor):
             },
         )
 
-        # Save and submit
+        # Insert and submit with race condition handling
         stock_reco.flags.ignore_permissions = False  # Use proper permissions
-        stock_reco.save()
-        stock_reco.submit()
+        stock_reco, was_duplicate = submit_with_duplicate_handling(stock_reco)
 
-        self.debug_info.append(f"Created Stock Reconciliation: Qty={qty}, Rate={rate}, Amount={amount}")
+        if was_duplicate:
+            self.debug_info.append(
+                f"Found existing Stock Reconciliation: {stock_reco.name} (duplicate race condition handled)"
+            )
+        else:
+            self.debug_info.append(f"Created Stock Reconciliation: Qty={qty}, Rate={rate}, Amount={amount}")
 
         return stock_reco
 

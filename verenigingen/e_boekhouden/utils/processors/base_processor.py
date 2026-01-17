@@ -10,6 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.data_integrity import (
+    normalize_date,
+    safe_log_mutation_error,
+)
+
 
 class BaseTransactionProcessor(ABC):
     """Abstract base class for processing different types of eBoekhouden transactions"""
@@ -108,7 +113,13 @@ class BaseTransactionProcessor(ABC):
 
     def get_posting_date(self, mutation: Dict[str, Any]) -> str:
         """
-        Extract and format the posting date from mutation
+        Extract and format the posting date from mutation.
+
+        Uses normalize_date() to handle multiple date formats:
+        - YYYYMMDD (eBoekhouden format)
+        - ISO datetime (2025-01-10T00:00:00)
+        - YYYY-MM-DD (already correct)
+        - European DD-MM-YYYY or DD/MM/YYYY
 
         Args:
             mutation: The mutation data
@@ -116,14 +127,17 @@ class BaseTransactionProcessor(ABC):
         Returns:
             The posting date in YYYY-MM-DD format
         """
-        date_str = mutation.get("Datum", "")
+        # Try multiple field names for the date
+        date_value = mutation.get("Datum") or mutation.get("date") or mutation.get("Date", "")
 
-        # Handle eBoekhouden date format (YYYYMMDD)
-        if len(date_str) == 8 and date_str.isdigit():
-            return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        normalized = normalize_date(date_value)
 
-        # Return as-is if already in correct format
-        return date_str
+        if normalized:
+            return normalized
+
+        # Fallback to empty string if normalization fails
+        self.add_debug_info(f"⚠️ Could not normalize date: {date_value}")
+        return ""
 
     def get_description(self, mutation: Dict[str, Any]) -> str:
         """
@@ -237,12 +251,13 @@ class BaseTransactionProcessor(ABC):
             self.add_debug_info(f"❌ {error_msg}")
             self.add_debug_info(f"Valid rows processed: {valid_rows}/{len(rows)}")
 
-            frappe.log_error(
+            # Log with PII masked for privacy compliance
+            safe_log_mutation_error(
                 title=f"Amount Mismatch - {mutation_id}",
-                message=f"{error_msg}\n\n"
+                mutation=mutation,
+                additional_context=f"{error_msg}\n\n"
                 f"Validation type: {comparison_type}\n"
-                f"Rows breakdown:\n{frappe.as_json([{'index': i + 1, 'ledger': r.get('ledgerId'), 'amount': r.get('amount')} for i, r in enumerate(rows)], indent=2)}\n\n"
-                f"Full mutation:\n{frappe.as_json(mutation, indent=2)}",
+                f"Rows breakdown:\n{frappe.as_json([{'index': i + 1, 'ledger': r.get('ledgerId'), 'amount': r.get('amount')} for i, r in enumerate(rows)], indent=2)}",
             )
 
             return False, error_msg, amount_diff
@@ -295,9 +310,11 @@ class BaseTransactionProcessor(ABC):
 
             self.add_debug_info(f"❌ {error_msg}")
 
-            frappe.log_error(
+            # Log with PII masked for privacy compliance
+            safe_log_mutation_error(
                 title=f"JE Net Mismatch - {mutation_id}",
-                message=f"{error_msg}\n\n" f"Full mutation:\n{frappe.as_json(mutation, indent=2)}",
+                mutation=mutation,
+                additional_context=error_msg,
             )
 
             return False, error_msg, net_diff

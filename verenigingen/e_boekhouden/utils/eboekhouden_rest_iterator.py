@@ -1,9 +1,12 @@
 """
 E-Boekhouden REST API Iterator
-Fetches all mutations by iterating through mutation IDs
+
+Fetches all mutations by iterating through mutation IDs. This client specializes
+in ID-based iteration and type-based fetching for bulk data retrieval.
+
+Uses EBoekhoudenHTTPClientMixin for consistent token management and retry handling.
 """
 
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -11,67 +14,37 @@ import requests
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
+from .http_client_mixin import EBoekhoudenHTTPClientMixin
 
-class EBoekhoudenRESTIterator:
+
+class EBoekhoudenRESTIterator(EBoekhoudenHTTPClientMixin):
+    """
+    REST API iterator for fetching e-Boekhouden mutations by ID or type.
+
+    This client specializes in:
+    - Fetching individual mutations by ID
+    - Fetching mutations by type with pagination
+    - Estimating mutation ID ranges
+    - Bulk mutation retrieval for migrations
+
+    Inherits token management and retry logic from EBoekhoudenHTTPClientMixin.
+    """
+
     def __init__(self, settings=None):
-        if not settings:
-            settings = frappe.get_single("E-Boekhouden Settings")
+        """
+        Initialize the REST iterator.
 
-        self.settings = settings
-        self.base_url = settings.api_url if hasattr(settings, "api_url") else "https://api.e-boekhouden.nl"
-        self.api_token = settings.get_password("api_token") if hasattr(settings, "api_token") else None
-
-        if not self.api_token:
-            raise ValueError("API token is required for REST API access")
-
-        # Session token will be obtained on first use
-        self._session_token = None
-        self._session_expiry = None
-
-    def _get_session_token(self):
-        """Get session token using API token"""
-        # Check if we have a valid token
-        if self._session_token and self._session_expiry:
-            if datetime.now() < self._session_expiry:
-                return self._session_token
-
-        try:
-            session_url = f"{self.base_url}/v1/session"
-            session_data = {
-                "accessToken": self.api_token,
-                "source": self.settings.source_application or "Verenigingen ERPNext",
-            }
-
-            response = requests.post(session_url, json=session_data, timeout=30)
-
-            if response.status_code == 200:
-                session_response = response.json()
-                self._session_token = session_response.get("token")
-                # Set expiry to 55 minutes from now (token lasts 60 minutes)
-                self._session_expiry = datetime.now() + timedelta(minutes=55)
-                return self._session_token
-            else:
-                frappe.log_error(
-                    f"Session token request failed: {response.status_code} - {response.text}",
-                    "E-Boekhouden REST",
-                )
-                return None
-
-        except Exception as e:
-            frappe.log_error(f"Error getting session token: {str(e)}", "E-Boekhouden REST")
-            return None
-
-    def _get_headers(self):
-        """Get headers with valid session token"""
-        token = self._get_session_token()
-        if not token:
-            raise ValueError("Failed to obtain session token")
-
-        return {"Authorization": token, "Accept": "application/json"}
+        Args:
+            settings: E-Boekhouden Settings document, or None to load automatically
+        """
+        self._init_http_client(settings)
 
     def fetch_mutation_by_id(self, mutation_id: int) -> Optional[Dict[str, Any]]:
         """
-        Fetch a specific mutation by ID using the list endpoint with id filter
+        Fetch a specific mutation by ID using the list endpoint with id filter.
+
+        Uses _request_with_retry for automatic retry on transient errors and
+        token refresh on authentication failures.
 
         Args:
             mutation_id: The mutation ID to fetch
@@ -83,7 +56,7 @@ class EBoekhoudenRESTIterator:
             url = f"{self.base_url}/v1/mutation"
             params = {"id": mutation_id}
 
-            response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+            response = self._request_with_retry("GET", url, params=params)
 
             if response.status_code == 200:
                 response_data = response.json()
@@ -104,50 +77,19 @@ class EBoekhoudenRESTIterator:
                     )
                 return None
 
-        except requests.exceptions.Timeout:
-            frappe.log_error(
-                message=f"Timeout while fetching mutation {mutation_id} from E-Boekhouden API",
-                title="E-Boekhouden REST Iterator - Timeout",
-                reference_doctype="E-Boekhouden API",
-                reference_name=str(mutation_id),
-            )
-            return None
-        except requests.exceptions.ConnectionError:
-            frappe.log_error(
-                message=f"Connection error while fetching mutation {mutation_id} from E-Boekhouden API",
-                title="E-Boekhouden REST Iterator - Connection Error",
-                reference_doctype="E-Boekhouden API",
-                reference_name=str(mutation_id),
-            )
-            return None
-        except requests.exceptions.HTTPError as e:
-            frappe.log_error(
-                message=f"HTTP error while fetching mutation {mutation_id}: {str(e)}",
-                title="E-Boekhouden REST Iterator - HTTP Error",
-                reference_doctype="E-Boekhouden API",
-                reference_name=str(mutation_id),
-            )
-            return None
-        except requests.exceptions.RequestException as e:
-            frappe.log_error(
-                message=f"Request error while fetching mutation {mutation_id}: {str(e)}",
-                title="E-Boekhouden REST Iterator - Request Error",
-                reference_doctype="E-Boekhouden API",
-                reference_name=str(mutation_id),
-            )
-            return None
         except Exception as e:
             frappe.log_error(
-                message=f"Unexpected error fetching mutation {mutation_id}: {str(e)}",
-                title="E-Boekhouden REST Iterator - Unexpected Error",
-                reference_doctype="E-Boekhouden API",
-                reference_name=str(mutation_id),
+                message=f"Error fetching mutation {mutation_id}: {str(e)}",
+                title="E-Boekhouden REST Iterator",
             )
             return None
 
     def fetch_mutation_detail(self, mutation_id: int) -> Optional[Dict[str, Any]]:
         """
-        Fetch detailed mutation data
+        Fetch detailed mutation data.
+
+        Uses _request_with_retry for automatic retry on transient errors and
+        token refresh on authentication failures.
 
         Args:
             mutation_id: The mutation ID to fetch
@@ -157,7 +99,7 @@ class EBoekhoudenRESTIterator:
         """
         try:
             url = f"{self.base_url}/v1/mutation/{mutation_id}"
-            response = requests.get(url, headers=self._get_headers(), timeout=30)
+            response = self._request_with_retry("GET", url)
 
             if response.status_code == 200:
                 return response.json()
@@ -190,7 +132,7 @@ class EBoekhoudenRESTIterator:
                 url = f"{self.base_url}/v1/mutation"
                 params = {"type": mutation_type, "limit": min(limit, 500), "offset": offset}  # API max is 500
 
-                response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+                response = self._request_with_retry("GET", url, params=params)
 
                 if response.status_code == 200:
                     response_data = response.json()
