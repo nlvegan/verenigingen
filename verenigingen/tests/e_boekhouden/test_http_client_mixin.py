@@ -570,5 +570,305 @@ class TestHTTPClientMixinInitialization(unittest.TestCase):
         self.assertEqual(client.base_url, "https://api.e-boekhouden.nl")
 
 
+class TestHTTPClientMixinRetryAfterHeader(unittest.TestCase):
+    """Tests for Retry-After header handling"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.mock_settings = MagicMock()
+        self.mock_settings.api_url = "https://api.e-boekhouden.nl"
+        self.mock_settings.get_password.return_value = "test_api_token"
+        self.mock_settings.source_application = "Test App"
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_retry_delay_uses_retry_after_header(self, mock_frappe):
+        """Test that Retry-After header is respected"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        client = TestClient(self.mock_settings)
+
+        # Mock response with Retry-After header
+        mock_response = MagicMock()
+        mock_response.headers = {"Retry-After": "5"}
+
+        delay = client._get_retry_delay(mock_response, attempt=0)
+        self.assertEqual(delay, 5.0)
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_retry_delay_caps_at_max(self, mock_frappe):
+        """Test that Retry-After is capped at MAX_RETRY_DELAY"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        client = TestClient(self.mock_settings)
+
+        # Mock response with very large Retry-After
+        mock_response = MagicMock()
+        mock_response.headers = {"Retry-After": "3600"}  # 1 hour
+
+        delay = client._get_retry_delay(mock_response, attempt=0)
+        self.assertEqual(delay, 60.0)  # Should be capped at MAX_RETRY_DELAY
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_retry_delay_fallback_to_exponential(self, mock_frappe):
+        """Test fallback to exponential backoff when no header"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        client = TestClient(self.mock_settings)
+
+        # Mock response without Retry-After header
+        mock_response = MagicMock()
+        mock_response.headers = {}
+
+        # Test exponential backoff: 1, 2, 4 seconds
+        self.assertEqual(client._get_retry_delay(mock_response, attempt=0), 1.0)
+        self.assertEqual(client._get_retry_delay(mock_response, attempt=1), 2.0)
+        self.assertEqual(client._get_retry_delay(mock_response, attempt=2), 4.0)
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_retry_delay_with_none_response(self, mock_frappe):
+        """Test fallback when response is None (connection errors)"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        client = TestClient(self.mock_settings)
+
+        # None response (e.g., connection error)
+        delay = client._get_retry_delay(None, attempt=1)
+        self.assertEqual(delay, 2.0)  # 2^1 = 2
+
+
+class TestHTTPClientMixinMetrics(unittest.TestCase):
+    """Tests for metrics collection"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.mock_settings = MagicMock()
+        self.mock_settings.api_url = "https://api.e-boekhouden.nl"
+        self.mock_settings.get_password.return_value = "test_api_token"
+        self.mock_settings.source_application = "Test App"
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_metrics_increment_on_success(self, mock_frappe, mock_requests):
+        """Test that metrics are incremented on successful request"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        # Mock session token
+        mock_session_response = MagicMock()
+        mock_session_response.status_code = 200
+        mock_session_response.json.return_value = {"token": "test_token"}
+        mock_requests.post.return_value = mock_session_response
+
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests.get.return_value = mock_response
+
+        client = TestClient(self.mock_settings)
+        client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        metrics = client.get_metrics()
+        self.assertEqual(metrics["requests_total"], 1)
+        self.assertEqual(metrics["requests_success"], 1)
+        self.assertEqual(metrics["requests_failed"], 0)
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_metrics_increment_on_failure(self, mock_frappe, mock_requests):
+        """Test that metrics are incremented on failed request"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        # Mock session token
+        mock_session_response = MagicMock()
+        mock_session_response.status_code = 200
+        mock_session_response.json.return_value = {"token": "test_token"}
+        mock_requests.post.return_value = mock_session_response
+
+        # Mock error response
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_requests.get.return_value = mock_response
+
+        client = TestClient(self.mock_settings)
+        client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        metrics = client.get_metrics()
+        self.assertEqual(metrics["requests_total"], 1)
+        self.assertEqual(metrics["requests_success"], 0)
+        self.assertEqual(metrics["requests_failed"], 1)
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.time.sleep")
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_metrics_track_rate_limits(self, mock_frappe, mock_requests, mock_sleep):
+        """Test that rate limit hits are tracked"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        # Mock session token
+        mock_session_response = MagicMock()
+        mock_session_response.status_code = 200
+        mock_session_response.json.return_value = {"token": "test_token"}
+        mock_requests.post.return_value = mock_session_response
+
+        # First call returns 429, then success
+        rate_limit_response = MagicMock()
+        rate_limit_response.status_code = 429
+        rate_limit_response.headers = {}
+
+        success_response = MagicMock()
+        success_response.status_code = 200
+
+        mock_requests.get.side_effect = [rate_limit_response, success_response]
+
+        client = TestClient(self.mock_settings)
+        client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        metrics = client.get_metrics()
+        self.assertEqual(metrics["rate_limits_hit"], 1)
+        self.assertEqual(metrics["retries_total"], 1)
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.requests")
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_metrics_reset(self, mock_frappe, mock_requests):
+        """Test that metrics can be reset"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        # Mock session token
+        mock_session_response = MagicMock()
+        mock_session_response.status_code = 200
+        mock_session_response.json.return_value = {"token": "test_token"}
+        mock_requests.post.return_value = mock_session_response
+
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests.get.return_value = mock_response
+
+        client = TestClient(self.mock_settings)
+        client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        # Verify metrics are populated
+        self.assertEqual(client.get_metrics()["requests_total"], 1)
+
+        # Reset and verify
+        client.reset_metrics()
+        metrics = client.get_metrics()
+        self.assertEqual(metrics["requests_total"], 0)
+        self.assertEqual(metrics["requests_success"], 0)
+
+
+class TestHTTPClientMixinThreadSafety(unittest.TestCase):
+    """Tests for thread safety"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.mock_settings = MagicMock()
+        self.mock_settings.api_url = "https://api.e-boekhouden.nl"
+        self.mock_settings.get_password.return_value = "test_api_token"
+        self.mock_settings.source_application = "Test App"
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_has_token_lock(self, mock_frappe):
+        """Test that client has a token lock"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        client = TestClient(self.mock_settings)
+
+        # Verify lock exists
+        self.assertTrue(hasattr(client, "_token_lock"))
+        self.assertIsNotNone(client._token_lock)
+
+    @patch("verenigingen.e_boekhouden.utils.http_client_mixin.frappe")
+    def test_has_metrics(self, mock_frappe):
+        """Test that client has metrics object"""
+        from verenigingen.e_boekhouden.utils.http_client_mixin import (
+            EBoekhoudenHTTPClientMixin,
+            HTTPClientMetrics,
+        )
+
+        class TestClient(EBoekhoudenHTTPClientMixin):
+            def __init__(self, settings):
+                self._init_http_client(settings)
+
+        mock_frappe.get_single.return_value = self.mock_settings
+
+        client = TestClient(self.mock_settings)
+
+        # Verify metrics exists
+        self.assertTrue(hasattr(client, "metrics"))
+        self.assertIsInstance(client.metrics, HTTPClientMetrics)
+
+
 if __name__ == "__main__":
     unittest.main()

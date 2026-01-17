@@ -14,16 +14,49 @@ Key Features:
 - Session token caching with automatic expiry tracking (55-minute TTL)
 - Automatic token refresh on 401/403 responses
 - Exponential backoff retry for transient errors (429, 5xx)
+- Retry-After header support for rate limiting
+- Thread-safe token management
+- Metrics collection for monitoring
 - Consistent error handling and logging
 """
 
+import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
 import requests
 from requests.exceptions import ConnectionError, RequestException, Timeout
+
+
+@dataclass
+class HTTPClientMetrics:
+    """
+    Metrics for HTTP client operations.
+
+    Provides visibility into API behavior during migrations and normal operations.
+    All counters are cumulative within a client instance lifetime.
+    """
+
+    requests_total: int = 0
+    requests_success: int = 0
+    requests_failed: int = 0
+    retries_total: int = 0
+    token_refreshes: int = 0
+    rate_limits_hit: int = 0
+
+    def to_dict(self) -> Dict[str, int]:
+        """Return metrics as dictionary for logging/monitoring."""
+        return {
+            "requests_total": self.requests_total,
+            "requests_success": self.requests_success,
+            "requests_failed": self.requests_failed,
+            "retries_total": self.retries_total,
+            "token_refreshes": self.token_refreshes,
+            "rate_limits_hit": self.rate_limits_hit,
+        }
 
 
 class EBoekhoudenHTTPClientMixin:
@@ -34,6 +67,9 @@ class EBoekhoudenHTTPClientMixin:
     - Token caching with automatic expiry tracking
     - Retry mechanism with exponential backoff for transient errors
     - Automatic token refresh on authentication failures
+    - Retry-After header support for rate limiting
+    - Thread-safe token management for concurrent operations
+    - Metrics collection for monitoring and diagnostics
     - Consistent error handling patterns
 
     Usage:
@@ -49,8 +85,10 @@ class EBoekhoudenHTTPClientMixin:
         TOKEN_TTL_MINUTES: Token lifetime (55 min, safety margin from 60 min expiry)
         MAX_RETRIES: Maximum retry attempts for transient errors
         RETRY_BACKOFF_FACTOR: Base delay for exponential backoff (seconds)
+        MAX_RETRY_DELAY: Maximum delay between retries (seconds)
         RETRY_STATUS_CODES: HTTP status codes that trigger retry
         AUTH_REFRESH_STATUS_CODES: HTTP status codes that trigger token refresh
+        metrics: HTTPClientMetrics instance for monitoring
     """
 
     # Token lifetime configuration
@@ -60,6 +98,7 @@ class EBoekhoudenHTTPClientMixin:
     # Retry configuration for transient errors
     MAX_RETRIES = 3
     RETRY_BACKOFF_FACTOR = 1.0  # Base delay in seconds (1s, 2s, 4s with exponential backoff)
+    MAX_RETRY_DELAY = 60.0  # Cap retry delay at 60 seconds
     RETRY_STATUS_CODES = (429, 500, 502, 503, 504)  # Status codes that trigger retry
     AUTH_REFRESH_STATUS_CODES = (401, 403)  # Status codes that trigger token refresh
 
@@ -96,6 +135,12 @@ class EBoekhoudenHTTPClientMixin:
         self._session_token = None
         self._token_obtained_at = None  # Track when token was acquired for expiry
 
+        # Thread safety: lock for token operations
+        self._token_lock = threading.Lock()
+
+        # Metrics for monitoring
+        self.metrics = HTTPClientMetrics()
+
     def _token_is_expired(self) -> bool:
         """
         Check if the cached session token has expired.
@@ -129,6 +174,8 @@ class EBoekhoudenHTTPClientMixin:
         lifetime (~60 minutes). This method handles token acquisition, caching,
         and automatic refresh when the token expires.
 
+        Thread-safe: Uses lock to prevent concurrent token refresh attempts.
+
         Returns:
             str: Valid session token for API requests
             None: If authentication fails
@@ -136,52 +183,57 @@ class EBoekhoudenHTTPClientMixin:
         Raises:
             ValueError: If API token is not configured
         """
-        # Return cached token if still valid
-        if not self._token_is_expired():
-            return self._session_token
-
-        try:
-            session_url = f"{self.base_url}/v1/session"
-            source = getattr(self.settings, "source_application", None) or "Verenigingen ERPNext"
-            session_data = {
-                "accessToken": self.api_token,
-                "source": source,
-            }
-
-            response = requests.post(session_url, json=session_data, timeout=30)
-
-            if response.status_code == 200:
-                session_response = response.json()
-                self._session_token = session_response.get("token")
-                self._token_obtained_at = datetime.now()
-
-                frappe.logger().debug(f"E-Boekhouden session token acquired at {self._token_obtained_at}")
-
+        with self._token_lock:
+            # Return cached token if still valid (check inside lock to avoid race)
+            if not self._token_is_expired():
                 return self._session_token
-            else:
-                frappe.log_error(
-                    f"Session token request failed: {response.status_code} - {response.text}",
-                    "E-Boekhouden REST",
-                )
-                return None
 
-        except Exception as e:
-            frappe.log_error(f"Error getting session token: {str(e)}", "E-Boekhouden REST")
-            return None
+            try:
+                session_url = f"{self.base_url}/v1/session"
+                source = getattr(self.settings, "source_application", None) or "Verenigingen ERPNext"
+                session_data = {
+                    "accessToken": self.api_token,
+                    "source": source,
+                }
+
+                response = requests.post(session_url, json=session_data, timeout=30)
+
+                if response.status_code == 200:
+                    session_response = response.json()
+                    self._session_token = session_response.get("token")
+                    self._token_obtained_at = datetime.now()
+                    self.metrics.token_refreshes += 1
+
+                    frappe.logger().debug(f"E-Boekhouden session token acquired at {self._token_obtained_at}")
+
+                    return self._session_token
+                else:
+                    frappe.log_error(
+                        f"Session token request failed: {response.status_code} - {response.text}",
+                        "E-Boekhouden REST",
+                    )
+                    return None
+
+            except Exception as e:
+                frappe.log_error(f"Error getting session token: {str(e)}", "E-Boekhouden REST")
+                return None
 
     def invalidate_token(self) -> None:
         """
         Invalidate the cached session token, forcing refresh on next request.
+
+        Thread-safe: Uses lock to prevent race conditions during invalidation.
 
         Use this method when:
         - A 401/403 response indicates the token may be invalid
         - You need to force a fresh token for testing
         - Recovering from API errors that may be token-related
         """
-        if self._session_token:
-            frappe.logger().debug("E-Boekhouden session token invalidated")
-        self._session_token = None
-        self._token_obtained_at = None
+        with self._token_lock:
+            if self._session_token:
+                frappe.logger().debug("E-Boekhouden session token invalidated")
+            self._session_token = None
+            self._token_obtained_at = None
 
     def _get_headers(self) -> Dict[str, str]:
         """
@@ -203,6 +255,50 @@ class EBoekhoudenHTTPClientMixin:
             "Accept": "application/json",
         }
 
+    def _get_retry_delay(self, response: Optional[requests.Response], attempt: int) -> float:
+        """
+        Calculate retry delay, preferring Retry-After header if present.
+
+        The Retry-After header (from 429 responses) tells us exactly how long
+        to wait. When present, we use it instead of calculated exponential backoff.
+
+        Args:
+            response: HTTP response (may contain Retry-After header)
+            attempt: Current retry attempt number (0-indexed)
+
+        Returns:
+            float: Delay in seconds before next retry
+        """
+        # Check for Retry-After header if response is available
+        if response is not None:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    # Try parsing as seconds (most common format)
+                    delay = float(retry_after)
+                    # Cap at MAX_RETRY_DELAY to prevent excessive waits
+                    return min(delay, self.MAX_RETRY_DELAY)
+                except ValueError:
+                    # Could be HTTP date format, fall through to default
+                    pass
+
+        # Default: exponential backoff with cap
+        delay = self.RETRY_BACKOFF_FACTOR * (2**attempt)
+        return min(delay, self.MAX_RETRY_DELAY)
+
+    def get_metrics(self) -> Dict[str, int]:
+        """
+        Return current metrics for monitoring.
+
+        Returns:
+            dict: Current metric values
+        """
+        return self.metrics.to_dict()
+
+    def reset_metrics(self) -> None:
+        """Reset all metrics counters to zero."""
+        self.metrics = HTTPClientMetrics()
+
     def _request_with_retry(
         self,
         method: str,
@@ -216,8 +312,10 @@ class EBoekhoudenHTTPClientMixin:
 
         This method handles:
         - Exponential backoff retry for transient errors (429, 5xx)
+        - Retry-After header support for rate limiting
         - Automatic token refresh on 401/403 responses
         - Timeout and connection error handling
+        - Metrics collection for monitoring
 
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -234,7 +332,9 @@ class EBoekhoudenHTTPClientMixin:
             ValueError: If session token cannot be obtained
         """
         last_exception = None
+        response = None
         headers = self._get_headers()
+        self.metrics.requests_total += 1
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -255,41 +355,55 @@ class EBoekhoudenHTTPClientMixin:
                         )
                         self.invalidate_token()
                         headers = self._get_headers()  # Get fresh headers with new token
+                        self.metrics.retries_total += 1
                         continue  # Retry with new token
 
-                # Handle retryable errors with exponential backoff
+                # Handle retryable errors with backoff (respects Retry-After header)
                 if response.status_code in self.RETRY_STATUS_CODES:
+                    if response.status_code == 429:
+                        self.metrics.rate_limits_hit += 1
+
                     if attempt < self.MAX_RETRIES:
-                        delay = self.RETRY_BACKOFF_FACTOR * (2**attempt)
+                        delay = self._get_retry_delay(response, attempt)
                         frappe.logger().warning(
                             f"E-Boekhouden API returned {response.status_code}, "
-                            f"retrying in {delay}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
+                            f"retrying in {delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
                         )
                         time.sleep(delay)
+                        self.metrics.retries_total += 1
                         continue
 
-                # Return response for all other cases (success or non-retryable error)
+                # Success or non-retryable error
+                if response.status_code == 200:
+                    self.metrics.requests_success += 1
+                else:
+                    self.metrics.requests_failed += 1
+
                 return response
 
             except (Timeout, ConnectionError) as e:
                 last_exception = e
                 if attempt < self.MAX_RETRIES:
-                    delay = self.RETRY_BACKOFF_FACTOR * (2**attempt)
+                    delay = self._get_retry_delay(None, attempt)
                     error_type = "Timeout" if isinstance(e, Timeout) else "Connection error"
                     frappe.logger().warning(
                         f"E-Boekhouden API {error_type}, "
-                        f"retrying in {delay}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
+                        f"retrying in {delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
                     )
                     time.sleep(delay)
+                    self.metrics.retries_total += 1
                     continue
+                self.metrics.requests_failed += 1
                 raise
 
             except RequestException as e:
                 # Non-retryable request errors
+                self.metrics.requests_failed += 1
                 frappe.log_error(f"E-Boekhouden API request failed: {str(e)}", "E-Boekhouden REST")
                 raise
 
         # If we get here, all retries were exhausted
+        self.metrics.requests_failed += 1
         if last_exception:
             raise last_exception
 
