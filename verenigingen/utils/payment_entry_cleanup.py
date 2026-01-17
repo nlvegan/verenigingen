@@ -13,8 +13,11 @@ from typing import Any, Dict, List
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def bulk_delete_payment_entries(
     payment_entry_names: List[str] = None,
     filters: Dict = None,
@@ -320,6 +323,7 @@ def bulk_delete_payment_entries(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def delete_payment_entries_by_date_range(
     from_date: str, to_date: str, docstatus: int = None
 ) -> Dict[str, Any]:
@@ -347,6 +351,7 @@ def delete_payment_entries_by_date_range(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_payment_entry_cleanup_preview(
     payment_entry_names: List[str] = None, filters: Dict = None
 ) -> Dict[str, Any]:

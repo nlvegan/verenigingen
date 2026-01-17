@@ -50,6 +50,7 @@ from frappe.model.document import Document
 from verenigingen.repositories import DuesScheduleRepository
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class MemberMergeService(StatelessService):
@@ -471,6 +472,7 @@ class MemberMergeService(StatelessService):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.MEMBER_DATA)
 def get_merge_preview(source_name: str, target_name: str) -> Dict[str, Any]:
     """
     API endpoint to get merge preview.
@@ -508,6 +510,7 @@ def get_merge_preview(source_name: str, target_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.MEMBER_DATA)
 def execute_merge(
     source_name: str,
     target_name: str,

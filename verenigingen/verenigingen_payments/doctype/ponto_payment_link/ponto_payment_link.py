@@ -35,6 +35,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_url
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.settings_utils import get_payments_settings
 
 
@@ -272,6 +273,7 @@ class PontoPaymentLink(Document):
             # Don't throw - the request may already be authorized or executed
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def refresh_status(self):
         """
         Refresh payment link status from Ponto API.
@@ -475,6 +477,7 @@ class PontoPaymentLink(Document):
             self.save(ignore_permissions=True)
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def get_payment_url(self):
         """
         Get the customer-facing payment URL.
@@ -484,6 +487,7 @@ class PontoPaymentLink(Document):
         return get_url(f"/ponto-pay/{self.name}")
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def send_payment_link(self, email: str = None):
         """
         Send the payment link to the customer via email.

@@ -18,6 +18,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_url
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class PontoSettings(Document):
     """Controller for Ponto Settings singleton DocType."""
@@ -293,6 +295,7 @@ class PontoSettings(Document):
             return False
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def fetch_ponto_accounts(self):
         """
         Fetch accounts from Ponto API and populate the mappings table.
@@ -458,6 +461,7 @@ class PontoSettings(Document):
             )
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def test_connection(self):
         """
         Test Ponto API connection (called from UI button).
@@ -484,6 +488,7 @@ class PontoSettings(Document):
             }
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def trigger_manual_sync(self):
         """
         Import transactions from Ponto for all enabled accounts.
@@ -616,6 +621,7 @@ class PontoSettings(Document):
         return None
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def refresh_user_info(self):
         """
         Fetch user/organization info from Ponto API and update activation status fields.

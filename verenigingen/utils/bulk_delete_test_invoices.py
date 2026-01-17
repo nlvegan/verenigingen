@@ -8,8 +8,11 @@ that are linked to Member records via the payment_history child table.
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def delete_test_invoices():
     """
     Delete all Sales Invoices with 'Test' in customer name/title

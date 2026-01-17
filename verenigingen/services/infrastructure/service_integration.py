@@ -32,6 +32,7 @@ from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.services.infrastructure.example_service import ExampleCalculationService, ExampleDataService
 from verenigingen.services.infrastructure.service_factory import get_service_factory
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 class ServiceIntegrationManager:
@@ -546,6 +547,7 @@ def run_load_testing(concurrent_workers: int = 5, operations_per_worker: int = 2
 
 # API endpoints for monitoring and testing
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_service_infrastructure_status() -> OperationResult[Dict[str, Any]]:
     """API endpoint to get service infrastructure status.
 
@@ -574,6 +576,7 @@ def get_service_infrastructure_status() -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def run_service_integration_tests() -> OperationResult[Dict[str, Any]]:
     """API endpoint to run service integration tests.
 

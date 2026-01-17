@@ -8,6 +8,8 @@ to ensure consistent data across the nonprofit and accounting systems.
 import frappe
 from frappe.utils import now
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def sync_donor_to_customer(doc, method=None):
     """
@@ -213,6 +215,7 @@ def sync_customer_to_donor(doc, method=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def bulk_sync_donors_to_customers(filters=None):
     """
     Bulk synchronization of donors to customers
@@ -275,6 +278,7 @@ def bulk_sync_donors_to_customers(filters=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def get_sync_status_summary():
     """
     Get summary of donor-customer sync status

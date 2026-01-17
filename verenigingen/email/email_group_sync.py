@@ -12,6 +12,8 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def create_initial_email_groups():
     """
@@ -95,6 +97,7 @@ def create_initial_email_groups():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def sync_email_groups_manually():
     """
     Manual sync that can be triggered by admins
@@ -288,6 +291,7 @@ def remove_from_email_group(email: str, email_group: str):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def get_email_group_stats():
     """
     Get statistics about email groups

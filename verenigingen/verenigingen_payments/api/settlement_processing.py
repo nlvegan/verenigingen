@@ -11,12 +11,14 @@ from typing import Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.services.settlement_bank_transaction_processor import (
     SettlementBankTransactionProcessor,
 )
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_settlement_deposit(
     settlement_id: Optional[str] = None, bank_reference: Optional[str] = None
 ) -> Dict:
@@ -81,6 +83,7 @@ def process_settlement_deposit(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def batch_process_recent_settlements(days: int = 7) -> Dict:
     """
     Batch process all recent Mollie settlements into Bank Transactions.
@@ -148,6 +151,7 @@ def batch_process_recent_settlements(days: int = 7) -> Dict:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_settlement_status(settlement_id: str) -> Dict:
     """
     Check if a settlement has already been processed into a Bank Transaction.

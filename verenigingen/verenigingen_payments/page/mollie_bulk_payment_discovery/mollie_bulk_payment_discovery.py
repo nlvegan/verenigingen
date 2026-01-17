@@ -4,8 +4,11 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_discovery(retrieval_mode="customer", days_back=7, max_members=None, date_offset=0):
     """
     API endpoint for running bulk payment discovery.
@@ -50,6 +53,7 @@ def run_discovery(retrieval_mode="customer", days_back=7, max_members=None, date
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_payment(payment_id):
     """
     API endpoint for processing a single payment.
@@ -79,6 +83,7 @@ def process_payment(payment_id):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_bulk_payments(payment_ids):
     """
     API endpoint for processing multiple payments in bulk.

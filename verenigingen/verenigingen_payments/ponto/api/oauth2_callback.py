@@ -19,7 +19,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url
 
-from verenigingen.utils.security.api_security_framework import public_api
+from verenigingen.utils.security.api_security_framework import high_security_api, public_api
 from verenigingen.utils.security.types import OperationType
 
 
@@ -144,6 +144,7 @@ def handle_callback():
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_authorization_url():
     """
     Get the Ponto Connect authorization URL.
@@ -178,6 +179,7 @@ def get_authorization_url():
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def check_authorization_status():
     """
     Check if Ponto Connect is authorized.
@@ -205,6 +207,7 @@ def check_authorization_status():
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def revoke_authorization():
     """
     Revoke Ponto Connect authorization (clear tokens).
