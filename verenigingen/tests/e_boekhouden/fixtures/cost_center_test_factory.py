@@ -439,8 +439,9 @@ class CostCenterTestDataFactory(EnhancedTestDataFactory):
         defaults = {
             "company_name": f"TEST Company {seq} - {self.test_run_id[:8]}",
             "abbr": f"TC{seq:02d}",
-            "default_currency": "EUR", 
-            "country": "Netherlands"
+            "default_currency": "EUR",
+            "country": "Netherlands",
+            "valuation_method": "FIFO",
         }
         
         data = {**defaults, **kwargs}

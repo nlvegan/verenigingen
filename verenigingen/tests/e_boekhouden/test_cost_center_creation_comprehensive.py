@@ -248,10 +248,11 @@ class TestCostCenterCreationComprehensive(EnhancedTestCase):
             "company_name": company_name,
             "abbr": f"TC{frappe.utils.random_string(3)}",
             "default_currency": "EUR",
-            "country": "Netherlands"
+            "country": "Netherlands",
+            "valuation_method": "FIFO",
         })
         company_doc.insert()
-        self.track_doc("Company", company_doc.name)
+        self.factory.track_document("Company", company_doc.name)
         return company_doc
         
     def create_test_eboekhouden_settings(self):
@@ -624,7 +625,7 @@ class TestAPIEndpointIntegration(TestCostCenterCreationComprehensive):
                           f"Cost center {cost_center_id} should exist in database")
             
             # Track for cleanup
-            self.track_doc("Cost Center", cost_center_id)
+            self.factory.track_document("Cost Center", cost_center_id)
             
     def test_create_single_cost_center(self):
         """Test creation of individual cost center"""
@@ -660,7 +661,7 @@ class TestAPIEndpointIntegration(TestCostCenterCreationComprehensive):
         self.assertEqual(cost_center_doc.is_group, 0)
         
         # Track for cleanup
-        self.track_doc("Cost Center", cost_center_id)
+        self.factory.track_document("Cost Center", cost_center_id)
 
 
 class TestErrorHandlingAndEdgeCases(TestCostCenterCreationComprehensive):
@@ -678,32 +679,46 @@ class TestErrorHandlingAndEdgeCases(TestCostCenterCreationComprehensive):
         # The function might succeed but later functions should validate company existence
         # Let's test with the creation function that does validate company
         
-        # Clear company from settings
+        # Clear company from settings (use db_set to bypass mandatory validation)
         original_company = self.test_settings.default_company
-        self.test_settings.default_company = None
-        self.test_settings.save()
-        
+        frappe.db.set_value("E-Boekhouden Settings", "E-Boekhouden Settings", "default_company", None)
+        self.test_settings.reload()
+
         result = create_cost_centers_from_mappings()
-        
+
         self.assertFalse(result["success"], "Should fail without company")
         self.assertIn("company not configured", result["error"].lower(),
                      "Error should mention company configuration")
-        
+
         # Restore company
-        self.test_settings.default_company = original_company
-        self.test_settings.save()
+        frappe.db.set_value("E-Boekhouden Settings", "E-Boekhouden Settings", "default_company", original_company)
+        self.test_settings.reload()
         
     def test_duplicate_cost_center_handling(self):
         """Test handling of duplicate cost center names"""
+        # Get root cost center for the test company
+        root_cost_center = frappe.db.get_value(
+            "Cost Center",
+            {"company": self.test_company.name, "is_group": 1, "parent_cost_center": ["is", "not set"]},
+            "name"
+        )
+        if not root_cost_center:
+            root_cost_center = frappe.db.get_value(
+                "Cost Center",
+                {"company": self.test_company.name, "is_group": 1},
+                "name"
+            )
+
         # Create a cost center first
         existing_cost_center = frappe.get_doc({
             "doctype": "Cost Center",
             "cost_center_name": "Test Expense Center",
             "company": self.test_company.name,
+            "parent_cost_center": root_cost_center,
             "is_group": 0
         })
         existing_cost_center.insert()
-        self.track_doc("Cost Center", existing_cost_center.name)
+        self.factory.track_document("Cost Center", existing_cost_center.name)
         
         # Try to create another with same name
         mapping_data = {
@@ -747,7 +762,7 @@ class TestErrorHandlingAndEdgeCases(TestCostCenterCreationComprehensive):
                          "Should not have invalid parent set")
         
         # Track for cleanup
-        self.track_doc("Cost Center", result["cost_center_id"])
+        self.factory.track_document("Cost Center", result["cost_center_id"])
         
     def test_malformed_input_data(self):
         """Test handling of malformed input data"""

@@ -53,7 +53,10 @@ class TestCostCenterUIIntegration(EnhancedTestCase):
         
     def setUp(self):
         super().setUp()
-        
+
+        # Restore CostCenterTestDataFactory (parent class overrides with EnhancedTestDataFactory)
+        self.factory = self.__class__.factory
+
         # Create test company and settings
         self.test_company = self.factory.create_test_company()
         self.test_settings = self.factory.create_test_eboekhouden_settings(
@@ -61,7 +64,7 @@ class TestCostCenterUIIntegration(EnhancedTestCase):
         )
         
         # Track for cleanup
-        self.track_doc("Company", self.test_company.name)
+        self.factory.track_document("Company", self.test_company.name)
         
     def test_parse_groups_button_functionality(self):
         """Test Parse Groups & Configure Cost Centers button behavior"""
@@ -473,12 +476,16 @@ class TestCostCenterUIWorkflows(EnhancedTestCase):
         
     def setUp(self):
         super().setUp()
+
+        # Restore CostCenterTestDataFactory (parent class overrides with EnhancedTestDataFactory)
+        self.factory = self.__class__.factory
+
         self.test_company = self.factory.create_test_company()
         self.test_settings = self.factory.create_test_eboekhouden_settings(
             company_name=self.test_company.name
         )
-        self.track_doc("Company", self.test_company.name)
-        
+        self.factory.track_document("Company", self.test_company.name)
+
     def test_complete_happy_path_workflow(self):
         """Test complete happy path user workflow"""
         
@@ -532,7 +539,7 @@ class TestCostCenterUIWorkflows(EnhancedTestCase):
             cc_id = created_cc["cost_center_id"]
             self.assertTrue(frappe.db.exists("Cost Center", cc_id),
                           f"Cost center {cc_id} should exist in database")
-            self.track_doc("Cost Center", cc_id)
+            self.factory.track_document("Cost Center", cc_id)
             
         print(f"✅ Complete workflow test: Created {create_result['created_count']} cost centers")
         
