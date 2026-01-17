@@ -45,7 +45,10 @@ class CostCenterTestDataFactory(EnhancedTestDataFactory):
     
     def __init__(self, seed: int = 12345, use_faker: bool = True):
         super().__init__(seed=seed, use_faker=use_faker)
-        
+
+        # Store random module reference for use in methods
+        self.random = random
+
         # Initialize Dutch accounting data patterns
         self._init_dutch_accounting_patterns()
         
@@ -362,15 +365,22 @@ class CostCenterTestDataFactory(EnhancedTestDataFactory):
         if with_mappings and mapping_scenario:
             scenario_data = self.generate_cost_center_mapping_scenario(mapping_scenario)
             self._add_mappings_to_settings(settings_doc, scenario_data)
-            
-        settings_doc.save()
+
+        settings_doc.save(ignore_permissions=True)
         return settings_doc
         
     def _add_mappings_to_settings(self, settings_doc, scenario_data):
-        """Add cost center mappings to settings based on scenario"""
+        """Add cost center mappings to settings based on scenario
+
+        Filters out truly invalid entries that would fail Frappe validation.
+        """
         groups = scenario_data["groups"]
-        
+
         for group in groups:
+            # Skip entries that would fail Frappe validation
+            if not group.get("code") or not group.get("name") or not str(group["code"]).isdigit():
+                continue
+
             # Determine if should create cost center based on RGS rules
             should_create, reason = self._should_suggest_cost_center_rgs(group["code"], group["name"])
             
