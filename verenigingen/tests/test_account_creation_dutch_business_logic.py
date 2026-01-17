@@ -283,7 +283,6 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
             with self.subTest(first_name=first_name, last_name=last_name):
                 # Use uid + index to ensure unique names across subtests
                 unique_first = f"{first_name}{self.uid}{idx}"
-                full_name = f"{unique_first} {last_name}"
                 email = f"{first_name.lower()}.{self.uid}.{idx}@test.invalid"
 
                 member = self.create_test_member(
@@ -292,22 +291,34 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
                     email=email,
                     birth_date="1980-01-01"
                 )
-                
+
+                # Get actual names from member (factory may add unique suffix to last_name)
+                member.reload()
+                actual_last_name = member.last_name
+                expected_full_name = f"{unique_first} {actual_last_name}"
+
                 # Create account request
                 result = queue_account_creation_for_member(member.name)
                 request = self._get_request_or_skip(result)
-                
+
                 # Process account creation
                 # Already running as Administrator from setUp
                 manager = AccountCreationManager(request.name)
                 manager.process_complete_pipeline()
-                
-                # Verify name handling in created user
+
+                # Verify name handling in created user preserves the tussenvoegsel
+                # The last_name may have a unique suffix, but the Dutch particle should be preserved
                 request.reload()
                 user = frappe.get_doc("User", request.created_user)
                 self.assertEqual(user.first_name, unique_first)
-                self.assertEqual(user.last_name, last_name)
-                self.assertEqual(user.full_name, full_name)
+                self.assertEqual(user.last_name, actual_last_name)
+                self.assertEqual(user.full_name, expected_full_name)
+
+                # Verify the Dutch particle (tussenvoegsel) is preserved in the last name
+                self.assertTrue(
+                    user.last_name.startswith(last_name),
+                    f"Dutch particle not preserved: expected last_name to start with '{last_name}', got '{user.last_name}'"
+                )
                 
     def test_dutch_company_assignment_for_employees(self):
         """Test proper Dutch company assignment for employee records"""
