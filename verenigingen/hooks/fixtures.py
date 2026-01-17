@@ -1,0 +1,227 @@
+# verenigingen/hooks/fixtures.py
+"""Fixture definitions for data export/import.
+
+Fixtures define which documents should be exported with the app
+and imported when the app is installed on a new site.
+
+Note: Reference data (Membership Types, Email Templates, etc.) is
+created via execute_after_install() which only runs once on app install.
+This prevents migrations from overwriting user customizations.
+
+Schema items (Property Setters, Custom Fields, etc.) are safe to
+include as fixtures since they define structure, not user data.
+"""
+
+fixtures = [
+    # =========================================================================
+    # SCHEMA ITEMS
+    # =========================================================================
+    # Property Setters (customize ERPNext DocTypes)
+    "Property Setter",
+    # Custom DocPerms (permissions for core DocTypes)
+    "Custom DocPerm",
+    # =========================================================================
+    # NOTIFICATIONS
+    # =========================================================================
+    {
+        "doctype": "Notification",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Member Application Approved",
+                    "Member Application Rejected",
+                    "SEPA Mandate Created",
+                    "Member Status Changed to Active",
+                    "Invoice Payment Overdue",
+                    "New Membership Application Submitted",
+                    "Expense Submitted for Approval",
+                ],
+            ]
+        ],
+    },
+    # =========================================================================
+    # WORKFLOWS
+    # =========================================================================
+    {
+        "doctype": "Workflow",
+        "filters": [["name", "in", ["Membership Termination Workflow"]]],
+    },
+    {
+        "doctype": "Workflow State",
+        "filters": [
+            [
+                "workflow_state_name",
+                "in",
+                [
+                    "Draft",
+                    "Pending",
+                    "Pending Verification",
+                    "Under Review",
+                    "Approved",
+                    "Rejected",
+                    "Active",
+                    "Inactive",
+                    "Completed",
+                    "Cancelled",
+                    "Expired",
+                    "Payment Pending",
+                    "Processing",
+                    "Submitted",
+                    "Executed",
+                ],
+            ]
+        ],
+    },
+    {
+        "doctype": "Workflow Action Master",
+        "filters": [["workflow_action_name", "in", ["Execute"]]],
+    },
+    # =========================================================================
+    # ROLES AND PROFILES
+    # =========================================================================
+    {
+        "doctype": "Role",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Verenigingen Administrator",
+                    "Verenigingen Staff",
+                    "Verenigingen Governance Auditor",
+                    "Verenigingen Chapter Board Member",
+                    "Verenigingen Member",
+                    "Verenigingen Volunteer",
+                ],
+            ]
+        ],
+    },
+    {
+        "doctype": "Role Profile",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Verenigingen Member",
+                    "Verenigingen Volunteer",
+                    "Verenigingen Team Leader",
+                    "Verenigingen Chapter Board Member",
+                    "Verenigingen Treasurer",
+                    "Verenigingen Staff",
+                    "Verenigingen System Administrator",
+                    "Verenigingen Auditor",
+                ],
+            ]
+        ],
+    },
+    {
+        "doctype": "Module Profile",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Verenigingen Member",
+                    "Verenigingen Volunteer",
+                    "Verenigingen Chapter Board Member",
+                    "Verenigingen Auditor",
+                    "Verenigingen National Board Member",
+                    "Verenigingen Treasurer",
+                ],
+            ]
+        ],
+    },
+    # =========================================================================
+    # REPORTS
+    # =========================================================================
+    {
+        "doctype": "Report",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Termination Audit Report",
+                    "Termination Compliance Report",
+                    "Membership Revenue Projection",
+                ],
+            ]
+        ],
+    },
+    # =========================================================================
+    # CUSTOM FIELDS
+    # =========================================================================
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["fieldname", "like", "btw_%"],
+        ],
+    },
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["fieldname", "=", "custom_eboekhouden_grootboek_nummer"],
+        ],
+    },
+    # =========================================================================
+    # WORKSPACES AND DASHBOARDS
+    # =========================================================================
+    {
+        "doctype": "Workspace",
+        "filters": [["name", "in", ["E-Boekhouden", "Verenigingen"]]],
+    },
+    {
+        "doctype": "Dashboard Chart",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Member Count by Chapter",
+                    "Member Count Trends",
+                    "Member Applications & Exits",
+                    "Member Age Distribution",
+                    "Member Pronoun Distribution",
+                    "Members with Outstanding Invoices",
+                    "SEPA Payment Status",
+                    "Monthly Revenue Trends",
+                    "Outstanding Invoices by Month",
+                    "Revenue by Payment Status",
+                    "Revenue by Quarter",
+                ],
+            ]
+        ],
+    },
+    {
+        "doctype": "Dashboard",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Member Analytics",
+                    "Member payment development",
+                ],
+            ]
+        ],
+    },
+    {
+        "doctype": "Custom HTML Block",
+        "filters": [["name", "=", "Page Links"]],
+    },
+    # =========================================================================
+    # SYSTEM USERS AND SETTINGS
+    # =========================================================================
+    # Background Service User (uses Webhook User role for consolidated service account permissions)
+    {
+        "doctype": "User",
+        "filters": [["email", "=", "background.service@verenigingen.local"]],
+    },
+    # Verenigingen Settings singleton
+    {"doctype": "Verenigingen Settings"},
+    # Critical Operation Rules (security rate limiting)
+    "Critical Operation Rule",
+]
