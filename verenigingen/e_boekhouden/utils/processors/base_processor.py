@@ -11,11 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import frappe
 
 from verenigingen.e_boekhouden.utils.data_integrity import (
-    insert_with_duplicate_handling,
-    mask_pii_in_mutation,
     normalize_date,
     safe_log_mutation_error,
-    submit_with_duplicate_handling,
 )
 
 
@@ -349,77 +346,3 @@ class BaseTransactionProcessor(ABC):
             "error_message": str(error),
             "debug_info": self.get_debug_info(),
         }
-
-    def insert_document_with_duplicate_handling(
-        self,
-        doc: frappe.model.document.Document,
-        mutation_id_field: str = "eboekhouden_mutation_nr",
-    ) -> Tuple[frappe.model.document.Document, bool]:
-        """
-        Insert document with graceful handling of duplicate race conditions.
-
-        When concurrent imports attempt to create the same document, the DB unique
-        constraint on mutation_id_field will catch duplicates. This method handles
-        the DuplicateEntryError gracefully by fetching the existing document.
-
-        Args:
-            doc: The document to insert
-            mutation_id_field: Field containing unique mutation ID
-
-        Returns:
-            Tuple of (document, was_duplicate)
-        """
-        return insert_with_duplicate_handling(doc, mutation_id_field)
-
-    def submit_document_with_duplicate_handling(
-        self,
-        doc: frappe.model.document.Document,
-        mutation_id_field: str = "eboekhouden_mutation_nr",
-    ) -> Tuple[frappe.model.document.Document, bool]:
-        """
-        Insert and submit document with graceful duplicate handling.
-
-        Args:
-            doc: The document to insert and submit
-            mutation_id_field: Field containing unique mutation ID
-
-        Returns:
-            Tuple of (document, was_duplicate)
-        """
-        return submit_with_duplicate_handling(doc, mutation_id_field)
-
-    def log_error_safely(
-        self,
-        title: str,
-        mutation: Dict[str, Any],
-        error: Optional[Exception] = None,
-        additional_context: Optional[str] = None,
-    ) -> None:
-        """
-        Log a mutation error with PII masked for privacy compliance.
-
-        Use this method instead of frappe.log_error when logging mutation data
-        to ensure customer/supplier PII is not exposed in error logs.
-
-        Args:
-            title: Short title for the error log
-            mutation: The mutation data (will be masked)
-            error: Optional exception that occurred
-            additional_context: Optional additional context string
-        """
-        safe_log_mutation_error(title, mutation, error, additional_context)
-
-    def mask_mutation_pii(self, mutation: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Create a copy of mutation with PII fields masked for safe logging.
-
-        Masks personally identifiable information such as emails, phone numbers,
-        addresses, and bank account numbers while preserving structure.
-
-        Args:
-            mutation: The mutation data
-
-        Returns:
-            A copy with PII fields masked
-        """
-        return mask_pii_in_mutation(mutation)
