@@ -21,6 +21,23 @@ Adding new notification keys:
     1. Add the key to NOTIFICATION_KEYS below with all required fields
     2. Use the key in your code with notification_key="your_key"
     3. Run "Sync Registry" in Email Configuration to add it to the database
+
+Naming Convention:
+    Keys follow the pattern: {entity}_{action}[_{qualifier}]
+
+    Examples:
+        - member_activated          (entity: member, action: activated)
+        - member_application_approved (entity: member_application, action: approved)
+        - payment_alert_overpayment (entity: payment_alert, action: overpayment)
+        - sepa_batch_scheduler_alert (entity: sepa_batch_scheduler, action: alert)
+
+    Guidelines:
+        - Use snake_case for all keys
+        - Start with the entity/domain (member, payment, chapter, sepa, etc.)
+        - End with the action or event (activated, submitted, approved, alert, etc.)
+        - Use past tense for completed events (activated, approved, rejected)
+        - Use present tense for ongoing states (alert, reminder, notification)
+        - Keep keys concise but descriptive (aim for 2-4 words)
 """
 
 # Category constants for consistency
