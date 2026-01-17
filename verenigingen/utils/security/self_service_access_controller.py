@@ -16,6 +16,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
+from verenigingen.utils.security.client_ip import get_client_ip as centralized_get_client_ip
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity
 
 
@@ -60,16 +61,16 @@ class SelfServiceAccessController:
         return self._audit_logger
 
     def _get_client_ip(self) -> str:
-        """Get client IP address, using injected function or default."""
+        """
+        Get client IP address with trusted proxy support.
+
+        Uses injected function for testing, otherwise falls back to
+        centralized client_ip module for consistent IP detection.
+        """
         if self._get_client_ip_func:
             return self._get_client_ip_func()
 
-        try:
-            if hasattr(frappe.local, "request") and frappe.local.request:
-                return frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
-        except (AttributeError, RuntimeError):
-            pass
-        return "test_environment"
+        return centralized_get_client_ip()
 
     def get_user_member(self, user: str = None) -> Optional[str]:
         """

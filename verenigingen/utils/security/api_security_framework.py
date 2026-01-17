@@ -37,6 +37,7 @@ from verenigingen.utils.security.authorization_policy import (
     AuthorizationPolicy,
     get_authorization_policy,
 )
+from verenigingen.utils.security.client_ip import get_client_ip
 
 # Lazy import to avoid circular dependency - get_auth_manager imported when needed
 from verenigingen.utils.security.csrf_protection import CSRFProtection
@@ -122,7 +123,9 @@ class APISecurityFramework:
             ip_restrictions=False,
             business_hours_only=False,
             max_request_size=4 * 1024 * 1024,  # 4MB
-            allowed_methods=["GET", "POST", "PUT", "DELETE"],
+            # SECURITY: Restrict to safe methods by default
+            # PUT/DELETE require explicit opt-in via custom profile
+            allowed_methods=["GET", "POST"],
         ),
         SecurityLevel.PUBLIC: SecurityProfile(
             level=SecurityLevel.PUBLIC,
@@ -132,7 +135,10 @@ class APISecurityFramework:
             ip_restrictions=False,
             business_hours_only=False,
             max_request_size=10 * 1024 * 1024,  # 10MB
-            allowed_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            # SECURITY: Public endpoints should be read-focused
+            # POST allowed for webhooks, OPTIONS for CORS preflight
+            # PUT/DELETE require explicit opt-in via custom profile
+            allowed_methods=["GET", "POST", "OPTIONS"],
         ),
     }
 
@@ -227,13 +233,15 @@ class APISecurityFramework:
             return False
 
     def _get_client_ip(self) -> str:
-        """Get client IP address, handling test environments gracefully"""
-        try:
-            if hasattr(frappe.local, "request") and frappe.local.request:
-                return frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
-        except (AttributeError, RuntimeError):
-            pass
-        return "test_environment"
+        """
+        Get client IP address with trusted proxy support.
+
+        Uses centralized client_ip module which:
+        - Handles X-Forwarded-For when behind trusted proxies
+        - Prevents IP spoofing by validating proxy chain
+        - Gracefully handles test environments
+        """
+        return get_client_ip()
 
     # NOTE: _get_cor_config was removed in Phase 2 refactoring.
     # COR config is now fetched by RateLimitEngine._get_cor_config()

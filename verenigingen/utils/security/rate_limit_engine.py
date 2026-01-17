@@ -17,6 +17,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
+from verenigingen.utils.security.client_ip import get_client_ip
 from verenigingen.utils.security.types import ExecutionContext
 
 
@@ -268,13 +269,13 @@ class RateLimitEngine:
             return f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
 
     def _get_client_ip(self) -> str:
-        """Get client IP address, handling test environments gracefully."""
-        try:
-            if hasattr(frappe.local, "request") and frappe.local.request:
-                return frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
-        except (AttributeError, RuntimeError):
-            pass
-        return "test_environment"
+        """
+        Get client IP address with trusted proxy support.
+
+        Uses centralized client_ip module for consistent IP detection
+        across all security components.
+        """
+        return get_client_ip()
 
     def get_rate_limit_headers(self, operation_key: str) -> Dict[str, str]:
         """
