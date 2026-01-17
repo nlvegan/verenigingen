@@ -595,10 +595,24 @@ class EnhancedTestDataFactory:
             "contact_number": self.generate_test_phone(),
             "member_id": self._generate_unique_test_member_id()  # Ensure unique member ID for tests
         }
-        
+
         # Merge with provided kwargs
         data = {**defaults, **kwargs}
-        
+
+        # IMPORTANT: Ensure unique last_name for Customer creation
+        # Customer name is derived from first_name + last_name, so duplicates cause IntegrityError
+        # If test provides a last_name, append unique suffix to prevent collisions
+        if 'last_name' in kwargs and unique_suffix not in data['last_name']:
+            data['last_name'] = f"{data['last_name']}{unique_suffix}"
+
+        # Also ensure unique email to prevent duplicate Contact errors
+        if 'email' in kwargs:
+            # Add suffix before @ if not already unique-looking
+            email = data['email']
+            if '@' in email and not any(char.isdigit() for char in email.split('@')[0][-5:]):
+                local, domain = email.rsplit('@', 1)
+                data['email'] = f"{local}.{unique_suffix}@{domain}"
+
         # Validate business rules
         data = self.validate_member_business_rules(data)
         

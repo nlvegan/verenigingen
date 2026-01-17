@@ -60,6 +60,7 @@ class TestSEPAMandateNaming(EnhancedTestCase):
         sepa_mandate_identity_service.clear_settings_cache()
 
         # Create a test member for SEPA mandate creation
+        # Factory automatically adds unique suffix to prevent Customer name collisions
         self.test_member = self.create_test_member(
             first_name="SEPA",
             last_name="TestUser",
@@ -168,6 +169,7 @@ class TestSEPAMandateNaming(EnhancedTestCase):
             # Enhanced Test Factory handles cleanup automatically
 
             # Create second mandate - should increment
+            # Factory automatically adds unique suffix to prevent Customer name collisions
             test_member2 = self.create_test_member(
                 first_name="SEPA2",
                 last_name="TestUser2",
@@ -282,6 +284,7 @@ class TestSEPAMandateNaming(EnhancedTestCase):
             # Enhanced Test Factory handles cleanup automatically
 
             # Create second mandate - should get incremented counter
+            # Factory automatically adds unique suffix to prevent Customer name collisions
             test_member2 = self.create_test_member(
                 first_name="SEPA3",
                 last_name="TestUser3",
