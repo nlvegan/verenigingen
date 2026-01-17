@@ -52,6 +52,7 @@ class OperationResult(Generic[T]):
         data: Result data if successful, None otherwise
         error_message: Error message if failed, None otherwise
         errors: List of specific error messages
+        error_code: Structured error code for monitoring/alerting (e.g., "HIST_001")
         metadata: Additional context about the operation
 
     Examples:
@@ -66,6 +67,13 @@ class OperationResult(Generic[T]):
         ...     print(result.error_message)
         ...     print(result.errors)
 
+        >>> # Failure with error code for monitoring
+        >>> result = OperationResult.fail(
+        ...     "Donation sync failed",
+        ...     error_code="HIST_001",
+        ...     errors=["Donor not found"]
+        ... )
+
         >>> # With metadata
         >>> result = OperationResult.ok(invoice, created=True, submitted=False)
         >>> print(result.metadata["created"])  # True
@@ -75,6 +83,7 @@ class OperationResult(Generic[T]):
     data: Optional[T] = None
     error_message: Optional[str] = None
     errors: List[str] = field(default_factory=list)
+    error_code: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -100,6 +109,7 @@ class OperationResult(Generic[T]):
         cls,
         message: str,
         errors: Optional[List[str]] = None,
+        error_code: Optional[str] = None,
         **metadata: Any,
     ) -> "OperationResult[T]":
         """
@@ -108,6 +118,7 @@ class OperationResult(Generic[T]):
         Args:
             message: Main error message
             errors: List of specific error details
+            error_code: Structured error code for monitoring (e.g., "HIST_001")
             **metadata: Additional metadata about the failure
 
         Returns:
@@ -118,11 +129,19 @@ class OperationResult(Generic[T]):
             ...     "Validation failed",
             ...     errors=["Email is required", "Birth date is invalid"]
             ... )
+
+            >>> # With error code for monitoring
+            >>> result = OperationResult.fail(
+            ...     "History sync failed",
+            ...     error_code="HIST_001",
+            ...     errors=["Database connection failed"]
+            ... )
         """
         return cls(
             success=False,
             error_message=message,
             errors=errors or [],
+            error_code=error_code,
             metadata=metadata,
         )
 
@@ -220,7 +239,8 @@ class OperationResult(Generic[T]):
         # Merge metadata
         merged_metadata = {**self.metadata, **extra_metadata}
 
-        return OperationResult.fail(message, errors=errors, **merged_metadata)
+        # Preserve error_code from original result
+        return OperationResult.fail(message, errors=errors, error_code=self.error_code, **merged_metadata)
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -248,6 +268,8 @@ class OperationResult(Generic[T]):
             result_dict["error"] = self.error_message
             if self.errors:
                 result_dict["errors"] = self.errors
+            if self.error_code:
+                result_dict["error_code"] = self.error_code
 
         # Add metadata
         result_dict.update(self.metadata)

@@ -95,14 +95,16 @@ class TestCostCenterParsing(unittest.TestCase):
 
     def test_expense_group_suggestion(self):
         """Test that expense groups are suggested for cost center creation"""
-        should_create, reason = should_suggest_cost_center("007", "Personeelskosten")
+        # Expense codes start with "5" (personnel) or "6" (other expenses)
+        should_create, reason = should_suggest_cost_center("507", "Personeelskosten")
 
         self.assertTrue(should_create)
         self.assertIn("Expense", reason)
 
     def test_balance_sheet_not_suggested(self):
         """Test that balance sheet accounts are NOT suggested for cost centers"""
-        should_create, reason = should_suggest_cost_center("001", "Materiële vaste activa")
+        # Balance sheet codes start with "1" (assets) or "2" (liabilities)
+        should_create, reason = should_suggest_cost_center("101", "Materiële vaste activa")
 
         self.assertFalse(should_create)
         self.assertIn("Balance sheet", reason)
@@ -148,7 +150,8 @@ class TestCostCenterIntegration(unittest.TestCase):
 
     def test_settings_pl_mapping_parsing(self):
         """Test that settings correctly parse P&L mappings"""
-        test_mappings = "007\tPersoneelskosten\n008\tPromotiekosten"
+        # Parser splits on space, not tab
+        test_mappings = "007 Personeelskosten\n008 Promotiekosten"
 
         self.settings.pl_group_mappings = test_mappings
 
@@ -161,8 +164,9 @@ class TestCostCenterIntegration(unittest.TestCase):
 
     def test_balance_sheet_separate_from_pl(self):
         """Test that balance sheet and P&L mappings are kept separate"""
-        self.settings.balance_sheet_group_mappings = "001\tVaste activa"
-        self.settings.pl_group_mappings = "055\tOpbrengsten"
+        # Parser splits on space, not tab
+        self.settings.balance_sheet_group_mappings = "001 Vaste activa"
+        self.settings.pl_group_mappings = "055 Opbrengsten"
 
         bal_parsed = self.settings._parse_balance_sheet_group_mappings()
         pl_parsed = self.settings._parse_pl_group_mappings()

@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_url
 
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
+
 
 class INGCheckoutSettings(Document):
     """
@@ -101,7 +103,8 @@ def get_ing_checkout_settings() -> INGCheckoutSettings:
     return settings
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def is_ing_checkout_enabled() -> dict:
     """
     Check if ING Checkout is enabled (for client-side use).

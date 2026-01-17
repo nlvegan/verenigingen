@@ -552,14 +552,19 @@ def should_suggest_cost_center(code, name):
 def clean_cost_center_name(name):
     """Clean and format cost center name"""
     import html
+    import re
 
     # Decode HTML entities (e.g., &#x27; → ')
     cleaned = html.unescape(name.strip())
 
-    # Remove account-specific words
+    # Remove account-specific words (case-insensitive)
     remove_words = ["rekeningen", "grootboek", "accounts"]
     for word in remove_words:
-        cleaned = cleaned.replace(word, "").strip()
+        # Use regex for case-insensitive replacement
+        cleaned = re.sub(rf"\b{word}\b", "", cleaned, flags=re.IGNORECASE).strip()
+
+    # Clean up multiple spaces
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
     # Capitalize first letter
     if cleaned:

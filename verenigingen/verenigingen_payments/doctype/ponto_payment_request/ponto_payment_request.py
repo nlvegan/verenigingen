@@ -27,6 +27,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_url
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class PontoPaymentRequest(Document):
     """Controller for Ponto Payment Request DocType."""
@@ -173,6 +175,7 @@ class PontoPaymentRequest(Document):
             # Don't throw - the payment may already be signed or executed
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def refresh_status(self):
         """
         Refresh payment status from Ponto API.

@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Tuple
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
     """
@@ -165,6 +167,7 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
     """
     Find payments that are partially processed (missing one or more documents).
@@ -224,6 +227,7 @@ def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def complete_partial_payments(
     payment_ids: List[str] = None, dry_run: bool = True, max_payments: int = None
 ) -> Dict[str, any]:
@@ -394,6 +398,7 @@ def complete_partial_payments(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def analyze_payment_gaps() -> Dict[str, any]:
     """
     Analyze all Bank Transactions to find gaps in processing.
@@ -447,6 +452,7 @@ def analyze_payment_gaps() -> Dict[str, any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def repair_invoices_missing_gl_entries(
     invoice_names: List[str] = None, dry_run: bool = True
 ) -> Dict[str, any]:

@@ -143,6 +143,171 @@ jobs:
         [ -f "pyproject.toml" ] && echo "✓ pyproject.toml found" || echo "⚠️ pyproject.toml missing"
         [ -f "verenigingen/hooks.py" ] && echo "✓ hooks.py found" || echo "⚠️ hooks.py missing"
 
+  api-security-audit:
+    name: API Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Run API Security Audit
+      run: |
+        echo "🔒 Running API Security Audit..."
+        echo "Checking for unprotected @frappe.whitelist() endpoints in financial modules..."
+
+        # Define high-risk patterns
+        HIGH_RISK_PATTERNS="payment|sepa|invoice|financial|settlement|batch|mandate|sync|audit"
+
+        # Find all @frappe.whitelist() functions in high-risk files
+        python3 -c "
+        import os
+        import re
+        import sys
+
+        security_decorators = [
+            '@critical_api', '@standard_api', '@high_security_api',
+            '@development_only_api', '@public_api', '@utility_api',
+            '@development_only', '@require_role'
+        ]
+
+        high_risk_patterns = ['payment', 'sepa', 'invoice', 'financial', 'settlement', 'batch', 'mandate', 'sync', 'audit']
+        unprotected_high_risk = []
+
+        for root, dirs, files in os.walk('verenigingen'):
+            # Skip test files and __pycache__
+            if 'test' in root.lower() or '__pycache__' in root:
+                continue
+
+            for file in files:
+                if not file.endswith('.py') or file.startswith('__'):
+                    continue
+
+                filepath = os.path.join(root, file)
+
+                # Check if file is high-risk
+                is_high_risk = any(p in filepath.lower() for p in high_risk_patterns)
+
+                try:
+                    with open(filepath, 'r') as f:
+                        content = f.read()
+                        lines = content.split('\n')
+                except:
+                    continue
+
+                i = 0
+                while i < len(lines):
+                    line = lines[i].strip()
+                    if '@frappe.whitelist' in line:
+                        # Look for security decorator in surrounding lines
+                        has_security = False
+                        func_name = None
+
+                        # Check 5 lines before and after
+                        for j in range(max(0, i-5), min(len(lines), i+8)):
+                            if any(d in lines[j] for d in security_decorators):
+                                has_security = True
+                                break
+                            func_match = re.search(r'def\s+(\w+)', lines[j])
+                            if func_match and not func_name:
+                                func_name = func_match.group(1)
+
+                        if not has_security and is_high_risk and func_name:
+                            unprotected_high_risk.append((filepath, func_name))
+                    i += 1
+
+        if unprotected_high_risk:
+            print('❌ SECURITY AUDIT FAILED: Unprotected high-risk API endpoints found!')
+            print('=' * 70)
+            for path, func in unprotected_high_risk:
+                print(f'  HIGH-RISK: {path}:{func}')
+            print()
+            print('These endpoints must have security decorators (@critical_api, @high_security_api, etc.)')
+            sys.exit(1)
+        else:
+            print('✅ API Security Audit Passed')
+            print('All high-risk @frappe.whitelist() endpoints have security decorators.')
+        "
+
+    - name: Generate Security Report
+      if: always()
+      run: |
+        echo "📊 Generating API Security Report..."
+        python3 -c "
+        import json
+        import os
+        import re
+        from datetime import datetime
+
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'audit_type': 'api_security',
+            'endpoints_scanned': 0,
+            'protected_endpoints': 0,
+            'unprotected_endpoints': 0,
+            'high_risk_unprotected': 0,
+            'details': []
+        }
+
+        security_decorators = [
+            '@critical_api', '@standard_api', '@high_security_api',
+            '@development_only_api', '@public_api', '@utility_api',
+            '@development_only', '@require_role'
+        ]
+
+        for root, dirs, files in os.walk('verenigingen'):
+            if 'test' in root.lower() or '__pycache__' in root:
+                continue
+
+            for file in files:
+                if not file.endswith('.py') or file.startswith('__'):
+                    continue
+
+                filepath = os.path.join(root, file)
+
+                try:
+                    with open(filepath, 'r') as f:
+                        content = f.read()
+
+                    # Count @frappe.whitelist occurrences
+                    whitelist_count = len(re.findall(r'@frappe\.whitelist', content))
+                    security_count = sum(len(re.findall(d.replace('(', '\('), content)) for d in security_decorators)
+
+                    if whitelist_count > 0:
+                        report['endpoints_scanned'] += whitelist_count
+                        report['protected_endpoints'] += min(whitelist_count, security_count)
+                        report['unprotected_endpoints'] += max(0, whitelist_count - security_count)
+                except:
+                    continue
+
+        report['protection_rate'] = (
+            round(report['protected_endpoints'] / report['endpoints_scanned'] * 100, 1)
+            if report['endpoints_scanned'] > 0 else 100
+        )
+
+        with open('api-security-report.json', 'w') as f:
+            json.dump(report, f, indent=2)
+
+        print(f\"📈 API Security Report\")
+        print(f\"   Endpoints scanned: {report['endpoints_scanned']}\")
+        print(f\"   Protected: {report['protected_endpoints']}\")
+        print(f\"   Protection rate: {report['protection_rate']}%\")
+        "
+
+    - name: Upload Security Report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: api-security-report
+        path: api-security-report.json
+        retention-days: 30
+
   documentation:
     name: Documentation Check
     runs-on: ubuntu-latest

@@ -45,6 +45,7 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
 @dataclass
@@ -460,8 +461,9 @@ def get_payment_validation_service() -> PaymentValidationService:
     return PaymentValidationService()
 
 
-# Convenience API endpoints for whitelisted access
-@frappe.whitelist()
+# Convenience API endpoints for whitelisted access (guest-accessible for donation forms)
+@frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_iban_api(iban: str, context: str = "payment") -> OperationResult[Dict[str, Any]]:
     """
     API endpoint for IBAN validation.
@@ -503,7 +505,8 @@ def validate_iban_api(iban: str, context: str = "payment") -> OperationResult[Di
         )
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_bank_details_api(
     iban: str, bic: Optional[str] = None, account_holder_name: Optional[str] = None
 ) -> OperationResult[Dict[str, Any]]:
@@ -552,7 +555,8 @@ def validate_bank_details_api(
         )
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_payment_method_api(method: str) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint for payment method validation.
@@ -590,7 +594,8 @@ def validate_payment_method_api(method: str) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_payment_amount_api(amount: float, context: str = "payment") -> OperationResult[Dict[str, Any]]:
     """
     API endpoint for payment amount validation.

@@ -294,6 +294,7 @@ def get_audit_trail_details(request_id):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def export_audit_report(filters=None):
     """Export audit report to Excel with enhanced formatting"""
 
@@ -322,6 +323,7 @@ def export_audit_report(filters=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_compliance_statistics(filters=None):
     """Get compliance statistics for dashboard"""
     from verenigingen.utils.validation.api_validators import parse_json_filters

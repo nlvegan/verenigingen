@@ -58,6 +58,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 import frappe
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.error_codes import log_operation_error
 from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
@@ -154,14 +155,17 @@ class MemberHistoryUpdateService(StatelessService):
                 if cleanup_removed > 0:
                     changes_made = True
         except Exception as e:
-            self.logger.error(f"Error cleaning volunteer expense history for {member_doc.name}: {str(e)}")
+            log_operation_error("HIST_008", f"member {member_doc.name}", e)
             results["volunteer_expenses"]["success"] = False
             results["volunteer_expenses"]["error"] = f"Cleanup failed: {str(e)}"
+            results["volunteer_expenses"]["error_code"] = "HIST_008"
             has_errors = True
 
-        # STEP 2: Update donation history if donor exists (via email lookup)
+        # STEP 2: Update donation history if donor exists
         try:
-            donor_name = frappe.db.get_value("Donor", {"donor_email": member_doc.email}, "name")
+            from verenigingen.utils.donor_member_reconciliation import get_donor_for_member
+
+            donor_name = get_donor_for_member(member_doc)
             if donor_name:
                 from verenigingen.utils.donation_history_manager import sync_donor_history
 
@@ -175,9 +179,10 @@ class MemberHistoryUpdateService(StatelessService):
                 if donation_changes > 0:
                     changes_made = True
         except Exception as e:
-            self.logger.error(f"Error updating donation history for {member_doc.name}: {str(e)}")
+            log_operation_error("HIST_001", f"member {member_doc.name}", e)
             results["donations"]["success"] = False
             results["donations"]["error"] = str(e)
+            results["donations"]["error_code"] = "HIST_001"
             has_errors = True
 
         # STEP 3: Prefetch payment reference data (shared between dues and invoice methods)
@@ -185,12 +190,14 @@ class MemberHistoryUpdateService(StatelessService):
         try:
             payment_cache = self._prefetch_payment_references(member_doc)
         except Exception as e:
-            self.logger.error(f"Error prefetching payment references for {member_doc.name}: {str(e)}")
+            log_operation_error("HIST_002", f"member {member_doc.name}", e)
             # This affects both dues and invoices
             results["dues_payments"]["success"] = False
             results["dues_payments"]["error"] = f"Payment reference prefetch failed: {str(e)}"
+            results["dues_payments"]["error_code"] = "HIST_002"
             results["invoices"]["success"] = False
             results["invoices"]["error"] = f"Payment reference prefetch failed: {str(e)}"
+            results["invoices"]["error_code"] = "HIST_002"
             has_errors = True
 
         # STEP 4: Update dues payment history (from Payment Entry custom_member field)
@@ -201,9 +208,10 @@ class MemberHistoryUpdateService(StatelessService):
                 if dues_changes > 0:
                     changes_made = True
             except Exception as e:
-                self.logger.error(f"Error updating dues payment history for {member_doc.name}: {str(e)}")
+                log_operation_error("HIST_003", f"member {member_doc.name}", e)
                 results["dues_payments"]["success"] = False
                 results["dues_payments"]["error"] = str(e)
+                results["dues_payments"]["error_code"] = "HIST_003"
                 has_errors = True
 
         # STEP 5: Update invoice payment history (from Sales Invoices linked to member)
@@ -214,9 +222,10 @@ class MemberHistoryUpdateService(StatelessService):
                 if invoice_changes > 0:
                     changes_made = True
             except Exception as e:
-                self.logger.error(f"Error updating invoice payment history for {member_doc.name}: {str(e)}")
+                log_operation_error("HIST_004", f"member {member_doc.name}", e)
                 results["invoices"]["success"] = False
                 results["invoices"]["error"] = str(e)
+                results["invoices"]["error_code"] = "HIST_004"
                 has_errors = True
 
         # STEP 6: Update volunteer expense history if employee is linked
@@ -226,9 +235,10 @@ class MemberHistoryUpdateService(StatelessService):
             if expense_changes > 0:
                 changes_made = True
         except Exception as e:
-            self.logger.error(f"Error updating volunteer expense history for {member_doc.name}: {str(e)}")
+            log_operation_error("HIST_005", f"member {member_doc.name}", e)
             results["volunteer_expenses"]["success"] = False
             results["volunteer_expenses"]["error"] = str(e)
+            results["volunteer_expenses"]["error_code"] = "HIST_005"
             has_errors = True
 
         # Only save if something actually changed and we have some successes
@@ -240,12 +250,13 @@ class MemberHistoryUpdateService(StatelessService):
                 member_doc.flags.ignore_comment = True
                 member_doc.save()
             except Exception as e:
-                self.logger.error(f"Error saving member document {member_doc.name}: {str(e)}")
+                log_operation_error("HIST_007", f"member {member_doc.name}", e)
                 # Add save error to all results
                 for key in results:
                     if results[key]["success"]:
                         results[key]["success"] = False
                         results[key]["error"] = f"Save failed: {str(e)}"
+                        results[key]["error_code"] = "HIST_007"
                 has_errors = True
 
         # Build summary message
@@ -264,15 +275,22 @@ class MemberHistoryUpdateService(StatelessService):
         summary = ", ".join(message_parts) if message_parts else "No changes"
 
         if has_errors:
-            # Collect error messages
+            # Collect error messages and codes
             error_messages = []
+            error_codes = []
             for key, value in results.items():
                 if not value["success"] and "error" in value:
                     error_messages.append(f"{key}: {value['error']}")
+                    if "error_code" in value:
+                        error_codes.append(value["error_code"])
+
+            # Use first error code as primary (most relevant)
+            primary_error_code = error_codes[0] if error_codes else None
 
             return OperationResult.fail(
                 f"Partial update completed with errors: {summary}",
                 errors=error_messages,
+                error_code=primary_error_code,
                 **results,
                 member=member_doc.name,
             )
@@ -349,108 +367,21 @@ class MemberHistoryUpdateService(StatelessService):
 
     def _update_volunteer_expense_history(self, member_doc: "Document") -> int:
         """
-        Update volunteer expense history for this member.
+        DEPRECATED: Volunteer expense history feature has been archived.
 
-        NOTE: The volunteer_expenses child table was removed when the Volunteer Expense
-        feature was archived. This function is kept for backward compatibility but
-        returns 0 immediately.
+        The volunteer_expenses child table was removed from the Member DocType.
+        This method is retained for backward compatibility but performs no operations.
+
+        Scheduled for removal in v3.0.
 
         Args:
             member_doc: Member document object
 
         Returns:
-            int: Total number of changes (adds + updates + removals)
+            int: Always returns 0 (no changes)
         """
-        # Guard: volunteer_expenses child table no longer exists on Member
-        if not hasattr(member_doc, "volunteer_expenses"):
-            return 0
-
-        if not (hasattr(member_doc, "employee") and member_doc.employee):
-            return 0
-
-        removed_count = 0
-        updated_count = 0
-        added_count = 0
-
-        # Get the 20 most recent expense claims
-        current_claims = frappe.get_all(
-            "Expense Claim",
-            filters={"employee": member_doc.employee},
-            fields=[
-                "name",
-                "employee",
-                "posting_date",
-                "total_claimed_amount",
-                "total_sanctioned_amount",
-                "status",
-                "approval_status",
-                "docstatus",
-            ],
-            order_by="posting_date desc",
-            limit=20,
-        )
-
-        # Build a lookup of existing expense entries (guarded by hasattr above)
-        existing_expenses = {
-            row.expense_claim: row for row in (member_doc.volunteer_expenses or [])  # ast-skip: archived
-        }
-        current_claim_names = {claim.name for claim in current_claims}
-
-        # Remove entries that are no longer in the top 20
-        rows_to_remove = [
-            idx
-            for idx, row in enumerate(member_doc.volunteer_expenses or [])  # ast-skip: archived
-            if row.expense_claim not in current_claim_names
-        ]
-
-        # Remove in reverse order to maintain indices
-        for idx in reversed(rows_to_remove):
-            member_doc.volunteer_expenses.pop(idx)  # ast-skip: archived
-            removed_count += 1
-
-        # Try batched version first (93% query reduction)
-        try:
-            expected_rows_list = self._build_expense_entries_batched(member_doc, current_claims)
-            expected_rows = {row["expense_claim"]: row for row in expected_rows_list}
-        except Exception as e:
-            self.logger.warning(
-                f"Batched expense entry build failed for {member_doc.name}, using fallback: {str(e)}"
-            )
-            # Fallback to individual processing
-            expected_rows = {}
-            for claim in current_claims:
-                expected_row = self._build_lightweight_expense_entry(member_doc, claim)
-                expected_rows[expected_row["expense_claim"]] = expected_row
-
-        # Process each current claim using pre-built rows
-        for claim in current_claims:
-            expected_row = expected_rows.get(claim.name)
-            if not expected_row:
-                continue  # Skip if batch build failed for this claim
-
-            if claim.name in existing_expenses:
-                # Check if existing row needs updating
-                existing_row = existing_expenses[claim.name]
-                needs_update = any(
-                    getattr(existing_row, field_name, None) != expected_value
-                    for field_name, expected_value in expected_row.items()
-                )
-
-                if needs_update:
-                    for field_name, expected_value in expected_row.items():
-                        setattr(existing_row, field_name, expected_value)
-                    updated_count += 1
-            else:
-                # Add new row directly (not via batch processor since we're already batching)
-                try:
-                    member_doc.append("volunteer_expenses", expected_row)
-                    added_count += 1
-                except Exception as e:
-                    self.logger.error(f"Failed to append volunteer expense for {member_doc.name}: {str(e)}")
-                    # Continue processing other entries - don't break entire update
-                    continue
-
-        return removed_count + updated_count + added_count
+        # Feature archived - volunteer_expenses child table no longer exists
+        return 0
 
     def _update_dues_payment_history(
         self, member_doc: "Document", payment_cache: PaymentReferenceCache
@@ -777,280 +708,55 @@ class MemberHistoryUpdateService(StatelessService):
         self, member_doc: "Document", claims: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        OPTIMIZED: Build all expense entries using batch queries.
+        DEPRECATED: Volunteer expense history feature has been archived.
 
-        Query Reduction: 41 queries → 3 queries (93% reduction)
+        This method was used for batch-building expense entries with optimized queries.
+        The volunteer_expenses child table was removed from the Member DocType.
+
+        Retained for backward compatibility with existing code/tests.
+        Scheduled for removal in v3.0.
 
         Args:
             member_doc: Member document object
-            claims: List of expense claim data from frappe.get_all()
+            claims: List of expense claim data (ignored)
 
         Returns:
-            list: List of expense entry dictionaries
+            list: Always returns empty list
         """
-        if not claims:
-            return []
-
-        # QUERY 1: Batch fetch ALL payment references for ALL claims
-        claim_names = [claim.name for claim in claims]
-
-        all_payment_refs = frappe.get_all(
-            "Payment Entry Reference",
-            filters={"reference_doctype": "Expense Claim", "reference_name": ["in", claim_names]},
-            fields=["parent", "allocated_amount", "reference_name"],
-        )
-
-        # Build lookup: claim_name → [payment_refs]
-        payment_refs_by_claim = {}
-        all_payment_entry_names = set()
-        for ref in all_payment_refs:
-            payment_refs_by_claim.setdefault(ref.reference_name, []).append(ref)
-            all_payment_entry_names.add(ref.parent)
-
-        # QUERY 2: Batch fetch ALL payment entries with chunking
-        all_payment_entries = []
-        if all_payment_entry_names:
-            all_payment_entries = self._batch_fetch_with_chunking(
-                doctype="Payment Entry",
-                name_list=list(all_payment_entry_names),
-                fields=["name", "posting_date", "paid_amount", "mode_of_payment"],
-                filters={"docstatus": 1},
-                chunk_size=500,
-            )
-
-        # Build lookup: payment_name → payment_data
-        payments_by_name = {pe.name: pe for pe in all_payment_entries}
-
-        # QUERY 3: Batch fetch ALL volunteers for ALL employees
-        employee_ids = [
-            getattr(claim, "employee", claim.get("employee"))
-            for claim in claims
-            if hasattr(claim, "employee") or "employee" in claim
-        ]
-        employee_ids = [e for e in employee_ids if e]  # Filter out None values
-
-        # Batch fetch volunteers
-        all_volunteers = []
-        if employee_ids:
-            all_volunteers = frappe.get_all(
-                "Volunteer",
-                filters={"employee_id": ["in", employee_ids]},
-                fields=["name", "employee_id", "member"],
-            )
-
-        # Build lookup: employee_id → volunteer_name (prioritize member match)
-        volunteers_by_employee = {}
-        for vol in all_volunteers:
-            # Prefer volunteers linked to this member
-            if vol.member == member_doc.name:
-                volunteers_by_employee[vol.employee_id] = vol.name
-            # Otherwise use any volunteer with this employee_id (if not already set)
-            elif vol.employee_id not in volunteers_by_employee:
-                volunteers_by_employee[vol.employee_id] = vol.name
-
-        # NOW BUILD ALL ENTRIES WITHOUT QUERIES
-        entries = []
-        success_count = 0
-        error_count = 0
-
-        for claim_data in claims:
-            try:
-                # Get volunteer from lookup (no query!)
-                volunteer_name = None
-                employee = getattr(claim_data, "employee", claim_data.get("employee"))
-                if employee:
-                    volunteer_name = volunteers_by_employee.get(employee)
-
-                # Get basic expense information
-                expense_name = getattr(claim_data, "name", claim_data.get("name"))
-                expense_status = getattr(claim_data, "status", claim_data.get("status", "Draft"))
-                docstatus = getattr(claim_data, "docstatus", claim_data.get("docstatus", 0))
-                approval_status = getattr(claim_data, "approval_status", claim_data.get("approval_status"))
-
-                # Apply status logic
-                if docstatus == 0:
-                    expense_status = "Draft"
-                elif docstatus == 1:
-                    if approval_status == "Rejected":
-                        expense_status = "Rejected"
-
-                # Get payment data from lookups (no queries!)
-                payment_refs = payment_refs_by_claim.get(expense_name, [])
-
-                payment_entry = None
-                payment_date = None
-                paid_amount = 0
-                payment_method = None
-                payment_status = "Pending"
-
-                if payment_refs:
-                    # Get payment entry names from refs
-                    payment_entry_names = [ref.parent for ref in payment_refs]
-                    relevant_payments = [
-                        payments_by_name[name] for name in payment_entry_names if name in payments_by_name
-                    ]
-
-                    if relevant_payments:
-                        # Get most recent payment
-                        most_recent = max(relevant_payments, key=lambda p: p.posting_date)
-                        payment_entry = most_recent.name
-                        payment_date = most_recent.posting_date  # ast-skip: Payment Entry field
-                        paid_amount = most_recent.paid_amount  # ast-skip: Payment Entry field
-                        payment_method = most_recent.mode_of_payment  # ast-skip: Payment Entry field
-                        payment_status = "Paid"
-
-                entries.append(
-                    {
-                        "expense_claim": expense_name,
-                        "volunteer": volunteer_name,
-                        "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
-                        "total_claimed_amount": getattr(
-                            claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
-                        ),
-                        "total_sanctioned_amount": getattr(
-                            claim_data,
-                            "total_sanctioned_amount",
-                            claim_data.get("total_sanctioned_amount", 0),
-                        ),
-                        "status": expense_status,
-                        "payment_entry": payment_entry,
-                        "payment_date": payment_date,
-                        "paid_amount": paid_amount,
-                        "payment_method": payment_method,
-                        "payment_status": payment_status,
-                    }
-                )
-                success_count += 1
-
-            except Exception as e:
-                error_count += 1
-                self.logger.error(
-                    f"Error building batched expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}"
-                )
-                # Continue with other claims
-                continue
-
-        # Log processing summary if there were any errors
-        if error_count > 0:
-            self.logger.warning(
-                f"Batched expense entry build for {member_doc.name}: "
-                f"{success_count} succeeded, {error_count} failed"
-            )
-
-        return entries
+        # Feature archived - volunteer_expenses child table no longer exists
+        return []
 
     def _build_lightweight_expense_entry(self, member_doc: "Document", claim_data) -> dict:
         """
-        Build expense history entry from claim data without loading full document.
+        DEPRECATED: Volunteer expense history feature has been archived.
 
-        DEPRECATED: Use _build_expense_entries_batched() for better performance.
-        Kept for fallback compatibility.
+        This method was used for building individual expense entries.
+        The volunteer_expenses child table was removed from the Member DocType.
+
+        Retained for backward compatibility with existing code/tests.
+        Scheduled for removal in v3.0.
 
         Args:
             member_doc: Member document object
-            claim_data: Expense claim data from frappe.get_all()
+            claim_data: Expense claim data (ignored)
 
         Returns:
-            dict: Expense entry dictionary
+            dict: Empty expense entry dictionary
         """
-        try:
-            # Get volunteer information
-            volunteer_name = None
-            if hasattr(claim_data, "employee") or "employee" in claim_data:
-                employee = getattr(claim_data, "employee", claim_data.get("employee"))
-                if employee:
-                    # First try to find volunteer by employee_id field and member link
-                    volunteer_name = frappe.db.get_value(
-                        "Volunteer", {"employee_id": employee, "member": member_doc.name}, "name"
-                    )
-
-                    # Fallback: if not found, try without member filter
-                    if not volunteer_name:
-                        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": employee}, "name")
-
-            # Get basic expense information
-            expense_name = getattr(claim_data, "name", claim_data.get("name"))
-            expense_status = getattr(claim_data, "status", claim_data.get("status", "Draft"))
-            docstatus = getattr(claim_data, "docstatus", claim_data.get("docstatus", 0))
-            approval_status = getattr(claim_data, "approval_status", claim_data.get("approval_status"))
-
-            # Apply status logic based on docstatus and approval_status
-            if docstatus == 0:
-                expense_status = "Draft"
-            elif docstatus == 1:
-                if approval_status == "Rejected":
-                    expense_status = "Rejected"
-
-            # Check for existing payment to determine payment_status
-            payment_entry = None
-            payment_date = None
-            paid_amount = 0
-            payment_method = None
-            payment_status = "Pending"
-
-            # Look for payment entries referencing this expense claim
-            payment_refs = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"reference_doctype": "Expense Claim", "reference_name": expense_name},
-                fields=["parent", "allocated_amount"],
-            )
-
-            if payment_refs:
-                # Get the most recent payment
-                payment_entries = frappe.get_all(
-                    "Payment Entry",
-                    filters={"name": ["in", [ref.parent for ref in payment_refs]], "docstatus": 1},
-                    fields=["name", "posting_date", "paid_amount", "mode_of_payment"],
-                    order_by="posting_date desc",
-                )
-
-                if payment_entries:
-                    payment_entry = payment_entries[0].name
-                    payment_date = payment_entries[0].posting_date
-                    paid_amount = payment_entries[0].paid_amount
-                    payment_method = payment_entries[0].mode_of_payment
-                    payment_status = "Paid"
-
-            return {
-                "expense_claim": expense_name,
-                "volunteer": volunteer_name,
-                "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
-                "total_claimed_amount": getattr(
-                    claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
-                ),
-                "total_sanctioned_amount": getattr(
-                    claim_data, "total_sanctioned_amount", claim_data.get("total_sanctioned_amount", 0)
-                ),
-                "status": expense_status,
-                "payment_entry": payment_entry,
-                "payment_date": payment_date,
-                "paid_amount": paid_amount,
-                "payment_method": payment_method,
-                "payment_status": payment_status,
-            }
-
-        except Exception as e:
-            self.logger.error(
-                f"Error building lightweight expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}"
-            )
-            # Return minimal entry on error
-            return {
-                "expense_claim": getattr(claim_data, "name", claim_data.get("name")),
-                "volunteer": None,
-                "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
-                "total_claimed_amount": getattr(
-                    claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
-                ),
-                "total_sanctioned_amount": getattr(
-                    claim_data, "total_sanctioned_amount", claim_data.get("total_sanctioned_amount", 0)
-                ),
-                "status": getattr(claim_data, "status", claim_data.get("status", "Draft")),
-                "payment_entry": None,
-                "payment_date": None,
-                "paid_amount": 0,
-                "payment_method": None,
-                "payment_status": "Draft",
-            }
+        # Feature archived - return minimal stub for backward compatibility
+        return {
+            "expense_claim": getattr(claim_data, "name", claim_data.get("name", "")),
+            "volunteer": None,
+            "posting_date": None,
+            "total_claimed_amount": 0,
+            "total_sanctioned_amount": 0,
+            "status": "Archived",
+            "payment_entry": None,
+            "payment_date": None,
+            "paid_amount": 0,
+            "payment_method": None,
+            "payment_status": "Archived",
+        }
 
     def refresh_fee_change_history(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
@@ -1270,9 +976,14 @@ class MemberHistoryUpdateService(StatelessService):
             )
 
         except Exception as e:
+            log_operation_error("HIST_006", f"member {member_name}", e)
             error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
-            self.logger.error(f"Fee change history error for {member_name}: {error_msg}")
-            return OperationResult.fail(f"Error: {error_msg}", errors=[str(e)], member=member_name)
+            return OperationResult.fail(
+                f"Error: {error_msg}",
+                errors=[str(e)],
+                error_code="HIST_006",
+                member=member_name,
+            )
 
 
 def get_member_history_update_service() -> MemberHistoryUpdateService:

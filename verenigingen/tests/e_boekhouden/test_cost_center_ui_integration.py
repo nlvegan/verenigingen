@@ -53,7 +53,10 @@ class TestCostCenterUIIntegration(EnhancedTestCase):
         
     def setUp(self):
         super().setUp()
-        
+
+        # Restore CostCenterTestDataFactory (parent class overrides with EnhancedTestDataFactory)
+        self.factory = self.__class__.factory
+
         # Create test company and settings
         self.test_company = self.factory.create_test_company()
         self.test_settings = self.factory.create_test_eboekhouden_settings(
@@ -61,7 +64,7 @@ class TestCostCenterUIIntegration(EnhancedTestCase):
         )
         
         # Track for cleanup
-        self.track_doc("Company", self.test_company.name)
+        self.factory.track_document("Company", self.test_company.name)
         
     def test_parse_groups_button_functionality(self):
         """Test Parse Groups & Configure Cost Centers button behavior"""
@@ -76,31 +79,17 @@ class TestCostCenterUIIntegration(EnhancedTestCase):
         self.test_settings.save()
         
         # Test button behavior via API (simulating JavaScript call)
-        with patch('verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers') as mock_parse:
-            mock_parse.return_value = {
-                "success": True,
-                "suggestions": [
-                    {
-                        "group_code": "500",
-                        "group_name": "Personeelskosten",
-                        "create_cost_center": True,
-                        "cost_center_name": "Personeelskosten",
-                        "reason": "Expense group - good for cost tracking"
-                    }
-                ],
-                "total_groups": 1,
-                "suggested_count": 1
-            }
-            
-            # Simulate button click via frappe.call
-            result = frappe.get_doc({
-                "doctype": "E-Boekhouden Settings"
-            }).run_method("parse_groups_and_suggest_cost_centers", 
-                         group_mappings_text=text_input, 
-                         company=self.test_company.name)
-            
-            # Verify API was called correctly
-            mock_parse.assert_called_once_with(text_input, self.test_company.name)
+        # parse_groups_and_suggest_cost_centers is a module-level function, use frappe.call
+        result = frappe.call(
+            "verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers",
+            group_mappings_text=text_input,
+            company=self.test_company.name
+        )
+
+        # Verify the function returns expected structure
+        self.assertTrue(result.get("success"), f"Parse should succeed: {result.get('error')}")
+        self.assertIn("suggestions", result, "Result should contain suggestions")
+        self.assertIn("total_groups", result, "Result should contain total_groups")
             
     def test_preview_dialog_functionality(self):
         """Test cost center preview dialog behavior"""
@@ -199,20 +188,26 @@ class TestCostCenterUIIntegration(EnhancedTestCase):
             self.assertFalse(result["success"], "Should fail with empty mappings")
             self.assertIn("error", result, "Should return error message")
             
-        # Test 2: Missing company configuration  
-        self.test_settings.default_company = None
-        self.test_settings.save()
-        
+        # Test 2: Missing company configuration
+        # Use db_set to bypass validation when clearing required field
+        original_company = self.test_settings.default_company
+        frappe.db.set_value("E-Boekhouden Settings", "E-Boekhouden Settings", "default_company", None)
+        self.test_settings.reload()
+
         with patch('verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.create_cost_centers_from_mappings') as mock_create:
             mock_create.return_value = {
                 "success": False,
                 "error": "Default company not configured"
             }
-            
+
             result = frappe.call("verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.create_cost_centers_from_mappings")
-            
+
             self.assertFalse(result["success"], "Should fail without company")
             self.assertIn("company", result["error"].lower(), "Error should mention company")
+
+        # Restore company
+        frappe.db.set_value("E-Boekhouden Settings", "E-Boekhouden Settings", "default_company", original_company)
+        self.test_settings.reload()
             
         # Test 3: Invalid mapping data
         with patch('verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.preview_cost_center_creation') as mock_preview:
@@ -428,16 +423,32 @@ class TestCostCenterUIIntegration(EnhancedTestCase):
             with self.subTest(scenario=scenario_name):
                 
                 if scenario_name == "no_company":
-                    # Clear company
+                    # Clear company using db_set to bypass validation
                     original_company = self.test_settings.default_company
-                    self.test_settings.default_company = None
-                    self.test_settings.save()
-                    
+
+                    # Also need to ensure cost_center_mappings exist for this test
+                    original_mappings = self.test_settings.cost_center_mappings or []
+                    if not original_mappings:
+                        self.test_settings.append("cost_center_mappings", {
+                            "group_code": "500",
+                            "group_name": "Test Group",
+                            "cost_center_name": "Test Cost Center",
+                            "is_group": 0
+                        })
+                        self.test_settings.save(ignore_permissions=True)
+
+                    frappe.db.set_value("E-Boekhouden Settings", "E-Boekhouden Settings", "default_company", None)
+                    self.test_settings.reload()
+
                     result = frappe.call("verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.create_cost_centers_from_mappings")
-                    
+
                     # Restore company
-                    self.test_settings.default_company = original_company
-                    self.test_settings.save()
+                    frappe.db.set_value("E-Boekhouden Settings", "E-Boekhouden Settings", "default_company", original_company)
+                    if not original_mappings:
+                        self.test_settings.reload()
+                        self.test_settings.cost_center_mappings = []
+                        self.test_settings.save(ignore_permissions=True)
+                    self.test_settings.reload()
                 else:
                     result = frappe.call(
                         "verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers",
@@ -473,26 +484,51 @@ class TestCostCenterUIWorkflows(EnhancedTestCase):
         
     def setUp(self):
         super().setUp()
+
+        # Restore CostCenterTestDataFactory (parent class overrides with EnhancedTestDataFactory)
+        self.factory = self.__class__.factory
+
         self.test_company = self.factory.create_test_company()
         self.test_settings = self.factory.create_test_eboekhouden_settings(
             company_name=self.test_company.name
         )
-        self.track_doc("Company", self.test_company.name)
-        
+        self.factory.track_document("Company", self.test_company.name)
+
+        # Clean up any existing cost centers with happy_path scenario names
+        # to ensure test isolation between runs
+        self._cleanup_happy_path_cost_centers()
+
+    def _cleanup_happy_path_cost_centers(self):
+        """Remove cost centers that may conflict with happy_path test scenario."""
+        scenario = self.factory.generate_cost_center_mapping_scenario("happy_path")
+        for group in scenario["groups"]:
+            group_name = group["name"]
+            existing_cost_centers = frappe.get_all(
+                "Cost Center",
+                filters={"cost_center_name": group_name},
+                pluck="name"
+            )
+            for cc_name in existing_cost_centers:
+                try:
+                    frappe.delete_doc("Cost Center", cc_name, force=True, ignore_permissions=True)
+                except Exception:
+                    pass  # Ignore deletion errors (may have linked documents)
+        frappe.db.commit()
+
     def test_complete_happy_path_workflow(self):
         """Test complete happy path user workflow"""
-        
+
         # Step 1: User inputs account group mappings
         scenario = self.factory.generate_cost_center_mapping_scenario("happy_path")
         groups = scenario["groups"]
         text_input = self.factory.format_groups_as_text_input(groups)
-        
+
         self.test_settings.account_group_mappings = text_input
         self.test_settings.save()
         
         # Step 2: User clicks "Parse Groups & Configure Cost Centers"
         parse_result = frappe.call(
-            "verenigingeng.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers",
+            "verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers",
             group_mappings_text=text_input,
             company=self.test_company.name
         )
@@ -532,7 +568,7 @@ class TestCostCenterUIWorkflows(EnhancedTestCase):
             cc_id = created_cc["cost_center_id"]
             self.assertTrue(frappe.db.exists("Cost Center", cc_id),
                           f"Cost center {cc_id} should exist in database")
-            self.track_doc("Cost Center", cc_id)
+            self.factory.track_document("Cost Center", cc_id)
             
         print(f"✅ Complete workflow test: Created {create_result['created_count']} cost centers")
         
