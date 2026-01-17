@@ -173,7 +173,11 @@ def alert_if_auth_issues():
             if recipients:
                 email_service = get_email_service()
                 email_service.send_simple_email(
-                    recipients=recipients, subject=subject, message=message, delayed=False
+                    recipients=recipients,
+                    subject=subject,
+                    message=message,
+                    delayed=False,
+                    notification_key="auth_monitoring_alert",
                 )
 
             frappe.logger().error(f"AUTH_MONITOR: Critical alert sent to {len(recipients)} administrators")

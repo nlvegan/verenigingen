@@ -890,6 +890,7 @@ class SEPARollbackManager:
                         message=message,
                         reference_doctype="Direct Debit Batch",
                         reference_name=operation.batch_name,
+                        notification_key="sepa_batch_error",
                     )
                 except Exception as e:
                     frappe.logger().warning(f"Failed to send notification to {recipient}: {str(e)}")

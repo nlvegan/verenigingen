@@ -553,7 +553,11 @@ class BusinessLogicMonitor:
             # Send email notification
             email_service = get_email_service()
             email_service.send_simple_email(
-                recipients=admin_emails, subject=subject, message=message, send_priority=1
+                recipients=admin_emails,
+                subject=subject,
+                message=message,
+                send_priority=1,
+                notification_key="business_logic_alert",
             )
 
             logger.info(f"Sent business logic alerts to {len(admin_emails)} administrators")

@@ -53,6 +53,7 @@ def send_donation_confirmation(donation_id):
             reference_doctype="Donation",
             reference_name=donation.name,
             send_priority=1,
+            notification_key="donation_confirmation",
         )
 
         # Log email sent
@@ -111,6 +112,7 @@ def send_payment_confirmation(donation_id):
             reference_doctype="Donation",
             reference_name=donation.name,
             send_priority=1,
+            notification_key="donation_payment_confirmation",
         )
 
         # Send ANBI receipt if applicable
@@ -173,6 +175,7 @@ def send_anbi_receipt(donation_id):
             reference_doctype="Donation",
             reference_name=donation.name,
             send_priority=1,
+            notification_key="anbi_tax_receipt",
         )
 
         donation.add_comment(

@@ -103,6 +103,7 @@ class AlertManager:
                 subject=f"[{severity}] {alert_type}: {message}",
                 message=self.format_alert_email(alert_type, severity, message, details),
                 delayed=False,
+                notification_key="system_alert",
             )
 
             return alert_doc
@@ -144,6 +145,7 @@ class AlertManager:
                 subject="Daily Monitoring Report",
                 message=self.format_daily_report(daily_stats),
                 delayed=False,
+                notification_key="system_alert",
             )
 
         except Exception as e:

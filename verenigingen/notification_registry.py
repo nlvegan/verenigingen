@@ -509,6 +509,13 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "anbi_tax_receipt": {
+        "label": "ANBI Tax Receipt",
+        "category": CATEGORY_PAYMENT,
+        "description": "Tax deduction receipt sent to donors for ANBI-eligible donations.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
     "contact_request_assigned": {
         "label": "Contact Request Assigned",
         "category": CATEGORY_ADMIN,

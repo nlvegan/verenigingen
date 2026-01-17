@@ -375,6 +375,7 @@ class MollieSecurityManager:
                         <p>Please investigate this security incident immediately.</p>
                         """,
                         now=True,
+                        notification_key="mollie_security_alert",
                     )
             except Exception as e:
                 frappe.log_error(f"Failed to send security alert email: {str(e)}", "Mollie Security")
