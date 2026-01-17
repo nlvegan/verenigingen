@@ -452,6 +452,7 @@ class SEPAAuditLogger:
                     <p>Please review the audit logs for more details.</p>
                     """,
                     now=True,
+                    notification_key="audit_alert",
                 )
 
         except Exception as e:

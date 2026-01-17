@@ -605,6 +605,7 @@ def escalate_conflicts(batch_id, conflicts):
             subject=f"Direct Debit Batch Conflicts - {batch_id}",
             message=escalation_message,
             delayed=False,
+            notification_key="sepa_batch_error",
         )
 
     # Update batch status

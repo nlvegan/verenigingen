@@ -144,6 +144,7 @@ class ExpulsionReportEntry(Document):
                 reference_doctype=self.doctype,
                 reference_name=self.name,
                 header=["New Expulsion Entry", "red"],
+                notification_key="expulsion_report_submitted",
             )
 
         except Exception as e:
@@ -222,6 +223,7 @@ class ExpulsionReportEntry(Document):
                 reference_doctype=self.doctype,
                 reference_name=self.name,
                 header=["Expulsion Reversed", "green"],
+                notification_key="expulsion_report_submitted",
             )
 
         except Exception as e:

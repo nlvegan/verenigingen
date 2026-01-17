@@ -1916,6 +1916,7 @@ def notify_chapter_of_overdue_applications(chapter_name, applications):
             View All Pending Applications</a></p>
             """,
             now=True,
+            notification_key="member_application_overdue",
         )
 
 
@@ -1958,6 +1959,7 @@ def notify_managers_of_overdue_applications(applications):
                 View Unassigned Applications</a></p>
                 """,
                 now=True,
+                notification_key="member_application_overdue",
             )
 
 

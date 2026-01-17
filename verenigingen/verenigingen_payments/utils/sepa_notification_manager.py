@@ -594,6 +594,7 @@ Generated at: {timestamp}
                 message=content["message"],
                 reference_doctype=context.get("reference_doctype"),
                 reference_name=context.get("reference_name"),
+                notification_key=context.get("notification_key", "sepa_member_pre_notification"),
             )
 
             return {"success": True, "recipients_count": len(recipients)}

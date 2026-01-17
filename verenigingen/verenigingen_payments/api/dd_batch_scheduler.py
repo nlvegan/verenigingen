@@ -384,7 +384,11 @@ def send_batch_creation_notification(result):
         email_service = get_email_service()
         for manager in finance_managers:
             email_service.send_simple_email(
-                recipients=[manager.email], subject=subject, message=message, delayed=False
+                recipients=[manager.email],
+                subject=subject,
+                message=message,
+                delayed=False,
+                notification_key="sepa_batch_scheduler_alert",
             )
 
     except Exception as e:

@@ -90,6 +90,27 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "member_application_submitted": {
+        "label": "Application Submitted (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to reviewers/admins when a new membership application is submitted.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "member_application_approved": {
+        "label": "Application Approved",
+        "category": CATEGORY_MEMBER,
+        "description": "Sent to applicants when their membership application is approved.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "member_application_overdue": {
+        "label": "Application Overdue Alert",
+        "category": CATEGORY_ADMIN,
+        "description": "Alert sent to reviewers when membership applications have been pending too long.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "member_application_rejected": {
         "label": "Application Rejected",
         "category": CATEGORY_MEMBER,
@@ -176,6 +197,27 @@ NOTIFICATION_KEYS = {
         "description": "Sent to chapter leadership when chapter configuration or settings are modified.",
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "chapter_join_request_submitted": {
+        "label": "Chapter Join Request Submitted",
+        "category": CATEGORY_CHAPTER,
+        "description": "Sent to chapter board members when a member submits a request to join their chapter.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "chapter_join_request_approved": {
+        "label": "Chapter Join Request Approved",
+        "category": CATEGORY_CHAPTER,
+        "description": "Sent to the member when their chapter join request is approved.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "chapter_join_request_rejected": {
+        "label": "Chapter Join Request Rejected",
+        "category": CATEGORY_CHAPTER,
+        "description": "Sent to the member when their chapter join request is rejected, including the reason.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
     # =========================================================================
     # PAYMENT NOTIFICATIONS
@@ -322,6 +364,34 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "sepa_member_pre_notification": {
+        "label": "SEPA Pre-Notification",
+        "category": CATEGORY_PAYMENT,
+        "description": "Notification sent to members before SEPA direct debit collection occurs.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "sepa_batch_scheduler_alert": {
+        "label": "SEPA Scheduler Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert from SEPA batch scheduler about processing issues or delays.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "balance_monitor_alert": {
+        "label": "Balance Monitor Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert when account balance falls below configured threshold.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mollie_security_alert": {
+        "label": "Mollie Security Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Security alert for suspicious activity in Mollie payment processing.",
+        "priority": PRIORITY_CRITICAL,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     # =========================================================================
     # PONTO NOTIFICATIONS
     # =========================================================================
@@ -415,6 +485,41 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "security_alert": {
+        "label": "Security Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": "Real-time alert for security events requiring immediate attention.",
+        "priority": PRIORITY_CRITICAL,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "audit_alert": {
+        "label": "Audit Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": "Alert triggered by audit logging rules for suspicious or critical operations.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "auth_monitoring_alert": {
+        "label": "Authentication Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": "Alert for authentication anomalies like failed logins or suspicious access patterns.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "business_logic_alert": {
+        "label": "Business Logic Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": "Alert triggered by business logic monitoring rules detecting anomalies.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "system_alert": {
+        "label": "System Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": "Generic system alert for operational issues and warnings.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     # =========================================================================
     # ADMIN NOTIFICATIONS
     # =========================================================================
@@ -424,6 +529,107 @@ NOTIFICATION_KEYS = {
         "description": "Sent to donors requesting consent for ANBI tax deduction reporting.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "anbi_tax_receipt": {
+        "label": "ANBI Tax Receipt",
+        "category": CATEGORY_PAYMENT,
+        "description": "Tax deduction receipt sent to donors for ANBI-eligible donations.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "contact_request_assigned": {
+        "label": "Contact Request Assigned",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to staff member when a contact request is assigned to them.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "contact_request_escalated": {
+        "label": "Contact Request Escalated",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to managers when a contact request is escalated due to SLA breach or priority.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "contact_request_response_sent": {
+        "label": "Contact Request Response",
+        "category": CATEGORY_MEMBER,
+        "description": "Sent to member when their contact request receives a response.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "expulsion_report_submitted": {
+        "label": "Expulsion Report Submitted",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to governance committee when a new expulsion report is submitted.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "member_activation_reminder": {
+        "label": "Member Activation Reminder",
+        "category": CATEGORY_MEMBER,
+        "description": "Reminder sent to pending members who haven't completed activation.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "newsletter_campaign": {
+        "label": "Newsletter Campaign",
+        "category": CATEGORY_MEMBER,
+        "description": "Automated newsletter or campaign emails sent to members or segments.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_CUSTOM,
+    },
+    "chapter_generic_notification": {
+        "label": "Chapter Generic Notification",
+        "category": CATEGORY_CHAPTER,
+        "description": "Generic chapter-level notifications using custom templates.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_CUSTOM,
+    },
+    "contribution_sync_failed": {
+        "label": "Contribution Sync Failed",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert when Mollie contribution synchronization fails.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "email_template_test": {
+        "label": "Email Template Test",
+        "category": CATEGORY_ADMIN,
+        "description": "Test email sent when previewing or testing email templates.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_FIXED,
+    },
+    # =========================================================================
+    # PAYMENT ALERT NOTIFICATIONS
+    # =========================================================================
+    "payment_alert_overpayment": {
+        "label": "Overpayment Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert sent to financial admins when an overpayment is detected.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "payment_alert_failure": {
+        "label": "Payment Entry Failure Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert sent when automatic Payment Entry creation fails.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "payment_alert_reconciliation": {
+        "label": "Payment Reconciliation Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert for payment reconciliation issues requiring manual review.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "zabbix_system_alert": {
+        "label": "Zabbix System Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": "System alert forwarded from Zabbix monitoring integration.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_FIXED,
     },
 }
 

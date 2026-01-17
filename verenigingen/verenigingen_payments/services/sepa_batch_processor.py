@@ -646,6 +646,7 @@ class SEPABatchProcessor:
                 message=message,
                 reference_doctype="Membership Dues Schedule",
                 reference_name=schedule.name,
+                notification_key="payment_failure_final",
             )
 
         except Exception:

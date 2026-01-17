@@ -318,6 +318,7 @@ class CommunicationManager(BaseManager):
                     context=context,
                     reference_doctype="Chapter",
                     reference_name=self.chapter_name,
+                    notification_key="chapter_generic_notification",
                 )
 
                 if success:

@@ -71,6 +71,7 @@ def send_follow_up_reminders():
                     message=message,
                     reference_doctype="Member Contact Request",
                     reference_name=request.name,
+                    notification_key="contact_request_assigned",
                 )
 
                 # Update follow-up date to avoid duplicate reminders
@@ -161,6 +162,7 @@ def escalate_contact_request(request, overdue_days):
             message=message,
             reference_doctype="Member Contact Request",
             reference_name=request.name,
+            notification_key="contact_request_escalated",
         )
 
         # Add escalation note to the request
@@ -255,6 +257,7 @@ def auto_close_resolved_requests():
                     message=message,
                     reference_doctype="Member Contact Request",
                     reference_name=request.name,
+                    notification_key="contact_request_response_sent",
                 )
 
             frappe.logger().info(f"Auto-closed contact request {request.name}")

@@ -219,6 +219,16 @@ class EmailConfigurationService:
     def _is_suppressed(self) -> bool:
         """Check if notifications are suppressed by flags.
 
+        Canonical suppression flags (set via context managers in notification_suppression.py):
+        - suppress_notifications: Suppresses ALL notifications (set by suppress_all_notifications())
+        - suppress_chapter_notifications: Suppresses chapter-related notifications only
+          (set by suppress_chapter_notifications())
+
+        Import-related flags (checked if suppress_during_imports is enabled):
+        - in_import: Standard Frappe import flag
+        - in_bulk_import: Bulk import operations
+        - bulk_member_operations: Member bulk operations
+
         Returns:
             True if notifications should be suppressed.
         """
@@ -233,9 +243,8 @@ class EmailConfigurationService:
             if getattr(frappe.flags, "bulk_member_operations", False):
                 return True
 
+        # Check explicit suppression flags (set by context managers)
         if getattr(frappe.flags, "suppress_notifications", False):
-            return True
-        if getattr(frappe.flags, "suppress_all_notifications", False):
             return True
 
         return False

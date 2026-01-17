@@ -154,6 +154,7 @@ class MemberContactRequest(Document):
                 message=message,
                 reference_doctype=self.doctype,
                 reference_name=self.name,
+                notification_key="contact_request_escalated",
             )
 
         except Exception as e:
@@ -266,6 +267,7 @@ class MemberContactRequest(Document):
                         message=message,
                         reference_doctype=self.doctype,
                         reference_name=self.name,
+                        notification_key="contact_request_assigned",
                     )
             except Exception as e:
                 frappe.log_error(f"Failed to notify assigned user: {str(e)}", "Assignment Notification Error")

@@ -812,6 +812,7 @@ def run_business_rule_monitoring():
                             subject=subject,
                             message=message,
                             send_priority=1 if alert["severity"] == "CRITICAL" else 0,
+                            notification_key="business_logic_alert",
                         )
                 except Exception as e:
                     frappe.log_error(f"Failed to send business rule alert notification: {str(e)}")

@@ -419,6 +419,7 @@ class ContributionAmendmentRequest(Document):
                     },
                     reference_doctype="Contribution Amendment Request",
                     reference_name=self.name,
+                    notification_key="contribution_sync_failed",
                 )
 
                 if result.get("success"):

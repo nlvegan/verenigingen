@@ -5,11 +5,31 @@ Provides safe, explicit context managers for suppressing notifications during
 bulk operations. This prevents accidental email floods and makes bulk operation
 intent clear in code.
 
+Canonical Suppression Flags:
+---------------------------
+The following frappe.flags are the canonical suppression flags. They are
+checked by EmailConfigurationService._is_suppressed() before sending any email.
+
+1. suppress_notifications (bool):
+   - Suppresses ALL notifications when True
+   - Set by: suppress_all_notifications() context manager
+   - Use case: Large-scale imports, migrations, bulk operations
+
+2. suppress_chapter_notifications (bool):
+   - Suppresses chapter-related notifications only
+   - Set by: suppress_chapter_notifications() context manager
+   - Use case: Bulk chapter member assignments
+
 Example usage:
     with suppress_chapter_notifications():
         for member in bulk_member_list:
             ChapterMembershipManager.assign_member_to_chapter(member, chapter)
-            # Notifications automatically suppressed within this block
+            # Chapter notifications automatically suppressed within this block
+
+    with suppress_all_notifications():
+        for record in import_records:
+            process_import(record)
+            # ALL notifications suppressed within this block
 """
 
 from contextlib import contextmanager

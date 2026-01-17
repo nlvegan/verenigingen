@@ -85,6 +85,7 @@ def send_application_confirmation_email(member, application_id):
             now=True,
             reference_doctype="Member",
             reference_name=member.name,
+            notification_key="member_application_confirmation",
         )
     except Exception as e:
         frappe.log_error(f"Error sending confirmation email: {str(e)}", "Email Error")
@@ -146,6 +147,7 @@ def notify_reviewers_of_new_application(member, application_id):
             subject=f"New Application: {application_id} - {member.full_name}",
             message=message,
             now=True,
+            notification_key="member_application_submitted",
         )
 
 
@@ -208,6 +210,7 @@ def send_approval_email(member, invoice):
             now=True,
             reference_doctype="Member",
             reference_name=member.name,
+            notification_key="member_application_approved",
         )
     except Exception as e:
         frappe.log_error(f"Error sending approval email: {str(e)}", "Email Error")
@@ -256,6 +259,7 @@ def send_rejection_email(member, reason):
             now=True,
             reference_doctype="Member",
             reference_name=member.name,
+            notification_key="member_application_rejected",
         )
     except Exception as e:
         frappe.log_error(f"Error sending rejection email: {str(e)}", "Email Error")
@@ -320,6 +324,7 @@ def send_payment_confirmation_email(member, invoice):
             now=True,
             reference_doctype="Member",
             reference_name=member.name,
+            notification_key="member_activated",
         )
     except Exception as e:
         frappe.log_error(f"Error sending payment confirmation email: {str(e)}", "Email Error")
@@ -448,6 +453,7 @@ def notify_admins_of_new_application(member, invoice=None):
             subject=f"New Application: {member.full_name}",
             message=message,
             now=True,
+            notification_key="member_application_submitted",
         )
     except Exception as e:
         frappe.log_error(f"Error notifying admins: {str(e)}", "Notification Error")
@@ -500,6 +506,7 @@ def check_overdue_applications():
                             subject=frappe.render_template(email_template_doc.subject, args),
                             message=frappe.render_template(email_template_doc.response, args),
                             now=True,
+                            notification_key="member_application_overdue",
                         )
                     else:
                         # Fallback to simple message
@@ -523,6 +530,7 @@ def check_overdue_applications():
                             subject="Overdue Membership Applications",
                             message=message,
                             now=True,
+                            notification_key="member_application_overdue",
                         )
         except Exception as e:
             frappe.log_error(f"Error notifying about overdue applications: {str(e)}")
@@ -565,6 +573,7 @@ def send_simple_notification(data, member_id):
             subject="Membership Application Submitted",
             message=message,
             now=True,
+            notification_key="member_application_confirmation",
         )
     except Exception as e:
         frappe.log_error(f"Error sending simple notification: {str(e)}", "Notification Error")

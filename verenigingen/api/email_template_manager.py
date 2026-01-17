@@ -652,15 +652,30 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
         template_name: Name of the Email Template
         recipients: List of email addresses
         context: Dict of variables for template rendering
-        **kwargs: Additional email options (reference_doctype, reference_name, etc.)
+        **kwargs: Additional email options:
+            - reference_doctype: DocType for reference
+            - reference_name: Document name for reference
+            - notification_key: REQUIRED - notification key from registry for central control
 
     Returns:
         bool: Success status
+
+    Note:
+        notification_key is required to enable central notification configuration.
+        Callers must explicitly provide a notification_key from the registry.
     """
     from verenigingen.services.communication.email_service import get_email_service
 
     if context is None:
         context = {}
+
+    # Require explicit notification_key - do not default to a test key
+    notification_key = kwargs.get("notification_key")
+    if not notification_key:
+        frappe.logger().warning(
+            f"send_template_email called without notification_key for template '{template_name}'. "
+            "Add a notification_key parameter to enable central notification control."
+        )
 
     try:
         # Get rendered template
@@ -674,6 +689,7 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
             message=template["message"],
             reference_doctype=kwargs.get("reference_doctype"),
             reference_name=kwargs.get("reference_name"),
+            notification_key=notification_key,
         )
 
         return result.get("success", False)

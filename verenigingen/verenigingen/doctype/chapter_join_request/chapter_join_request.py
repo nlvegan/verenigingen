@@ -223,6 +223,9 @@ class ChapterJoinRequest(Document):
                         "Please review and approve/reject this request."
                     ).format(self.member_name, self.chapter, self.request_date),
                     header=[_("Chapter Join Request"), "blue"],
+                    notification_key="chapter_join_request_submitted",
+                    reference_doctype="Chapter Join Request",
+                    reference_name=self.name,
                 )
         except Exception as e:
             frappe.log_error(f"Failed to send chapter board notification: {str(e)}")
@@ -239,6 +242,9 @@ class ChapterJoinRequest(Document):
                     "Welcome to the chapter!"
                 ).format(self.chapter),
                 header=[_("Request Approved"), "green"],
+                notification_key="chapter_join_request_approved",
+                reference_doctype="Chapter Join Request",
+                reference_name=self.name,
             )
         except Exception as e:
             frappe.log_error(f"Failed to send member approval notification: {str(e)}")
@@ -256,6 +262,9 @@ class ChapterJoinRequest(Document):
                 subject=_("Chapter Join Request Rejected - {0}").format(self.chapter),
                 message=message,
                 header=[_("Request Rejected"), "red"],
+                notification_key="chapter_join_request_rejected",
+                reference_doctype="Chapter Join Request",
+                reference_name=self.name,
             )
         except Exception as e:
             frappe.log_error(f"Failed to send member rejection notification: {str(e)}")

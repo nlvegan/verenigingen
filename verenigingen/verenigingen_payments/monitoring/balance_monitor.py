@@ -455,6 +455,7 @@ class BalanceMonitor:
 
                 Please review immediately.
                 """,
+                notification_key="balance_monitor_alert",
             )
 
             # Send realtime notification

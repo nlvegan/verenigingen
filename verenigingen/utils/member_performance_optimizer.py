@@ -411,6 +411,7 @@ def process_member_post_creation(member_name: str):
                     """,
                     reference_doctype="Member",
                     reference_name=member.name,
+                    notification_key="member_activated",
                 )
 
                 if result.get("success"):

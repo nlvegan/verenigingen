@@ -539,6 +539,7 @@ def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, A
                     message=get_renewal_reminder_email(agreement, days_remaining),
                     reference_doctype="Periodic Donation Agreement",
                     reference_name=agreement.name,
+                    notification_key="periodic_donation_expiry",
                 )
 
                 # Log the reminder

@@ -174,9 +174,9 @@ class TestEmailConfigurationServiceShouldSend(FrappeTestCase):
         """Set up test fixtures."""
         super().setUp()
         self.service = EmailConfigurationService()
-        # Clear suppression flags
+        # Clear suppression flags (canonical flags only)
         frappe.flags.suppress_notifications = False
-        frappe.flags.suppress_all_notifications = False
+        frappe.flags.suppress_chapter_notifications = False
         frappe.flags.in_import = False
         frappe.flags.in_bulk_import = False
         frappe.flags.bulk_member_operations = False
@@ -184,7 +184,7 @@ class TestEmailConfigurationServiceShouldSend(FrappeTestCase):
     def tearDown(self):
         """Clean up flags."""
         frappe.flags.suppress_notifications = False
-        frappe.flags.suppress_all_notifications = False
+        frappe.flags.suppress_chapter_notifications = False
         frappe.flags.in_import = False
         frappe.flags.in_bulk_import = False
         frappe.flags.bulk_member_operations = False
@@ -362,20 +362,28 @@ class TestEmailConfigurationServiceSuppression(FrappeTestCase):
         super().tearDown()
 
     def _clear_flags(self):
-        """Clear all suppression flags."""
+        """Clear all suppression flags.
+
+        Canonical suppression flags (see notification_suppression.py):
+        - suppress_notifications: Set by suppress_all_notifications() context manager
+        - suppress_chapter_notifications: Set by suppress_chapter_notifications() context manager
+
+        Import-related flags:
+        - in_import, in_bulk_import, bulk_member_operations
+        """
         for flag in [
-            'suppress_notifications', 'suppress_all_notifications',
+            'suppress_notifications', 'suppress_chapter_notifications',
             'in_import', 'in_bulk_import', 'bulk_member_operations'
         ]:
             setattr(frappe.flags, flag, False)
 
-    def test_is_suppressed_checks_all_notification_flags(self):
-        """Test _is_suppressed checks suppress_notifications flag."""
-        frappe.flags.suppress_notifications = True
-        self.assertTrue(self.service._is_suppressed())
+    def test_is_suppressed_checks_suppress_notifications_flag(self):
+        """Test _is_suppressed checks the canonical suppress_notifications flag.
 
-        frappe.flags.suppress_notifications = False
-        frappe.flags.suppress_all_notifications = True
+        Note: The suppress_all_notifications() context manager sets suppress_notifications=True.
+        This is the canonical flag checked by _is_suppressed().
+        """
+        frappe.flags.suppress_notifications = True
         self.assertTrue(self.service._is_suppressed())
 
     def test_is_suppressed_checks_import_flags(self):
