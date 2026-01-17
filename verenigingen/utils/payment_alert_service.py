@@ -215,6 +215,8 @@ class PaymentAlertService:
         Returns:
             True if sent successfully, False otherwise
         """
+        from verenigingen.services.communication.email_service import get_email_service
+
         try:
             recipients = self.alert_recipients
             if not recipients:
@@ -227,12 +229,22 @@ class PaymentAlertService:
                 )
                 return False
 
-            frappe.sendmail(
+            # Map alert_type to notification_key
+            notification_key_map = {
+                "overpayment": "payment_alert_overpayment",
+                "payment_entry_failure": "payment_alert_failure",
+                "reconciliation": "payment_alert_reconciliation",
+            }
+            notification_key = notification_key_map.get(alert_type, "payment_alert_failure")
+
+            email_service = get_email_service()
+            result = email_service.send_simple_email(
                 recipients=recipients,
                 subject=subject,
                 message=message,
+                notification_key=notification_key,
             )
-            return True
+            return result.get("success", False)
         except Exception as e:
             frappe.logger().warning(f"Failed to send {alert_type} alert email: {e}")
             return False

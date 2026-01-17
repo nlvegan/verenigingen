@@ -978,15 +978,29 @@ def create_issue_from_alert(alert):
     issue.issue_type = "System Alert"
     issue.insert(ignore_permissions=True)
     
-    # Send email notification
+    # Send email notification via EmailService for central control
     recipients = frappe.conf.get("alert_recipients", [])
     if recipients:
-        frappe.sendmail(
-            recipients=recipients,
-            subject=issue.subject,
-            message=issue.description,
-            delayed=False
-        )
+        try:
+            from verenigingen.services.communication.email_service import get_email_service
+
+            email_service = get_email_service()
+            email_service.send_simple_email(
+                recipients=recipients,
+                subject=issue.subject,
+                message=issue.description,
+                notification_key="zabbix_system_alert",
+                reference_doctype="Issue",
+                reference_name=issue.name,
+            )
+        except ImportError:
+            # Fallback if EmailService not available (e.g., during migrations)
+            frappe.sendmail(
+                recipients=recipients,
+                subject=issue.subject,
+                message=issue.description,
+                delayed=False,
+            )
     
     return {"action": "created_issue", "reference": issue.name}
 

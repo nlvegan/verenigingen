@@ -600,6 +600,37 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_LOW,
         "recipient_policy": POLICY_FIXED,
     },
+    # =========================================================================
+    # PAYMENT ALERT NOTIFICATIONS
+    # =========================================================================
+    "payment_alert_overpayment": {
+        "label": "Overpayment Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert sent to financial admins when an overpayment is detected.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "payment_alert_failure": {
+        "label": "Payment Entry Failure Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert sent when automatic Payment Entry creation fails.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "payment_alert_reconciliation": {
+        "label": "Payment Reconciliation Alert",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert for payment reconciliation issues requiring manual review.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "zabbix_system_alert": {
+        "label": "Zabbix System Alert",
+        "category": CATEGORY_SYSTEM,
+        "description": "System alert forwarded from Zabbix monitoring integration.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_FIXED,
+    },
 }
 
 

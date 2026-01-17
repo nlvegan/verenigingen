@@ -328,18 +328,23 @@ def send_test_newsletter(email_group=None):
     <p><strong>No action is required.</strong></p>
     """
 
-    # Send to recipients
-    for recipient in recipients:
-        frappe.sendmail(
-            recipients=[recipient.email],
-            subject=subject,
-            message=content,
-            reference_doctype="Email Group",
-            reference_name=email_group,
-        )
+    # Send to recipients via EmailService for central control
+    from verenigingen.services.communication.email_service import get_email_service
+
+    email_service = get_email_service()
+    recipient_emails = [r.email for r in recipients]
+
+    result = email_service.send_simple_email(
+        recipients=recipient_emails,
+        subject=subject,
+        message=content,
+        reference_doctype="Email Group",
+        reference_name=email_group,
+        notification_key="newsletter_campaign",
+    )
 
     return {
-        "success": True,
+        "success": result.get("success", False),
         "recipients_count": len(recipients),
         "message": f"Test newsletter sent to {len(recipients)} recipients",
     }
