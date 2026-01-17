@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.data_integrity import safe_log_mutation_error
+
 
 class InvoiceType(Enum):
     """Classification of invoice types based on line item analysis"""
@@ -293,9 +295,10 @@ class InvoiceClassifier:
         )
 
         debug_info.append(f"InvoiceClassifier ERROR: {error_msg}")
-        frappe.log_error(
+        safe_log_mutation_error(
             title="Invoice Classification Failed - No Line Items",
-            message=f"{error_msg}\n\nMutation data:\n{frappe.as_json(mutation_detail, indent=2)}",
+            mutation=mutation_detail,
+            additional_context=error_msg,
         )
 
         raise ValueError(error_msg)

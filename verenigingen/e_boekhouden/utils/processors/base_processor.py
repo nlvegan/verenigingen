@@ -10,6 +10,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.data_integrity import (
+    insert_with_duplicate_handling,
+    mask_pii_in_mutation,
+    normalize_date,
+    safe_log_mutation_error,
+    submit_with_duplicate_handling,
+)
+
 
 class BaseTransactionProcessor(ABC):
     """Abstract base class for processing different types of eBoekhouden transactions"""
@@ -108,7 +116,13 @@ class BaseTransactionProcessor(ABC):
 
     def get_posting_date(self, mutation: Dict[str, Any]) -> str:
         """
-        Extract and format the posting date from mutation
+        Extract and format the posting date from mutation.
+
+        Uses normalize_date() to handle multiple date formats:
+        - YYYYMMDD (eBoekhouden format)
+        - ISO datetime (2025-01-10T00:00:00)
+        - YYYY-MM-DD (already correct)
+        - European DD-MM-YYYY or DD/MM/YYYY
 
         Args:
             mutation: The mutation data
@@ -116,14 +130,17 @@ class BaseTransactionProcessor(ABC):
         Returns:
             The posting date in YYYY-MM-DD format
         """
-        date_str = mutation.get("Datum", "")
+        # Try multiple field names for the date
+        date_value = mutation.get("Datum") or mutation.get("date") or mutation.get("Date", "")
 
-        # Handle eBoekhouden date format (YYYYMMDD)
-        if len(date_str) == 8 and date_str.isdigit():
-            return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        normalized = normalize_date(date_value)
 
-        # Return as-is if already in correct format
-        return date_str
+        if normalized:
+            return normalized
+
+        # Fallback to empty string if normalization fails
+        self.add_debug_info(f"⚠️ Could not normalize date: {date_value}")
+        return ""
 
     def get_description(self, mutation: Dict[str, Any]) -> str:
         """
@@ -237,12 +254,13 @@ class BaseTransactionProcessor(ABC):
             self.add_debug_info(f"❌ {error_msg}")
             self.add_debug_info(f"Valid rows processed: {valid_rows}/{len(rows)}")
 
-            frappe.log_error(
+            # Log with PII masked for privacy compliance
+            safe_log_mutation_error(
                 title=f"Amount Mismatch - {mutation_id}",
-                message=f"{error_msg}\n\n"
+                mutation=mutation,
+                additional_context=f"{error_msg}\n\n"
                 f"Validation type: {comparison_type}\n"
-                f"Rows breakdown:\n{frappe.as_json([{'index': i + 1, 'ledger': r.get('ledgerId'), 'amount': r.get('amount')} for i, r in enumerate(rows)], indent=2)}\n\n"
-                f"Full mutation:\n{frappe.as_json(mutation, indent=2)}",
+                f"Rows breakdown:\n{frappe.as_json([{'index': i + 1, 'ledger': r.get('ledgerId'), 'amount': r.get('amount')} for i, r in enumerate(rows)], indent=2)}",
             )
 
             return False, error_msg, amount_diff
@@ -295,9 +313,11 @@ class BaseTransactionProcessor(ABC):
 
             self.add_debug_info(f"❌ {error_msg}")
 
-            frappe.log_error(
+            # Log with PII masked for privacy compliance
+            safe_log_mutation_error(
                 title=f"JE Net Mismatch - {mutation_id}",
-                message=f"{error_msg}\n\n" f"Full mutation:\n{frappe.as_json(mutation, indent=2)}",
+                mutation=mutation,
+                additional_context=error_msg,
             )
 
             return False, error_msg, net_diff
@@ -329,3 +349,77 @@ class BaseTransactionProcessor(ABC):
             "error_message": str(error),
             "debug_info": self.get_debug_info(),
         }
+
+    def insert_document_with_duplicate_handling(
+        self,
+        doc: frappe.model.document.Document,
+        mutation_id_field: str = "eboekhouden_mutation_nr",
+    ) -> Tuple[frappe.model.document.Document, bool]:
+        """
+        Insert document with graceful handling of duplicate race conditions.
+
+        When concurrent imports attempt to create the same document, the DB unique
+        constraint on mutation_id_field will catch duplicates. This method handles
+        the DuplicateEntryError gracefully by fetching the existing document.
+
+        Args:
+            doc: The document to insert
+            mutation_id_field: Field containing unique mutation ID
+
+        Returns:
+            Tuple of (document, was_duplicate)
+        """
+        return insert_with_duplicate_handling(doc, mutation_id_field)
+
+    def submit_document_with_duplicate_handling(
+        self,
+        doc: frappe.model.document.Document,
+        mutation_id_field: str = "eboekhouden_mutation_nr",
+    ) -> Tuple[frappe.model.document.Document, bool]:
+        """
+        Insert and submit document with graceful duplicate handling.
+
+        Args:
+            doc: The document to insert and submit
+            mutation_id_field: Field containing unique mutation ID
+
+        Returns:
+            Tuple of (document, was_duplicate)
+        """
+        return submit_with_duplicate_handling(doc, mutation_id_field)
+
+    def log_error_safely(
+        self,
+        title: str,
+        mutation: Dict[str, Any],
+        error: Optional[Exception] = None,
+        additional_context: Optional[str] = None,
+    ) -> None:
+        """
+        Log a mutation error with PII masked for privacy compliance.
+
+        Use this method instead of frappe.log_error when logging mutation data
+        to ensure customer/supplier PII is not exposed in error logs.
+
+        Args:
+            title: Short title for the error log
+            mutation: The mutation data (will be masked)
+            error: Optional exception that occurred
+            additional_context: Optional additional context string
+        """
+        safe_log_mutation_error(title, mutation, error, additional_context)
+
+    def mask_mutation_pii(self, mutation: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a copy of mutation with PII fields masked for safe logging.
+
+        Masks personally identifiable information such as emails, phone numbers,
+        addresses, and bank account numbers while preserving structure.
+
+        Args:
+            mutation: The mutation data
+
+        Returns:
+            A copy with PII fields masked
+        """
+        return mask_pii_in_mutation(mutation)
