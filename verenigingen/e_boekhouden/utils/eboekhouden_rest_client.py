@@ -34,6 +34,7 @@ Note:
     This client inherits token management and retry logic from EBoekhoudenHTTPClientMixin.
 """
 
+import threading
 from typing import Any, Dict, Optional
 
 import frappe
@@ -78,8 +79,106 @@ class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
         self._init_http_client(settings)
 
         # Cache for lookup data to improve performance during bulk operations
+        # Thread-safe: use lock to prevent race conditions during cache updates
+        self._cache_lock = threading.Lock()
         self._ledger_cache = None
         self._relation_cache = None
+
+    def invalidate_ledger_cache(self) -> None:
+        """
+        Invalidate the cached ledger data, forcing refresh on next request.
+
+        Thread-safe: Uses lock to prevent race conditions during invalidation.
+        """
+        with self._cache_lock:
+            self._ledger_cache = None
+
+    def invalidate_relation_cache(self) -> None:
+        """
+        Invalidate the cached relation data, forcing refresh on next request.
+
+        Thread-safe: Uses lock to prevent race conditions during invalidation.
+        """
+        with self._cache_lock:
+            self._relation_cache = None
+
+    def invalidate_all_caches(self) -> None:
+        """
+        Invalidate all cached data (ledgers and relations).
+
+        Thread-safe: Uses lock to prevent race conditions during invalidation.
+        """
+        with self._cache_lock:
+            self._ledger_cache = None
+            self._relation_cache = None
+
+    def _fetch_and_cache_paginated(
+        self, endpoint: str, cache_attr: str, result_key: str, entity_name: str
+    ) -> Dict[str, Any]:
+        """
+        Fetch paginated data from API with double-checked locking cache pattern.
+
+        This helper method implements the thread-safe caching pattern used for
+        ledgers and relations. It handles:
+        - Fast path cache check without lock
+        - Double-checked locking for thread safety
+        - Paginated API fetching
+        - Result caching
+
+        Args:
+            endpoint: API endpoint path (e.g., "/v1/ledger")
+            cache_attr: Name of the cache attribute (e.g., "_ledger_cache")
+            result_key: Key name for results in response dict (e.g., "ledgers")
+            entity_name: Human-readable name for error messages (e.g., "ledgers")
+
+        Returns:
+            Dict with success status and data or error message
+        """
+        # Fast path: check cache without lock
+        cache_value = getattr(self, cache_attr)
+        if cache_value is not None:
+            return {"success": True, result_key: cache_value}
+
+        with self._cache_lock:
+            # Double-check after acquiring lock (another thread may have populated)
+            cache_value = getattr(self, cache_attr)
+            if cache_value is not None:
+                return {"success": True, result_key: cache_value}
+
+            try:
+                url = f"{self.base_url}{endpoint}"
+                all_items = []
+                offset = 0
+                limit = 2000
+
+                while True:
+                    params = {"limit": limit, "offset": offset}
+                    response = self._request_with_retry("GET", url, params=params)
+
+                    if response.status_code != 200:
+                        return {
+                            "success": False,
+                            "error": f"Failed to get {entity_name}: {response.status_code}",
+                        }
+
+                    data = response.json()
+                    if not data:
+                        break
+
+                    all_items.extend(data)
+
+                    if len(data) < limit:
+                        break
+
+                    offset += limit
+
+                # Cache the results
+                setattr(self, cache_attr, all_items)
+
+                return {"success": True, result_key: all_items, "count": len(all_items)}
+
+            except Exception as e:
+                return {"success": False, "error": str(e)}
 
     def get_mutations(self, limit=2000, offset=0, date_from=None, date_to=None) -> Dict[str, Any]:
         """
@@ -250,6 +349,8 @@ class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
         operations. Results are cached to improve performance during
         bulk processing operations that require frequent account lookups.
 
+        Thread-safe: Uses lock to prevent concurrent cache population.
+
         Returns:
             Dict[str, Any]: Ledger data containing:
                 - success (bool): Operation success status
@@ -261,40 +362,12 @@ class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
             Ledger data is cached after first retrieval to optimize
             performance during migration operations.
         """
-        if self._ledger_cache is not None:
-            return {"success": True, "ledgers": self._ledger_cache}
-
-        try:
-            url = f"{self.base_url}/v1/ledger"
-            all_ledgers = []
-            offset = 0
-            limit = 2000
-
-            while True:
-                params = {"limit": limit, "offset": offset}
-                response = self._request_with_retry("GET", url, params=params)
-
-                if response.status_code != 200:
-                    return {"success": False, "error": f"Failed to get ledgers: {response.status_code}"}
-
-                data = response.json()
-                if not data:
-                    break
-
-                all_ledgers.extend(data)
-
-                if len(data) < limit:
-                    break
-
-                offset += limit
-
-            # Cache the results
-            self._ledger_cache = all_ledgers
-
-            return {"success": True, "ledgers": all_ledgers, "count": len(all_ledgers)}
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        return self._fetch_and_cache_paginated(
+            endpoint="/v1/ledger",
+            cache_attr="_ledger_cache",
+            result_key="ledgers",
+            entity_name="ledgers",
+        )
 
     def get_relations(self) -> Dict[str, Any]:
         """
@@ -303,6 +376,8 @@ class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
         Fetches all relation records (customers, suppliers, employees) from
         eBoekhouden for entity mapping during transaction import. Results
         are cached to improve performance during bulk operations.
+
+        Thread-safe: Uses lock to prevent concurrent cache population.
 
         Returns:
             Dict[str, Any]: Relations data containing:
@@ -315,40 +390,12 @@ class EBoekhoudenRESTClient(EBoekhoudenHTTPClientMixin):
             Relation data is cached after first retrieval. This is essential
             for efficient customer/supplier matching during large migrations.
         """
-        if self._relation_cache is not None:
-            return {"success": True, "relations": self._relation_cache}
-
-        try:
-            url = f"{self.base_url}/v1/relation"
-            all_relations = []
-            offset = 0
-            limit = 2000
-
-            while True:
-                params = {"limit": limit, "offset": offset}
-                response = self._request_with_retry("GET", url, params=params)
-
-                if response.status_code != 200:
-                    return {"success": False, "error": f"Failed to get relations: {response.status_code}"}
-
-                data = response.json()
-                if not data:
-                    break
-
-                all_relations.extend(data)
-
-                if len(data) < limit:
-                    break
-
-                offset += limit
-
-            # Cache the results
-            self._relation_cache = all_relations
-
-            return {"success": True, "relations": all_relations, "count": len(all_relations)}
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        return self._fetch_and_cache_paginated(
+            endpoint="/v1/relation",
+            cache_attr="_relation_cache",
+            result_key="relations",
+            entity_name="relations",
+        )
 
 
 @frappe.whitelist()
