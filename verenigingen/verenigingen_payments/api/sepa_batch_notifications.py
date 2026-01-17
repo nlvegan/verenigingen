@@ -352,6 +352,7 @@ def test_notification_system():
             subject_override=subject,
             reference_doctype=None,
             reference_name=None,
+            notification_key="email_template_test",
         )
 
         return {

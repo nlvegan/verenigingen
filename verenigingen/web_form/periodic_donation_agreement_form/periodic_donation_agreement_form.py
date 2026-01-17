@@ -278,6 +278,7 @@ def send_agreement_submission_confirmation(agreement):
                 message=get_submission_email_content(agreement, donor),
                 reference_doctype="Periodic Donation Agreement",
                 reference_name=agreement.name,
+                notification_key="periodic_donation_confirmation",
             )
     except Exception as e:
         frappe.log_error(f"Failed to send submission confirmation: {str(e)}", "Agreement Email Error")

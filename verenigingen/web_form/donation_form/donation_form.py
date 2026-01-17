@@ -245,6 +245,7 @@ def send_donation_confirmation(donation):
                 message=get_confirmation_email_content(donation, donor),
                 reference_doctype="Donation",
                 reference_name=donation.name,
+                notification_key="donation_confirmation",
             )
     except Exception as e:
         frappe.log_error(f"Failed to send donation confirmation: {str(e)}", "Donation Email Error")
@@ -314,6 +315,7 @@ def send_periodic_agreement_info(donor_name, agreement_name):
                 """,
                 reference_doctype="Periodic Donation Agreement",
                 reference_name=agreement.name,
+                notification_key="periodic_donation_confirmation",
             )
     except Exception as e:
         frappe.log_error(f"Failed to send agreement info: {str(e)}", "Agreement Email Error")

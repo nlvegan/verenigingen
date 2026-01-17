@@ -90,6 +90,27 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "member_application_submitted": {
+        "label": "Application Submitted (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent to reviewers/admins when a new membership application is submitted.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "member_application_approved": {
+        "label": "Application Approved",
+        "category": CATEGORY_MEMBER,
+        "description": "Sent to applicants when their membership application is approved.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "member_application_overdue": {
+        "label": "Application Overdue Alert",
+        "category": CATEGORY_ADMIN,
+        "description": "Alert sent to reviewers when membership applications have been pending too long.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "member_application_rejected": {
         "label": "Application Rejected",
         "category": CATEGORY_MEMBER,
@@ -550,6 +571,34 @@ NOTIFICATION_KEYS = {
         "description": "Reminder sent to pending members who haven't completed activation.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
+    "newsletter_campaign": {
+        "label": "Newsletter Campaign",
+        "category": CATEGORY_MEMBER,
+        "description": "Automated newsletter or campaign emails sent to members or segments.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_CUSTOM,
+    },
+    "chapter_generic_notification": {
+        "label": "Chapter Generic Notification",
+        "category": CATEGORY_CHAPTER,
+        "description": "Generic chapter-level notifications using custom templates.",
+        "priority": PRIORITY_MEDIUM,
+        "recipient_policy": POLICY_CUSTOM,
+    },
+    "contribution_sync_failed": {
+        "label": "Contribution Sync Failed",
+        "category": CATEGORY_PAYMENT,
+        "description": "Alert when Mollie contribution synchronization fails.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "email_template_test": {
+        "label": "Email Template Test",
+        "category": CATEGORY_ADMIN,
+        "description": "Test email sent when previewing or testing email templates.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_FIXED,
     },
 }
 

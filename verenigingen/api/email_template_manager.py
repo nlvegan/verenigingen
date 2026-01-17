@@ -674,6 +674,7 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
             message=template["message"],
             reference_doctype=kwargs.get("reference_doctype"),
             reference_name=kwargs.get("reference_name"),
+            notification_key=kwargs.get("notification_key", "email_template_test"),
         )
 
         return result.get("success", False)
