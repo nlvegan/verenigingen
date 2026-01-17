@@ -273,6 +273,17 @@ class SEPAAuditLogger:
     def _store_api_audit_event(self, audit_event: Dict[str, Any]):
         """Store general API/security audit event in API Audit Log"""
         try:
+            # Validate user exists before storing (user field is a Link to User)
+            # If user doesn't exist, store None and put the email in details
+            user_value = audit_event.get("user")
+            if user_value and not frappe.db.exists("User", user_value):
+                # User doesn't exist - store email in details and clear user field
+                # This handles test environments with fake users gracefully
+                if "details" not in audit_event or not isinstance(audit_event["details"], dict):
+                    audit_event["details"] = {}
+                audit_event["details"]["original_user_email"] = user_value
+                user_value = None
+
             audit_doc = frappe.new_doc("API Audit Log")
             audit_doc.update(
                 {
@@ -280,7 +291,7 @@ class SEPAAuditLogger:
                     "timestamp": audit_event["timestamp"],
                     "event_type": audit_event["event_type"],
                     "severity": audit_event["severity"],
-                    "user": audit_event["user"],
+                    "user": user_value,
                     "ip_address": audit_event["ip_address"],
                     "user_agent": audit_event["user_agent"],
                     "session_id": audit_event["session_id"],
