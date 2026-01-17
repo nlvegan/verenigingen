@@ -35,3 +35,4 @@ verenigingen.patches.v15_0.add_sepa_performance_indexes
 verenigingen.patches.v2_1.migrate_financial_settings_to_payments
 verenigingen.patches.v2_1.fix_notification_condition_type
 verenigingen.patches.v2_1.add_batch_rate_limits_to_critical_operations
+verenigingen.patches.v2_1.add_volunteer_assignment_query_indexes

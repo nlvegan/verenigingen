@@ -47,7 +47,15 @@ class AssignmentQueryBuilder:
     2. Frappe Query Builder: Type-safe individual queries
 
     The choice of strategy is transparent to callers.
+
+    Caching:
+    - Request-level caching prevents duplicate queries within same request
+    - Results are cached per volunteer_name
+    - Cache is automatically cleared at end of request
     """
+
+    # Request-level cache attribute name
+    _CACHE_ATTR = "_volunteer_assignment_cache"
 
     def __init__(self, volunteer_name: str):
         """Initialize query builder for specific volunteer
@@ -57,10 +65,21 @@ class AssignmentQueryBuilder:
         """
         self.volunteer_name = volunteer_name
 
+    def _get_cache(self) -> dict:
+        """Get or create request-level cache."""
+        if not hasattr(frappe.local, self._CACHE_ATTR):
+            setattr(frappe.local, self._CACHE_ATTR, {})
+        return getattr(frappe.local, self._CACHE_ATTR)
+
+    def _cache_key(self, method_name: str) -> str:
+        """Generate cache key for a method."""
+        return f"{self.volunteer_name}:{method_name}"
+
     def get_all_active_assignments(self) -> List[Dict]:
         """Get all active assignments from all sources
 
         Uses optimized UNION query to prevent N+1 problems.
+        Results are cached per-request to avoid duplicate queries.
 
         Returns:
             List[Dict]: Active assignments with metadata:
@@ -80,7 +99,14 @@ class AssignmentQueryBuilder:
             - O(1) query complexity regardless of number of assignments
             - Single database round-trip
             - Results sorted by start_date DESC
+            - Request-level caching prevents duplicate queries
         """
+        # Check request-level cache first
+        cache = self._get_cache()
+        cache_key = self._cache_key("active_assignments")
+        if cache_key in cache:
+            return cache[cache_key]
+
         assignments_data = frappe.db.sql(
             """
             SELECT
@@ -154,14 +180,17 @@ class AssignmentQueryBuilder:
             as_dict=True,
         )
 
-        # Convert to consistent format
-        return self._format_assignments(assignments_data)
+        # Convert to consistent format and cache
+        result = self._format_assignments(assignments_data)
+        cache[cache_key] = result
+        return result
 
     def get_complete_history(self) -> List[Dict]:
         """Get complete assignment history including archived records
 
         Uses optimized UNION query for active/completed assignments,
         then augments with archived records from child table.
+        Results are cached per-request.
 
         Returns:
             List[Dict]: Complete history with all assignments:
@@ -177,7 +206,14 @@ class AssignmentQueryBuilder:
             - O(1) query for main data
             - O(n) iteration for child table where n = archived records
             - Results sorted by start_date DESC
+            - Request-level caching prevents duplicate queries
         """
+        # Check request-level cache first
+        cache = self._get_cache()
+        cache_key = self._cache_key("complete_history")
+        if cache_key in cache:
+            return cache[cache_key]
+
         history_data = frappe.db.sql(
             """
             SELECT
@@ -251,6 +287,8 @@ class AssignmentQueryBuilder:
             reverse=True,
         )
 
+        # Cache and return
+        cache[cache_key] = history
         return history
 
     def check_has_active_assignments(self) -> bool:
@@ -258,6 +296,7 @@ class AssignmentQueryBuilder:
 
         Uses Query Builder for type safety with optimized short-circuit logic.
         Returns True as soon as any active assignment is found.
+        Result is cached per-request.
 
         Query Strategy Choice:
             - Query Builder instead of UNION for this use case because:
@@ -272,7 +311,14 @@ class AssignmentQueryBuilder:
             - O(1) with early termination
             - Each query uses LIMIT 1 to stop at first match
             - Maximum 3 queries but usually stops at first source
+            - Request-level caching prevents duplicate checks
         """
+        # Check request-level cache first
+        cache = self._get_cache()
+        cache_key = self._cache_key("has_active")
+        if cache_key in cache:
+            return cache[cache_key]
+
         # Check board positions
         CBM = DocType("Chapter Board Member")
         board_result = (
@@ -283,6 +329,7 @@ class AssignmentQueryBuilder:
             .run()
         )
         if board_result:
+            cache[cache_key] = True
             return True
 
         # Check team memberships
@@ -295,6 +342,7 @@ class AssignmentQueryBuilder:
             .run()
         )
         if team_result:
+            cache[cache_key] = True
             return True
 
         # Check volunteer activities
@@ -307,8 +355,10 @@ class AssignmentQueryBuilder:
             .run()
         )
         if activity_result:
+            cache[cache_key] = True
             return True
 
+        cache[cache_key] = False
         return False
 
     def _format_assignments(self, raw_data: List[Dict]) -> List[Dict]:
@@ -364,3 +414,30 @@ class AssignmentQueryBuilder:
                 }
             )
         return history
+
+
+def invalidate_volunteer_assignment_cache(volunteer_name: str = None) -> None:
+    """
+    Invalidate volunteer assignment cache.
+
+    Call this when assignment data changes (board member, team member,
+    or volunteer activity updates).
+
+    Args:
+        volunteer_name: Specific volunteer to invalidate, or None for all
+    """
+    cache_attr = AssignmentQueryBuilder._CACHE_ATTR
+
+    if not hasattr(frappe.local, cache_attr):
+        return
+
+    cache = getattr(frappe.local, cache_attr)
+
+    if volunteer_name:
+        # Invalidate specific volunteer's cache entries
+        keys_to_remove = [k for k in cache.keys() if k.startswith(f"{volunteer_name}:")]
+        for key in keys_to_remove:
+            del cache[key]
+    else:
+        # Clear entire cache
+        cache.clear()
