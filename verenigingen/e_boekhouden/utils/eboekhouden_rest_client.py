@@ -30,11 +30,13 @@ Configuration:
     - source_application: Application identifier for API requests
 """
 
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import frappe
 import requests
+from requests.exceptions import ConnectionError, RequestException, Timeout
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -61,6 +63,12 @@ class EBoekhoudenRESTClient:
     # Token lifetime configuration
     # e-Boekhouden tokens expire after ~60 minutes; use 55 minutes for safety margin
     TOKEN_TTL_MINUTES = 55
+
+    # Retry configuration for transient errors
+    MAX_RETRIES = 3
+    RETRY_BACKOFF_FACTOR = 1.0  # Base delay in seconds (1s, 2s, 4s with exponential backoff)
+    RETRY_STATUS_CODES = (429, 500, 502, 503, 504)  # Status codes that trigger retry
+    AUTH_REFRESH_STATUS_CODES = (401, 403)  # Status codes that trigger token refresh
 
     def __init__(self, settings=None):
         if not settings:
@@ -183,6 +191,118 @@ class EBoekhoudenRESTClient:
 
         return {"Authorization": token, "Content-Type": "application/json", "Accept": "application/json"}
 
+    def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        params: Optional[Dict] = None,
+        json_data: Optional[Dict] = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Make HTTP request with automatic retry and token refresh.
+
+        This method provides resilient HTTP requests by:
+        - Retrying on transient errors (429, 5xx) with exponential backoff
+        - Automatically refreshing token on 401/403 and retrying once
+        - Logging retry attempts for debugging
+
+        Args:
+            method: HTTP method ('GET' or 'POST')
+            url: Full URL to request
+            params: Query parameters for GET requests
+            json_data: JSON body for POST requests
+            timeout: Request timeout in seconds
+
+        Returns:
+            requests.Response: The successful response
+
+        Raises:
+            requests.RequestException: If all retries are exhausted
+            ValueError: If session token cannot be obtained
+        """
+        last_exception = None
+        token_refreshed = False
+
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                headers = self._get_headers()
+
+                if method.upper() == "GET":
+                    response = requests.get(url, headers=headers, params=params, timeout=timeout)
+                else:
+                    response = requests.post(url, headers=headers, json=json_data, timeout=timeout)
+
+                # Check for auth errors - refresh token and retry once
+                if response.status_code in self.AUTH_REFRESH_STATUS_CODES:
+                    if not token_refreshed:
+                        frappe.logger().info(
+                            f"E-Boekhouden API returned {response.status_code}, "
+                            f"refreshing token and retrying"
+                        )
+                        self.invalidate_token()
+                        token_refreshed = True
+                        continue  # Retry with fresh token
+                    else:
+                        # Already refreshed token, don't retry again
+                        frappe.log_error(
+                            f"E-Boekhouden API returned {response.status_code} after token refresh",
+                            "E-Boekhouden REST Auth Error",
+                        )
+                        return response
+
+                # Check for retryable status codes
+                if response.status_code in self.RETRY_STATUS_CODES:
+                    if attempt < self.MAX_RETRIES:
+                        delay = self.RETRY_BACKOFF_FACTOR * (2**attempt)
+                        frappe.logger().warning(
+                            f"E-Boekhouden API returned {response.status_code}, "
+                            f"retrying in {delay}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
+                        )
+                        time.sleep(delay)
+                        continue
+                    else:
+                        frappe.log_error(
+                            f"E-Boekhouden API returned {response.status_code} after "
+                            f"{self.MAX_RETRIES} retries",
+                            "E-Boekhouden REST Retry Exhausted",
+                        )
+                        return response
+
+                # Success or non-retryable error
+                return response
+
+            except (Timeout, ConnectionError) as e:
+                last_exception = e
+                if attempt < self.MAX_RETRIES:
+                    delay = self.RETRY_BACKOFF_FACTOR * (2**attempt)
+                    error_type = "Timeout" if isinstance(e, Timeout) else "Connection error"
+                    frappe.logger().warning(
+                        f"E-Boekhouden API {error_type}, retrying in {delay}s "
+                        f"(attempt {attempt + 1}/{self.MAX_RETRIES}): {str(e)}"
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    frappe.log_error(
+                        f"E-Boekhouden API failed after {self.MAX_RETRIES} retries: {str(e)}",
+                        "E-Boekhouden REST Connection Error",
+                    )
+                    raise
+
+            except RequestException as e:
+                # Non-retryable request exception
+                frappe.log_error(
+                    f"E-Boekhouden API request failed: {str(e)}",
+                    "E-Boekhouden REST Request Error",
+                )
+                raise
+
+        # Should not reach here, but just in case
+        if last_exception:
+            raise last_exception
+        raise RequestException(f"Request failed after {self.MAX_RETRIES} retries")
+
     def get_mutations(self, limit=2000, offset=0, date_from=None, date_to=None) -> Dict[str, Any]:
         """
         Retrieve financial mutations with intelligent pagination.
@@ -223,7 +343,7 @@ class EBoekhoudenRESTClient:
             if date_to:
                 params["to"] = date_to
 
-            response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+            response = self._request_with_retry("GET", url, params=params)
 
             if response.status_code == 200:
                 response_data = response.json()
@@ -279,7 +399,7 @@ class EBoekhoudenRESTClient:
         """
         try:
             url = f"{self.base_url}/v1/mutation/{mutation_id}"
-            response = requests.get(url, headers=self._get_headers(), timeout=30)
+            response = self._request_with_retry("GET", url)
 
             if response.status_code == 200:
                 return response.json()
@@ -374,7 +494,7 @@ class EBoekhoudenRESTClient:
 
             while True:
                 params = {"limit": limit, "offset": offset}
-                response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+                response = self._request_with_retry("GET", url, params=params)
 
                 if response.status_code != 200:
                     return {"success": False, "error": f"Failed to get ledgers: {response.status_code}"}
@@ -428,7 +548,7 @@ class EBoekhoudenRESTClient:
 
             while True:
                 params = {"limit": limit, "offset": offset}
-                response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
+                response = self._request_with_retry("GET", url, params=params)
 
                 if response.status_code != 200:
                     return {"success": False, "error": f"Failed to get relations: {response.status_code}"}

@@ -283,10 +283,10 @@ class TestTokenExpiryIntegrationWithAPIOperations(IntegrationTestCase):
         self.assertEqual(headers["Authorization"], "header-token")
         mock_requests.post.assert_called_once()
 
-    @patch("vereinigungen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
     def test_get_mutations_refreshes_expired_token(self, mock_requests):
         """get_mutations should refresh token if expired before API call."""
-        from vereinigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
             EBoekhoudenRESTClient,
         )
 
@@ -315,6 +315,314 @@ class TestTokenExpiryIntegrationWithAPIOperations(IntegrationTestCase):
         # And made the API call with fresh token
         mock_requests.get.assert_called_once()
         self.assertTrue(result["success"])
+
+
+class TestRetryMechanism(IntegrationTestCase):
+    """Test cases for retry mechanism in EBoekhoudenRESTClient."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.mock_settings = MagicMock()
+        self.mock_settings.api_url = "https://api.e-boekhouden.nl"
+        self.mock_settings.source_application = "Test"
+        self.mock_settings.get_password.return_value = "test-api-token"
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_retry_constants_exist(self, mock_requests):
+        """Retry configuration constants should exist."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        self.assertTrue(hasattr(EBoekhoudenRESTClient, "MAX_RETRIES"))
+        self.assertTrue(hasattr(EBoekhoudenRESTClient, "RETRY_BACKOFF_FACTOR"))
+        self.assertTrue(hasattr(EBoekhoudenRESTClient, "RETRY_STATUS_CODES"))
+        self.assertTrue(hasattr(EBoekhoudenRESTClient, "AUTH_REFRESH_STATUS_CODES"))
+
+        self.assertEqual(EBoekhoudenRESTClient.MAX_RETRIES, 3)
+        self.assertEqual(EBoekhoudenRESTClient.RETRY_BACKOFF_FACTOR, 1.0)
+        self.assertIn(429, EBoekhoudenRESTClient.RETRY_STATUS_CODES)
+        self.assertIn(500, EBoekhoudenRESTClient.RETRY_STATUS_CODES)
+        self.assertIn(401, EBoekhoudenRESTClient.AUTH_REFRESH_STATUS_CODES)
+        self.assertIn(403, EBoekhoudenRESTClient.AUTH_REFRESH_STATUS_CODES)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.time.sleep")
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_retry_on_500_error(self, mock_requests, mock_sleep):
+        """Should retry on 500 server error with exponential backoff."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token response
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "test-token"}
+        mock_requests.post.return_value = token_response
+
+        # First 2 calls return 500, third succeeds
+        error_response = Mock()
+        error_response.status_code = 500
+        error_response.text = "Internal Server Error"
+
+        success_response = Mock()
+        success_response.status_code = 200
+        success_response.json.return_value = {"items": []}
+
+        mock_requests.get.side_effect = [error_response, error_response, success_response]
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        self.assertEqual(response.status_code, 200)
+        # Should have called get 3 times (2 retries + 1 success)
+        self.assertEqual(mock_requests.get.call_count, 3)
+        # Should have slept twice for backoff
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.time.sleep")
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_retry_on_429_rate_limit(self, mock_requests, mock_sleep):
+        """Should retry on 429 rate limit error."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token response
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "test-token"}
+        mock_requests.post.return_value = token_response
+
+        # First call returns 429, second succeeds
+        rate_limit_response = Mock()
+        rate_limit_response.status_code = 429
+        rate_limit_response.text = "Too Many Requests"
+
+        success_response = Mock()
+        success_response.status_code = 200
+
+        mock_requests.get.side_effect = [rate_limit_response, success_response]
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_requests.get.call_count, 2)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.time.sleep")
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_max_retries_exhausted(self, mock_requests, mock_sleep):
+        """Should return error response after max retries exhausted."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token response
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "test-token"}
+        mock_requests.post.return_value = token_response
+
+        # All calls return 500
+        error_response = Mock()
+        error_response.status_code = 500
+        error_response.text = "Internal Server Error"
+        mock_requests.get.return_value = error_response
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        # Should return the error response after max retries
+        self.assertEqual(response.status_code, 500)
+        # Should have called get MAX_RETRIES + 1 times
+        self.assertEqual(mock_requests.get.call_count, client.MAX_RETRIES + 1)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_401_triggers_token_refresh(self, mock_requests):
+        """Should refresh token on 401 and retry once."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token responses
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "new-token"}
+        mock_requests.post.return_value = token_response
+
+        # First call returns 401, after token refresh second succeeds
+        auth_error_response = Mock()
+        auth_error_response.status_code = 401
+        auth_error_response.text = "Unauthorized"
+
+        success_response = Mock()
+        success_response.status_code = 200
+
+        mock_requests.get.side_effect = [auth_error_response, success_response]
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        # Set an existing token that will be invalidated
+        client._session_token = "old-token"
+        client._token_obtained_at = datetime.now()
+
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        self.assertEqual(response.status_code, 200)
+        # Should have called get twice (401 + retry)
+        self.assertEqual(mock_requests.get.call_count, 2)
+        # Should have called post twice (initial token + refresh)
+        self.assertEqual(mock_requests.post.call_count, 2)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_401_only_refreshes_once(self, mock_requests):
+        """Should only refresh token once on 401, not retry indefinitely."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token responses
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "new-token"}
+        mock_requests.post.return_value = token_response
+
+        # Both calls return 401 (token refresh doesn't help)
+        auth_error_response = Mock()
+        auth_error_response.status_code = 401
+        auth_error_response.text = "Unauthorized"
+        mock_requests.get.return_value = auth_error_response
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        client._session_token = "old-token"
+        client._token_obtained_at = datetime.now()
+
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        # Should return 401 after one retry
+        self.assertEqual(response.status_code, 401)
+        # Should have called get only twice (original + 1 retry after refresh)
+        self.assertEqual(mock_requests.get.call_count, 2)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.time.sleep")
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_timeout_triggers_retry(self, mock_requests, mock_sleep):
+        """Should retry on connection timeout."""
+        from requests.exceptions import Timeout
+
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token response
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "test-token"}
+        mock_requests.post.return_value = token_response
+
+        # First call times out, second succeeds
+        success_response = Mock()
+        success_response.status_code = 200
+        mock_requests.get.side_effect = [Timeout("Connection timed out"), success_response]
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_requests.get.call_count, 2)
+        # Should have slept once for backoff
+        self.assertEqual(mock_sleep.call_count, 1)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.time.sleep")
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_connection_error_triggers_retry(self, mock_requests, mock_sleep):
+        """Should retry on connection error."""
+        from requests.exceptions import ConnectionError
+
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token response
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "test-token"}
+        mock_requests.post.return_value = token_response
+
+        # First call has connection error, second succeeds
+        success_response = Mock()
+        success_response.status_code = 200
+        mock_requests.get.side_effect = [
+            ConnectionError("Connection refused"),
+            success_response,
+        ]
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_requests.get.call_count, 2)
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.time.sleep")
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_exponential_backoff_delays(self, mock_requests, mock_sleep):
+        """Should use exponential backoff delays."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token response
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "test-token"}
+        mock_requests.post.return_value = token_response
+
+        # All calls return 500 except last
+        error_response = Mock()
+        error_response.status_code = 500
+
+        success_response = Mock()
+        success_response.status_code = 200
+
+        mock_requests.get.side_effect = [
+            error_response,
+            error_response,
+            error_response,
+            success_response,
+        ]
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        # Check exponential backoff: 1*2^0=1, 1*2^1=2, 1*2^2=4
+        sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+        self.assertEqual(sleep_calls, [1.0, 2.0, 4.0])
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_client.requests")
+    def test_non_retryable_error_not_retried(self, mock_requests):
+        """Should not retry on non-retryable status codes like 404."""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import (
+            EBoekhoudenRESTClient,
+        )
+
+        # Mock token response
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"token": "test-token"}
+        mock_requests.post.return_value = token_response
+
+        # Return 404 (not in retry list)
+        not_found_response = Mock()
+        not_found_response.status_code = 404
+        not_found_response.text = "Not Found"
+        mock_requests.get.return_value = not_found_response
+
+        client = EBoekhoudenRESTClient(settings=self.mock_settings)
+        response = client._request_with_retry("GET", "https://api.e-boekhouden.nl/v1/test")
+
+        # Should return immediately without retry
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(mock_requests.get.call_count, 1)
 
 
 if __name__ == "__main__":
