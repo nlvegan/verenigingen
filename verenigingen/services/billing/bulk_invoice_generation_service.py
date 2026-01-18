@@ -175,11 +175,14 @@ class BulkInvoiceGenerationService(StatefulService):
             book_year = today_date.year - 1
 
         # Calculate book year end date
-        if book_year_end_month == book_year_start_month - 1 or (
-            book_year_start_month == 1 and book_year_end_month == 12
-        ):
+        # For fiscal years that span two calendar years (e.g., April-March),
+        # the end year is the year after the book year started.
+        # For standard calendar years (Jan-Dec), the end year is the same as book_year.
+        if book_year_end_month < book_year_start_month:
+            # Fiscal year spans two calendar years (e.g., April 2025 - March 2026)
             end_year = book_year + 1
         else:
+            # Standard calendar year or fiscal year within same calendar year
             end_year = book_year
 
         try:

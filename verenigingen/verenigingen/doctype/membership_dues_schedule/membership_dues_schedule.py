@@ -958,39 +958,16 @@ class MembershipDuesSchedule(Document):
         """
         Update schedule dates after invoice generation.
 
+        DELEGATES TO: BillingDateService.update_schedule_dates()
+
         CRITICAL FIX: For daily/sequential billing, base next_invoice_date on coverage end
         rather than posting date to prevent date drift when generating ahead of time.
         """
-        if actual_invoice_date:
-            # Use the actual posting date from the created invoice
-            self.last_invoice_date = actual_invoice_date
+        from verenigingen.services.billing.billing_date_service import (
+            get_billing_date_service,
+        )
 
-            # For daily billing or when we have coverage tracking, calculate next date from coverage end
-            # This prevents date drift when generating invoices ahead of the posting date
-            if self.billing_frequency == "Daily" and self.last_invoice_coverage_end:
-                # For daily: next invoice should be day after coverage ends
-                self.next_invoice_date = self.calculate_next_invoice_date(self.last_invoice_coverage_end)
-            else:
-                # For other frequencies: use posting date as before
-                self.next_invoice_date = self.calculate_next_invoice_date(actual_invoice_date)
-        else:
-            # Fallback to old behavior (for test mode)
-            self.last_invoice_date = self.next_invoice_date
-            self.next_invoice_date = self.calculate_next_invoice_date(self.next_invoice_date)
-
-        self.save()
-
-        # Also update the Member's next_invoice_date field
-        if self.member:
-            # Check member status before updating (don't update terminated members)
-            member_status = frappe.db.get_value("Member", self.member, "status")
-
-            if member_status not in ["Deceased", "Banned", "Terminated"]:
-                # Use db.set_value to avoid triggering Member's validate/on_update hooks
-                # This prevents cascading saves that can cause race conditions
-                frappe.db.set_value(
-                    "Member", self.member, "next_invoice_date", self.next_invoice_date, update_modified=False
-                )
+        get_billing_date_service().update_schedule_dates(self, actual_invoice_date)
 
     def get_member_payment_method(self):
         """Get member's preferred payment method"""

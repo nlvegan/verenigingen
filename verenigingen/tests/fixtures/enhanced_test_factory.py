@@ -1546,7 +1546,7 @@ class EnhancedTestDataFactory:
             return frappe.get_doc("User", email)
             
         if not roles:
-            roles = ["Vereiningen Member"]
+            roles = ["Verenigingen Member"]
             
         # Validate fields
         for field in kwargs.keys():

@@ -184,6 +184,14 @@ class TestCheckDocumentPermissionWithRealUsers(EnhancedTestCase):
             email=f"ownschedule.test.{frappe.generate_hash(length=6)}@test.com",
         )
 
+        # Ensure member has a user account
+        if not test_member.user:
+            test_member.create_user()
+            test_member.reload()
+
+        # Verify user is created
+        self.assertIsNotNone(test_member.user, "Test member must have a linked user")
+
         # Create a mock doc that represents the member's schedule
         mock_doc = MagicMock()
         mock_doc.name = "Schedule-001"
@@ -212,6 +220,17 @@ class TestCheckDocumentPermissionWithRealUsers(EnhancedTestCase):
             last_name="Test",
             email=f"otheruser.test.{frappe.generate_hash(length=6)}@test.com",
         )
+
+        # Ensure both members have user accounts created
+        if not owner_member.user:
+            owner_member.create_user()
+            owner_member.reload()
+        if not other_member.user:
+            other_member.create_user()
+            other_member.reload()
+
+        # Verify users are created
+        self.assertIsNotNone(other_member.user, "Other member must have a linked user")
 
         # Create a mock doc that represents the owner's schedule
         mock_doc = MagicMock()
