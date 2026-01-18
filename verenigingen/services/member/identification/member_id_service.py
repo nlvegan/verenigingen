@@ -183,8 +183,10 @@ class MemberIDService(StatelessService):
         self.logger.info("MemberIDService: Starting bulk member ID assignment")
 
         # Acquire advisory lock to prevent concurrent bulk operations
+        # Using MySQL/MariaDB GET_LOCK() function for database-level advisory locking
         lock_name = "member_id_bulk_assignment"
-        lock_acquired = frappe.db.get_lock(lock_name, timeout=10)
+        lock_result = frappe.db.sql("SELECT GET_LOCK(%s, %s)", (lock_name, 10))
+        lock_acquired = lock_result and lock_result[0][0] == 1
 
         if not lock_acquired:
             self.logger.warning(
@@ -263,9 +265,9 @@ class MemberIDService(StatelessService):
             self.logger.error(f"Bulk member ID assignment failed: {str(e)}")
             return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
         finally:
-            # Always release the advisory lock
+            # Always release the advisory lock using MySQL RELEASE_LOCK()
             try:
-                frappe.db.release_lock(lock_name)
+                frappe.db.sql("SELECT RELEASE_LOCK(%s)", (lock_name,))
                 self.logger.debug(f"MemberIDService: Released lock {lock_name}")
             except Exception as release_error:
                 self.logger.error(f"MemberIDService: Failed to release lock {lock_name}: {release_error}")

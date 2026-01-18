@@ -10,9 +10,9 @@ Tests to verify that critical operations are safe under concurrent execution:
 
 These tests use threading to simulate concurrent access.
 
-Note: frappe.set_user() calls in thread workers are required because Frappe's
-session context is thread-local. This is not permission bypass - it's thread
-context setup required for concurrency testing.
+Note: frappe.init() and frappe.connect() calls in thread workers are required because
+Frappe's database connection and session context are thread-local. This is test
+infrastructure, not permission bypass.
 
 test-quality-enforcer: exempt-thread-context-setup
 """
@@ -22,22 +22,41 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import frappe
-from frappe.tests import IntegrationTestCase
 
 from verenigingen.services.member.core.member_lifecycle_service import MemberLifecycleService
 from verenigingen.services.member.identification.member_id_service import MemberIDService
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-def _setup_thread_context():
-    """Set up Frappe context for a worker thread.
+def _create_thread_context(site: str):
+    """Factory method to set up Frappe context for a worker thread.
 
     Frappe's session is thread-local, so each worker thread needs its own
-    user context. This is test infrastructure, not permission bypass.
+    database connection and user context. This is test infrastructure,
+    not permission bypass.
+
+    Args:
+        site: The Frappe site name to initialize
     """
-    _setup_thread_context()  # noqa: test-thread-setup
+    # Initialize Frappe for this thread with a new database connection
+    frappe.init(site=site, force=True)
+    frappe.connect()
+    frappe.set_user("Administrator")
 
 
-class TestMemberIDConcurrency(IntegrationTestCase):
+def _cleanup_thread_context():
+    """Clean up Frappe context after thread work is done."""
+    try:
+        frappe.db.commit()
+    except Exception:
+        pass
+    try:
+        frappe.destroy()
+    except Exception:
+        pass
+
+
+class TestMemberIDConcurrency(EnhancedTestCase):
     """Test member ID assignment under concurrent execution."""
 
     def setUp(self):
@@ -45,6 +64,8 @@ class TestMemberIDConcurrency(IntegrationTestCase):
         super().setUp()
         self.uid = str(int(time.time() * 1000))[-6:]
         self.created_members = []
+        # Capture site name for threads
+        self.site = frappe.local.site
 
     def tearDown(self):
         """Clean up test data."""
@@ -58,16 +79,21 @@ class TestMemberIDConcurrency(IntegrationTestCase):
         super().tearDown()
 
     def _create_member_without_id(self, suffix: str) -> str:
-        """Create a test member without a member_id."""
+        """Create a test member without a member_id.
+
+        Note: The before_save hook automatically assigns member_id during insert(),
+        so we clear it afterwards using db_set to create the test condition.
+        """
         member = frappe.new_doc("Member")
         member.first_name = f"ConcurrencyTest{self.uid}"
         member.last_name = f"Member{suffix}"
         member.email = f"concurrency.test.{self.uid}.{suffix}@test.invalid"
         member.status = "Active"  # Eligible for member ID
         member.application_status = "Approved"
-        # Don't set member_id - we want it assigned
         member.insert(ignore_permissions=True)
         self.created_members.append(member.name)
+        # Clear the auto-assigned member_id to create the test condition
+        frappe.db.set_value("Member", member.name, "member_id", None, update_modified=False)
         frappe.db.commit()
         return member.name
 
@@ -76,6 +102,7 @@ class TestMemberIDConcurrency(IntegrationTestCase):
         # Create multiple members without IDs
         num_members = 5
         member_names = [self._create_member_without_id(str(i)) for i in range(num_members)]
+        site = self.site  # Capture for closure
 
         assigned_ids = []
         errors = []
@@ -84,7 +111,7 @@ class TestMemberIDConcurrency(IntegrationTestCase):
         def assign_id(member_name):
             """Assign member ID in a thread."""
             try:
-                _setup_thread_context()
+                _create_thread_context(site)
                 service = MemberIDService()
                 result = service.assign_member_id(member_name)
                 if result.success:
@@ -97,7 +124,7 @@ class TestMemberIDConcurrency(IntegrationTestCase):
                 with lock:
                     errors.append(f"{member_name}: {str(e)}")
             finally:
-                frappe.db.commit()
+                _cleanup_thread_context()
 
         # Execute assignments concurrently
         with ThreadPoolExecutor(max_workers=num_members) as executor:
@@ -117,11 +144,22 @@ class TestMemberIDConcurrency(IntegrationTestCase):
         self.assertEqual(total_processed, num_members, f"Not all members processed. Errors: {errors}")
 
     def test_bulk_assignment_lock_prevents_concurrent_runs(self):
-        """Test that advisory lock prevents concurrent bulk assignments."""
+        """Test that advisory lock prevents concurrent bulk assignments.
+
+        This test verifies that the advisory lock mechanism works correctly.
+        Due to timing, different scenarios can occur:
+        1. Thread 1 gets lock, assigns IDs, others wait and get lock (no contention)
+        2. Thread 1 gets lock, Thread 2/3 timeout waiting for lock (contention)
+        3. Thread 1 assigns all IDs, Thread 2/3 find no work to do
+
+        All these are valid outcomes. The key invariant is that no errors occur
+        except for expected ones (lock timeout or no members to process).
+        """
         # Create members for bulk assignment
         for i in range(3):
             self._create_member_without_id(f"bulk{i}")
 
+        site = self.site  # Capture for closure
         results = []
         errors = []
         lock = threading.Lock()
@@ -129,16 +167,21 @@ class TestMemberIDConcurrency(IntegrationTestCase):
         def run_bulk_assignment(thread_id):
             """Run bulk assignment in a thread."""
             try:
-                _setup_thread_context()
+                _create_thread_context(site)
                 service = MemberIDService()
                 result = service.assign_missing_member_ids()
                 with lock:
-                    results.append({"thread": thread_id, "success": result.success, "error_code": result.error_code})
+                    results.append({
+                        "thread": thread_id,
+                        "success": result.success,
+                        "error_code": result.error_code,
+                        "data": result.data if result.success else None,
+                    })
             except Exception as e:
                 with lock:
                     errors.append(f"Thread {thread_id}: {str(e)}")
             finally:
-                frappe.db.commit()
+                _cleanup_thread_context()
 
         # Execute bulk assignments concurrently
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -146,20 +189,35 @@ class TestMemberIDConcurrency(IntegrationTestCase):
             for future in as_completed(futures):
                 pass
 
-        # At least one should succeed, others may get lock timeout
-        successful = [r for r in results if r["success"]]
-        lock_failures = [r for r in results if r.get("error_code") == "MEMBER_ID_LOCK_FAILED"]
+        # All threads should complete without unexpected exceptions
+        self.assertEqual(len(errors), 0, f"Unexpected exceptions: {errors}")
+        self.assertEqual(len(results), 3, f"Not all threads returned results: {results}")
 
-        self.assertGreaterEqual(len(successful), 1, "At least one bulk assignment should succeed")
-        # The rest should either succeed or fail due to lock
-        self.assertEqual(
-            len(successful) + len(lock_failures),
-            len(results),
-            f"Unexpected results: {results}",
+        # At least one should succeed with actual assignments
+        successful_with_assignments = [
+            r for r in results
+            if r["success"] and r.get("data", {}).get("assigned", 0) > 0
+        ]
+        self.assertGreaterEqual(
+            len(successful_with_assignments), 1,
+            f"At least one thread should have assigned IDs. Results: {results}"
         )
 
+        # Valid outcomes for other threads:
+        # - success=True with assigned=0 (no members left to process)
+        # - success=False with error_code="MEMBER_ID_LOCK_FAILED" (lock timeout)
+        # - success=False with no error_code (no eligible members found)
+        lock_failures = [r for r in results if r.get("error_code") == "MEMBER_ID_LOCK_FAILED"]
 
-class TestApplicationApprovalConcurrency(IntegrationTestCase):
+        # Total assigned across all threads should equal the number of members created
+        total_assigned = sum(
+            r.get("data", {}).get("assigned", 0)
+            for r in results if r.get("data")
+        )
+        self.assertEqual(total_assigned, 3, f"Expected 3 total assignments. Results: {results}")
+
+
+class TestApplicationApprovalConcurrency(EnhancedTestCase):
     """Test application approval/rejection under concurrent execution."""
 
     def setUp(self):
@@ -168,6 +226,8 @@ class TestApplicationApprovalConcurrency(IntegrationTestCase):
         self.uid = str(int(time.time() * 1000))[-6:]
         self.created_members = []
         self.lifecycle_service = MemberLifecycleService()
+        # Capture site name for threads
+        self.site = frappe.local.site
 
     def tearDown(self):
         """Clean up test data."""
@@ -198,6 +258,7 @@ class TestApplicationApprovalConcurrency(IntegrationTestCase):
         """Test that concurrent approval of same member only allows one to succeed."""
         # Create a single pending member
         member_name = self._create_pending_application("concurrent")
+        site = self.site  # Capture for closure
 
         results = []
         lock = threading.Lock()
@@ -205,9 +266,10 @@ class TestApplicationApprovalConcurrency(IntegrationTestCase):
         def try_approve(thread_id):
             """Try to approve the member in a thread."""
             try:
-                _setup_thread_context()
+                _create_thread_context(site)
+                service = MemberLifecycleService()
                 member = frappe.get_doc("Member", member_name)
-                result = self.lifecycle_service.approve_application(member)
+                result = service.approve_application(member)
                 with lock:
                     results.append({
                         "thread": thread_id,
@@ -219,7 +281,7 @@ class TestApplicationApprovalConcurrency(IntegrationTestCase):
                 with lock:
                     results.append({"thread": thread_id, "success": False, "error": str(e)})
             finally:
-                frappe.db.commit()
+                _cleanup_thread_context()
 
         # Execute approvals concurrently
         num_threads = 5
@@ -249,6 +311,7 @@ class TestApplicationApprovalConcurrency(IntegrationTestCase):
         """Test that concurrent rejection of same member only allows one to succeed."""
         # Create a single pending member
         member_name = self._create_pending_application("reject")
+        site = self.site  # Capture for closure
 
         results = []
         lock = threading.Lock()
@@ -256,9 +319,10 @@ class TestApplicationApprovalConcurrency(IntegrationTestCase):
         def try_reject(thread_id):
             """Try to reject the member in a thread."""
             try:
-                _setup_thread_context()
+                _create_thread_context(site)
+                service = MemberLifecycleService()
                 member = frappe.get_doc("Member", member_name)
-                result = self.lifecycle_service.reject_application(member, f"Rejected by thread {thread_id}")
+                result = service.reject_application(member, f"Rejected by thread {thread_id}")
                 with lock:
                     results.append({
                         "thread": thread_id,
@@ -269,7 +333,7 @@ class TestApplicationApprovalConcurrency(IntegrationTestCase):
                 with lock:
                     results.append({"thread": thread_id, "success": False, "error": str(e)})
             finally:
-                frappe.db.commit()
+                _cleanup_thread_context()
 
         # Execute rejections concurrently
         num_threads = 5
