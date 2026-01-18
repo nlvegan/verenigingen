@@ -195,6 +195,62 @@ class MemberChapterDisplayService(StatelessService):
                 '<p style="color: #dc3545;">Error loading chapter information</p>'
             )
 
+    def force_update_chapter_display(self, member_doc: "Document") -> dict:
+        """Force update chapter display with save - useful for fixing display issues.
+
+        Sets the chapter assignment flag, updates the display, and saves the document.
+
+        Args:
+            member_doc: Member document instance
+
+        Returns:
+            dict: Result with success status and current display value
+        """
+        try:
+            member_doc._chapter_assignment_in_progress = True
+            self.update_current_chapter_display(member_doc)
+            member_doc.save()
+            return {
+                "success": True,
+                "message": "Chapter display updated",
+                "current_chapter_display": getattr(member_doc, "current_chapter_display", "Not set"),
+            }
+        except Exception as e:
+            self.logger.error(f"Error force updating chapter display: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+            }
+        finally:
+            if hasattr(member_doc, "_chapter_assignment_in_progress"):
+                delattr(member_doc, "_chapter_assignment_in_progress")
+
+    def get_current_chapters_optimized(self, member_doc: "Document") -> List[Dict[str, Any]]:
+        """Get current chapter memberships with optimized single query and fallback.
+
+        Delegates to ChapterManagementService for optimized query execution.
+        Falls back to standard query on error.
+
+        Args:
+            member_doc: Member document instance
+
+        Returns:
+            List[Dict]: Chapter membership data
+        """
+        if not member_doc.name:
+            return []
+
+        try:
+            return self._get_current_chapters_optimized(member_doc)
+        except Exception as e:
+            self.logger.error(f"Error getting current chapters optimized: {str(e)}")
+            # Fallback to standard method
+            from verenigingen.services.member.chapter.chapter_management_service import (
+                get_chapter_management_service,
+            )
+
+            return get_chapter_management_service().get_member_chapters(member_doc.name)
+
     def _get_current_chapters_optimized(self, member_doc: "Document") -> List[Dict[str, Any]]:
         """
         Get current chapter memberships with optimized single query.

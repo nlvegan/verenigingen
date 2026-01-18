@@ -365,6 +365,31 @@ class MemberHistoryUpdateService(StatelessService):
 
         return cache
 
+    def _update_donation_history(self, member_doc: "Document") -> int:
+        """Update donation history for a member using DonationHistoryManager.
+
+        Synchronizes donation records from Donor document to member's donation_history
+        child table using the centralized DonationHistoryManager.
+
+        Args:
+            member_doc: Member document object
+
+        Returns:
+            int: Number of donation history changes (additions or removals)
+        """
+        if not (hasattr(member_doc, "donor") and member_doc.donor):
+            return 0
+
+        from verenigingen.utils.donation_history_manager import sync_donor_history
+
+        # Sync uses the proper manager - check if it made changes
+        original_donation_count = len(getattr(member_doc, "donation_history", []))
+        sync_donor_history(member_doc.donor)
+        # Reload to get updated donation history
+        member_doc.reload()
+        new_donation_count = len(getattr(member_doc, "donation_history", []))
+        return abs(new_donation_count - original_donation_count)
+
     def _update_volunteer_expense_history(self, member_doc: "Document") -> int:
         """
         DEPRECATED: Volunteer expense history feature has been archived.

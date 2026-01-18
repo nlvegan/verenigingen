@@ -58,8 +58,6 @@ from verenigingen.services.member.utils.member_age_service import (
 # Extracted services
 from verenigingen.services.member.utils.membership_duration_service import (
     calculate_total_membership_days as calculate_duration_days,
-    format_duration_human_readable,
-    update_member_duration_fields,
 )
 from verenigingen.utils.address_matching.dutch_address_normalizer import (
     AddressFingerprintCollisionHandler,
@@ -91,26 +89,6 @@ from verenigingen.verenigingen.doctype.member.mixins.financial_mixin import Fina
 from verenigingen.verenigingen.doctype.member.mixins.payment_mixin import PaymentMixin
 from verenigingen.verenigingen.doctype.member.mixins.sepa_mixin import SEPAMandateMixin
 from verenigingen.verenigingen.doctype.member.mixins.termination_mixin import TerminationMixin
-
-
-def generate_volunteer_details_html(member_doc: "Member") -> str:
-    """
-    Generate HTML display for volunteer details and assignment history.
-
-    EXTRACTED: Moved to MemberVolunteerDisplayService.generate_volunteer_details_html()
-    for service layer separation.
-
-    Args:
-        member_doc: Member document instance
-
-    Returns:
-        str: Formatted HTML string with volunteer details and assignment history
-    """
-    from verenigingen.services.member.display.member_volunteer_display_service import (
-        get_member_volunteer_display_service,
-    )
-
-    return get_member_volunteer_display_service().generate_volunteer_details_html(member_doc)
 
 
 class Member(
@@ -154,8 +132,8 @@ class Member(
     def before_save(self) -> None:
         """Execute before saving the document with optimized performance.
 
-        Performs necessary field updates and validations before saving,
-        with performance optimizations to avoid unnecessary processing.
+        EXTRACTED: Moved to MemberBeforeSaveService.execute_before_save()
+        for service layer separation.
 
         Operations:
             1. Safe performance optimization (metadata caching, link batching)
@@ -164,54 +142,12 @@ class Member(
             4. Address normalization (when address changes)
             5. Application status defaults
             6. Counter reset handling
-
-        Performance Features:
-            - Safe metadata caching and query batching
-            - Change detection to avoid unnecessary updates
-            - Conditional processing based on field changes
-            - Efficient address fingerprinting
-            - Minimal database queries
         """
-        # Apply safe performance optimizations if enabled
-        try:
-            safe_member_optimizer.optimize_member_creation(self)
-        except Exception as e:
-            # Log but don't fail member creation if optimization fails
-            frappe.log_error(
-                f"Safe member optimization failed for {self.name}: {str(e)}", "Member Before Save"
-            )
-        # Generate appropriate IDs based on member status
-        # Member IDs are only assigned to approved members to prevent premature ID allocation
-        if not self.member_id:
-            if self.should_have_member_id():
-                frappe.logger().info(
-                    f"Generating member ID for {self.name} - application_status: {getattr(self, 'application_status', 'None')}, is_application: {self.is_application_member()}"
-                )
-                self.member_id = generate_member_id()
-                frappe.logger().info(f"Generated member ID: {self.member_id} for {self.name}")
-            elif self.is_application_member() and not self.application_id:
-                # Assign application ID for tracking pending applications
-                self.application_id = None
-                self.application_id = generate_application_id()
-        else:
-            frappe.logger().debug(f"Member {self.name} already has member_id: {self.member_id}")
+        from verenigingen.services.member.lifecycle.member_before_save_service import (
+            get_member_before_save_service,
+        )
 
-        # Update chapter display only when necessary to optimize performance
-        # This prevents unnecessary geographic lookups and database queries
-        if self._should_update_chapter_display():
-            self.update_current_chapter_display()
-
-        # Update computed address fields for efficient member matching
-        # This creates normalized fingerprints for duplicate detection
-        self._update_computed_address_fields()
-
-        # Clear counter reset flag after processing to prevent repeated resets
-        if hasattr(self, "reset_counter_to") and self.reset_counter_to:
-            self.reset_counter_to = None
-            self.reset_counter_to = None
-
-        # Ensure application status is properly set based on member state
-        set_member_application_status_defaults(self)
+        get_member_before_save_service().execute_before_save(self)
 
     def _should_update_chapter_display(self):
         """
@@ -227,40 +163,8 @@ class Member(
         return get_member_chapter_display_service().should_update_chapter_display(self)
 
     def _update_computed_address_fields(self):
-        """Update computed address fields using Address Management Service.
-
-        Delegates to member_address_service for consistent address processing
-        with improved error handling and performance optimization.
-
-        Features:
-            - Dutch address normalization via service
-            - Address fingerprinting with collision handling
-            - Change detection to avoid unnecessary processing
-            - Comprehensive error handling and logging
-
-        Side Effects:
-            - Updates address_fingerprint field
-            - Updates normalized_address_line field
-            - Updates normalized_city field
-            - Sets address_last_updated timestamp
-        """
-        try:
-            result = get_member_address_service().update_member_address_fields(self)
-
-            if not result.success:
-                # Log errors from the service
-                for error in result.errors:
-                    frappe.log_error(error, "Member Address Update")
-
-                # Log warnings if any
-                if "warnings" in result.metadata:
-                    for warning in result.metadata["warnings"]:
-                        frappe.logger().warning(warning)
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error calling address service for {self.name}: {str(e)}", "Member Address Service"
-            )
+        """Update computed address fields - delegates to MemberAddressService."""
+        get_member_address_service().execute_address_field_update(self)
 
     def _validate_fee_override_amount(self, amount):
         """
@@ -408,55 +312,17 @@ class Member(
         get_member_user_account_service().create_user_account_if_needed(self)
 
     def onload(self):
-        """Execute when document is loaded"""
+        """Execute when document is loaded.
+
+        EXTRACTED: Moved to MemberOnloadService.execute_onload()
+        for service layer separation.
+        """
         try:
-            # Update chapter display when form loads
-            if not self.get("__islocal"):
-                try:
-                    self.update_current_chapter_display()
-                except Exception as e:
-                    frappe.log_error(f"Error updating chapter display in onload for {self.name}: {e}")
+            from verenigingen.services.member.display.member_onload_service import (
+                get_member_onload_service,
+            )
 
-                try:
-                    # Update address display
-                    self.update_address_display()
-                except Exception as e:
-                    frappe.log_error(f"Error updating address display in onload for {self.name}: {e}")
-
-                try:
-                    # Update other members at address display
-                    # This may fail for users with limited permissions - that's acceptable
-                    self.update_other_members_at_address_display()
-                    # Ensure the HTML field is included in the response
-                    if hasattr(self, "other_members_at_address") and self.other_members_at_address:
-                        self.set_onload("other_members_at_address", self.other_members_at_address)
-                except Exception as e:
-                    # Silently handle permission errors - household members display is non-critical
-                    # Only log if it's not a permission error
-                    error_str = str(e)
-                    if "Access denied" not in error_str and "permission" not in error_str.lower():
-                        frappe.log_error(
-                            f"Error updating other members at address display in onload for {self.name}: {e}"
-                        )
-                    # Clear the field to prevent showing stale data
-                    self.other_members_at_address = ""
-
-                try:
-                    # Update volunteer details HTML with assignment history
-                    html = generate_volunteer_details_html(self)
-                    if html:
-                        self.volunteer_details_html = html
-                        # Pass HTML to client via onload (same pattern as other_members_at_address)
-                        self.set_onload("volunteer_details_html", html)
-                except Exception as e:
-                    frappe.log_error(f"Error loading volunteer details HTML in onload for {self.name}: {e}")
-
-                try:
-                    # Calculate membership duration on-demand from Membership records
-                    self.calculate_cumulative_membership_duration()
-                except Exception as e:
-                    frappe.log_error(f"Error calculating membership duration in onload for {self.name}: {e}")
-
+            get_member_onload_service().execute_onload(self)
         except Exception as e:
             frappe.log_error(f"Critical error in onload method for {self.name}: {e}")
             # Don't raise exception to prevent form loading issues
@@ -571,103 +437,28 @@ class Member(
         return True
 
     def validate(self) -> None:
-        """Validate document data with optional performance optimizations"""
-        # Note: Initial IBAN history for directly created members should be handled manually
-        # after creation, or through the application approval process for application members
+        """Validate document data with optional performance optimizations.
 
-        # Core validations (always required)
-        validate_member_name_fields(self)
-        update_member_full_name(self)
-        update_member_membership_status(self)
-        update_member_age_field(self)
-        validate_member_age_requirements(self)  # Add age validation
+        EXTRACTED: Moved to MemberValidationService.execute_validation()
+        for service layer separation.
+        """
+        from verenigingen.services.member.validation.member_validation_service import (
+            get_member_validation_service,
+        )
 
-        # Only calculate duration if explicitly requested or if this is a new member
-        # Daily scheduler handles routine duration updates to avoid on-visit field changes
-        if getattr(self, "_force_duration_update", False) or self.is_new():
-            self.calculate_cumulative_membership_duration()
-
-        # Payment and business validations (optimized if possible)
-        self.validate_payment_method()
-        self.set_payment_reference()
-        self.validate_bank_details()
-
-        # Member ID validation
-        validate_member_id_change(self)
-        self.handle_fee_override_changes()
-
-        # Skip status sync if explicitly flagged (e.g., during approve/reject operations)
-        if not getattr(self.flags, "ignore_status_validation", False):
-            sync_member_status_fields(self)
-
-        # Clear application_status once member leaves application workflow
-        # Application workflow states are: Pending, Under Review, Approved, Rejected, Payment Pending
-        # Once member becomes Active, Terminated, Suspended, etc., application_status is no longer relevant
-        # IMPORTANT: Don't clear if we're in an explicit approve/reject operation (ignore_status_validation flag)
-        # or if status is "Rejected" (rejected status should preserve application_status)
-        if (
-            not getattr(self.flags, "ignore_status_validation", False)
-            and self.status not in ["Pending", "Rejected"]
-            and self.application_status in ["Pending", "Under Review", "Approved", "Payment Pending"]
-        ):
-            self.application_status = None
+        get_member_validation_service().execute_validation(self)
 
     def on_update(self):
-        """Emit events for status changes to trigger background operations"""
-        try:
-            # Skip event emission during bulk operations or tests
-            # CRITICAL: Check both bulk_member_operations (process-local) AND in_bulk_import (set by CSV processor)
-            # The in_bulk_import flag is the reliable one that persists across the import session
-            if (
-                getattr(frappe.flags, "bulk_member_operations", False)
-                or getattr(frappe.flags, "in_bulk_import", False)
-                or getattr(frappe.flags, "in_test", False)
-            ):
-                return
+        """Emit events for status changes to trigger background operations.
 
-            # Import here to avoid circular dependencies
-            from verenigingen.events.member_events import (
-                emit_member_lifecycle_changed,
-                emit_member_status_changed,
-            )
+        EXTRACTED: Moved to MemberEventEmissionService.emit_status_change_events()
+        for service layer separation.
+        """
+        from verenigingen.services.member.lifecycle.member_event_emission_service import (
+            get_member_event_emission_service,
+        )
 
-            # Track application status changes (Pending -> Approved workflow)
-            if self.has_value_changed("application_status"):
-                old_status = self.get_db_value("application_status")
-                new_status = self.application_status
-
-                frappe.logger().info(
-                    f"Member {self.name} application status changed: {old_status} -> {new_status}"
-                )
-
-                emit_member_status_changed(
-                    self.name,
-                    {"old_status": old_status, "new_status": new_status, "status_type": "application"},
-                )
-
-            # Track general member status changes (Active, Suspended, Terminated)
-            if self.has_value_changed("status"):
-                old_status = self.get_db_value("status")
-                new_status = self.status
-
-                frappe.logger().info(f"Member {self.name} status changed: {old_status} -> {new_status}")
-
-                emit_member_lifecycle_changed(
-                    self.name,
-                    {"old_status": old_status, "new_status": new_status, "status_type": "membership"},
-                )
-
-                # Send status change notification
-                self._send_member_status_notification(old_status, new_status)
-
-            # Bidirectional sync removed - Chapter and Volunteer are sources of truth
-            # Member displays this data read-only (editable only for Verenigingen Staff/Administrator)
-
-        except Exception as e:
-            # Event emission should never block member updates
-            frappe.log_error(
-                f"Failed to emit member events for {self.name}: {str(e)}", "Member Event Emission Error"
-            )
+        get_member_event_emission_service().emit_status_change_events(self)
 
     def set_application_status_defaults(self) -> "OperationResult[str]":
         """Set appropriate defaults for application_status based on member type - delegated to member_status_service
@@ -714,58 +505,18 @@ class Member(
     def _send_member_status_notification(self, old_status: str, new_status: str) -> None:
         """Send notification when member status changes.
 
+        EXTRACTED: Moved to MemberStatusNotificationService.send_status_change_notification()
+        for service layer separation.
+
         Args:
             old_status: Previous status value
             new_status: New status value
         """
-        if not self.email:
-            return
-
-        from verenigingen.services.communication.email_service import get_email_service
-        from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
-
-        email_service = get_email_service()
-
-        # Determine notification key based on status transition
-        if new_status == "Active":
-            notification_key = "member_activated"
-            subject = "Your Membership is Now Active"
-            message = "Your membership has been activated. Welcome to our community!"
-        elif new_status == "Suspended":
-            notification_key = "member_suspended"
-            subject = "Membership Suspended"
-            message = (
-                "Your membership has been temporarily suspended. Please contact us for more information."
-            )
-        elif new_status == "Terminated":
-            notification_key = "member_terminated"
-            subject = "Membership Terminated"
-            message = "Your membership has been terminated. Thank you for being part of our community."
-        else:
-            # Generic status change
-            notification_key = "member_status_change"
-            subject = f"Membership Status Update: {new_status}"
-            message = f"Your membership status has been updated from {old_status} to {new_status}."
-
-        context = {
-            "member_name": self.full_name or f"{self.first_name} {self.last_name}",
-            "old_status": old_status,
-            "new_status": new_status,
-            "change_type": "Status Change",
-            "effective_date": frappe.utils.formatdate(frappe.utils.today()),
-            "additional_message": message,
-            "company": get_mollie_config().get_default_company(),
-        }
-
-        email_service.send_templated_email(
-            template_name="member_lifecycle_notification",
-            recipients=[self.email],
-            context=context,
-            subject_override=subject,
-            reference_doctype="Member",
-            reference_name=self.name,
-            notification_key=notification_key,
+        from verenigingen.services.member.lifecycle.member_status_notification_service import (
+            get_member_status_notification_service,
         )
+
+        get_member_status_notification_service().send_status_change_notification(self, old_status, new_status)
 
     def _unlink_from_customer(self):
         """
@@ -811,30 +562,12 @@ class Member(
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.UTILITY)
     def update_membership_duration(self):
-        """Update the total membership days and human-readable duration.
+        """Update the total membership days and human-readable duration - delegates to MemberDurationService."""
+        from verenigingen.services.member.utils.member_duration_service import (
+            get_member_duration_service,
+        )
 
-        Extracted to membership_duration_service for reusability. Delegates to the
-        extracted service for consistent duration updates.
-
-        Returns:
-            dict: Result with success status and calculated values
-        """
-        try:
-            # Use extracted service to update duration fields
-            result = update_member_duration_fields(self)
-
-            if result["success"]:
-                # Suppress version tracking for automatic duration updates
-                # These are calculated fields updated by scheduler, not user actions
-                self.flags.ignore_version = True
-                # Save the record - proper validation maintained
-                self.save()
-
-            return result
-
-        except Exception as e:
-            frappe.log_error(f"Error updating membership duration for {self.name}: {str(e)}")
-            return {"success": False, "error": str(e)}
+        return get_member_duration_service().update_duration(self)
 
     def generate_application_id(self):
         """Generate unique application ID - delegated to member_id_service"""
@@ -929,87 +662,27 @@ class Member(
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.REPORTING)
     def get_other_members_at_address(self):
-        """Get other members living at the same address using Address Management Service"""
-        try:
-            frappe.logger().info(
-                f"get_other_members_at_address called for {self.name} with address {self.primary_address}"
-            )
-
-            result = get_member_address_service().get_colocated_members(self)
-
-            if not result.success:
-                # Log errors from the service
-                for error in result.errors:
-                    frappe.log_error(error, "Get Colocated Members")
-
-                # Return empty list to ensure valid JSON response
-                return []
-
-            # Log warnings if any (warnings would be in metadata if present)
-            if "warnings" in result.metadata:
-                for warning in result.metadata["warnings"]:
-                    frappe.logger().warning(warning)
-
-            member_count = result.metadata.get("count", 0)
-            frappe.logger().info(f"Found {member_count} other members for {self.name} using address service")
-            return result.data
-
-        except Exception as e:
-            frappe.log_error(f"Error calling address service for {self.name}: {str(e)}")
-            # Return empty list to ensure valid JSON response
-            return []
+        """Get other members at same address - delegates to MemberAddressService."""
+        return get_member_address_service().get_other_members_at_address_safe(self)
 
     def calculate_cumulative_membership_duration(self) -> None:
-        """Calculate and set total membership duration in human-readable format.
+        """Calculate and set total membership duration - delegates to MemberDurationService."""
+        from verenigingen.services.member.utils.member_duration_service import (
+            get_member_duration_service,
+        )
 
-        Calculates duration on-demand from Membership records (start_date, cancellation_date).
-        No stored day counter - always calculates fresh from source data.
-
-        Returns:
-            float: Duration in years for backward compatibility
-        """
-        try:
-            # Always calculate fresh from Membership records
-            total_days = self.calculate_total_membership_days()
-
-            # Use extracted service for formatting (rounded to months)
-            self.cumulative_membership_duration = format_duration_human_readable(total_days)
-
-            # Return the value in years for backward compatibility
-            return total_days / 365.25 if total_days > 0 else 0
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error calculating cumulative membership duration for {self.name}: {str(e)}", "Member Error"
-            )
-            self.cumulative_membership_duration = "Error calculating duration"
-            return 0
+        result = get_member_duration_service().calculate_cumulative_duration(self)
+        return result.get("duration_years", 0)
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.ADMIN)
     def force_update_membership_duration(self):
-        """Force update membership duration - can be called manually to update the field"""
-        try:
-            self._force_duration_update = True
-            self.calculate_cumulative_membership_duration()
-            # Save with minimal logging to avoid activity log entries
-            self.flags.ignore_version = True
-            self.flags.ignore_links = True
-            # Force update method: only bypass after-submit validation for analytics fields
-            self.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: Analytics update only
-            self.save()  # FIXED: Removed inappropriate permission bypass
-            return {
-                "success": True,
-                "duration": self.cumulative_membership_duration,
-                "message": "Membership duration updated successfully",
-            }
-        except Exception as e:
-            frappe.log_error(f"Error force updating membership duration for {self.name}: {str(e)}")
-            return {"success": False, "error": str(e)}
-        finally:
-            # Clear the flag
-            if hasattr(self, "_force_duration_update"):
-                delattr(self, "_force_duration_update")
+        """Force update membership duration - delegates to MemberDurationService."""
+        from verenigingen.services.member.utils.member_duration_service import (
+            get_member_duration_service,
+        )
+
+        return get_member_duration_service().force_update_duration(self)
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.FINANCIAL)
@@ -1045,23 +718,15 @@ class Member(
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.ADMIN)
     def force_update_chapter_display(self):
-        """Force update chapter display - useful for fixing display issues"""
-        self._chapter_assignment_in_progress = True
-        self.update_current_chapter_display()
-        self.save()  # FIXED: Removed inappropriate permission bypass
-        return {
-            "success": True,
-            "message": "Chapter display updated",
-            "current_chapter_display": getattr(self, "current_chapter_display", "Not set"),
-        }
+        """Force update chapter display - delegates to MemberChapterDisplayService."""
+        from verenigingen.services.member.display.member_chapter_display_service import (
+            get_member_chapter_display_service,
+        )
+
+        return get_member_chapter_display_service().force_update_chapter_display(self)
 
     def update_current_chapter_display(self):
-        """
-        Update the current chapter display field with formatted HTML.
-
-        EXTRACTED: Moved to MemberChapterDisplayService.update_current_chapter_display()
-        for service layer separation.
-        """
+        """Update chapter display field - delegates to MemberChapterDisplayService."""
         from verenigingen.services.member.display.member_chapter_display_service import (
             get_member_chapter_display_service,
         )
@@ -1069,33 +734,15 @@ class Member(
         return get_member_chapter_display_service().update_current_chapter_display(self)
 
     def get_current_chapters_optimized(self):
-        """
-        Get current chapter memberships with optimized single query.
+        """Get current chapters with optimized query - delegates to MemberChapterDisplayService."""
+        from verenigingen.services.member.display.member_chapter_display_service import (
+            get_member_chapter_display_service,
+        )
 
-        Delegates to ChapterManagementService for optimized query execution.
-        This method is maintained for backward compatibility but delegates to service.
-        """
-        if not self.name:
-            return []
-
-        try:
-            from verenigingen.services.member.chapter.chapter_management_service import (
-                get_chapter_management_service,
-            )
-
-            return get_chapter_management_service().get_member_chapters_optimized(self.name)
-        except Exception as e:
-            frappe.log_error(f"Error getting current chapters optimized: {str(e)}", "Member Chapter Query")
-            # Fallback to original method
-            return self.get_current_chapters()
+        return get_member_chapter_display_service().get_current_chapters_optimized(self)
 
     def get_current_chapters(self):
-        """
-        Get current chapter memberships from Chapter Member child table.
-
-        EXTRACTED: Moved to ChapterManagementService.get_member_chapters()
-        for service layer separation (Member Phase 2E-2).
-        """
+        """Get current chapters - delegates to ChapterManagementService."""
         from verenigingen.services.member.chapter.chapter_management_service import (
             get_chapter_management_service,
         )
@@ -1164,19 +811,12 @@ class Member(
         return get_member_fee_change_history_service().update_fee_change_in_history(self, schedule_data)
 
     def _update_donation_history(self):
-        """Update donation history for this member - delegates to DonationHistoryManager"""
-        if not (hasattr(self, "donor") and self.donor):
-            return 0
+        """Update donation history - delegates to MemberHistoryUpdateService."""
+        from verenigingen.services.member.history.member_history_update_service import (
+            get_member_history_update_service,
+        )
 
-        from verenigingen.utils.donation_history_manager import sync_donor_history
-
-        # Sync uses the proper manager - check if it made changes
-        original_donation_count = len(getattr(self, "donation_history", []))
-        sync_donor_history(self.donor)
-        # Reload to get updated donation history
-        self.reload()
-        new_donation_count = len(getattr(self, "donation_history", []))
-        return abs(new_donation_count - original_donation_count)
+        return get_member_history_update_service()._update_donation_history(self)
 
     def _update_volunteer_expense_history(self):
         """Update volunteer expense history - delegates to MemberHistoryUpdateService"""
@@ -1285,157 +925,15 @@ def get_board_memberships(member_name):
 
 
 def handle_fee_override_after_save(doc, method=None):
-    """Hook function to handle fee override changes after save with improved atomicity"""
-    frappe.logger().info(f"handle_fee_override_after_save called for member {doc.name}, method={method}")
-
-    # Skip fee change processing during bulk operations - rates are set directly on dues schedules
-    # This avoids deadlocks from concurrent amendment processing during bulk imports
-    bulk_flag = getattr(frappe.flags, "bulk_member_operations", False)
-    csv_flag = getattr(doc, "_csv_import", False)
-    system_update_flag = getattr(doc, "_system_update", False)
-    # CRITICAL: Also check persistent tracking set (survives document reloads)
-    in_bulk_import = (
-        hasattr(frappe.local, "bulk_import_members") and doc.name in frappe.local.bulk_import_members
-    )
-
-    frappe.logger().info(
-        f"[FEE OVERRIDE HOOK] Called for {doc.name}, "
-        f"bulk_flag={bulk_flag}, csv_flag={csv_flag}, "
-        f"system_flag={system_update_flag}, in_bulk_import={in_bulk_import}"
-    )
-    if bulk_flag or csv_flag or system_update_flag or in_bulk_import:
-        frappe.logger().info(f"[FEE OVERRIDE HOOK] Skipping for {doc.name} - bulk operation in progress")
-        return
-
-    # Handle deferred fee changes
-    if hasattr(doc, "_pending_fee_change"):
-        try:
-            frappe.logger().info(f"Processing pending fee change for member {doc.name}")
-
-            # Use separate database transaction for fee change processing
-            frappe.db.begin()
-            try:
-                # Create amendment request
-                try:
-                    from verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request import (
-                        create_fee_change_amendment,
-                    )
-
-                    amendment = create_fee_change_amendment(
-                        member_name=doc.name,
-                        new_amount=doc._pending_fee_change["new_amount"],
-                        reason=doc._pending_fee_change["reason"],
-                    )
-
-                    dues_schedule_action = f"Amendment request created: {amendment.name}"
-
-                except Exception as e:
-                    frappe.logger().warning(f"Could not create amendment request: {str(e)}")
-                    dues_schedule_action = "Amendment creation failed, direct dues schedule update"
-
-                # Record the change in history (using direct SQL to avoid recursion)
-                history_entry = {
-                    "change_date": doc._pending_fee_change["change_date"],
-                    "old_amount": doc._pending_fee_change["old_amount"],
-                    "new_amount": doc._pending_fee_change["new_amount"],
-                    "reason": doc._pending_fee_change["reason"],
-                    "changed_by": doc._pending_fee_change["changed_by"],
-                    "dues_schedule_action": dues_schedule_action,
-                }
-
-                # Get current fee change history
-                # Get current fee change history with safe parsing
-                current_history = frappe.db.get_value("Member", doc.name, "fee_change_history")
-                if not current_history or current_history.strip() == "":
-                    history_list = []
-                else:
-                    try:
-                        history_list = frappe.parse_json(current_history)
-                        if not isinstance(history_list, list):
-                            frappe.log_error(
-                                f"Invalid fee_change_history format for member {doc.name}: {type(history_list)}",
-                                "MemberHistory",
-                            )
-                            history_list = []
-                    except (ValueError, TypeError) as e:
-                        frappe.log_error(
-                            f"Failed to parse fee_change_history for member {doc.name}: {e}", "MemberHistory"
-                        )
-                        history_list = []
-                history_list.append(history_entry)
-
-                # Update history directly in database
-                frappe.db.sql(
-                    """
-                    UPDATE `tabMember`
-                    SET fee_change_history = %s
-                    WHERE name = %s
-                """,
-                    (frappe.as_json(history_list), doc.name),
-                )
-
-                # Update dues schedules if needed
-                try:
-                    # Create a temporary member object to avoid modifying the original
-                    temp_member = frappe.get_doc("Member", doc.name)
-                    # Mark as system update to bypass fee override validation
-                    temp_member._system_update = True
-                    result = temp_member.update_active_dues_schedules()
-                    frappe.logger().info(f"Dues schedule update result: {result}")
-                except Exception as e:
-                    frappe.logger().error(f"Error updating dues schedules: {str(e)}")
-
-                # Commit the transaction
-                frappe.db.commit()
-
-            except Exception as transaction_error:
-                # Rollback the transaction on error
-                frappe.db.rollback()
-                frappe.logger().error(
-                    f"Transaction error processing fee override for member {doc.name}: {str(transaction_error)}"
-                )
-                raise transaction_error
-
-            delattr(doc, "_pending_fee_change")
-            frappe.logger().info(f"Successfully processed fee override change for member {doc.name}")
-
-        except Exception as e:
-            frappe.logger().error(f"Error processing fee override for member {doc.name}: {str(e)}")
-            # Clean up the pending change to avoid repeated processing
-            if hasattr(doc, "_pending_fee_change"):
-                delattr(doc, "_pending_fee_change")
-    else:
-        frappe.logger().debug(f"No pending fee change found for member {doc.name}")
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_linked_donations(member):
     """
-    Find linked donor record for a member to view donations
+    Hook function to handle fee override changes after save.
+
+    EXTRACTED: Delegates to FeeOverrideHookService for processing.
+    See services/member/financial/fee_override_hook_service.py for implementation.
     """
-    if not member:
-        return {"success": False, "message": "No member specified"}
+    from verenigingen.services.member.financial import handle_fee_override_after_save as _handle
 
-    # First try to find a donor with the same email as the member
-    member_doc = frappe.get_doc("Member", member)
-    if member_doc.email:
-        donors = frappe.get_all("Donor", filters={"donor_email": member_doc.email}, fields=["name"])
-
-        if donors:
-            return {"success": True, "donor": donors[0].name}
-
-    # Then try to find by name
-    if member_doc.full_name:
-        donors = frappe.get_all(
-            "Donor", filters={"donor_name": ["like", f"%{member_doc.full_name}%"]}, fields=["name"]
-        )
-
-        if donors:
-            return {"success": True, "donor": donors[0].name}
-
-    # No donor found
-    return {"success": False, "message": "No donor record found for this member"}
+    _handle(doc, method)
 
 
 @frappe.whitelist()
@@ -1447,515 +945,59 @@ def assign_member_id(member_name):
     return get_member_id_service().assign_member_id(member_name)
 
 
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def validate_mandate_creation(member, iban, mandate_id):
-    """
-    Validate mandate creation parameters and check for existing mandates.
+# =============================================================================
+# MODULE-LEVEL API FUNCTIONS - RE-EXPORTS FOR BACKWARD COMPATIBILITY
+# =============================================================================
+# These functions have been extracted to api/member/ modules for better organization.
+# Re-exports are provided here to maintain backward compatibility.
+# New code should import directly from the api/member/ package.
+#
+# SEPA functions → api/member/sepa_api.py
+# Member ID functions → api/member/member_id_api.py
+# Chapter functions → api/member/chapter_api.py
+# Financial functions → api/member/financial_api.py
+# General functions → api/member/general_api.py
 
-    .. deprecated:: 2025-10-14
-        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.validate_mandate_creation` instead.
-        This function will be removed in a future version.
-    """
-    import warnings
+# SEPA API functions
+# Chapter API functions
+from verenigingen.api.member.chapter_api import (  # noqa: E402
+    get_member_chapter_display_html,
+    get_member_chapter_names,
+    get_member_current_chapters,
+)
 
-    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+# Financial API functions
+from verenigingen.api.member.financial_api import (  # noqa: E402
+    get_current_dues_schedule_details,
+    refresh_fee_change_history,
+    sync_member_dues_rate,
+)
 
-    warnings.warn(
-        "validate_mandate_creation() is deprecated. Use SEPAMandateManager.validate_mandate_creation() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+# General member API functions
+from verenigingen.api.member.general_api import (  # noqa: E402
+    check_donor_exists,
+    create_donor_from_member,
+    create_member_user_account,
+    get_linked_donations,
+    test_member_form_functionality,
+)
 
-    # Delegate to service with allow_duplicate_iban=True for legacy behavior
-    # Legacy API returned valid=True with warning for duplicate IBAN
-    manager = get_sepa_mandate_manager()
-    result = manager.validate_mandate_creation(member, iban, mandate_id, allow_duplicate_iban=True)
-
-    # Convert ValidationResult to legacy dict format (standardized response)
-    if result.valid:
-        response = {"success": True, "valid": True, **(result.data or {})}
-        # Check for existing mandate with same IBAN and add warning (legacy behavior)
-        existing_mandates = manager.get_active_mandates(member, iban=iban)
-        if existing_mandates:
-            response["existing_mandate"] = existing_mandates[0].mandate_id
-            response["warning"] = _("An active mandate already exists for this IBAN: {0}").format(
-                existing_mandates[0].mandate_id
-            )
-        return response
-    else:
-        response = {"success": False, "valid": False, "error": result.message}
-        if result.errors:
-            response["errors"] = result.errors
-        return response
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def derive_bic_from_iban(iban):
-    """
-    Derive BIC code from IBAN.
-
-    .. deprecated:: 2025-10-14
-        Use :func:`verenigingen.utils.validation.iban_validator.derive_bic_from_iban` instead.
-        This function will be removed in a future version.
-    """
-    import warnings
-
-    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban as _derive_bic
-
-    warnings.warn(
-        "member.derive_bic_from_iban() is deprecated. Use iban_validator.derive_bic_from_iban() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    # Delegate to canonical implementation
-    bic = _derive_bic(iban)
-    return {"bic": bic} if bic else {"bic": None}
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def deactivate_old_sepa_mandates(member, new_iban):
-    """
-    Deactivate old SEPA mandates when IBAN changes.
-
-    .. deprecated:: 2025-10-14
-        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.deactivate_mandates_for_iban_change` instead.
-        This function will be removed in a future version.
-    """
-    import warnings
-
-    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
-
-    warnings.warn(
-        "deactivate_old_sepa_mandates() is deprecated. Use SEPAMandateManager.deactivate_mandates_for_iban_change() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    # Delegate to service
-    manager = get_sepa_mandate_manager()
-    result = manager.deactivate_mandates_for_iban_change(member, new_iban)
-
-    # Convert ValidationResult to legacy dict format (standardized response)
-    if result.valid:
-        return {"success": True, "valid": True, **(result.data or {})}
-    else:
-        response = {"success": False, "valid": False, "error": result.message}
-        if result.errors:
-            response["errors"] = result.errors
-        return response
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def refresh_sepa_mandates(member):
-    """Refresh the SEPA mandates child table by syncing with actual SEPA Mandate records"""
-    try:
-        member_doc = frappe.get_doc("Member", member)
-        result = member_doc.refresh_sepa_mandates_table()
-        return result
-
-    except Exception as e:
-        frappe.log_error(f"Error refreshing SEPA mandates for member {member}: {str(e)}")
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def get_active_sepa_mandate(member, iban=None):
-    """
-    Get active SEPA mandate for a member.
-
-    .. deprecated:: 2025-10-14
-        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.get_active_mandates` instead.
-        This function will be removed in a future version.
-    """
-    import warnings
-
-    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
-
-    warnings.warn(
-        "get_active_sepa_mandate() is deprecated. Use SEPAMandateManager.get_active_mandates() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    # Delegate to service
-    manager = get_sepa_mandate_manager()
-    mandates = manager.get_active_mandates(member, iban=iban)
-
-    # Return first mandate or None (legacy API returned single mandate)
-    if mandates:
-        m = mandates[0]  # SEPA Mandate document, not Member
-        return {
-            "name": m.name,
-            "mandate_id": m.mandate_id,  # ast-skip: SEPA Mandate field
-            "status": m.status,
-            "iban": m.iban,
-            "account_holder_name": m.account_holder_name,  # ast-skip: SEPA Mandate field
-        }
-    return None
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def assign_missing_member_ids():
-    """Assign missing member IDs - delegates to MemberIDService"""
-    from verenigingen.services.member.identification.member_id_service import get_member_id_service
-
-    return get_member_id_service().assign_missing_member_ids()
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def create_and_link_mandate_enhanced(
-    member,
-    mandate_id,
-    iban,
-    bic="",
-    account_holder_name="",
-    mandate_type="Recurring",
-    sign_date=None,
-    used_for_memberships=1,
-    used_for_donations=0,
-    notes="",
-    replace_existing=None,
-):
-    """
-    Create a new SEPA mandate and link it to the member.
-
-    .. deprecated:: 2025-10-14
-        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
-        This function will be removed in a future version.
-
-    Note: This function delegates to SEPAMandateManager.create_mandate() which creates mandates in Draft status.
-    For Active status, activate the mandate after creation.
-    """
-    import warnings
-
-    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
-    from verenigingen.utils.boolean_utils import cbool
-
-    warnings.warn(
-        "create_and_link_mandate_enhanced() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    # Validate mandatory fields for backward compatibility
-    # (Legacy API required these; service auto-generates mandate_id if empty)
-    if not mandate_id or not str(mandate_id).strip():
-        return {"success": False, "valid": False, "error": _("Mandate ID is required")}
-    if not iban or not str(iban).strip():
-        return {"success": False, "valid": False, "error": _("IBAN is required for SEPA mandate creation")}
-    if not account_holder_name or not str(account_holder_name).strip():
-        return {"success": False, "valid": False, "error": _("Account holder name is required")}
-
-    # Convert mandate type to internal format with unknown type warning
-    type_mapping = {"One-off": "OOFF", "One-of": "OOFF", "Recurring": "RCUR"}
-    if mandate_type not in type_mapping:
-        frappe.log_error(
-            f"Unknown mandate type '{mandate_type}' for member {member}, defaulting to RCUR",
-            "SEPA Mandate Type Warning",
-        )
-    internal_type = type_mapping.get(mandate_type, "RCUR")
-
-    # Delegate to service with allow_duplicate_iban=True for legacy compatibility
-    # Legacy function allowed creating mandates even with existing IBAN
-    manager = get_sepa_mandate_manager()
-    result = manager.create_mandate(
-        member=member,
-        iban=iban,
-        bic=bic or None,
-        account_holder_name=account_holder_name or None,
-        mandate_id=mandate_id,
-        sign_date=sign_date,
-        used_for_memberships=cbool(used_for_memberships),
-        used_for_donations=cbool(used_for_donations),
-        mandate_type=internal_type,
-        notes=notes or None,
-        allow_duplicate_iban=True,
-    )
-
-    # Convert ValidationResult to legacy dict format (standardized response)
-    if result.valid:
-        # Activate the mandate for backward compatibility (service creates as Draft)
-        # Use get_doc + save to trigger proper hooks and validation
-        response_data = dict(result.data) if result.data else {}
-        if response_data.get("mandate_name"):
-            mandate_doc = frappe.get_doc("SEPA Mandate", response_data["mandate_name"])
-            mandate_doc.status = "Active"
-            mandate_doc.is_active = 1
-            mandate_doc.save()
-            response_data["status"] = "Active"  # Update return data to reflect actual status
-
-            # Also mark this mandate as current in the member's sepa_mandates child table
-            # (Legacy API expected is_current=1 for newly created mandates)
-            member_doc = frappe.get_doc("Member", member)
-            for link in member_doc.sepa_mandates:
-                if link.sepa_mandate == mandate_doc.name:
-                    link.is_current = 1
-                    link.status = "Active"
-                    break
-            member_doc.save()
-
-        return {"success": True, "valid": True, **response_data}
-    else:
-        response = {"success": False, "valid": False, "error": result.message}
-        if result.errors:
-            response["errors"] = result.errors
-        return response
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def debug_member_id_assignment(member_name):
-    """Debug member ID assignment - delegates to MemberIDService"""
-    from verenigingen.services.member.identification.member_id_service import get_member_id_service
-
-    return get_member_id_service().debug_member_id_assignment(member_name)
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def create_member_user_account(member_name, send_welcome_email=True):
-    """
-    Create a user account for a member to access portal pages.
-
-    EXTRACTED: Moved to MemberUserAccountService.create_member_user_account()
-    for service layer separation.
-
-    Args:
-        member_name: Name/ID of the member document
-        send_welcome_email: Whether to send welcome email (default True)
-
-    Returns:
-        dict: Result dictionary with success, message, user, and action
-    """
-    from verenigingen.services.member.account.member_user_account_service import (
-        get_member_user_account_service,
-    )
-
-    return get_member_user_account_service().create_member_user_account(member_name, send_welcome_email)
-
+# Member ID API functions
+from verenigingen.api.member.member_id_api import (  # noqa: E402
+    assign_missing_member_ids,
+    debug_member_id_assignment,
+)
+from verenigingen.api.member.sepa_api import (  # noqa: E402
+    create_and_link_mandate_enhanced,
+    deactivate_old_sepa_mandates,
+    derive_bic_from_iban,
+    get_active_sepa_mandate,
+    refresh_sepa_mandates,
+    validate_mandate_creation,
+)
 
 # NOTE: Member role management functions have been extracted to MemberRoleService
 # - add_member_roles_to_user() → MemberRoleService.add_member_roles_to_user()
 # - set_member_user_modules() → MemberRoleService.set_member_user_modules()
 # - _assign_individual_member_roles() → MemberRoleService._assign_individual_member_roles()
 # - create_verenigingen_member_role() → MemberRoleService.create_verenigingen_member_role()
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.REPORTING)
-def check_donor_exists(member_name):
-    """Check if a donor record exists for this member"""
-    from verenigingen.services.member.donor import get_donor_management_service
-
-    return get_donor_management_service().check_donor_exists(member_name)
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def create_donor_from_member(member_name):
-    """
-    Create a donor record from member information.
-
-    EXTRACTED: Moved to MemberDonorIntegrationService.create_donor_from_member()
-    for service layer separation.
-
-    Args:
-        member_name: Name/ID of the member document
-
-    Returns:
-        dict: Result dictionary with success, message, and donor_name
-    """
-    from verenigingen.services.member.integration.member_donor_integration_service import (
-        get_member_donor_integration_service,
-    )
-
-    return get_member_donor_integration_service().create_donor_from_member(member_name)
-
-
-# Global functions that were missing from current version
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_current_chapters(member_name):
-    """
-    Get current chapters for a member - safe for client calls.
-
-    Delegates to ChapterManagementService for optimized query execution.
-    This function maintains backward compatibility for API endpoints.
-    """
-    if not member_name:
-        return []
-
-    try:
-        from verenigingen.services.member.chapter.chapter_management_service import (
-            get_chapter_management_service,
-        )
-
-        # Use optimized service method
-        return get_chapter_management_service().get_member_chapters_optimized(member_name)
-
-    except frappe.PermissionError:
-        # If no permission to member, return empty list (API compatibility)
-        return []
-    except Exception as e:
-        frappe.log_error(f"Error getting member chapters: {str(e)}", "Member Chapters API")
-        return []
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_chapter_names(member_name):
-    """
-    Get simple list of chapter names for a member.
-
-    Delegates to ChapterManagementService for optimized query execution.
-    """
-    if not member_name:
-        return []
-
-    try:
-        from verenigingen.services.member.chapter.chapter_management_service import (
-            get_chapter_management_service,
-        )
-
-        return get_chapter_management_service().get_chapter_names(member_name)
-    except Exception as e:
-        frappe.log_error(f"Error getting member chapter names: {str(e)}", "Member Chapter Names API")
-        return []
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_chapter_display_html(member_name):
-    """
-    Get HTML display of member's chapters.
-
-    Delegates to ChapterManagementService for optimized query execution.
-    """
-    if not member_name:
-        return "<div class='text-muted'>No member specified</div>"
-
-    try:
-        from verenigingen.services.member.chapter.chapter_management_service import (
-            get_chapter_management_service,
-        )
-
-        return get_chapter_management_service().get_chapter_display_html(member_name)
-
-    except Exception as e:
-        frappe.log_error(f"Error generating chapter display HTML: {str(e)}", "Member Chapter Display")
-        return f"<div class='text-danger'>Error loading chapters: {str(e)}</div>"
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
-def sync_member_dues_rate(member_name):
-    """Sync member's dues_rate field with their active dues schedule"""
-    try:
-        # Get the member's active dues schedule using repository
-        repo = DuesScheduleRepository()
-        schedule = repo.get_active_schedule(member_name, fields=["name", "dues_rate"])
-
-        if schedule:
-            # Update member's dues_rate field
-            member_doc = frappe.get_doc("Member", member_name)
-            member_doc.dues_rate = schedule.dues_rate
-            member_doc.save()
-            return {
-                "success": True,
-                "message": f"Synced dues rate: {schedule.dues_rate}",
-                "dues_rate": schedule.dues_rate,
-            }
-        else:
-            return {"success": False, "message": "No active dues schedule found"}
-    except Exception as e:
-        frappe.log_error(f"Error syncing member dues rate: {str(e)}", "Member Dues Rate Sync")
-        return {"success": False, "message": f"Error: {str(e)}"}
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.REPORTING)
-def get_current_dues_schedule_details(member):
-    """Get current dues schedule details for a member"""
-    try:
-        # Get active dues schedule using repository
-        repo = DuesScheduleRepository()
-        dues_schedule = repo.get_active_schedule(
-            member,
-            fields=["name", "dues_rate", "billing_frequency", "next_invoice_date", "membership_type"],
-        )
-
-        if not dues_schedule:
-            return {"has_schedule": False, "message": "No active dues schedule found"}
-
-        # Get membership type details
-        membership_type = None
-        if dues_schedule.membership_type:
-            membership_type = frappe.db.get_value(
-                "Membership Type",
-                dues_schedule.membership_type,
-                ["membership_type_name", "description"],
-                as_dict=True,
-            )
-
-        return {
-            "has_schedule": True,
-            "schedule_name": dues_schedule.name,
-            "dues_rate": dues_schedule.dues_rate,
-            "billing_frequency": dues_schedule.billing_frequency,
-            "next_invoice_date": dues_schedule.next_invoice_date,
-            "membership_type": dues_schedule.membership_type,
-            "membership_type_name": membership_type.membership_type_name if membership_type else None,
-            "membership_type_description": membership_type.description if membership_type else None,
-        }
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting dues schedule details for member {member}: {str(e)}", "Dues Schedule Details"
-        )
-
-
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
-def refresh_fee_change_history(member_name):
-    """
-    Refresh fee change history from dues schedules with integrity checking.
-
-    EXTRACTED: Moved to MemberHistoryUpdateService.refresh_fee_change_history()
-    for service layer separation.
-
-    Args:
-        member_name: Name/ID of the member document
-
-    Returns:
-        dict: Result dictionary with success, message, and statistics
-    """
-    from verenigingen.services.member.history.member_history_update_service import (
-        get_member_history_update_service,
-    )
-
-    return get_member_history_update_service().refresh_fee_change_history(member_name)
-
-
-# =============================================================================
-# DELEGATION FUNCTIONS FOR EXTRACTED UTILITIES
-# =============================================================================
-# The following functions delegate to extracted testing and debugging utilities
-# to maintain API compatibility while keeping member.py focused on core business logic.
-
-
-@frappe.whitelist()
-def test_member_form_functionality(member_name):
-    """Delegate to extracted testing utility."""
-    from verenigingen.services.member.testing.member_test_utilities import test_member_form_functionality
-
-    return test_member_form_functionality(member_name)

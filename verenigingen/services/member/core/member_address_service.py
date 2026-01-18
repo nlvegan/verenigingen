@@ -438,6 +438,75 @@ class MemberAddressService(StatelessService):
 
         return "Household Member"
 
+    def execute_address_field_update(self, member) -> None:
+        """Execute address field update with comprehensive error handling and logging.
+
+        Consolidates the error handling that was previously in member.py's
+        _update_computed_address_fields method.
+
+        Args:
+            member: Member document instance
+
+        Side Effects:
+            - Updates member address fields on success
+            - Logs errors and warnings appropriately
+        """
+        try:
+            result = self.update_member_address_fields(member)
+
+            if not result.success:
+                # Log errors from the service
+                for error in result.errors:
+                    frappe.log_error(error, "Member Address Update")
+
+                # Log warnings if any
+                if "warnings" in result.metadata:
+                    for warning in result.metadata["warnings"]:
+                        frappe.logger().warning(warning)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error calling address service for {member.name}: {str(e)}", "Member Address Service"
+            )
+
+    def get_other_members_at_address_safe(self, member) -> List[Dict]:
+        """Get other members at same address with comprehensive error handling.
+
+        Consolidates the error handling that was previously in member.py's
+        get_other_members_at_address method.
+
+        Args:
+            member: Member document instance
+
+        Returns:
+            List[Dict]: List of member data, empty list on error
+        """
+        try:
+            self.logger.info(
+                f"get_other_members_at_address called for {member.name} with address {member.primary_address}"
+            )
+
+            result = self.get_colocated_members(member)
+
+            if not result.success:
+                # Log errors from the service
+                for error in result.errors:
+                    frappe.log_error(error, "Get Colocated Members")
+                return []
+
+            # Log warnings if any
+            if "warnings" in result.metadata:
+                for warning in result.metadata["warnings"]:
+                    frappe.logger().warning(warning)
+
+            member_count = result.metadata.get("count", 0)
+            self.logger.info(f"Found {member_count} other members for {member.name} using address service")
+            return result.data
+
+        except Exception as e:
+            frappe.log_error(f"Error calling address service for {member.name}: {str(e)}")
+            return []
+
 
 # Lazy singleton - initialized on first access to avoid circular import issues
 _member_address_service_instance = None
