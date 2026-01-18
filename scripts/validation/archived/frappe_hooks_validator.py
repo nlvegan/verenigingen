@@ -33,18 +33,26 @@ class HookIssue:
 
 
 class FrappeHooksValidator:
-    """Validates hooks.py event handlers and scheduled tasks"""
-    
+    """Validates hooks.py or hooks/ package event handlers and scheduled tasks"""
+
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
         self.app_name = self.app_path.name
-        self.hooks_path = self.app_path / self.app_name / "hooks.py"
+        # Support both hooks.py (file) and hooks/ (package) structures
+        hooks_file = self.app_path / self.app_name / "hooks.py"
+        hooks_package = self.app_path / self.app_name / "hooks" / "__init__.py"
+        if hooks_file.exists():
+            self.hooks_path = hooks_file
+        elif hooks_package.exists():
+            self.hooks_path = hooks_package
+        else:
+            self.hooks_path = hooks_file  # Will trigger missing file error
         self.issues: List[HookIssue] = []
-        
+
     def validate(self) -> List[HookIssue]:
-        """Run validation on hooks.py"""
+        """Run validation on hooks.py or hooks/__init__.py"""
         self.issues = []
-        
+
         if not self.hooks_path.exists():
             self.issues.append(HookIssue(
                 hook_type="hooks.py",
@@ -72,24 +80,35 @@ class FrappeHooksValidator:
     
     def _parse_hooks_file(self) -> Dict:
         """Parse hooks.py and extract hook definitions"""
+        import sys
+
         hooks_data = {}
-        
+
+        # Add app path to sys.path temporarily to allow imports
+        # This is needed for hooks/ package structure where __init__.py
+        # imports from submodules like `from verenigingen.hooks.assets import ...`
+        app_path_str = str(self.app_path)
+        path_added = False
+        if app_path_str not in sys.path:
+            sys.path.insert(0, app_path_str)
+            path_added = True
+
         try:
             # Import hooks module
             spec = importlib.util.spec_from_file_location("hooks", self.hooks_path)
             hooks_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(hooks_module)
-            
+
             # Extract relevant hooks
             if hasattr(hooks_module, "doc_events"):
                 hooks_data["doc_events"] = hooks_module.doc_events
-            
+
             if hasattr(hooks_module, "scheduler_events"):
                 hooks_data["scheduler_events"] = hooks_module.scheduler_events
-                
+
             if hasattr(hooks_module, "fixtures"):
                 hooks_data["fixtures"] = hooks_module.fixtures
-                
+
         except Exception as e:
             self.issues.append(HookIssue(
                 hook_type="hooks.py",
@@ -98,7 +117,11 @@ class FrappeHooksValidator:
                 issue_type="parse_error",
                 message=f"Failed to parse hooks.py: {str(e)}"
             ))
-            
+        finally:
+            # Clean up sys.path
+            if path_added and app_path_str in sys.path:
+                sys.path.remove(app_path_str)
+
         return hooks_data
     
     def _validate_doc_events(self, doc_events: Dict):
