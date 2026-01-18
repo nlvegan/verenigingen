@@ -5,12 +5,29 @@ Each handler string points to a function that receives (doc, method=None).
 Handlers should be lightweight - heavy processing should be enqueued
 via frappe.enqueue() to avoid blocking document operations.
 
-Event Types:
+Event Types and Execution Order:
+================================
+
+For NEW documents:
+    validate -> before_save -> after_insert -> after_save
+
+For EXISTING documents:
+    validate -> before_save -> after_save -> on_update
+
+Key distinctions:
+- after_insert: Only fires for new documents
+- on_update: Only fires for existing documents (after after_save)
+- after_save: Fires for BOTH new and existing documents
+
+This means:
+- Use after_save for handlers that should run on ALL saves
+- Use on_update for handlers that should ONLY run on updates to existing docs
+- Use after_insert for handlers that should ONLY run on new document creation
+- Do NOT register the same handler for both after_save and on_update (runs twice)
+
+Other events:
 - validate: Before save, can modify doc or raise ValidationError
 - before_save: After validate, before DB write
-- after_save: After DB write (for both insert and update)
-- on_update: After save for existing documents
-- after_insert: After save for new documents only
 - on_submit: When document is submitted (docstatus 0->1)
 - on_cancel: When document is cancelled (docstatus 1->2)
 - on_trash: Before document deletion
@@ -35,21 +52,23 @@ doc_events = {
     },
     "Member": {
         "before_save": "verenigingen.verenigingen.doctype.member.member_utils.update_termination_status_display",
+        # after_save fires for both new and existing documents
         "after_save": [
             "verenigingen.email.email_group_sync.sync_member_on_change",
             "verenigingen.utils.cache_invalidation.on_document_update",
             "verenigingen.utils.performance_cache.on_member_update",
         ],
+        # on_update fires only for existing documents (after after_save)
+        # Only include handlers that need to run specifically for updates, not inserts
         "on_update": [
             "verenigingen.utils.chapter_role_events.on_member_on_update",
-            "verenigingen.utils.cache_invalidation.on_document_update",
-            "verenigingen.utils.performance_cache.on_member_update",
             "verenigingen.services.field_sync_service.sync_fields",
         ],
     },
     "Chapter Member": {
+        # after_save fires for both new and existing documents
         "after_save": "verenigingen.utils.performance_cache.on_chapter_member_update",
-        "on_update": "verenigingen.utils.performance_cache.on_chapter_member_update",
+        # on_trash for deletion events
         "on_trash": "verenigingen.utils.performance_cache.on_chapter_member_update",
     },
     # =========================================================================
@@ -57,19 +76,27 @@ doc_events = {
     # =========================================================================
     "Chapter": {
         # validate: now handled in controller validate() method
+        # after_save: runs for BOTH new and existing - use for cache invalidation
+        "after_save": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+        # on_update: runs ONLY for existing documents - use for update-specific logic
         "on_update": [
-            "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
             "verenigingen.utils.chapter_role_profile_hooks.on_chapter_board_members_change",
             "verenigingen.utils.chapter_role_profile_hooks.invalidate_chapter_profile_cache",
         ],
-        "after_save": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
     },
-    "Verenigingen Chapter Board Member": {
+    # Note: "Verenigingen Chapter Board Member" is a ROLE, not a DocType.
+    # The actual DocType is "Chapter Board Member" - handlers consolidated below.
+    "Chapter Role": {
+        "on_update": "verenigingen.utils.chapter_role_events.on_chapter_role_on_update",
+    },
+    "Chapter Board Member": {
         "after_insert": [
+            "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_add",
             "verenigingen.utils.chapter_role_events.on_chapter_board_member_after_insert",
             "verenigingen.utils.department_approver_sync.on_board_member_change",
         ],
         "on_update": [
+            "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_update",
             "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_update",
             "verenigingen.utils.department_approver_sync.on_board_member_change",
         ],
@@ -77,13 +104,6 @@ doc_events = {
             "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_trash",
             "verenigingen.utils.department_approver_sync.on_board_member_change",
         ],
-    },
-    "Chapter Role": {
-        "on_update": "verenigingen.utils.chapter_role_events.on_chapter_role_on_update",
-    },
-    "Chapter Board Member": {
-        "after_insert": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_add",
-        "on_update": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_update",
     },
     # =========================================================================
     # TEAM SYSTEM
@@ -210,7 +230,7 @@ doc_events = {
         "on_trash": "verenigingen.utils.donation_history_manager.on_donation_delete",
     },
     "Donor": {
-        "after_save": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
+        # Note: on_update fires after after_save, so we only register once
         "on_update": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
     },
     # =========================================================================
@@ -218,10 +238,7 @@ doc_events = {
     # =========================================================================
     "Customer": {
         "validate": "verenigingen.verenigingen_payments.mollie.utils.data_validator.validate_mollie_customer_data",
-        "after_save": [
-            "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
-            "verenigingen.utils.cache_invalidation.on_document_update",
-        ],
+        # Note: on_update fires after after_save, so we only register once
         "on_update": [
             "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
             "verenigingen.utils.cache_invalidation.on_document_update",
