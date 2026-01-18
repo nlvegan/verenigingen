@@ -40,8 +40,8 @@ class TestBulkInvoiceGenerationService(EnhancedTestCase):
         service = BulkInvoiceGenerationService()
         self.assertEqual(service.service_name, "BulkInvoiceGenerationService")
         self.assertIsNotNone(service.logger)
-        self.assertIsNone(service._redis)
-        self.assertEqual(service._lock_key, "verenigingen_bulk_invoice_generation")
+        # Lock name is defined as a class constant (used by advisory_lock helper)
+        self.assertEqual(service.LOCK_NAME, "verenigingen_bulk_invoice_generation")
 
     def test_get_bulk_invoice_generation_service_returns_instance(self):
         """Test that factory function returns service instance."""
@@ -292,35 +292,67 @@ class TestProcessingModeDecision(EnhancedTestCase):
 
 
 class TestLockAcquisition(EnhancedTestCase):
-    """Test suite for Redis lock acquisition."""
+    """Test suite for advisory lock integration in generate_invoices."""
 
     def setUp(self):
         """Set up test fixtures."""
         super().setUp()
         self.service = get_bulk_invoice_generation_service()
 
-    def test_lock_release_cleans_up_properly(self):
-        """Test that lock release cleans up Redis keys."""
-        # Create a mock Redis instance
-        mock_redis = MagicMock()
-        self.service._redis = mock_redis
+    def test_lock_name_constant_defined(self):
+        """Test that LOCK_NAME constant is defined for external reference."""
+        self.assertEqual(
+            self.service.LOCK_NAME,
+            "verenigingen_bulk_invoice_generation"
+        )
 
-        # Call release
-        self.service._release_bulk_generation_lock()
+    def test_generate_invoices_returns_error_when_lock_unavailable(self):
+        """Test that generate_invoices returns error when lock is held."""
+        # Mock advisory_lock_with_backend at the utils module level
+        with patch(
+            "verenigingen.utils.db_advisory_lock.advisory_lock_with_backend"
+        ) as mock_lock:
+            # Configure mock context manager to yield False (lock not acquired)
+            mock_cm = MagicMock()
+            mock_cm.__enter__ = MagicMock(return_value=False)
+            mock_cm.__exit__ = MagicMock(return_value=False)
+            mock_lock.return_value = mock_cm
 
-        # Verify both keys are deleted
-        expected_calls = [
-            (("verenigingen_bulk_invoice_generation",),),
-            (("verenigingen_bulk_invoice_generation_start_time",),),
-        ]
-        self.assertEqual(mock_redis.delete.call_count, 2)
+            result = self.service.generate_invoices(test_mode=True)
 
-    def test_lock_release_handles_no_redis(self):
-        """Test that lock release handles None Redis gracefully."""
-        self.service._redis = None
+            # Should return error about lock being held
+            self.assertIn(
+                "Another invoice generation process is already running",
+                result.errors
+            )
 
-        # Should not raise
-        self.service._release_bulk_generation_lock()
+    def test_generate_invoices_uses_redis_backend_when_available(self):
+        """Test that generate_invoices prefers Redis backend when available."""
+        # Patch at the source location (utils module, not where it's imported)
+        with patch(
+            "verenigingen.utils.db_advisory_lock._is_redis_available",
+            return_value=True,
+        ):
+            with patch(
+                "verenigingen.utils.db_advisory_lock.advisory_lock_with_backend"
+            ) as mock_lock:
+                # Configure mock to succeed immediately
+                mock_cm = MagicMock()
+                mock_cm.__enter__ = MagicMock(return_value=True)
+                mock_cm.__exit__ = MagicMock(return_value=False)
+                mock_lock.return_value = mock_cm
+
+                # Also need to mock _execute_invoice_generation
+                with patch.object(
+                    self.service, "_execute_invoice_generation"
+                ) as mock_execute:
+                    mock_execute.return_value = BulkGenerationResult()
+                    self.service.generate_invoices(test_mode=True)
+
+                # Verify Redis backend was used
+                mock_lock.assert_called_once()
+                call_kwargs = mock_lock.call_args[1]
+                self.assertEqual(call_kwargs["backend"], "redis")
 
 
 class TestEligibleScheduleFiltering(EnhancedTestCase):

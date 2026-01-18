@@ -23,7 +23,6 @@ Architecture:
 
 import re
 import sys
-import time
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
@@ -94,16 +93,23 @@ class BulkInvoiceGenerationService(StatefulService):
     - Payment history batch updates
     - Coverage gap detection and reporting
 
+    Concurrency Protection:
+    - Uses centralized advisory_lock helper (verenigingen.utils.db_advisory_lock)
+    - Redis backend for distributed locking across workers
+    - Falls back to database advisory lock if Redis unavailable
+    - Graceful degradation: proceeds without lock if locking fails
+
     Example:
         service = get_bulk_invoice_generation_service()
         result = service.generate_invoices(test_mode=False)
         print(f"Generated {result.generated} invoices")
     """
 
+    # Lock name for bulk invoice generation (used by advisory_lock helper)
+    LOCK_NAME = "verenigingen_bulk_invoice_generation"
+
     def __init__(self):
         super().__init__(service_name="BulkInvoiceGenerationService")
-        self._redis = None
-        self._lock_key = "verenigingen_bulk_invoice_generation"
 
     def calculate_cutoff_date(self) -> date:
         """
@@ -390,7 +396,7 @@ class BulkInvoiceGenerationService(StatefulService):
         Generate membership dues invoices in bulk.
 
         Main entry point for bulk invoice generation. Handles:
-        - Concurrency protection via Redis locks
+        - Concurrency protection via advisory locks (Redis preferred, database fallback)
         - Accounting configuration validation
         - Parallel vs sequential processing decision
         - Payment history updates
@@ -402,16 +408,58 @@ class BulkInvoiceGenerationService(StatefulService):
         Returns:
             BulkGenerationResult with generation statistics and details
         """
+        from verenigingen.utils.db_advisory_lock import (
+            AdvisoryLockError,
+            _is_redis_available,
+            advisory_lock_with_backend,
+        )
+
         result = BulkGenerationResult()
-        lock_acquired = False
+
+        # Get lock timeout from settings
+        lock_timeout = frappe.db.get_single_value("Verenigingen Settings", "bulk_generation_timeout") or 3600
+
+        # Determine backend: prefer Redis for distributed locking, fallback to database
+        backend = "redis" if _is_redis_available() else "database"
+        if backend == "database":
+            self.logger.info("Redis unavailable, using database advisory lock")
 
         try:
-            # Try to acquire Redis lock
-            lock_acquired = self._acquire_bulk_generation_lock()
-            if lock_acquired is False:
-                result.errors.append("Another invoice generation process is already running")
-                return result
+            # Try to acquire lock with graceful handling
+            with advisory_lock_with_backend(
+                self.LOCK_NAME,
+                timeout=0,  # Non-blocking: return immediately if lock unavailable
+                backend=backend,
+                ttl=lock_timeout,
+                raise_on_timeout=False,
+            ) as lock_acquired:
+                if not lock_acquired:
+                    result.errors.append("Another invoice generation process is already running")
+                    return result
 
+                return self._execute_invoice_generation(test_mode, result)
+
+        except AdvisoryLockError as e:
+            # This shouldn't happen with raise_on_timeout=False, but handle gracefully
+            self.logger.warning(f"Lock acquisition error: {str(e)}. Proceeding without lock.")
+            return self._execute_invoice_generation(test_mode, result)
+
+    def _execute_invoice_generation(
+        self, test_mode: bool, result: BulkGenerationResult
+    ) -> BulkGenerationResult:
+        """
+        Execute the actual invoice generation logic.
+
+        Extracted to support both locked and unlocked execution paths.
+
+        Args:
+            test_mode: Whether to run in test mode
+            result: BulkGenerationResult to populate
+
+        Returns:
+            BulkGenerationResult with generation statistics and details
+        """
+        try:
             # Validate accounting configuration
             self._validate_accounting_configuration()
 
@@ -453,67 +501,6 @@ class BulkInvoiceGenerationService(StatefulService):
             # Clear bulk processing flag
             if getattr(frappe.flags, "bulk_invoice_generation", None):
                 delattr(frappe.flags, "bulk_invoice_generation")
-
-            # Release lock
-            if lock_acquired:
-                self._release_bulk_generation_lock()
-
-    def _acquire_bulk_generation_lock(self) -> Optional[bool]:
-        """
-        Acquire Redis lock for bulk generation.
-
-        Returns:
-            True if lock acquired, False if locked by another process, None if Redis unavailable
-        """
-        from frappe.utils.redis_wrapper import RedisWrapper
-
-        lock_timeout = frappe.db.get_single_value("Verenigingen Settings", "bulk_generation_timeout") or 3600
-
-        try:
-            self._redis = RedisWrapper.from_url(frappe.conf.redis_cache)
-            self._redis.ping()
-        except Exception as redis_error:
-            self.logger.warning(f"Redis unavailable for concurrency protection: {str(redis_error)}")
-            return None  # Continue without lock
-
-        try:
-            lock_acquired = self._redis.set(self._lock_key, "processing", nx=True, ex=lock_timeout)
-
-            if not lock_acquired:
-                # Check for stale lock
-                existing_lock_time = self._redis.get(f"{self._lock_key}_start_time")
-                if existing_lock_time:
-                    try:
-                        start_time = float(existing_lock_time)
-                        if time.time() - start_time > lock_timeout:
-                            # Force release stale lock
-                            self._redis.delete(self._lock_key)
-                            self._redis.delete(f"{self._lock_key}_start_time")
-                            lock_acquired = self._redis.set(
-                                self._lock_key, "processing", nx=True, ex=lock_timeout
-                            )
-                    except (ValueError, TypeError):
-                        pass
-
-                if not lock_acquired:
-                    return False
-
-            # Record start time
-            self._redis.set(f"{self._lock_key}_start_time", str(time.time()), ex=lock_timeout)
-            return True
-
-        except Exception as lock_error:
-            self.logger.warning(f"Failed to acquire Redis lock: {str(lock_error)}. Proceeding without lock.")
-            return None
-
-    def _release_bulk_generation_lock(self):
-        """Release Redis lock for bulk generation."""
-        if self._redis:
-            try:
-                self._redis.delete(self._lock_key)
-                self._redis.delete(f"{self._lock_key}_start_time")
-            except Exception as e:
-                self.logger.error(f"Error releasing bulk invoice generation lock: {str(e)}")
 
     def _validate_accounting_configuration(self):
         """Validate that accounting is properly configured before generating invoices."""

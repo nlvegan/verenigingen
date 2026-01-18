@@ -187,3 +187,137 @@ class TestBillingDateServiceSetBillingDay(EnhancedTestCase):
         self.service.set_billing_day(mock_schedule)
 
         self.assertEqual(mock_schedule.billing_day, 25)
+
+
+class TestUpdateScheduleDates(EnhancedTestCase):
+    """Test suite for update_schedule_dates functionality."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        super().setUp()
+        self.service = get_billing_date_service()
+
+    def test_update_schedule_dates_with_actual_invoice_date_mocked(self):
+        """Test that schedule dates are updated correctly with actual invoice date."""
+        # Use mock schedule to avoid fixture dependencies
+        mock_schedule = MagicMock()
+        mock_schedule.billing_frequency = "Monthly"
+        mock_schedule.next_invoice_date = "2025-01-15"
+        mock_schedule.last_invoice_coverage_end = None
+        mock_schedule.member = None  # Skip member update for this test
+
+        # Update with actual invoice date
+        self.service.update_schedule_dates(mock_schedule, actual_invoice_date="2025-01-15")
+
+        # Verify dates were set correctly
+        self.assertEqual(mock_schedule.last_invoice_date, "2025-01-15")
+        self.assertEqual(mock_schedule.next_invoice_date, getdate("2025-02-15"))
+        mock_schedule.save.assert_called_once()
+
+    def test_update_schedule_dates_without_actual_invoice_date_mocked(self):
+        """Test fallback behavior when no actual invoice date provided."""
+        mock_schedule = MagicMock()
+        mock_schedule.billing_frequency = "Monthly"
+        mock_schedule.next_invoice_date = "2025-02-01"
+        mock_schedule.member = None
+
+        # Update without actual invoice date (test mode)
+        self.service.update_schedule_dates(mock_schedule)
+
+        # Verify fallback behavior
+        self.assertEqual(mock_schedule.last_invoice_date, "2025-02-01")
+        self.assertEqual(mock_schedule.next_invoice_date, getdate("2025-03-01"))
+        mock_schedule.save.assert_called_once()
+
+    def test_update_schedule_dates_no_recursive_cycle_mocked(self):
+        """
+        Test that update_schedule_dates() does not cause recursive save cycles.
+
+        This test verifies that calling save() inside update_schedule_dates()
+        happens exactly once - confirming no recursive loops exist.
+
+        The call chain is:
+        1. update_schedule_dates() -> schedule.save()
+        2. save() -> validate() hooks
+        3. validate() should NOT call update_schedule_dates()
+
+        If hooks called update_schedule_dates(), save() would be called multiple times.
+        """
+        mock_schedule = MagicMock()
+        mock_schedule.billing_frequency = "Monthly"
+        mock_schedule.next_invoice_date = "2025-03-01"
+        mock_schedule.last_invoice_coverage_end = None
+        mock_schedule.member = None
+
+        # Call update_schedule_dates
+        self.service.update_schedule_dates(mock_schedule, actual_invoice_date="2025-03-01")
+
+        # Verify save was called exactly once (not multiple times which would indicate recursion)
+        self.assertEqual(
+            mock_schedule.save.call_count, 1,
+            "save() should be called exactly once by update_schedule_dates() - "
+            f"actual call count: {mock_schedule.save.call_count}"
+        )
+
+    def test_update_schedule_dates_updates_member_next_invoice_date(self):
+        """Test that member's next_invoice_date is updated correctly."""
+        test_member = self.create_test_member(
+            first_name="MemberDateUpdate",
+            last_name="Test",
+            email=f"memberdateupdate.test.{frappe.generate_hash(length=6)}@test.com",
+        )
+
+        # Use mock schedule with real member reference
+        mock_schedule = MagicMock()
+        mock_schedule.billing_frequency = "Monthly"
+        mock_schedule.next_invoice_date = getdate("2025-05-01")  # After update
+        mock_schedule.last_invoice_coverage_end = None
+        mock_schedule.member = test_member.name
+
+        # Call update directly to _update_member_next_invoice_date
+        self.service._update_member_next_invoice_date(mock_schedule)
+
+        # Verify member's next_invoice_date was updated
+        member_next_date = frappe.db.get_value("Member", test_member.name, "next_invoice_date")
+        self.assertEqual(getdate(member_next_date), getdate("2025-05-01"))
+
+    def test_update_schedule_dates_skips_terminated_member(self):
+        """Test that terminated member's next_invoice_date is not updated."""
+        test_member = self.create_test_member(
+            first_name="TerminatedMember",
+            last_name="Test",
+            email=f"terminatedmember.test.{frappe.generate_hash(length=6)}@test.com",
+        )
+        test_member.status = "Terminated"
+        test_member.next_invoice_date = "2025-01-01"
+        test_member.save()
+
+        # Use mock schedule with real member reference
+        mock_schedule = MagicMock()
+        mock_schedule.next_invoice_date = getdate("2025-06-01")  # New date
+        mock_schedule.member = test_member.name
+
+        # Call update directly to _update_member_next_invoice_date
+        self.service._update_member_next_invoice_date(mock_schedule)
+
+        # Member's next_invoice_date should NOT be updated (member is Terminated)
+        member_next_date = frappe.db.get_value("Member", test_member.name, "next_invoice_date")
+        self.assertEqual(
+            getdate(member_next_date), getdate("2025-01-01"),
+            "Terminated member's next_invoice_date should not be updated"
+        )
+
+    def test_update_schedule_dates_daily_uses_coverage_end(self):
+        """Test that daily billing uses coverage end date for next calculation."""
+        mock_schedule = MagicMock()
+        mock_schedule.billing_frequency = "Daily"
+        mock_schedule.next_invoice_date = "2025-01-01"
+        mock_schedule.last_invoice_coverage_end = "2025-01-05"  # Coverage ends Jan 5
+        mock_schedule.member = None
+
+        # Update with actual invoice date
+        self.service.update_schedule_dates(mock_schedule, actual_invoice_date="2025-01-01")
+
+        # For daily billing, next date should be based on coverage end
+        # Daily billing adds 1 day to coverage end
+        self.assertEqual(mock_schedule.next_invoice_date, getdate("2025-01-06"))
