@@ -11,6 +11,12 @@ Functions:
     - get_member_current_chapters: Get current chapters for a member
     - get_member_chapter_names: Get simple list of chapter names
     - get_member_chapter_display_html: Get HTML display of member's chapters
+
+Error Codes:
+    - CHAP_API_001: Permission denied for member chapters
+    - CHAP_API_002: Error fetching member chapters
+    - CHAP_API_003: Error fetching chapter names
+    - CHAP_API_004: Error generating chapter display HTML
 """
 
 import frappe
@@ -21,16 +27,38 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
+def _log_api_error(error_code: str, message: str, member_name: str, exception: Exception = None):
+    """Log API error with structured context for observability."""
+    context = {
+        "error_code": error_code,
+        "member": member_name,
+        "api": "chapter_api",
+    }
+    error_msg = f"[{error_code}] {message} | member={member_name}"
+    if exception:
+        error_msg += f" | error={str(exception)}"
+    frappe.log_error(error_msg, f"Chapter API Error [{error_code}]")
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_current_chapters(member_name):
+def get_member_current_chapters(member_name, structured_response=False):
     """
     Get current chapters for a member - safe for client calls.
 
     Delegates to ChapterManagementService for optimized query execution.
     This function maintains backward compatibility for API endpoints.
+
+    Args:
+        member_name: The member's document name
+        structured_response: If True, return {"success": bool, "data": [], "error": str}
+
+    Returns:
+        List of chapter data, or structured response if requested
     """
     if not member_name:
+        if structured_response:
+            return {"success": True, "data": [], "message": "No member specified"}
         return []
 
     try:
@@ -39,25 +67,43 @@ def get_member_current_chapters(member_name):
         )
 
         # Use optimized service method
-        return get_chapter_management_service().get_member_chapters_optimized(member_name)
+        data = get_chapter_management_service().get_member_chapters_optimized(member_name)
+        if structured_response:
+            return {"success": True, "data": data}
+        return data
 
     except frappe.PermissionError:
-        # If no permission to member, return empty list (API compatibility)
+        _log_api_error("CHAP_API_001", "Permission denied", member_name)
+        if structured_response:
+            return {
+                "success": False,
+                "error": "Permission denied",
+                "error_code": "CHAP_API_001",
+                "fallback": [],
+            }
         return []
     except Exception as e:
-        frappe.log_error(f"Error getting member chapters: {str(e)}", "Member Chapters API")
+        _log_api_error("CHAP_API_002", "Error fetching chapters", member_name, e)
+        if structured_response:
+            return {"success": False, "error": str(e), "error_code": "CHAP_API_002", "fallback": []}
         return []
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_chapter_names(member_name):
+def get_member_chapter_names(member_name, structured_response=False):
     """
     Get simple list of chapter names for a member.
 
     Delegates to ChapterManagementService for optimized query execution.
+
+    Args:
+        member_name: The member's document name
+        structured_response: If True, return {"success": bool, "data": [], "error": str}
     """
     if not member_name:
+        if structured_response:
+            return {"success": True, "data": [], "message": "No member specified"}
         return []
 
     try:
@@ -65,30 +111,49 @@ def get_member_chapter_names(member_name):
             get_chapter_management_service,
         )
 
-        return get_chapter_management_service().get_chapter_names(member_name)
+        data = get_chapter_management_service().get_chapter_names(member_name)
+        if structured_response:
+            return {"success": True, "data": data}
+        return data
     except Exception as e:
-        frappe.log_error(f"Error getting member chapter names: {str(e)}", "Member Chapter Names API")
+        _log_api_error("CHAP_API_003", "Error fetching chapter names", member_name, e)
+        if structured_response:
+            return {"success": False, "error": str(e), "error_code": "CHAP_API_003", "fallback": []}
         return []
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_member_chapter_display_html(member_name):
+def get_member_chapter_display_html(member_name, structured_response=False):
     """
     Get HTML display of member's chapters.
 
     Delegates to ChapterManagementService for optimized query execution.
+
+    Args:
+        member_name: The member's document name
+        structured_response: If True, return {"success": bool, "data": str, "error": str}
     """
+    empty_html = "<div class='text-muted'>No member specified</div>"
+
     if not member_name:
-        return "<div class='text-muted'>No member specified</div>"
+        if structured_response:
+            return {"success": True, "data": empty_html, "message": "No member specified"}
+        return empty_html
 
     try:
         from verenigingen.services.member.chapter.chapter_management_service import (
             get_chapter_management_service,
         )
 
-        return get_chapter_management_service().get_chapter_display_html(member_name)
+        html = get_chapter_management_service().get_chapter_display_html(member_name)
+        if structured_response:
+            return {"success": True, "data": html}
+        return html
 
     except Exception as e:
-        frappe.log_error(f"Error generating chapter display HTML: {str(e)}", "Member Chapter Display")
-        return f"<div class='text-danger'>Error loading chapters: {str(e)}</div>"
+        _log_api_error("CHAP_API_004", "Error generating chapter display HTML", member_name, e)
+        error_html = f"<div class='text-danger'>Error loading chapters</div>"
+        if structured_response:
+            return {"success": False, "error": str(e), "error_code": "CHAP_API_004", "fallback": error_html}
+        return error_html

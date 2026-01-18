@@ -17,11 +17,12 @@ This service handles:
 - Application status clearing
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -30,48 +31,67 @@ if TYPE_CHECKING:
 class MemberValidationService(StatelessService):
     """Service for orchestrating member validation operations."""
 
-    def execute_validation(self, member_doc: "Document") -> dict:
+    def _log_validation_error(
+        self,
+        error_code: str,
+        validation: str,
+        message: str,
+        member_name: str,
+        exception: Exception = None,
+        **context,
+    ):
+        """Log validation error with structured context for observability."""
+        error_msg = f"[{error_code}] {message} | member={member_name} | validation={validation}"
+        if exception:
+            error_msg += f" | error={str(exception)}"
+        for key, value in context.items():
+            error_msg += f" | {key}={value}"
+        frappe.log_error(error_msg, f"Validation [{error_code}]")
+
+    def execute_validation(self, member_doc: "Document") -> OperationResult[Dict[str, Any]]:
         """Execute all validation operations for a member document.
 
         Args:
             member_doc: The Member document being validated
 
         Returns:
-            dict: Summary of validations performed
+            OperationResult: Summary of validations performed with success/failure status
         """
-        result = {
-            "success": True,
-            "validations": {},
-            "errors": [],
-        }
+        validations = {}
+        errors = []
 
         # 1. Core validations (always required)
-        result["validations"]["core_fields"] = self._validate_core_fields(member_doc)
+        validations["core_fields"] = self._validate_core_fields(member_doc)
 
         # 2. Membership duration calculation (conditional)
-        result["validations"]["duration"] = self._update_duration_if_needed(member_doc)
+        validations["duration"] = self._update_duration_if_needed(member_doc)
 
         # 3. Payment and business validations
-        result["validations"]["payment"] = self._validate_payment_fields(member_doc)
+        validations["payment"] = self._validate_payment_fields(member_doc)
 
         # 4. Member ID and fee override validations
-        result["validations"]["member_id"] = self._validate_member_id_and_fees(member_doc)
+        validations["member_id"] = self._validate_member_id_and_fees(member_doc)
 
         # 5. Status field synchronization (conditional)
-        result["validations"]["status_sync"] = self._sync_status_fields_if_needed(member_doc)
+        validations["status_sync"] = self._sync_status_fields_if_needed(member_doc)
 
         # 6. Application status clearing (conditional)
-        result["validations"]["application_status"] = self._clear_application_status_if_needed(member_doc)
+        validations["application_status"] = self._clear_application_status_if_needed(member_doc)
 
         # Collect any errors
-        for val_name, val_result in result["validations"].items():
+        for val_name, val_result in validations.items():
             if isinstance(val_result, dict) and val_result.get("error"):
-                result["errors"].append(f"{val_name}: {val_result['error']}")
+                errors.append(f"{val_name}: {val_result['error']}")
 
-        if result["errors"]:
-            result["success"] = False
+        if errors:
+            return OperationResult.fail(
+                "Member validation failed",
+                errors=errors,
+                error_code="VALIDATION_001",
+                validations=validations,
+            )
 
-        return result
+        return OperationResult.ok(validations, member=member_doc.name)
 
     def _validate_core_fields(self, member_doc: "Document") -> dict:
         """Validate core member fields.
@@ -131,9 +151,12 @@ class MemberValidationService(StatelessService):
                 member_doc.calculate_cumulative_membership_duration()
                 return {"success": True, "updated": True}
             except Exception as e:
-                frappe.log_error(
-                    f"Error calculating membership duration for {member_doc.name}: {str(e)}",
-                    "Member Validation - Duration",
+                self._log_validation_error(
+                    error_code="VALIDATION_DUR",
+                    validation="membership_duration",
+                    message="Error calculating membership duration",
+                    member_name=member_doc.name,
+                    exception=e,
                 )
                 return {"success": False, "error": str(e)}
 

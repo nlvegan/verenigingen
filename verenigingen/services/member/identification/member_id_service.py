@@ -162,6 +162,7 @@ class MemberIDService(StatelessService):
         Security:
             - Requires admin permissions (@critical_api)
             - Logs all assignments for audit trail
+            - Uses advisory lock to prevent concurrent bulk operations
 
         Example:
             >>> result = MemberIDService.assign_missing_member_ids()
@@ -180,6 +181,20 @@ class MemberIDService(StatelessService):
             - Never throws exceptions (returns failed OperationResult)
         """
         self.logger.info("MemberIDService: Starting bulk member ID assignment")
+
+        # Acquire advisory lock to prevent concurrent bulk operations
+        lock_name = "member_id_bulk_assignment"
+        lock_acquired = frappe.db.get_lock(lock_name, timeout=10)
+
+        if not lock_acquired:
+            self.logger.warning(
+                "MemberIDService: Could not acquire lock - another bulk assignment in progress"
+            )
+            return OperationResult.fail(
+                "Another bulk member ID assignment is currently in progress. Please try again later.",
+                error_code="MEMBER_ID_LOCK_FAILED",
+                errors=["Lock acquisition failed - concurrent operation detected"],
+            )
 
         try:
             # Find all members without IDs
@@ -245,6 +260,9 @@ class MemberIDService(StatelessService):
         except Exception as e:
             self.logger.error(f"Bulk member ID assignment failed: {str(e)}")
             return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
+        finally:
+            # Always release the advisory lock
+            frappe.db.release_lock(lock_name)
 
     def debug_member_id_assignment(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """

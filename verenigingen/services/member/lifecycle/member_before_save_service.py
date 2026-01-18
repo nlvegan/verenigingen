@@ -16,11 +16,12 @@ This service handles:
 - Application status defaults
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -29,48 +30,68 @@ if TYPE_CHECKING:
 class MemberBeforeSaveService(StatelessService):
     """Service for orchestrating member before-save operations."""
 
-    def execute_before_save(self, member_doc: "Document") -> dict:
+    def _log_operation_error(
+        self,
+        error_code: str,
+        operation: str,
+        message: str,
+        member_name: str,
+        exception: Exception = None,
+        **context,
+    ):
+        """Log operation error with structured context for observability."""
+        error_msg = f"[{error_code}] {message} | member={member_name} | operation={operation}"
+        if exception:
+            error_msg += f" | error={str(exception)}"
+        for key, value in context.items():
+            error_msg += f" | {key}={value}"
+        frappe.log_error(error_msg, f"Before Save [{error_code}]")
+
+    def execute_before_save(self, member_doc: "Document") -> OperationResult[Dict[str, Any]]:
         """Execute all before-save operations for a member document.
 
         Args:
             member_doc: The Member document being saved
 
         Returns:
-            dict: Summary of operations performed
+            OperationResult: Summary of operations performed with success/failure status
         """
-        result = {
-            "success": True,
-            "operations": {},
-            "errors": [],
-        }
+        operations = {}
+        errors = []
 
         # 1. Apply safe performance optimizations
-        result["operations"]["optimization"] = self._apply_performance_optimization(member_doc)
+        operations["optimization"] = self._apply_performance_optimization(member_doc)
 
         # 2. Handle ID generation (member ID or application ID)
-        result["operations"]["id_generation"] = self._handle_id_generation(member_doc)
+        operations["id_generation"] = self._handle_id_generation(member_doc)
 
         # 3. Update chapter display when necessary
-        result["operations"]["chapter_display"] = self._update_chapter_display_if_needed(member_doc)
+        operations["chapter_display"] = self._update_chapter_display_if_needed(member_doc)
 
         # 4. Update computed address fields
-        result["operations"]["address_fields"] = self._update_address_fields(member_doc)
+        operations["address_fields"] = self._update_address_fields(member_doc)
 
         # 5. Clear counter reset flag
-        result["operations"]["counter_reset"] = self._clear_counter_reset_flag(member_doc)
+        operations["counter_reset"] = self._clear_counter_reset_flag(member_doc)
 
         # 6. Set application status defaults
-        result["operations"]["status_defaults"] = self._set_application_status_defaults(member_doc)
+        operations["status_defaults"] = self._set_application_status_defaults(member_doc)
 
-        # Collect any errors
-        for op_name, op_result in result["operations"].items():
+        # Collect any errors (excluding non-blocking ones)
+        for op_name, op_result in operations.items():
             if isinstance(op_result, dict) and op_result.get("error"):
-                result["errors"].append(f"{op_name}: {op_result['error']}")
+                if not op_result.get("non_blocking"):
+                    errors.append(f"{op_name}: {op_result['error']}")
 
-        if result["errors"]:
-            result["success"] = False
+        if errors:
+            return OperationResult.fail(
+                "Before save operations failed",
+                errors=errors,
+                error_code="BEFORE_SAVE_001",
+                operations=operations,
+            )
 
-        return result
+        return OperationResult.ok(operations, member=member_doc.name)
 
     def _apply_performance_optimization(self, member_doc: "Document") -> dict:
         """Apply safe performance optimizations for member creation.
@@ -88,9 +109,12 @@ class MemberBeforeSaveService(StatelessService):
             return {"success": True}
         except Exception as e:
             # Log but don't fail member creation if optimization fails
-            frappe.log_error(
-                f"Safe member optimization failed for {member_doc.name}: {str(e)}",
-                "Member Before Save - Optimization",
+            self._log_operation_error(
+                error_code="BEFORE_SAVE_OPT",
+                operation="performance_optimization",
+                message="Safe member optimization failed",
+                member_name=member_doc.name,
+                exception=e,
             )
             return {"success": False, "error": str(e), "non_blocking": True}
 
@@ -156,9 +180,12 @@ class MemberBeforeSaveService(StatelessService):
                 return {"success": True, "updated": True}
             return {"success": True, "updated": False}
         except Exception as e:
-            frappe.log_error(
-                f"Error updating chapter display for {member_doc.name}: {str(e)}",
-                "Member Before Save - Chapter Display",
+            self._log_operation_error(
+                error_code="BEFORE_SAVE_CHAP",
+                operation="chapter_display_update",
+                message="Error updating chapter display",
+                member_name=member_doc.name,
+                exception=e,
             )
             return {"success": False, "error": str(e)}
 
@@ -177,9 +204,12 @@ class MemberBeforeSaveService(StatelessService):
             member_doc._update_computed_address_fields()
             return {"success": True}
         except Exception as e:
-            frappe.log_error(
-                f"Error updating address fields for {member_doc.name}: {str(e)}",
-                "Member Before Save - Address Fields",
+            self._log_operation_error(
+                error_code="BEFORE_SAVE_ADDR",
+                operation="address_fields_update",
+                message="Error updating address fields",
+                member_name=member_doc.name,
+                exception=e,
             )
             return {"success": False, "error": str(e)}
 
@@ -214,9 +244,12 @@ class MemberBeforeSaveService(StatelessService):
             set_member_application_status_defaults(member_doc)
             return {"success": True}
         except Exception as e:
-            frappe.log_error(
-                f"Error setting application status defaults for {member_doc.name}: {str(e)}",
-                "Member Before Save - Status Defaults",
+            self._log_operation_error(
+                error_code="BEFORE_SAVE_STAT",
+                operation="application_status_defaults",
+                message="Error setting application status defaults",
+                member_name=member_doc.name,
+                exception=e,
             )
             return {"success": False, "error": str(e)}
 

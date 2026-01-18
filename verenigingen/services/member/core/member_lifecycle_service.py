@@ -43,9 +43,50 @@ class MemberLifecycleService(StatelessService):
         """Initialize the Member Lifecycle Service"""
         super().__init__(service_name="MemberLifecycleService")
 
+    def _log_error(
+        self,
+        error_code: str,
+        operation: str,
+        message: str,
+        member_name: str = None,
+        exception: Exception = None,
+        **context,
+    ):
+        """Log error with structured context for observability.
+
+        Args:
+            error_code: Unique error code (e.g., LIFECYCLE_001)
+            operation: Operation name (e.g., approve_application)
+            message: Human-readable error message
+            member_name: Member document name (optional)
+            exception: Original exception (optional)
+            **context: Additional context key-value pairs
+        """
+        log_context = {
+            "error_code": error_code,
+            "operation": operation,
+            "service": "MemberLifecycleService",
+        }
+        if member_name:
+            log_context["member"] = member_name
+        log_context.update(context)
+
+        error_msg = f"[{error_code}] {message}"
+        if member_name:
+            error_msg += f" | member={member_name}"
+        if exception:
+            error_msg += f" | error={str(exception)}"
+        for key, value in context.items():
+            error_msg += f" | {key}={value}"
+
+        frappe.log_error(error_msg, f"Member Lifecycle [{error_code}]")
+
     def approve_application(self, member: "Document") -> OperationResult[str]:
         """
         Validate application, assign member_id, and update status fields.
+
+        Uses database-level row locking (FOR UPDATE) to prevent race conditions
+        when multiple users attempt to approve the same application concurrently.
 
         Args:
             member: Member document to approve
@@ -53,10 +94,39 @@ class MemberLifecycleService(StatelessService):
         Returns:
             OperationResult[str]: OperationResult with member_id on success or error details on failure
         """
+        frappe.db.begin()
         try:
+            # Acquire row lock to prevent concurrent approval
+            locked_row = frappe.db.sql(
+                """SELECT application_status FROM `tabMember`
+                   WHERE name = %s FOR UPDATE""",
+                (member.name,),
+                as_dict=True,
+            )
+
+            if not locked_row:
+                frappe.db.rollback()
+                return OperationResult.fail(
+                    f"Member {member.name} not found",
+                    error_code="MEMBER_NOT_FOUND",
+                )
+
+            # Check if already approved (may have changed since page load)
+            if locked_row[0].application_status == "Approved":
+                frappe.db.commit()  # Release lock
+                return OperationResult.fail(
+                    "Application has already been approved",
+                    error_code="ALREADY_APPROVED",
+                    current_status=locked_row[0].application_status,
+                )
+
+            # Reload member to get fresh data within lock
+            member.reload()
+
             # Validate pre-conditions
             validation_result = self._validate_application_approval(member)
             if not validation_result.success:
+                frappe.db.rollback()
                 return validation_result.chain("Application validation failed")
 
             # Assign member ID if needed
@@ -75,7 +145,10 @@ class MemberLifecycleService(StatelessService):
             # Save with concurrency handling
             save_result = self._save_member_with_retry(member, "approve")
             if not save_result.success:
+                frappe.db.rollback()
                 return save_result.chain("Failed to save approved application")
+
+            frappe.db.commit()
 
             # Perform post-approval setup (customer creation, user creation, chapter activation)
             setup_result = self._perform_post_approval_setup(member)
@@ -83,12 +156,26 @@ class MemberLifecycleService(StatelessService):
             return OperationResult.ok(member.member_id, approved=True, setup_results=setup_result)
 
         except Exception as e:
-            self.logger.error(f"Error validating application for member {member.name}: {str(e)}")
-            return OperationResult.fail(f"Application validation failed: {str(e)}")
+            frappe.db.rollback()
+            self._log_error(
+                error_code="LIFECYCLE_001",
+                operation="approve_application",
+                message="Application approval failed",
+                member_name=member.name,
+                exception=e,
+                reviewed_by=frappe.session.user,
+            )
+            return OperationResult.fail(
+                f"Application validation failed: {str(e)}",
+                error_code="LIFECYCLE_001",
+            )
 
     def reject_application(self, member: "Document", reason: str) -> OperationResult[str]:
         """
         Reject member application and clean up pending records.
+
+        Uses database-level row locking (FOR UPDATE) to prevent race conditions
+        when multiple users attempt to reject the same application concurrently.
 
         Args:
             member: Member document to reject
@@ -97,10 +184,39 @@ class MemberLifecycleService(StatelessService):
         Returns:
             OperationResult[str]: OperationResult with status on success or error details on failure
         """
+        frappe.db.begin()
         try:
+            # Acquire row lock to prevent concurrent rejection
+            locked_row = frappe.db.sql(
+                """SELECT application_status FROM `tabMember`
+                   WHERE name = %s FOR UPDATE""",
+                (member.name,),
+                as_dict=True,
+            )
+
+            if not locked_row:
+                frappe.db.rollback()
+                return OperationResult.fail(
+                    f"Member {member.name} not found",
+                    error_code="MEMBER_NOT_FOUND",
+                )
+
+            # Check if already processed (may have changed since page load)
+            if locked_row[0].application_status in ("Approved", "Rejected"):
+                frappe.db.commit()  # Release lock
+                return OperationResult.fail(
+                    f"Application has already been {locked_row[0].application_status.lower()}",
+                    error_code="ALREADY_PROCESSED",
+                    current_status=locked_row[0].application_status,
+                )
+
+            # Reload member to get fresh data within lock
+            member.reload()
+
             # Validate pre-conditions
             validation_result = self._validate_application_rejection(member)
             if not validation_result.success:
+                frappe.db.rollback()
                 return validation_result.chain("Application rejection validation failed")
 
             # Update status fields
@@ -117,7 +233,10 @@ class MemberLifecycleService(StatelessService):
             # Save with concurrency handling
             save_result = self._save_member_with_retry(member, "reject")
             if not save_result.success:
+                frappe.db.rollback()
                 return save_result.chain("Failed to save rejected application")
+
+            frappe.db.commit()
 
             # Perform post-rejection cleanup
             cleanup_result = self._perform_post_rejection_cleanup(member)
@@ -130,8 +249,20 @@ class MemberLifecycleService(StatelessService):
             )
 
         except Exception as e:
-            self.logger.error(f"Error rejecting application for member {member.name}: {str(e)}")
-            return OperationResult.fail(f"Application rejection failed: {str(e)}")
+            frappe.db.rollback()
+            self._log_error(
+                error_code="LIFECYCLE_002",
+                operation="reject_application",
+                message="Application rejection failed",
+                member_name=member.name,
+                exception=e,
+                reviewed_by=frappe.session.user,
+                rejection_reason=reason[:100] if reason else None,
+            )
+            return OperationResult.fail(
+                f"Application rejection failed: {str(e)}",
+                error_code="LIFECYCLE_002",
+            )
 
     def update_membership_status(self, member) -> OperationResult[Dict[str, Any]]:
         """
