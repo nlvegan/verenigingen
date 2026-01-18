@@ -15,9 +15,24 @@ Key responsibilities:
 - Update fee change history
 - Update active dues schedules
 
-Transaction handling:
-- Uses separate database transaction for atomicity
-- Rolls back on error to prevent partial updates
+TRANSACTION HANDLING (differs from MemberLifecycleService):
+    This service runs in after_save hook context, which means the main document
+    transaction has ALREADY COMMITTED. Unlike request-context services where
+    Frappe manages the transaction, after-save hooks need explicit transaction
+    control for their own operations.
+
+    Pattern used here:
+        frappe.db.begin()
+        try:
+            # Create related documents (amendment requests, dues schedules)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            raise
+
+    This is INTENTIONALLY DIFFERENT from MemberLifecycleService which operates
+    within the request transaction. See CLAUDE.md "Transaction Handling Patterns"
+    for the full explanation of when to use each pattern.
 """
 
 from typing import TYPE_CHECKING, Any, Dict, Optional

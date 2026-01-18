@@ -946,7 +946,11 @@ def assign_member_id(member_name):
 
 
 # =============================================================================
-# BACKWARD COMPATIBILITY RE-EXPORTS
+# BACKWARD COMPATIBILITY RE-EXPORTS (TECH DEBT)
 # =============================================================================
+# Wildcard import for backward compatibility with code that imports from member.py.
 # Re-exports moved to member_compat.py. Import from there or directly from api/member/.
+#
+# TODO(tech-debt): Track usage and remove once all callers updated to new import paths.
+# See: verenigingen/api/member/ for the new canonical import locations.
 from verenigingen.verenigingen.doctype.member.member_compat import *  # noqa: E402, F401, F403
