@@ -156,8 +156,6 @@ class BillingDateService(StatelessService):
         Args:
             schedule_doc: The schedule document to update
         """
-        schedule_doc.billing_day = None
-
         if not schedule_doc.billing_day or schedule_doc.billing_day == 0:
             if schedule_doc.member:
                 # Get the member_since value directly from database
