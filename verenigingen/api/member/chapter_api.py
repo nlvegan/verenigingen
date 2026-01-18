@@ -85,7 +85,13 @@ def get_member_current_chapters(member_name, structured_response=False):
     except Exception as e:
         _log_api_error("CHAP_API_002", "Error fetching chapters", member_name, e)
         if structured_response:
-            return {"success": False, "error": str(e), "error_code": "CHAP_API_002", "fallback": []}
+            # Don't expose raw exception to client - log full details server-side
+            return {
+                "success": False,
+                "error": "An error occurred fetching chapters",
+                "error_code": "CHAP_API_002",
+                "fallback": [],
+            }
         return []
 
 
@@ -118,7 +124,12 @@ def get_member_chapter_names(member_name, structured_response=False):
     except Exception as e:
         _log_api_error("CHAP_API_003", "Error fetching chapter names", member_name, e)
         if structured_response:
-            return {"success": False, "error": str(e), "error_code": "CHAP_API_003", "fallback": []}
+            return {
+                "success": False,
+                "error": "An error occurred fetching chapter names",
+                "error_code": "CHAP_API_003",
+                "fallback": [],
+            }
         return []
 
 
@@ -155,5 +166,10 @@ def get_member_chapter_display_html(member_name, structured_response=False):
         _log_api_error("CHAP_API_004", "Error generating chapter display HTML", member_name, e)
         error_html = f"<div class='text-danger'>Error loading chapters</div>"
         if structured_response:
-            return {"success": False, "error": str(e), "error_code": "CHAP_API_004", "fallback": error_html}
+            return {
+                "success": False,
+                "error": "An error occurred generating chapter display",
+                "error_code": "CHAP_API_004",
+                "fallback": error_html,
+            }
         return error_html

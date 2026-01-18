@@ -188,13 +188,15 @@ class MemberIDService(StatelessService):
 
         if not lock_acquired:
             self.logger.warning(
-                "MemberIDService: Could not acquire lock - another bulk assignment in progress"
+                f"MemberIDService: Lock {lock_name} acquisition timed out - another bulk assignment in progress"
             )
             return OperationResult.fail(
                 "Another bulk member ID assignment is currently in progress. Please try again later.",
                 error_code="MEMBER_ID_LOCK_FAILED",
                 errors=["Lock acquisition failed - concurrent operation detected"],
             )
+
+        self.logger.info(f"MemberIDService: Acquired lock {lock_name}")
 
         try:
             # Find all members without IDs
@@ -262,7 +264,11 @@ class MemberIDService(StatelessService):
             return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
         finally:
             # Always release the advisory lock
-            frappe.db.release_lock(lock_name)
+            try:
+                frappe.db.release_lock(lock_name)
+                self.logger.debug(f"MemberIDService: Released lock {lock_name}")
+            except Exception as release_error:
+                self.logger.error(f"MemberIDService: Failed to release lock {lock_name}: {release_error}")
 
     def debug_member_id_assignment(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
