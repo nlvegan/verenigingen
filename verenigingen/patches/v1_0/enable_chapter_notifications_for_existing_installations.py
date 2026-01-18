@@ -32,15 +32,8 @@ def execute():
                 "Enabling chapter assignment notifications to maintain current behavior."
             )
 
-            # Use raw SQL for idempotency and reliability
-            frappe.db.sql(
-                """
-                UPDATE `tabVerenigingen Settings`
-                SET send_chapter_assignment_notifications = 1
-                WHERE name = 'Verenigingen Settings'
-                AND IFNULL(send_chapter_assignment_notifications, 0) = 0
-            """
-            )
+            # Use Frappe API for Single DocType (data stored in tabSingles, not dedicated table)
+            frappe.db.set_single_value("Verenigingen Settings", "send_chapter_assignment_notifications", 1)
             frappe.db.commit()
 
             frappe.logger().info("✅ Chapter assignment notifications enabled for existing installation")

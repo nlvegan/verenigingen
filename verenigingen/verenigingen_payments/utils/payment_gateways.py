@@ -1353,13 +1353,14 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         subscription_data = {
             "amount": format_mollie_amount(agreement.amount),
             "interval": convert_frequency_to_mollie_interval(agreement.recurring_frequency),
-            "description": f"Recurring donation - {donation.donation_category or donation.donation_purpose_type}",
+            "description": f"Recurring donation - {getattr(donation, 'donation_category', None) or donation.donation_purpose_type}",
             "startDate": agreement.next_due_date.strftime("%Y-%m-%d") if agreement.next_due_date else None,
             "metadata": {
                 "donation_agreement_id": agreement.name,
                 "donation_id": donation_id,
                 "donor_id": donation.donor,
-                "donation_type": donation.donation_category or donation.donation_purpose_type,
+                "donation_type": getattr(donation, "donation_category", None)
+                or donation.donation_purpose_type,
                 "purpose": donation.donation_purpose_type,
             },
         }

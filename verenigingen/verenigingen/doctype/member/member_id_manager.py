@@ -44,47 +44,69 @@ class MemberIDManager:
         Do NOT use explicit frappe.db.begin()/commit() - Frappe manages transactions
         during document lifecycle operations (before_insert, validate, etc.).
 
+        Note: Verenigingen Settings is a Single DocType, so data is stored in
+        tabSingles table, not in a dedicated tabVerenigingen Settings table.
+
         Returns: int - the next member ID to use
         """
         try:
-            settings_name = "Verenigingen Settings"
+            doctype_name = "Verenigingen Settings"
+            field_name = "last_member_id"
 
             # Lock the settings row to prevent concurrent access
             # FOR UPDATE works within Frappe's existing transaction
+            # Single DocTypes store data in tabSingles table
             current_id = frappe.db.sql(
                 """
-                SELECT last_member_id
-                FROM `tabVerenigingen Settings`
-                WHERE name = %s
+                SELECT value
+                FROM `tabSingles`
+                WHERE doctype = %s AND field = %s
                 FOR UPDATE
                 """,
-                (settings_name,),
+                (doctype_name, field_name),
                 as_dict=True,
             )
 
-            if not current_id or current_id[0].last_member_id is None:
+            if not current_id or current_id[0].value is None:
                 # Initialize from existing data
                 initialized_id = MemberIDManager._initialize_counter()
-                frappe.db.sql(
+                # Check if row exists first
+                row_exists = frappe.db.sql(
                     """
-                    UPDATE `tabVerenigingen Settings`
-                    SET last_member_id = %s
-                    WHERE name = %s
+                    SELECT 1 FROM `tabSingles`
+                    WHERE doctype = %s AND field = %s
                     """,
-                    (initialized_id, settings_name),
+                    (doctype_name, field_name),
                 )
+                if row_exists:
+                    frappe.db.sql(
+                        """
+                        UPDATE `tabSingles`
+                        SET value = %s
+                        WHERE doctype = %s AND field = %s
+                        """,
+                        (initialized_id, doctype_name, field_name),
+                    )
+                else:
+                    frappe.db.sql(
+                        """
+                        INSERT INTO `tabSingles` (doctype, field, value)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (doctype_name, field_name, initialized_id),
+                    )
                 next_id = initialized_id + 1
             else:
-                next_id = current_id[0].last_member_id + 1
+                next_id = cint(current_id[0].value) + 1
 
             # Update to next value atomically
             frappe.db.sql(
                 """
-                UPDATE `tabVerenigingen Settings`
-                SET last_member_id = %s
-                WHERE name = %s
+                UPDATE `tabSingles`
+                SET value = %s
+                WHERE doctype = %s AND field = %s
                 """,
-                (next_id, settings_name),
+                (next_id, doctype_name, field_name),
             )
 
             # Update cache for performance (but don't rely on it for atomicity)

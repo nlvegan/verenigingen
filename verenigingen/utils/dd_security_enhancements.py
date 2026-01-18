@@ -36,10 +36,11 @@ class MemberIdentityValidator:
 
         try:
             # Get all active members for comparison
+            # Note: Only select fields actually used in comparison logic
             existing_members = frappe.get_all(
                 "Member",
                 filters={"status": ["in", ["Active", "Pending"]]},
-                fields=["name", "first_name", "last_name", "email", "iban", "birth_date", "address_display"],
+                fields=["name", "first_name", "last_name", "email", "iban", "birth_date"],
             )
 
             new_full_name = f"{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()
@@ -385,70 +386,157 @@ class MemberIdentityValidator:
 
 
 class DDSecurityAuditLogger:
-    """Enhanced audit logging for SEPA Direct Debit operations"""
+    """Enhanced audit logging for SEPA Direct Debit operations.
+
+    Uses the existing API Audit Log DocType for all logging, with DD-specific
+    event types and batch references stored in the details field.
+    """
+
+    def _generate_event_id(self) -> str:
+        """Generate unique event ID for audit log entries."""
+        import uuid
+
+        return f"DD-{uuid.uuid4().hex[:12].upper()}"
+
+    def _get_request_context(self) -> Dict:
+        """Safely get request context information."""
+        try:
+            return {
+                "ip_address": frappe.local.request.environ.get("REMOTE_ADDR", "Unknown")
+                if hasattr(frappe.local, "request")
+                else "N/A",
+                "user_agent": frappe.local.request.environ.get("HTTP_USER_AGENT", "Unknown")
+                if hasattr(frappe.local, "request")
+                else "N/A",
+            }
+        except Exception:
+            return {"ip_address": "N/A", "user_agent": "N/A"}
 
     def log_batch_action(self, action: str, batch_id: str, user: str = None, details: Dict = None):
-        """Log batch-related actions with comprehensive context"""
+        """Log batch-related actions using API Audit Log DocType."""
         try:
-            log_entry = frappe.new_doc("DD Security Audit Log")
+            request_ctx = self._get_request_context()
+
+            log_entry = frappe.new_doc("API Audit Log")
+            log_entry.event_id = self._generate_event_id()
             log_entry.timestamp = now_datetime()
-            log_entry.action = action
-            log_entry.batch_id = batch_id
+            log_entry.event_type = "other"  # DD batch actions
+            log_entry.severity = "info"
+            log_entry.status = "Success"
             log_entry.user = user or frappe.session.user
-            log_entry.ip_address = frappe.local.request.environ.get("REMOTE_ADDR", "Unknown")
-            log_entry.user_agent = frappe.local.request.environ.get("HTTP_USER_AGENT", "Unknown")
-            log_entry.session_id = frappe.session.sid
+            log_entry.ip_address = request_ctx["ip_address"]
+            log_entry.user_agent = request_ctx["user_agent"]
+            log_entry.session_id = frappe.session.sid if hasattr(frappe.session, "sid") else None
 
+            # Store DD-specific data in details
+            log_details = {
+                "source": "dd_security",
+                "action": action,
+                "batch_id": batch_id,
+            }
             if details:
-                log_entry.details = frappe.as_json(details)
+                log_details["data"] = details
 
+            log_entry.details = frappe.as_json(log_details)
             log_entry.insert(ignore_permissions=True)
 
         except Exception as e:
-            frappe.log_error(f"Error logging audit entry: {str(e)}", "Audit Logging Error")
+            # Fallback to standard logging
+            frappe.logger("dd_security").warning(
+                f"Audit log fallback: {action} | {batch_id} | Error: {str(e)}"
+            )
 
     def log_security_event(self, event_type: str, severity: str, description: str, details: Dict = None):
-        """Log security-related events"""
+        """Log security-related events using API Audit Log DocType."""
         try:
-            event = frappe.new_doc("DD Security Event Log")
+            request_ctx = self._get_request_context()
+
+            # Map DD event types to API Audit Log event types
+            event_type_map = {
+                "member_identity_validation": "sensitive_data_access",
+                "bank_account_validation": "sensitive_data_access",
+                "batch_anomaly_analysis": "suspicious_activity",
+                "fraud_detection": "suspicious_activity",
+            }
+            mapped_event_type = event_type_map.get(event_type, "other")
+
+            event = frappe.new_doc("API Audit Log")
+            event.event_id = self._generate_event_id()
             event.timestamp = now_datetime()
-            event.event_type = event_type
-            event.severity = severity
-            event.description = description
+            event.event_type = mapped_event_type
+            event.severity = severity if severity in ["info", "warning", "error", "critical"] else "info"
+            event.status = "Success" if severity == "info" else "Failed"
             event.user = frappe.session.user
-            event.ip_address = frappe.local.request.environ.get("REMOTE_ADDR", "Unknown")
+            event.ip_address = request_ctx["ip_address"]
+            event.user_agent = request_ctx["user_agent"]
+            event.session_id = frappe.session.sid if hasattr(frappe.session, "sid") else None
 
+            # Store DD-specific data in details
+            log_details = {
+                "source": "dd_security",
+                "dd_event_type": event_type,
+                "description": description,
+            }
             if details:
-                event.details = frappe.as_json(details)
+                log_details["data"] = details
 
+            event.details = frappe.as_json(log_details)
             event.insert(ignore_permissions=True)
 
         except Exception as e:
-            frappe.log_error(f"Error logging security event: {str(e)}", "Security Logging Error")
+            # Fallback to standard logging
+            log_level = "warning" if severity in ["warning", "error", "critical"] else "info"
+            getattr(frappe.logger("dd_security"), log_level)(
+                f"Security event fallback: {event_type} | {severity} | {description} | Error: {str(e)}"
+            )
 
 
 class DDConflictResolutionManager:
     """Manager for resolving member identity and payment conflicts"""
 
     def create_conflict_report(self, conflicts: Dict, batch_id: str = None) -> str:
-        """Create a detailed conflict report for manual review"""
+        """Create a detailed conflict report for manual review.
+
+        Stores conflict data in API Audit Log with a unique report ID.
+        Returns the report ID for tracking.
+        """
+        import uuid
+
         try:
-            report = frappe.new_doc("DD Conflict Report")
-            report.batch_id = batch_id
-            report.report_date = today()
-            report.conflict_data = frappe.as_json(conflicts)
-            report.status = "Open"
-            report.created_by = frappe.session.user
-
-            # Generate human-readable summary
+            report_id = f"CONFLICT-{uuid.uuid4().hex[:8].upper()}"
             summary = self._generate_conflict_summary(conflicts)
-            report.summary = summary
 
-            report.insert()
-            return report.name
+            # Log to API Audit Log as a conflict detection event
+            log_entry = frappe.new_doc("API Audit Log")
+            log_entry.event_id = report_id
+            log_entry.timestamp = now_datetime()
+            log_entry.event_type = "suspicious_activity"
+            log_entry.severity = "warning" if conflicts.get("high_risk_matches") else "info"
+            log_entry.status = "Pending"  # Needs review
+            log_entry.user = frappe.session.user
+
+            # Store conflict report data
+            log_entry.details = frappe.as_json(
+                {
+                    "source": "dd_conflict_resolution",
+                    "report_type": "conflict_report",
+                    "batch_id": batch_id,
+                    "report_date": str(today()),
+                    "summary": summary,
+                    "conflict_data": conflicts,
+                }
+            )
+
+            log_entry.insert(ignore_permissions=True)
+
+            frappe.logger("dd_security").info(
+                f"Conflict report created: {report_id} | Batch: {batch_id} | {summary}"
+            )
+
+            return report_id
 
         except Exception as e:
-            frappe.log_error(f"Error creating conflict report: {str(e)}", "Conflict Resolution Error")
+            frappe.logger("dd_security").warning(f"Conflict report creation failed: {str(e)}")
             return None
 
     def auto_resolve_conflicts(self, conflicts: Dict, resolution_rules: Dict = None) -> Dict:

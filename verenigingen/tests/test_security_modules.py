@@ -10,12 +10,28 @@ that the singleton patterns function properly.
 """
 
 import unittest
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
 
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
+
+
+@contextmanager
+def set_user_context(user):
+    """Context manager to temporarily set Frappe user.
+
+    This is the proper way to mock user context in Frappe tests,
+    rather than patching frappe.session.user directly.
+    """
+    original_user = frappe.session.user
+    try:
+        frappe.set_user(user)
+        yield
+    finally:
+        frappe.set_user(original_user)
 
 
 class TestFrappeWhitelistAdapter(IntegrationTestCase):
@@ -194,8 +210,8 @@ class TestSelfServiceAccessController(IntegrationTestCase):
 
         controller = SelfServiceAccessController()
 
-        # Mock session.user to simulate Administrator context
-        with patch.object(frappe.session, "user", "Administrator"):
+        # Use proper context to simulate Administrator context
+        with set_user_context("Administrator"):
             result = controller.validate_access(member="some_other_member")
             self.assertTrue(result, "Administrator should bypass validation")
 
@@ -211,8 +227,8 @@ class TestSelfServiceAccessController(IntegrationTestCase):
 
         controller = SelfServiceAccessController()
 
-        # Mock session.user to simulate Guest context
-        with patch.object(frappe.session, "user", "Guest"):
+        # Use proper context to simulate Guest context
+        with set_user_context("Guest"):
             result = controller.validate_access(member="some_member")
             self.assertTrue(result, "Guest should bypass validation")
 
@@ -263,9 +279,10 @@ class TestSelfServiceAccessController(IntegrationTestCase):
             self.skipTest("No members in database for testing")
             return
 
-        # Mock the session user to match the member's email
-        with patch.object(frappe.session, "user", test_member.email):
-            # Should be able to access own member data
+        # Mock the get_user_member method to return the test member
+        # This simulates a user with a member record accessing their own data
+        with patch.object(controller, "get_user_member", return_value=test_member.name):
+            # User accessing their own member data should be allowed
             result = controller.validate_access(member=test_member.name)
             self.assertTrue(result, "User should be able to access own data")
 
@@ -289,19 +306,22 @@ class TestSelfServiceAccessController(IntegrationTestCase):
             self.skipTest("No members in database for testing")
             return
 
-        # Mock the session user to match the member's email
-        with patch.object(frappe.session, "user", test_member.email):
-            # Create a different member name to try to access
-            other_member = "MEMBER-SOMEONE-ELSE-FAKE"
+        # Mock the session user to be a non-admin user (Administrator bypasses validation)
+        # and mock get_user_member to return the test member
+        with patch("frappe.session") as mock_session:
+            mock_session.user = "test_user@example.com"
+            with patch.object(controller, "get_user_member", return_value=test_member.name):
+                # Create a different member name to try to access
+                other_member = "MEMBER-SOMEONE-ELSE-FAKE"
 
-            with self.assertRaises(VPermissionError) as context:
-                controller.validate_access(member=other_member)
+                with self.assertRaises(VPermissionError) as context:
+                    controller.validate_access(member=other_member)
 
-            self.assertIn(
-                "Access denied",
-                str(context.exception),
-                "Should deny access to other user's data",
-            )
+                self.assertIn(
+                    "Access denied",
+                    str(context.exception),
+                    "Should deny access to other user's data",
+                )
 
     def test_implicit_self_service_with_member_record(self):
         """Test implicit self-service when user has member record.
@@ -323,8 +343,9 @@ class TestSelfServiceAccessController(IntegrationTestCase):
             self.skipTest("No members in database for testing")
             return
 
-        # Mock the session user to match the member's email
-        with patch.object(frappe.session, "user", test_member.email):
+        # Mock the get_user_member method to return the test member
+        # This simulates a user with a member record doing implicit self-service
+        with patch.object(controller, "get_user_member", return_value=test_member.name):
             # No explicit member target - implicit self-service
             result = controller.validate_access()
             self.assertTrue(result, "Implicit self-service should work with member record")

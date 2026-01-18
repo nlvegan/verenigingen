@@ -256,7 +256,8 @@ class Donation(Document):
                 else f"Specific Goal: {self.specific_goal_description}"
             )
         else:
-            return self.donation_category or "Unspecified"
+            # donation_category field may not exist - use getattr for safety
+            return getattr(self, "donation_category", None) or "Unspecified"
 
     def after_insert(self):
         """Called after donation is created"""

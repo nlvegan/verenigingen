@@ -325,14 +325,31 @@ class Volunteer(Document):
                 role_profile=None,  # Inferred from roles → "Verenigingen Volunteer"
             )
 
-            # Handle OperationResult properly (has .success attribute, not dict)
-            if result and result.success:
-                request_name = result.data.get("request_name", "unknown") if result.data else "unknown"
+            # Handle both OperationResult (has .success) and dict (from decorator serialization)
+            is_success = (
+                result.success
+                if hasattr(result, "success")
+                else result.get("success", False)
+                if isinstance(result, dict)
+                else False
+            )
+
+            if result and is_success:
+                # Get request_name from either OperationResult.data or dict["data"]
+                data = result.data if hasattr(result, "data") else result.get("data", {})
+                request_name = data.get("request_name", "unknown") if data else "unknown"
                 frappe.logger().info(
                     f"Auto-queued activation for volunteer {self.name} via member {self.member}: {request_name}"
                 )
             else:
-                error_msg = result.message if result else "No result returned"
+                # Get error message from either OperationResult.message or dict["message"]
+                error_msg = (
+                    result.message
+                    if hasattr(result, "message")
+                    else result.get("message", "No result returned")
+                    if isinstance(result, dict)
+                    else "No result returned"
+                )
                 frappe.logger().warning(
                     f"Failed to auto-queue activation for volunteer {self.name}: {error_msg}"
                 )
@@ -593,17 +610,34 @@ class Volunteer(Document):
             frappe.logger().info(f"Queueing secure account creation for volunteer {self.name}")
 
             # Queue account creation with proper security validation
-            # Returns OperationResult, not a plain dict
+            # Returns OperationResult or dict (if decorated function serializes it)
             result = queue_account_creation_for_volunteer(volunteer_name=self.name, priority="Normal")
 
-            if not result.success:
+            # Handle both OperationResult (has .success) and dict (from decorator serialization)
+            is_success = (
+                result.success
+                if hasattr(result, "success")
+                else result.get("success", False)
+                if isinstance(result, dict)
+                else False
+            )
+
+            if not is_success:
+                error_msg = (
+                    result.error_message
+                    if hasattr(result, "error_message")
+                    else result.get("message", "Unknown error")
+                    if isinstance(result, dict)
+                    else "Unknown error"
+                )
                 frappe.logger().warning(
-                    f"Account creation queueing returned failure for volunteer {self.name}: {result.error_message}"
+                    f"Account creation queueing returned failure for volunteer {self.name}: {error_msg}"
                 )
                 return
 
-            # Access data via result.data (OperationResult pattern)
-            request_name = result.data.get("request_name") if result.data else None
+            # Access data from either OperationResult.data or dict["data"]
+            data = result.data if hasattr(result, "data") else result.get("data", {})
+            request_name = data.get("request_name") if data else None
             frappe.logger().info(f"Account creation queued successfully: {request_name}")
 
             # Optionally notify the user about the process
@@ -816,19 +850,34 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None):
                 roles = [roles]
 
         # Queue account creation via centralized manager
-        # Returns OperationResult, not a plain dict
+        # Returns OperationResult or dict (if decorated function serializes it)
         result = queue_account_creation_for_member(member_name=member_name, roles=roles, priority="Normal")
 
-        # Access OperationResult attributes correctly
-        if result and result.success:
-            request_name = result.data.get("request_name") if result.data else None
+        # Handle both OperationResult (has .success) and dict (from decorator serialization)
+        is_success = (
+            result.success
+            if hasattr(result, "success")
+            else result.get("success", False)
+            if isinstance(result, dict)
+            else False
+        )
+
+        if result and is_success:
+            data = result.data if hasattr(result, "data") else result.get("data", {})
+            request_name = data.get("request_name") if data else None
             frappe.logger().info(
                 f"Queued account creation for volunteer {volunteer_name} "
                 f"(member: {member_name}, request: {request_name})"
             )
             return request_name
         else:
-            error_msg = result.error_message if result else "Unknown error"
+            error_msg = (
+                result.error_message
+                if hasattr(result, "error_message")
+                else result.get("message", "Unknown error")
+                if isinstance(result, dict)
+                else "Unknown error"
+            )
             frappe.logger().warning(
                 f"Failed to queue account creation for volunteer {volunteer_name}: {error_msg}"
             )

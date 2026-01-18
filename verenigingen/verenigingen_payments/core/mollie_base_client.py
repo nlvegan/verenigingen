@@ -161,16 +161,30 @@ class MollieBaseClient:
             if not settings:
                 raise frappe.ValidationError(_("Mollie Settings not configured"))
 
-            # Get the appropriate key
+            # Get the appropriate key for Payment API (different from Backend API)
+            # Payment API: Uses API keys (test_xxx or live_xxx) for payments, customers, subscriptions
+            # Backend API: Uses Organization Access Token for balance reports, organization data
             if test_mode:
                 # Use test key (should start with test_)
                 api_key = settings.get_password("test_secret_key", raise_exception=False)
+                key_type = "Test API Key"
+                key_field = "Test Secret Key"
             else:
                 # Use live key (should start with live_)
                 api_key = settings.get_password("live_secret_key", raise_exception=False)
+                key_type = "Live API Key"
+                key_field = "Live Secret Key"
 
             if not api_key:
-                raise frappe.ValidationError(_("Mollie API key not configured"))
+                raise frappe.ValidationError(
+                    _(
+                        "Mollie {0} not configured. "
+                        "This key is required for payment processing. "
+                        "Get it from: Mollie Dashboard → Developers → API keys. "
+                        "Add to: Mollie Settings → {1} field. "
+                        "(Format: {2}_xxx where xxx is your key)"
+                    ).format(key_type, key_field, "test" if test_mode else "live")
+                )
 
             # Validate key format only for payment API (not backend API)
             if not self.use_backend_api:
@@ -204,15 +218,25 @@ class MollieBaseClient:
 
             if not get_mollie_config().is_backend_api_enabled():
                 raise frappe.ValidationError(
-                    _("Mollie Backend API is not enabled. Please enable it in Mollie Settings.")
+                    _(
+                        "Mollie Backend API is not enabled. "
+                        "To use features like balance reports and organization-wide data, "
+                        "enable 'Use Backend API' in Mollie Settings."
+                    )
                 )
 
-            # Get Organization Access Token
+            # Get Organization Access Token (different from regular API keys)
+            # - Regular API: Uses API keys (live_xxx/test_xxx) for payments, customers, subscriptions
+            # - Backend API: Uses Organization Access Token for balance reports, organization data
             api_key = settings.get_password("organization_access_token", raise_exception=False)
             if not api_key:
                 raise frappe.ValidationError(
                     _(
-                        "Organization Access Token not configured. Please configure it in Mollie Settings for backend API access."
+                        "Mollie Organization Access Token not configured. "
+                        "This token is required for the Backend API (balance reports, organization data). "
+                        "Generate it at: Mollie Dashboard → Developers → Organization Access Tokens. "
+                        "Then add it to Mollie Settings → Organization Access Token field. "
+                        "Note: This is different from the regular API key (live_xxx/test_xxx) used for payments."
                     )
                 )
 
