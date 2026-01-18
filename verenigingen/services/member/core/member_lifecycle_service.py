@@ -24,6 +24,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.constants.error_codes import ErrorCodes, get_safe_error_message
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
 
@@ -37,6 +38,17 @@ class MemberLifecycleService(StatelessService):
 
     This service provides a clean interface for all member lifecycle operations
     including application processing, status management, and membership handling.
+
+    TRANSACTION HANDLING WARNING:
+        Do NOT use explicit frappe.db.begin()/commit()/rollback() in lifecycle
+        methods. Frappe's request/test harness manages transactions automatically.
+        Manual transaction control breaks tests and can cause double/partial commits.
+
+        For race condition prevention, use:
+        - Row-level locking: SELECT ... FOR UPDATE (within current transaction)
+        - Advisory locks: vereinigen.utils.db_advisory_lock.advisory_lock()
+
+        See: docs/patterns/TRANSACTION_PATTERNS.md
     """
 
     def __init__(self):
@@ -107,7 +119,7 @@ class MemberLifecycleService(StatelessService):
             if not locked_row:
                 return OperationResult.fail(
                     f"Member {member.name} not found",
-                    error_code="MEMBER_NOT_FOUND",
+                    error_code=ErrorCodes.LIFECYCLE_MEMBER_NOT_FOUND,
                 )
 
             # Check if already approved (may have changed since page load)
@@ -115,7 +127,7 @@ class MemberLifecycleService(StatelessService):
                 return OperationResult.fail(
                     "Application is already approved",
                     errors=["Application is already approved"],
-                    error_code="ALREADY_APPROVED",
+                    error_code=ErrorCodes.LIFECYCLE_ALREADY_APPROVED,
                     current_status=locked_row[0].application_status,
                 )
 
@@ -152,16 +164,18 @@ class MemberLifecycleService(StatelessService):
 
         except Exception as e:
             self._log_error(
-                error_code="LIFECYCLE_001",
+                error_code=ErrorCodes.LIFECYCLE_APPROVAL_FAILED,
                 operation="approve_application",
                 message="Application approval failed",
                 member_name=member.name,
                 exception=e,
                 reviewed_by=frappe.session.user,
             )
+            # Return safe error message - internal details logged above
             return OperationResult.fail(
-                f"Application validation failed: {str(e)}",
-                error_code="LIFECYCLE_001",
+                get_safe_error_message(ErrorCodes.LIFECYCLE_APPROVAL_FAILED),
+                error_code=ErrorCodes.LIFECYCLE_APPROVAL_FAILED,
+                internal_error=str(e),  # Available for debugging but not exposed to UI
             )
 
     def reject_application(self, member: "Document", reason: str) -> OperationResult[str]:
@@ -191,7 +205,7 @@ class MemberLifecycleService(StatelessService):
             if not locked_row:
                 return OperationResult.fail(
                     f"Member {member.name} not found",
-                    error_code="MEMBER_NOT_FOUND",
+                    error_code=ErrorCodes.LIFECYCLE_MEMBER_NOT_FOUND,
                 )
 
             # Check if already processed (may have changed since page load)
@@ -200,7 +214,7 @@ class MemberLifecycleService(StatelessService):
                 return OperationResult.fail(
                     msg,
                     errors=[msg],
-                    error_code="ALREADY_PROCESSED",
+                    error_code=ErrorCodes.LIFECYCLE_ALREADY_PROCESSED,
                     current_status=locked_row[0].application_status,
                 )
 
@@ -240,7 +254,7 @@ class MemberLifecycleService(StatelessService):
 
         except Exception as e:
             self._log_error(
-                error_code="LIFECYCLE_002",
+                error_code=ErrorCodes.LIFECYCLE_REJECTION_FAILED,
                 operation="reject_application",
                 message="Application rejection failed",
                 member_name=member.name,
@@ -248,9 +262,11 @@ class MemberLifecycleService(StatelessService):
                 reviewed_by=frappe.session.user,
                 rejection_reason=reason[:100] if reason else None,
             )
+            # Return safe error message - internal details logged above
             return OperationResult.fail(
-                f"Application rejection failed: {str(e)}",
-                error_code="LIFECYCLE_002",
+                get_safe_error_message(ErrorCodes.LIFECYCLE_REJECTION_FAILED),
+                error_code=ErrorCodes.LIFECYCLE_REJECTION_FAILED,
+                internal_error=str(e),  # Available for debugging but not exposed to UI
             )
 
     def update_membership_status(self, member) -> OperationResult[Dict[str, Any]]:

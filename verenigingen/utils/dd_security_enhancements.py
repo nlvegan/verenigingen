@@ -390,7 +390,36 @@ class DDSecurityAuditLogger:
 
     Uses the existing API Audit Log DocType for all logging, with DD-specific
     event types and batch references stored in the details field.
+
+    IMPORTANT: This logger depends on the API Audit Log DocType which is defined
+    in vereiningen/vereiningen/doctype/api_audit_log/. If the DocType does not
+    exist, logging falls back to standard frappe.logger() output.
+
+    Required fields in API Audit Log:
+        - event_id (Data, required, unique)
+        - timestamp (Datetime, required)
+        - event_type (Select, required)
+        - severity (Select, required)
+        - status (Select)
+        - user (Link to User)
+        - ip_address (Data)
+        - user_agent (Text)
+        - session_id (Data)
+        - details (JSON)
     """
+
+    _doctype_verified = None  # Class-level cache for DocType existence check
+
+    def _verify_doctype_exists(self) -> bool:
+        """Check if API Audit Log DocType exists (cached)."""
+        if DDSecurityAuditLogger._doctype_verified is None:
+            DDSecurityAuditLogger._doctype_verified = frappe.db.exists("DocType", "API Audit Log")
+            if not DDSecurityAuditLogger._doctype_verified:
+                frappe.logger("dd_security").warning(
+                    "API Audit Log DocType not found. DD security events will be logged "
+                    "to standard logger instead. Run 'bench migrate' to create the DocType."
+                )
+        return DDSecurityAuditLogger._doctype_verified
 
     def _generate_event_id(self) -> str:
         """Generate unique event ID for audit log entries."""
@@ -414,6 +443,11 @@ class DDSecurityAuditLogger:
 
     def log_batch_action(self, action: str, batch_id: str, user: str = None, details: Dict = None):
         """Log batch-related actions using API Audit Log DocType."""
+        # Early exit to fallback if DocType doesn't exist
+        if not self._verify_doctype_exists():
+            frappe.logger("dd_security").info(f"DD batch action: {action} | {batch_id}")
+            return
+
         try:
             request_ctx = self._get_request_context()
 
@@ -448,6 +482,14 @@ class DDSecurityAuditLogger:
 
     def log_security_event(self, event_type: str, severity: str, description: str, details: Dict = None):
         """Log security-related events using API Audit Log DocType."""
+        # Early exit to fallback if DocType doesn't exist
+        if not self._verify_doctype_exists():
+            log_level = "warning" if severity in ["warning", "error", "critical"] else "info"
+            getattr(frappe.logger("dd_security"), log_level)(
+                f"DD security event: {event_type} | {severity} | {description}"
+            )
+            return
+
         try:
             request_ctx = self._get_request_context()
 

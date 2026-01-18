@@ -35,7 +35,9 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.constants.error_codes import ErrorCodes
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.db_advisory_lock import AdvisoryLockError, advisory_lock
 from verenigingen.utils.operation_result import OperationResult
 
 
@@ -183,23 +185,25 @@ class MemberIDService(StatelessService):
         self.logger.info("MemberIDService: Starting bulk member ID assignment")
 
         # Acquire advisory lock to prevent concurrent bulk operations
-        # Using MySQL/MariaDB GET_LOCK() function for database-level advisory locking
         lock_name = "member_id_bulk_assignment"
-        lock_result = frappe.db.sql("SELECT GET_LOCK(%s, %s)", (lock_name, 10))
-        lock_acquired = lock_result and lock_result[0][0] == 1
 
-        if not lock_acquired:
-            self.logger.warning(
-                f"MemberIDService: Lock {lock_name} acquisition timed out - another bulk assignment in progress"
-            )
+        try:
+            with advisory_lock(lock_name, timeout=10, raise_on_timeout=True):
+                self.logger.info(f"MemberIDService: Acquired lock {lock_name}")
+                return self._execute_bulk_assignment()
+        except AdvisoryLockError as e:
+            self.logger.warning(f"MemberIDService: Lock {lock_name} acquisition failed - {str(e)}")
             return OperationResult.fail(
                 "Another bulk member ID assignment is currently in progress. Please try again later.",
-                error_code="MEMBER_ID_LOCK_FAILED",
+                error_code=ErrorCodes.MEMBER_ID_LOCK_FAILED,
                 errors=["Lock acquisition failed - concurrent operation detected"],
             )
+        except Exception as e:
+            self.logger.error(f"Bulk member ID assignment failed: {str(e)}")
+            return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
 
-        self.logger.info(f"MemberIDService: Acquired lock {lock_name}")
-
+    def _execute_bulk_assignment(self) -> OperationResult[Dict[str, Any]]:
+        """Execute the bulk assignment within the advisory lock context."""
         try:
             # Find all members without IDs
             members_without_ids = frappe.get_all(
@@ -264,13 +268,6 @@ class MemberIDService(StatelessService):
         except Exception as e:
             self.logger.error(f"Bulk member ID assignment failed: {str(e)}")
             return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
-        finally:
-            # Always release the advisory lock using MySQL RELEASE_LOCK()
-            try:
-                frappe.db.sql("SELECT RELEASE_LOCK(%s)", (lock_name,))
-                self.logger.debug(f"MemberIDService: Released lock {lock_name}")
-            except Exception as release_error:
-                self.logger.error(f"MemberIDService: Failed to release lock {lock_name}: {release_error}")
 
     def debug_member_id_assignment(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
