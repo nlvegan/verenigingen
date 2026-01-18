@@ -165,38 +165,22 @@ class MembershipDuesSchedule(Document):
                 frappe.throw("Custom frequency unit must be specified when using custom billing")
 
     def validate_progressive_configuration(self):
-        """Validate progressive contribution mode settings"""
-        if self.contribution_mode != "Progressive":
-            return
+        """
+        Validate progressive contribution mode settings.
 
-        # Check if fields exist (might not exist during migration)
-        reference_income = getattr(self, "progressive_reference_income", None)
-        lower_threshold = getattr(self, "progressive_lower_threshold", None)
+        DELEGATES TO: ProgressiveDuesService.validate_progressive_configuration()
+        """
+        from verenigingen.services.billing.progressive_dues_service import (
+            get_progressive_dues_service,
+        )
 
-        # Templates must have complete progressive configuration
-        if self.is_template:
-            if not reference_income or reference_income <= 0:
-                frappe.throw(
-                    "Progressive mode requires a Reference Income (median) to be set. "
-                    "This is the national median income used as the 100% reference point."
-                )
-            if not lower_threshold or lower_threshold < 0:
-                frappe.throw(
-                    "Progressive mode requires a Lower Income Threshold to be set. "
-                    "This is the income level below which minimum dues apply."
-                )
-            if lower_threshold >= reference_income:
-                frappe.throw(
-                    f"Lower Income Threshold (€{lower_threshold:,.2f}) must be less than "
-                    f"Reference Income (€{reference_income:,.2f})"
-                )
+        get_progressive_dues_service().validate_progressive_configuration(self)
 
     def calculate_progressive_dues(self, monthly_income, base_dues=None):
         """
         Calculate suggested dues based on progressive sliding scale formula.
 
-        Formula: multiplier = (income - lower_threshold) / (reference_income - lower_threshold)
-                 suggested_dues = base_dues * multiplier
+        DELEGATES TO: ProgressiveDuesService.calculate_progressive_dues()
 
         Args:
             monthly_income: Applicant's monthly net income
@@ -209,128 +193,58 @@ class MembershipDuesSchedule(Document):
                 - suggested_dues: Calculated dues amount
                 - base_dues: The base dues used for calculation
         """
-        reference_income = getattr(self, "progressive_reference_income", None) or 0
-        lower_threshold = getattr(self, "progressive_lower_threshold", None) or 0
+        from verenigingen.services.billing.progressive_dues_service import (
+            get_progressive_dues_service,
+        )
 
-        if base_dues is None:
-            base_dues = self.suggested_amount or 0
-
-        if reference_income <= lower_threshold:
-            # Invalid configuration, return base dues
-            return {
-                "multiplier": 1.0,
-                "percentage": 100,
-                "suggested_dues": base_dues,
-                "base_dues": base_dues,
-            }
-
-        # Calculate multiplier using linear sliding scale
-        range_amount = reference_income - lower_threshold
-        multiplier = (monthly_income - lower_threshold) / range_amount
-
-        # Floor at 0 (no negative dues), no ceiling (higher earners pay more)
-        multiplier = max(0, multiplier)
-
-        suggested_dues = round(base_dues * multiplier, 2)
-
+        result = get_progressive_dues_service().calculate_progressive_dues(self, monthly_income, base_dues)
         return {
-            "multiplier": round(multiplier, 4),
-            "percentage": round(multiplier * 100, 1),
-            "suggested_dues": suggested_dues,
-            "base_dues": base_dues,
+            "multiplier": result.multiplier,
+            "percentage": result.percentage,
+            "suggested_dues": result.suggested_dues,
+            "base_dues": result.base_dues,
         }
 
     def validate_permissions(self):
-        """Validate user permissions for editing this document"""
-        # Skip permission check if ignore_permissions flag is set
-        if getattr(self, "_ignore_permissions", False) or frappe.flags.ignore_permissions:
-            return
+        """
+        Validate user permissions for editing this document.
 
-        if not self.is_new() and self.has_value_changed("is_template"):
-            frappe.throw("Cannot change template status after creation")
+        DELEGATES TO: DuesSchedulePermissionService.validate_permissions()
+        """
+        from verenigingen.services.billing.dues_schedule_permission_service import (
+            get_dues_schedule_permission_service,
+        )
 
-        user = frappe.session.user
-
-        # System Manager and configured creation user always have full access
-        creation_user = None
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            creation_user = getattr(settings, "creation_user", None)
-        except Exception:
-            pass
-
-        admin_users = ["System Manager"]
-        if creation_user:
-            admin_users.append(creation_user)
-        else:
-            admin_users.append("Administrator")  # Fallback
-
-        if user in admin_users or "System Manager" in frappe.get_roles(user):
-            return
-
-        # Check if user has Verenigingen Administrator role
-        if "Verenigingen Administrator" in frappe.get_roles(user):
-            return  # Full access
-
-        # Template editing is restricted to Verenigingen Administrator only
-        if self.is_template:
-            frappe.throw("Only Verenigingen Administrators can edit template schedules")
-
-        # For individual schedules, check various permission levels
-        if not self.can_user_edit_schedule(user):
-            frappe.throw("You don't have permission to edit this dues schedule")
+        result = get_dues_schedule_permission_service().validate_permissions(self)
+        if not result.allowed:
+            frappe.throw(result.reason)
 
     def can_user_edit_schedule(self, user):
-        """Check if user can edit this individual (non-template) schedule"""
-        if not self.member:
-            return False
+        """
+        Check if user can edit this individual (non-template) schedule.
 
-        # Check if user is the member themselves
-        member_user = frappe.db.get_value("Member", self.member, "user")
-        if member_user == user:
-            return self.validate_member_edit()
+        DELEGATES TO: DuesSchedulePermissionService.can_user_edit_schedule()
+        """
+        from verenigingen.services.billing.dues_schedule_permission_service import (
+            get_dues_schedule_permission_service,
+        )
 
-        # Check if user has Verenigingen Staff role
-        if "Verenigingen Staff" in frappe.get_roles(user):
-            return True
-
-        # Check if user is a chapter board member with finance permissions
-        if self.is_chapter_board_with_finance(user):
-            return True
-
-        return False
+        result = get_dues_schedule_permission_service().can_user_edit_schedule(self, user)
+        return result.allowed
 
     def validate_member_edit(self):
-        """Validate what fields a member can edit on their own schedule"""
-        # Members can only edit certain fields
-        allowed_fields = [
-            "dues_rate",
-            "base_multiplier",
-            "contribution_mode",
-            "selected_tier",
-            "uses_custom_amount",
-            "custom_amount_reason",
-            "notes",
-            "status",
-        ]
+        """
+        Validate what fields a member can edit on their own schedule.
 
-        # Check if any restricted fields were changed
-        if self.is_new():
-            return True
+        DELEGATES TO: DuesSchedulePermissionService.validate_member_edit()
+        """
+        from verenigingen.services.billing.dues_schedule_permission_service import (
+            get_dues_schedule_permission_service,
+        )
 
-        # Check each field for changes
-        for field in self.meta.fields:
-            if field.fieldname in allowed_fields:
-                continue
-
-            if self.has_value_changed(field.fieldname):
-                # Special case: dues_rate can be changed if it meets minimum
-                if field.fieldname == "dues_rate":
-                    if self.validate_dues_rate_change():
-                        continue
-
-                frappe.throw(f"Members cannot modify the field: {field.label}")
-
+        result = get_dues_schedule_permission_service().validate_member_edit(self)
+        if not result.allowed:
+            frappe.throw(result.reason)
         return True
 
     def validate_dues_rate_change(self):
@@ -346,48 +260,16 @@ class MembershipDuesSchedule(Document):
         return get_dues_schedule_validation_service().validate_dues_rate_change(self)
 
     def is_chapter_board_with_finance(self, user):
-        """Check if user is a chapter board member with financial permissions"""
-        if not self.member:
-            return False
+        """
+        Check if user is a chapter board member with financial permissions.
 
-        # Get member's chapter through standardized utility
-        chapters = get_member_chapters(self.member, active_only=True)
-        if not chapters:
-            return False
-        chapter = chapters[0]  # Use first active chapter
-
-        # Get the user's member record
-        member_name = frappe.db.get_value("Member", {"user": user}, "name")
-        if not member_name:
-            return False
-
-        # Get the volunteer linked to the member
-        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
-        if not volunteer_name:
-            return False
-
-        # Check if user is a board member of this chapter with finance permissions
-        # Note: Chapter Board Member is a child table, not a standalone DocType
-        board_member = frappe.db.get_value(
-            "Chapter Board Member",
-            {
-                "parent": chapter,
-                "volunteer": volunteer_name,
-                "is_active": 1,
-            },
-            ["name", "chapter_role"],
-            as_dict=True,
+        DELEGATES TO: DuesSchedulePermissionService.is_chapter_board_with_finance()
+        """
+        from verenigingen.services.billing.dues_schedule_permission_service import (
+            get_dues_schedule_permission_service,
         )
 
-        if not board_member:
-            return False
-
-        # Check if the role has financial permissions
-        if board_member.chapter_role:
-            role_doc = frappe.get_doc("Chapter Role", board_member.chapter_role)
-            return getattr(role_doc, "permissions_level", None) in ["Financial", "Admin"]
-
-        return False
+        return get_dues_schedule_permission_service().is_chapter_board_with_finance(self.member, user)
 
     def validate_dues_rate_configuration(self):
         """
@@ -470,22 +352,16 @@ class MembershipDuesSchedule(Document):
                 self.dues_rate = template_values.get("suggested_amount", 0)
 
     def set_billing_day(self):
-        """Set billing day based on member's anniversary date"""
-        self.billing_day = None
-        if not self.billing_day or self.billing_day == 0:
-            if self.member:
-                # Get the member_since value directly from database to avoid field object issues
-                member_since = frappe.db.get_value("Member", self.member, "member_since")
-                if member_since:
-                    # Use day from member's anniversary date
-                    member_since_date = getdate(member_since)
-                    self.billing_day = member_since_date.day
-                else:
-                    # Default to 1st of month when no member_since date
-                    self.billing_day = 1
-            else:
-                # Default for templates or schedules without member
-                self.billing_day = 1
+        """
+        Set billing day based on member's anniversary date.
+
+        DELEGATES TO: BillingDateService.set_billing_day()
+        """
+        from verenigingen.services.billing.billing_date_service import (
+            get_billing_date_service,
+        )
+
+        get_billing_date_service().set_billing_day(self)
 
     def can_generate_invoice(self):
         """
@@ -1155,25 +1031,28 @@ class MembershipDuesSchedule(Document):
         )
 
     def pause_schedule(self, reason=None):
-        """Pause the dues schedule"""
-        self.status = "Paused"
-        if reason:
-            self.notes = (
-                f"{self.notes}\n\nPaused on {today()}: {reason}"
-                if self.notes
-                else f"Paused on {today()}: {reason}"
-            )
-        # Skip membership validation when pausing (allows cancellation workflow)
-        self._skip_membership_validation = True
-        self.save()
+        """
+        Pause the dues schedule.
+
+        DELEGATES TO: DuesScheduleLifecycleService.pause_schedule()
+        """
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
+
+        get_dues_schedule_lifecycle_service().pause_schedule(self, reason)
 
     def resume_schedule(self, new_next_date=None):
-        """Resume the dues schedule"""
-        self.status = "Active"
-        if new_next_date:
-            self.next_invoice_date = new_next_date
-        self.notes = f"{self.notes}\n\nResumed on {today()}" if self.notes else f"Resumed on {today()}"
-        self.save()
+        """
+        Resume the dues schedule.
+
+        DELEGATES TO: DuesScheduleLifecycleService.resume_schedule()
+        """
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
+
+        get_dues_schedule_lifecycle_service().resume_schedule(self, new_next_date)
 
     @staticmethod
     def create_default_template(membership_type):
@@ -1225,137 +1104,67 @@ class MembershipDuesSchedule(Document):
             update_member_current_dues_schedule(self)
 
     def on_update(self):
-        """Track billing history changes when schedule is updated"""
+        """
+        Track billing history changes when schedule is updated.
+
+        DELEGATES TO: FeeChangeTrackingService.handle_schedule_update()
+        """
         if self.is_template or not self.member:
             return
 
-        # Only proceed if we have the old document for comparison
-        if not hasattr(self, "_doc_before_save") or self._doc_before_save is None:
-            return
+        from verenigingen.services.billing.fee_change_tracking_service import (
+            get_fee_change_tracking_service,
+        )
 
-        old_doc = self._doc_before_save
+        get_fee_change_tracking_service().handle_schedule_update(self)
 
-        # Check for dues rate change
-        if old_doc.dues_rate != self.dues_rate:
-            self._record_schedule_fee_change("Fee Adjustment", old_doc.dues_rate, self.dues_rate)
-            # Update member's dues_rate field
-            self.update_member_dues_rate()
-
-        # Check for status change
-        if old_doc.status != self.status:
-            if self.status == "Cancelled":
-                self._record_schedule_fee_change("Schedule Cancelled", self.dues_rate, self.dues_rate)
-            elif old_doc.status == "Paused" and self.status == "Active":
-                self._record_schedule_fee_change("Schedule Resumed", self.dues_rate, self.dues_rate)
-
-            # Update member's current_dues_schedule when status changes
+        # Update member's current_dues_schedule when status changes
+        if (
+            hasattr(self, "_doc_before_save")
+            and self._doc_before_save
+            and self._doc_before_save.status != self.status
+        ):
             from .membership_dues_schedule_hooks import update_member_current_dues_schedule
 
             update_member_current_dues_schedule(self)
 
-        # Check for billing frequency change
-        if old_doc.billing_frequency != self.billing_frequency:
-            self._record_schedule_fee_change("Billing Frequency Change", self.dues_rate, self.dues_rate)
-
     def update_member_dues_rate(self):
-        """Update the member's dues_rate field to match the schedule"""
-        try:
-            member_doc = frappe.get_doc("Member", self.member)
-            if member_doc.dues_rate != self.dues_rate:
-                member_doc.dues_rate = self.dues_rate
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                from verenigingen.utils.secure_operations import secure_document_operation
+        """
+        Update the member's dues_rate field to match the schedule.
 
-                member_rate_result = secure_document_operation(
-                    operation="save",
-                    doc=member_doc,
-                    justification=f"Update member dues rate from schedule {self.name}",
-                    required_permissions=["Member:write"],
-                )
+        DELEGATES TO: FeeChangeTrackingService.update_member_dues_rate()
+        """
+        from verenigingen.services.billing.fee_change_tracking_service import (
+            get_fee_change_tracking_service,
+        )
 
-                if not member_rate_result.success:
-                    frappe.logger().error(
-                        f"Failed to update member dues rate: {'; '.join(member_rate_result.errors)}"
-                    )
-                    # Don't fail the main operation for member update failure
-        except Exception as e:
-            frappe.log_error(f"Error updating member dues rate: {str(e)}", "Member Dues Rate Update")
+        get_fee_change_tracking_service().update_member_dues_rate(self)
 
     def _record_schedule_fee_change(self, change_type, old_rate, new_rate):
-        """Record fee change using the centralized record_fee_change method with deduplication"""
-        try:
-            member_doc = frappe.get_doc("Member", self.member)
+        """
+        Record fee change using the centralized record_fee_change method with deduplication.
 
-            # Determine reason based on context
-            reason = (
-                self.custom_amount_reason
-                if self.uses_custom_amount
-                else f"{change_type} - {self.schedule_name or self.name}"
-            )
+        DELEGATES TO: FeeChangeTrackingService.record_fee_change()
+        """
+        from verenigingen.services.billing.fee_change_tracking_service import (
+            get_fee_change_tracking_service,
+        )
 
-            # Check if this change is from an amendment
-            amendment_request = None
-            if frappe.db.exists("Contribution Amendment Request", {"new_dues_schedule": self.name}):
-                amendment_request = frappe.db.get_value(
-                    "Contribution Amendment Request", {"new_dues_schedule": self.name}, "name"
-                )
-
-            # Build change data in the format expected by record_fee_change
-            change_data = {
-                "change_date": frappe.utils.now_datetime(),
-                "old_amount": old_rate or 0,
-                "new_amount": new_rate,
-                "reason": reason,
-                "changed_by": frappe.session.user or "Administrator",
-                "dues_schedule_name": self.name,
-                "dues_schedule_action": change_type.lower().replace(" ", "_"),
-                "billing_frequency": self.billing_frequency,
-                "change_type": change_type,
-            }
-
-            # Add amendment reference if available
-            if amendment_request:
-                change_data["amendment_request_name"] = amendment_request
-
-            # Use the centralized method with automatic deduplication
-            member_doc.record_fee_change(change_data)
-
-        except Exception as e:
-            # Shorten error message to avoid database field length limits
-            error_msg = f"Fee change recording error for {self.name}: {str(e)[:80]}"
-            frappe.log_error(error_msg, "Fee Change Recording")
+        get_fee_change_tracking_service().record_fee_change(self, change_type, old_rate, new_rate)
 
     # ✅ ERPNext-Inspired Validation Enhancements
 
     def validate_status_transitions(self):
         """
-        Validate allowed status transitions (inspired by ERPNext subscription patterns)
-        Prevents invalid status changes that could break business logic
+        Validate allowed status transitions.
+
+        DELEGATES TO: DuesScheduleLifecycleService.validate_status_transition()
         """
-        if self.is_new() or not hasattr(self, "_doc_before_save"):
-            return
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            get_dues_schedule_lifecycle_service,
+        )
 
-        old_status = self._doc_before_save.status
-        new_status = self.status
-
-        if old_status == new_status:
-            return
-
-        # Define allowed transitions based on business rules
-        allowed_transitions = {
-            "Active": ["Paused", "Cancelled"],
-            "Paused": ["Active", "Cancelled"],
-            "Cancelled": [],  # No transitions from cancelled
-            "Test": ["Active", "Cancelled"],
-        }
-
-        if new_status not in allowed_transitions.get(old_status, []):
-            from verenigingen.utils.exceptions import InvalidStatusTransitionError
-
-            raise InvalidStatusTransitionError(
-                f"Cannot transition dues schedule status from {old_status} to {new_status}. "
-                f"Allowed transitions from {old_status}: {', '.join(allowed_transitions.get(old_status, []))}"
-            )
+        get_dues_schedule_lifecycle_service().validate_status_transition(self)
 
     def validate_billing_frequency_consistency(self):
         """
@@ -1406,98 +1215,25 @@ class MembershipDuesSchedule(Document):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def calculate_cutoff_date_for_period():
     """
-    Calculate the cutoff date for invoice generation based on Verenigingen Settings
+    Calculate the cutoff date for invoice generation based on Verenigingen Settings.
+
+    DELEGATES TO: BulkInvoiceGenerationService.calculate_cutoff_date()
 
     Returns:
         date: The cutoff date through which invoices should provide coverage
     """
-    settings = frappe.get_single("Verenigingen Settings")
-    cutoff_frequency = getattr(settings, "billing_cutoff_frequency", "Monthly")
+    from verenigingen.services.billing.bulk_invoice_generation_service import (
+        get_bulk_invoice_generation_service,
+    )
 
-    today_date = getdate(today())
-
-    if cutoff_frequency == "Monthly":
-        # End of current month
-        if today_date.month == 12:
-            next_month = today_date.replace(year=today_date.year + 1, month=1, day=1)
-        else:
-            next_month = today_date.replace(month=today_date.month + 1, day=1)
-        return add_days(next_month, -1)
-
-    elif cutoff_frequency == "Quarterly":
-        # End of current quarter based on book year
-        book_year_start_month = getattr(settings, "book_year_start_month", 1)
-
-        # Calculate which quarter we're in based on book year
-        months_since_book_start = (today_date.month - book_year_start_month) % 12
-        current_quarter = (months_since_book_start // 3) + 1
-
-        # Calculate end of current quarter
-        quarter_end_month = ((current_quarter * 3 - 1) + book_year_start_month - 1) % 12 + 1
-
-        # If quarter end month is greater than current month, quarter ends later this year
-        # If quarter end month is less than/equal to current month, we're past that quarter end
-        if quarter_end_month >= today_date.month:
-            quarter_end_year = today_date.year
-        else:
-            quarter_end_year = today_date.year + 1
-
-        # Get last day of quarter end month
-        if quarter_end_month == 12:
-            next_month = quarter_end_year + 1, 1
-        else:
-            next_month = quarter_end_year, quarter_end_month + 1
-
-        quarter_end = today_date.replace(year=next_month[0], month=next_month[1], day=1)
-        return add_days(quarter_end, -1)
-
-    elif cutoff_frequency == "Yearly":
-        # End of current book year
-        book_year_end_month = getattr(settings, "book_year_end_month", 12)
-        book_year_end_day = getattr(settings, "book_year_end_day", 31)
-
-        # Determine which book year we're in
-        book_year_start_month = getattr(settings, "book_year_start_month", 1)
-
-        if today_date.month >= book_year_start_month:
-            book_year = today_date.year
-        else:
-            book_year = today_date.year - 1
-
-        # Calculate book year end date
-        if book_year_end_month == book_year_start_month - 1 or (
-            book_year_start_month == 1 and book_year_end_month == 12
-        ):
-            end_year = book_year + 1
-        else:
-            end_year = book_year
-
-        try:
-            return today_date.replace(year=end_year, month=book_year_end_month, day=book_year_end_day)
-        except ValueError:
-            # Invalid day (e.g., Feb 31) - use last day of month
-            if book_year_end_month == 12:
-                next_month = end_year + 1, 1
-            else:
-                next_month = end_year, book_year_end_month + 1
-            last_day_of_month = today_date.replace(year=next_month[0], month=next_month[1], day=1)
-            return add_days(last_day_of_month, -1)
-
-    # Fallback to end of current month
-    if today_date.month == 12:
-        next_month = today_date.replace(year=today_date.year + 1, month=1, day=1)
-    else:
-        next_month = today_date.replace(month=today_date.month + 1, day=1)
-    return add_days(next_month, -1)
+    return get_bulk_invoice_generation_service().calculate_cutoff_date()
 
 
 def get_eligible_schedules_for_period(cutoff_date=None, test_mode=False, include_details=False):
     """
     Unified eligibility logic for identifying schedules that need invoice generation.
 
-    This function centralizes all business rules for determining which schedules should
-    generate invoices, ensuring consistency between preview (check_member_status) and
-    execution (generate_dues_invoices).
+    DELEGATES TO: BulkInvoiceGenerationService.get_eligible_schedules()
 
     Args:
         cutoff_date: Target date that invoices should cover through (defaults to calculated cutoff)
@@ -1506,581 +1242,65 @@ def get_eligible_schedules_for_period(cutoff_date=None, test_mode=False, include
 
     Returns:
         If include_details=False: List of eligible schedule names
-        If include_details=True: Dict with:
-            - eligible_schedules: List of eligible schedule names
-            - filtered_members: Dict categorizing filtered members with reasons
-            - total_filtered: Count of filtered schedules
-            - summary: High-level statistics
+        If include_details=True: Dict with details
     """
-    # Calculate cutoff date if not provided
-    if not cutoff_date:
-        cutoff_date = calculate_cutoff_date_for_period()
-
-    # Initialize tracking structures
-    eligible_schedules = []
-    filtered_members = {
-        "ineligible_status": [],  # Terminated/Expelled/Deceased/Quit
-        "test_mode_mismatch": [],  # Test mode doesn't match request
-        "gap_reset": [],  # Large coverage gaps (>30 days)
-        "business_logic": [],  # Coverage overlap, rate validation, etc.
-        "no_customer": [],  # Missing customer record
-        "duplicate_coverage": [],  # Overlapping coverage periods
-        "too_early": [],  # Before invoice_days_before threshold
-        "already_covered": [],  # Already has coverage through cutoff
-    }
-
-    # Get all active schedules with member status filtering at SQL level
-    all_schedules = frappe.db.sql(
-        """
-        SELECT
-            mds.name,
-            mds.next_invoice_date,
-            mds.test_mode,
-            m.name as member_id,
-            m.first_name,
-            m.last_name,
-            m.status as member_status,
-            m.customer
-        FROM `tabMembership Dues Schedule` mds
-        INNER JOIN `tabMember` m ON m.name = mds.member
-        WHERE mds.status = 'Active'
-        AND mds.auto_generate = 1
-        AND mds.is_template = 0
-        AND mds.member IS NOT NULL
-        AND m.name IS NOT NULL
-        ORDER BY m.last_name, m.first_name
-    """,
-        as_dict=True,
+    from verenigingen.services.billing.bulk_invoice_generation_service import (
+        get_bulk_invoice_generation_service,
     )
 
-    # First pass: Filter by member status (ineligible members)
-    ineligible_statuses = ["Terminated", "Expelled", "Deceased", "Quit"]
-    eligible_for_processing = []
-
-    for schedule_data in all_schedules:
-        member_name = f"{schedule_data.first_name} {schedule_data.last_name}"
-
-        if schedule_data.member_status in ineligible_statuses:
-            filtered_members["ineligible_status"].append(
-                {
-                    "member_id": schedule_data.member_id,
-                    "member_name": member_name,
-                    "reason": f"Member status: {schedule_data.member_status}",
-                    "schedule": schedule_data.name,
-                }
-            )
-        else:
-            eligible_for_processing.append(schedule_data)
-
-    # Second pass: Test mode filtering
-    test_mode_eligible = []
-    for schedule_data in eligible_for_processing:
-        if test_mode and not schedule_data.test_mode:
-            filtered_members["test_mode_mismatch"].append(
-                {
-                    "member_id": schedule_data.member_id,
-                    "member_name": f"{schedule_data.first_name} {schedule_data.last_name}",
-                    "reason": "Test mode requested but schedule is not in test mode",
-                    "schedule": schedule_data.name,
-                }
-            )
-        elif not test_mode and schedule_data.test_mode:
-            filtered_members["test_mode_mismatch"].append(
-                {
-                    "member_id": schedule_data.member_id,
-                    "member_name": f"{schedule_data.first_name} {schedule_data.last_name}",
-                    "reason": "Production mode requested but schedule is in test mode",
-                    "schedule": schedule_data.name,
-                }
-            )
-        else:
-            test_mode_eligible.append(schedule_data)
-
-    # Third pass: Business logic validation for each schedule
-    for schedule_data in test_mode_eligible:
-        try:
-            schedule = frappe.get_doc("Membership Dues Schedule", schedule_data.name)
-            member_name = f"{schedule_data.first_name} {schedule_data.last_name}"
-
-            # Check if schedule needs invoice for cutoff period
-            if not schedule.should_generate_for_cutoff_period(cutoff_date):
-                # This member already has coverage through cutoff
-                filtered_members["already_covered"].append(
-                    {
-                        "member_id": schedule_data.member_id,
-                        "member_name": member_name,
-                        "reason": f"Already has coverage through {cutoff_date}",
-                        "schedule": schedule_data.name,
-                    }
-                )
-                continue
-
-            # Run comprehensive eligibility checks
-            can_generate_result = schedule.can_generate_invoice()
-
-            # Handle both old tuple format and new dict format
-            if isinstance(can_generate_result, tuple):
-                can_generate, reason = can_generate_result
-                gap_reset = False
-            else:
-                can_generate = can_generate_result.get("can_generate", False)
-                reason = can_generate_result.get("reason", "Unknown")
-                gap_reset = can_generate_result.get("gap_reset", False)
-
-            if can_generate:
-                eligible_schedules.append(schedule_data.name)
-            else:
-                # Categorize the rejection reason
-                member_info = {
-                    "member_id": schedule_data.member_id,
-                    "member_name": member_name,
-                    "reason": reason,
-                    "schedule": schedule_data.name,
-                }
-
-                # Smart categorization based on reason text
-                if gap_reset or "gap reset" in reason.lower():
-                    filtered_members["gap_reset"].append(member_info)
-                elif "customer" in reason.lower():
-                    filtered_members["no_customer"].append(member_info)
-                elif "overlap" in reason.lower() or "duplicate" in reason.lower():
-                    filtered_members["duplicate_coverage"].append(member_info)
-                elif "too early" in reason.lower():
-                    filtered_members["too_early"].append(member_info)
-                else:
-                    filtered_members["business_logic"].append(member_info)
-
-        except Exception as e:
-            # Handle unexpected errors gracefully
-            filtered_members["business_logic"].append(
-                {
-                    "member_id": schedule_data.member_id,
-                    "member_name": f"{schedule_data.first_name} {schedule_data.last_name}",
-                    "reason": f"Error during validation: {str(e)}",
-                    "schedule": schedule_data.name,
-                }
-            )
-            frappe.log_error(
-                f"Error validating schedule {schedule_data.name}: {str(e)}",
-                "Schedule Eligibility Check Error",
-            )
-
-    # Calculate summary statistics
-    total_filtered = sum(len(filtered_members[cat]) for cat in filtered_members)
+    result = get_bulk_invoice_generation_service().get_eligible_schedules(
+        cutoff_date=cutoff_date, test_mode=test_mode, include_details=include_details
+    )
 
     if include_details:
         return {
-            "eligible_schedules": eligible_schedules,
-            "filtered_members": filtered_members,
-            "total_filtered": total_filtered,
-            "summary": {
-                "total_schedules_checked": len(all_schedules),
-                "eligible_count": len(eligible_schedules),
-                "filtered_count": total_filtered,
-                "filter_breakdown": {
-                    category: len(members) for category, members in filtered_members.items()
-                },
-            },
+            "eligible_schedules": result.eligible_schedules,
+            "filtered_members": result.filtered_members,
+            "total_filtered": result.total_filtered,
+            "summary": result.summary,
         }
     else:
-        return eligible_schedules
+        return result.eligible_schedules
 
 
 def generate_dues_invoices(test_mode=False):
     """
     Enhanced scheduled job to generate membership dues invoices with coverage-aware logic.
 
-    New features:
-    - Coverage-aware selection: Schedules that need invoices to cover through cutoff period
-    - Sequential coverage: Gap-free billing periods based on previous invoice coverage
-    - Coverage gap detection: Identifies members who remain behind after remedial invoicing
-    - Configurable cutoff periods: Monthly/Quarterly/Yearly based on organization settings
-    - Concurrency protection: Prevents multiple simultaneous generation runs
+    DELEGATES TO: BulkInvoiceGenerationService.generate_invoices()
+
+    Features:
+    - Coverage-aware selection
+    - Sequential coverage with gap-free billing
+    - Coverage gap detection
+    - Configurable cutoff periods
+    - Concurrency protection
+    - Parallel processing for large batches
     """
-    import time
+    from verenigingen.services.billing.bulk_invoice_generation_service import (
+        get_bulk_invoice_generation_service,
+    )
 
-    from frappe.utils.redis_wrapper import RedisWrapper
+    result = get_bulk_invoice_generation_service().generate_invoices(test_mode)
 
-    # Redis-based concurrency protection with graceful fallback
-    redis = None
-    lock_key = "verenigingen_bulk_invoice_generation"
-    lock_acquired = False
-
-    # Get configurable timeout
-    lock_timeout = frappe.db.get_single_value("Verenigingen Settings", "bulk_generation_timeout") or 3600
-
-    try:
-        # Attempt Redis connection with graceful fallback
-        try:
-            redis = RedisWrapper.from_url(frappe.conf.redis_cache)
-            # Test Redis connectivity
-            redis.ping()
-        except Exception as redis_error:
-            frappe.log_error(
-                f"Redis unavailable for bulk generation concurrency protection: {str(redis_error)}",
-                "Redis Connectivity Warning",
-            )
-            # Continue without concurrency protection but log the risk
-            frappe.logger().warning(
-                "Bulk invoice generation proceeding without concurrency protection due to Redis unavailability"
-            )
-
-        if redis:
-            try:
-                # Attempt to acquire lock with timeout
-                lock_acquired = redis.set(lock_key, "processing", nx=True, ex=lock_timeout)
-
-                if not lock_acquired:
-                    # Check if existing lock is stale
-                    existing_lock_time = redis.get(f"{lock_key}_start_time")
-                    if existing_lock_time:
-                        try:
-                            start_time = float(existing_lock_time)
-                            if time.time() - start_time > lock_timeout:
-                                # Force release stale lock
-                                redis.delete(lock_key)
-                                redis.delete(f"{lock_key}_start_time")
-                                lock_acquired = redis.set(lock_key, "processing", nx=True, ex=lock_timeout)
-                        except (ValueError, TypeError):
-                            pass
-
-                    if not lock_acquired:
-                        frappe.log_error(
-                            "Bulk invoice generation already in progress. Skipping this run to prevent conflicts.",
-                            "Bulk Invoice Generation Concurrency",
-                        )
-                        return {
-                            "processed": 0,
-                            "generated": 0,
-                            "errors": ["Another invoice generation process is already running"],
-                            "invoices": [],
-                            "payment_history_updates": 0,
-                        }
-
-                # Record start time for stale lock detection
-                redis.set(f"{lock_key}_start_time", str(time.time()), ex=lock_timeout)
-            except Exception as lock_error:
-                frappe.log_error(
-                    f"Failed to acquire Redis lock for bulk generation: {str(lock_error)}. Proceeding without lock.",
-                    "Redis Lock Warning",
-                )
-                # Continue without lock rather than failing completely
-
-        # ✅ CRITICAL: Validate accounting configuration before generating invoices
-        # Check that the default company has required accounting fields configured
-        from verenigingen.utils.settings_utils import get_default_company
-
-        company = get_default_company()
-        if not company:
-            frappe.throw("No default company configured in Verenigingen Settings")
-
-        missing_configs = []
-        company_doc = frappe.get_cached_doc("Company", company)
-
-        # Check critical accounting fields
-        if not company_doc.round_off_account:
-            missing_configs.append(f"{company}: Missing Round Off Account")
-        if not company_doc.default_receivable_account:
-            missing_configs.append(f"{company}: Missing Default Receivable Account")
-        if not company_doc.default_income_account:
-            missing_configs.append(f"{company}: Missing Default Income Account")
-
-        if missing_configs:
-            error_msg = (
-                "Cannot generate invoices: Accounting configuration incomplete.\n\n"
-                + "Missing configurations:\n"
-                + "\n".join(f"  - {config}" for config in missing_configs)
-                + "\n\nPlease configure these fields in Company settings before running bulk invoice generation.\n"
-                + "This prevents creation of invoices without GL/Payment Ledger entries."
-            )
-            frappe.log_error(error_msg, "Bulk Invoice Generation - Accounting Config Missing")
-            frappe.throw(error_msg, title="Accounting Configuration Required")
-
-        # Set bulk processing flag to prevent duplicate event handling
-        frappe.flags.bulk_invoice_generation = True
-
-        # Calculate cutoff date for this generation run
-        cutoff_date = calculate_cutoff_date_for_period()
-
-        # Use unified eligibility logic to get eligible schedules and filtering details
-        eligibility_result = get_eligible_schedules_for_period(
-            cutoff_date=cutoff_date, test_mode=test_mode, include_details=True
-        )
-
-        schedules = eligibility_result["eligible_schedules"]
-
-        # Initialize results dictionary with comprehensive filtering information
-        results = {
-            "processed": 0,
-            "generated": 0,
-            "errors": [],
-            "invoices": [],
-            "payment_history_updates": 0,
-            "filtered_members": eligibility_result["filtered_members"],
-            "total_filtered": eligibility_result["total_filtered"],
-            "cutoff_date": cutoff_date,  # Include for downstream transparency
-        }
-
-        # Log filtering summary for transparency
-        frappe.logger().info(
-            f"Dues invoice generation: Checked {eligibility_result['summary']['total_schedules_checked']} schedules, "
-            f"found {len(schedules)} eligible, filtered {eligibility_result['total_filtered']} "
-            f"(breakdown: {eligibility_result['summary']['filter_breakdown']})"
-        )
-
-        # Track which members need payment history updates
-        members_to_update = set()
-        successful_invoices = []
-
-        # ✅ PARALLEL PROCESSING: Split work into chunks for concurrent execution
-        # Determine optimal chunk size based on total schedules
-        total_schedules = len(schedules)
-
-        # Use parallel processing for large batches (>50 schedules)
-        use_parallel = total_schedules > 50 and not test_mode
-
-        if use_parallel:
-            # Calculate chunk size: aim for 4-8 concurrent workers
-            # Each chunk should have 50-100 schedules for efficiency
-            num_workers = min(8, max(4, total_schedules // 100))
-            chunk_size = (total_schedules + num_workers - 1) // num_workers  # Ceiling division
-
-            frappe.logger().info(
-                f"Using parallel processing: {total_schedules} schedules split into {num_workers} chunks "
-                f"of ~{chunk_size} schedules each"
-            )
-
-            # Split schedules into chunks
-            chunks = []
-            for i in range(0, total_schedules, chunk_size):
-                chunks.append(schedules[i : i + chunk_size])
-
-            # Enqueue background jobs for each chunk
-            job_ids = []
-            for idx, chunk in enumerate(chunks, 1):
-                job = frappe.enqueue(
-                    "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule._process_invoice_chunk",
-                    queue="long",
-                    timeout=1800,  # 30 minutes per chunk
-                    now=False,  # Queue for background processing
-                    schedule_names=chunk,
-                    chunk_id=idx,
-                    total_chunks=len(chunks),
-                    cutoff_date=cutoff_date,
-                    test_mode=test_mode,
-                )
-                job_ids.append(job)
-
-            frappe.logger().info(f"Queued {len(chunks)} background jobs for parallel invoice generation")
-
-            # Return early with job tracking info
-            return {
-                "processed": 0,
-                "generated": 0,
-                "errors": [],
-                "invoices": [],
-                "payment_history_updates": 0,
-                "parallel_mode": True,
-                "job_count": len(job_ids),
-                "total_schedules": total_schedules,
-                "message": f"Processing {total_schedules} invoices in {len(chunks)} parallel jobs. Check background jobs for progress.",
-            }
-
-        # SEQUENTIAL PROCESSING (for small batches or test mode)
-        frappe.logger().info(f"Using sequential processing for {total_schedules} schedules")
-
-        for idx, schedule_name in enumerate(schedules, 1):
-            try:
-                schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-
-                # Schedules returned by get_eligible_schedules_for_period() are already validated
-                # No need for redundant can_generate checks
-                results["processed"] += 1
-
-                # ✅ ENHANCED: Try invoice generation with comprehensive error recovery
-                try:
-                    invoice = schedule.generate_invoice()
-                    if invoice:
-                        results["generated"] += 1
-                        invoice_data = {
-                            "schedule": schedule_name,
-                            "member": schedule.member_name,
-                            "member_id": schedule.member,
-                            "invoice": invoice,
-                        }
-                        results["invoices"].append(invoice_data)
-                        successful_invoices.append(invoice_data)
-
-                        # Track member for payment history update
-                        if schedule.member:
-                            members_to_update.add(schedule.member)
-
-                        # ✅ NEW: Clear any retry tracking on success
-                        schedule._clear_retry_tracking()
-                    else:
-                        # Invoice generation returned None - log for investigation
-                        error_msg = f"Schedule {schedule_name} returned None from generate_invoice()"
-                        frappe.log_error(error_msg, "Invoice Generation Failed")
-                        results["errors"].append(error_msg)
-
-                except frappe.ValidationError as ve:
-                    # ✅ NEW: Handle validation errors with smart recovery
-                    recovery_result = schedule._handle_invoice_generation_failure(str(ve))
-
-                    if recovery_result["action_taken"] == "date_advanced":
-                        # Schedule was advanced to prevent infinite loops
-                        error_msg = (
-                            f"Schedule {schedule_name} validation failed, dates advanced: {str(ve)[:100]}. "
-                            f"Retry count: {recovery_result['retry_count']}"
-                        )
-                        frappe.log_error(error_msg, "Schedule Auto-Advanced Due to Validation Failure")
-                        results["errors"].append(f"ADVANCED: {error_msg}")
-
-                    elif recovery_result["action_taken"] == "retry_tracked":
-                        # Failure logged, will retry next time
-                        error_msg = (
-                            f"Schedule {schedule_name} validation failed (retry {recovery_result['retry_count']}/3): "
-                            f"{str(ve)[:100]}"
-                        )
-                        frappe.log_error(error_msg, "Invoice Generation Validation Error")
-                        results["errors"].append(f"RETRY {recovery_result['retry_count']}: {error_msg}")
-
-                    elif recovery_result["action_taken"] == "skipped":
-                        # Schedule flagged for manual review
-                        error_msg = (
-                            f"Schedule {schedule_name} flagged for manual review after {recovery_result['retry_count']} failures: "
-                            f"{str(ve)[:100]}"
-                        )
-                        frappe.log_error(error_msg, "Schedule Requires Manual Review")
-                        results["errors"].append(f"MANUAL REVIEW: {error_msg}")
-
-                except Exception as ge:
-                    # ✅ ENHANCED: Handle unexpected errors with recovery tracking
-                    recovery_result = schedule._handle_invoice_generation_failure(str(ge))
-                    error_msg = (
-                        f"Schedule {schedule_name} unexpected error (retry {recovery_result['retry_count']}/3): "
-                        f"{str(ge)[:100]}"
-                    )
-                    frappe.log_error(error_msg, "Invoice Generation Unexpected Error")
-                    results["errors"].append(f"ERROR: {error_msg}")
-
-            except Exception as e:
-                # Clean error message to prevent HTML formatting cascade and shorten to avoid database limits
-                clean_error = str(e)
-                # Remove HTML tags and Error Log references to prevent cascade logging
-                clean_error = re.sub(r"<[^<]+?>", "", clean_error)  # Remove HTML tags
-                clean_error = re.sub(
-                    r"Error Log [a-zA-Z0-9]+:", "", clean_error
-                )  # Remove Error Log references
-                clean_error = clean_error.strip()[:80]  # Clean whitespace and limit length
-
-                error_msg = f"Error processing {schedule_name}: {clean_error}"
-                try:
-                    frappe.log_error(error_msg, "Membership Dues Generation")
-                except Exception as log_error:
-                    # If logging fails, attempt to log the logging failure
-                    # Use print as absolute fallback to avoid infinite loops
-                    print(f"Critical: Failed to log membership dues generation error: {str(log_error)}")
-                    print(f"Original error was: {error_msg}")
-                results["errors"].append(error_msg)
-
-        # Commit all sequential changes at end
-        frappe.db.commit()
-        frappe.logger().info(f"Sequential processing complete: {len(schedules)} schedules processed")
-
-        # HYBRID ARCHITECTURE: Bulk update payment history for all affected members
-        if members_to_update:
-            try:
-                results["payment_history_updates"] = _bulk_update_payment_history(
-                    members_to_update, successful_invoices
-                )
-                frappe.logger().info(
-                    f"Bulk payment history update completed for {len(members_to_update)} members"
-                )
-            except Exception as e:
-                error_msg = f"Error in bulk payment history update: {str(e)[:100]}"
-                frappe.log_error(error_msg, "Bulk Payment History Update Error")
-                results["errors"].append(error_msg)
-
-        # Log results
-        frappe.logger().info(
-            f"Membership dues generation completed: {results['generated']} invoices from {results['processed']} schedules, "
-            f"{results['payment_history_updates']} payment history updates"
-        )
-
-        # Generate aggregated blocked member report
-        _log_blocked_members_summary()
-
-        # ✅ NEW: Coverage gap detection - identify members still behind after generation
-        coverage_gaps = []
-        for invoice_data in successful_invoices:
-            try:
-                # invoice_data["invoice"] is already the document object from generate_invoice()
-                invoice = invoice_data["invoice"]
-                if hasattr(invoice, "custom_coverage_end_date") and invoice.custom_coverage_end_date:
-                    if invoice.custom_coverage_end_date < cutoff_date:
-                        gap_days = (cutoff_date - invoice.custom_coverage_end_date).days
-
-                        coverage_gaps.append(
-                            {
-                                "member": invoice_data["member_id"],
-                                "schedule": invoice_data["schedule"],
-                                "invoice": invoice.name,
-                                "coverage_end": invoice.custom_coverage_end_date,
-                                "cutoff_date": cutoff_date,
-                                "gap_days": gap_days,
-                            }
-                        )
-            except Exception as e:
-                frappe.log_error(
-                    f"Error checking coverage gap for invoice {getattr(invoice, 'name', 'Unknown')}: {str(e)}",
-                    "Coverage Gap Detection",
-                )
-
-        # Log coverage gaps if any found
-        if coverage_gaps:
-            gap_count = len(coverage_gaps)
-            max_gap_days = max(gap["gap_days"] for gap in coverage_gaps)
-
-            frappe.log_error(
-                f"Coverage Gap Alert: {gap_count} members still have coverage gaps after invoice generation.\n"
-                f"Cutoff date: {cutoff_date}\n"
-                f"Maximum gap: {max_gap_days} days\n"
-                f"Members with gaps: {', '.join([gap['member'] for gap in coverage_gaps[:10]])}"
-                + ("..." if gap_count > 10 else ""),
-                "Coverage Gaps After Bulk Generation",
-            )
-
-            # Add coverage gap info to results
-            results["coverage_gaps"] = coverage_gaps
-            results["coverage_gap_count"] = gap_count
-        else:
-            results["coverage_gaps"] = []
-            results["coverage_gap_count"] = 0
-
-        # ✅ DEBUG: Add rejection reasons to results
-        if hasattr(frappe.local, "generation_rejections"):
-            results["rejection_reasons"] = frappe.local.generation_rejections
-        else:
-            results["rejection_reasons"] = {}
-
-        return results
-
-    finally:
-        # Always clear the bulk processing flag
-        if getattr(frappe.flags, "bulk_invoice_generation", None):
-            delattr(frappe.flags, "bulk_invoice_generation")
-
-        # Release Redis lock if we acquired it
-        if lock_acquired and redis:
-            try:
-                redis.delete(lock_key)
-                redis.delete(f"{lock_key}_start_time")
-            except Exception as e:
-                frappe.log_error(
-                    f"Error releasing bulk invoice generation lock: {str(e)}",
-                    "Bulk Invoice Generation Lock Cleanup",
-                )
+    # Convert dataclass to dict for backward compatibility
+    return {
+        "processed": result.processed,
+        "generated": result.generated,
+        "errors": result.errors,
+        "invoices": result.invoices,
+        "payment_history_updates": result.payment_history_updates,
+        "filtered_members": result.filtered_members,
+        "total_filtered": result.total_filtered,
+        "cutoff_date": result.cutoff_date,
+        "coverage_gaps": result.coverage_gaps,
+        "coverage_gap_count": result.coverage_gap_count,
+        "rejection_reasons": result.rejection_reasons,
+        "parallel_mode": result.parallel_mode,
+        "job_count": result.job_count,
+        "total_schedules": result.total_schedules,
+        "message": result.message,
+    }
 
 
 @frappe.whitelist()
@@ -2088,216 +1308,44 @@ def get_parallel_invoice_generation_status():
     """
     Check the status of parallel invoice generation background jobs.
 
+    DELEGATES TO: BulkInvoiceGenerationService.get_parallel_status()
+
     Returns:
         dict: Status information about queued and running jobs
     """
-    from frappe.utils.background_jobs import get_jobs
+    from verenigingen.services.billing.bulk_invoice_generation_service import (
+        get_bulk_invoice_generation_service,
+    )
 
-    # Get all jobs in the long queue
-    jobs = get_jobs(site=frappe.local.site, queue="long")
-
-    invoice_jobs = []
-    for job_id, job_info in jobs.items():
-        if "_process_invoice_chunk" in str(job_info.get("method", "")):
-            invoice_jobs.append(
-                {
-                    "job_id": job_id,
-                    "status": job_info.get("status"),
-                    "method": job_info.get("method"),
-                    "created": job_info.get("creation"),
-                }
-            )
-
-    return {
-        "total_jobs": len(invoice_jobs),
-        "jobs": invoice_jobs,
-        "message": f"Found {len(invoice_jobs)} invoice generation jobs in queue",
-    }
+    return get_bulk_invoice_generation_service().get_parallel_status()
 
 
 def _process_invoice_chunk(schedule_names, chunk_id, total_chunks, cutoff_date, test_mode=False):
     """
     Worker function to process a chunk of invoices in parallel.
 
-    Args:
-        schedule_names: List of schedule names to process in this chunk
-        chunk_id: Identifier for this chunk (for logging)
-        total_chunks: Total number of chunks being processed
-        cutoff_date: Cutoff date for invoice generation
-        test_mode: Whether to run in test mode
-
-    Returns:
-        dict: Results containing generated invoices, errors, and members to update
+    DELEGATES TO: bulk_invoice_generation_service.process_invoice_chunk()
     """
-    frappe.set_user("Administrator")
-
-    results = {
-        "chunk_id": chunk_id,
-        "processed": 0,
-        "generated": 0,
-        "errors": [],
-        "invoices": [],
-        "members_to_update": set(),
-    }
-
-    frappe.logger().info(f"Chunk {chunk_id}/{total_chunks}: Processing {len(schedule_names)} schedules")
-
-    # Process each schedule in this chunk
-    for schedule_name in schedule_names:
-        try:
-            schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-            results["processed"] += 1
-
-            try:
-                invoice = schedule.generate_invoice()
-                if invoice:
-                    results["generated"] += 1
-                    invoice_data = {
-                        "schedule": schedule_name,
-                        "member": schedule.member_name,
-                        "member_id": schedule.member,
-                        "invoice": invoice,
-                    }
-                    results["invoices"].append(invoice_data)
-
-                    if schedule.member:
-                        results["members_to_update"].add(schedule.member)
-
-                    schedule._clear_retry_tracking()
-                else:
-                    error_msg = f"Schedule {schedule_name} returned None from generate_invoice()"
-                    frappe.log_error(title=f"Chunk {chunk_id} Invoice Gen Failed", message=error_msg)
-                    results["errors"].append(error_msg)
-
-            except frappe.ValidationError as ve:
-                recovery_result = schedule._handle_invoice_generation_failure(str(ve))
-                error_msg = (
-                    f"Schedule {schedule_name} validation failed (retry {recovery_result['retry_count']}/3): "
-                    f"{str(ve)[:MAX_LOG_ERROR_LENGTH]}"
-                )
-                try:
-                    frappe.log_error(
-                        title=f"Chunk {chunk_id} Validation",
-                        message=f"Schedule: {schedule_name}\nRetry: {recovery_result['retry_count']}/3\n\n{str(ve)}\n\n{frappe.get_traceback()}",
-                    )
-                except Exception:
-                    try:
-                        frappe.logger().error(f"Validation error for {schedule_name}: {str(ve)}")
-                    except Exception:
-                        print(
-                            f"CRITICAL: Failed to log validation error for {schedule_name}", file=sys.stderr
-                        )
-                results["errors"].append(error_msg)
-
-            except Exception as e:
-                error_msg = f"Unexpected error for {schedule_name}: {str(e)[:MAX_LOG_ERROR_LENGTH]}"
-                try:
-                    frappe.log_error(
-                        title=f"Chunk {chunk_id} Error",
-                        message=f"Schedule: {schedule_name}\n\n{str(e)}\n\n{frappe.get_traceback()}",
-                    )
-                except Exception:
-                    try:
-                        frappe.logger().error(f"Unexpected error for {schedule_name}: {str(e)}")
-                    except Exception:
-                        print(f"CRITICAL: Failed to log error for {schedule_name}", file=sys.stderr)
-                results["errors"].append(error_msg)
-
-        except Exception as outer_e:
-            error_msg = f"Error loading schedule {schedule_name}: {str(outer_e)[:MAX_LOG_ERROR_LENGTH]}"
-            # Safe error logging that prevents cascading failures
-            try:
-                frappe.log_error(
-                    title=f"Chunk {chunk_id} Load Error",
-                    message=f"Schedule: {schedule_name}\nError: {str(outer_e)}\n\n{frappe.get_traceback()}",
-                )
-            except Exception as log_error:
-                # If error logging fails, use logger instead
-                try:
-                    frappe.logger().error(
-                        f"Failed to log error for {schedule_name}: {str(log_error)}\n"
-                        f"Original error: {str(outer_e)}"
-                    )
-                except Exception:
-                    # Absolute last resort - print to stderr
-                    print(
-                        f"CRITICAL: All logging failed for chunk {chunk_id}, schedule {schedule_name}",
-                        file=sys.stderr,
-                    )
-            results["errors"].append(error_msg)
-
-    # Commit this chunk's work
-    frappe.db.commit()
-
-    frappe.logger().info(
-        f"Chunk {chunk_id}/{total_chunks} complete: {results['generated']}/{results['processed']} invoices generated"
+    from verenigingen.services.billing.bulk_invoice_generation_service import (
+        process_invoice_chunk,
     )
 
-    return results
+    return process_invoice_chunk(schedule_names, chunk_id, total_chunks, cutoff_date, test_mode)
 
 
 def _bulk_update_payment_history(member_names, successful_invoices):
     """
     Efficiently update payment history for multiple members after bulk invoice generation.
 
-    Args:
-        member_names: Set of member names that need payment history updates
-        successful_invoices: List of invoice data dictionaries for tracking
-
-    Returns:
-        int: Number of members successfully updated
+    DELEGATES TO: BulkInvoiceGenerationService.bulk_update_payment_history()
     """
-    updated_count = 0
+    from verenigingen.services.billing.bulk_invoice_generation_service import (
+        get_bulk_invoice_generation_service,
+    )
 
-    for member_name in member_names:
-        try:
-            # Get member document with error handling
-            if not DocumentExistenceValidator.check_document_exists("Member", member_name):
-                frappe.log_error(
-                    f"Member {member_name} not found during bulk payment history update",
-                    "Bulk Payment History Update",
-                )
-                continue
-
-            # Use atomic add method for each new invoice for this member
-            member_invoices = [inv for inv in successful_invoices if inv.get("member_id") == member_name]
-
-            if member_invoices:
-                member_doc = frappe.get_doc("Member", member_name)
-
-                # Add each invoice to payment history using direct processing for bulk operations
-                for inv_data in member_invoices:
-                    try:
-                        # FIXED: Use direct manager during bulk processing to avoid queueing conflicts
-                        from verenigingen.utils.member_financial_history_manager import (
-                            get_payment_history_manager,
-                        )
-
-                        manager = get_payment_history_manager(member_doc)
-
-                        def build_invoice_entry():
-                            invoice = member_doc._get_invoice_with_retry(inv_data["invoice"])
-                            if invoice and invoice.customer == member_doc.customer:
-                                return member_doc._build_payment_history_entry(invoice)
-                            return None
-
-                        # Direct processing during bulk operations (no 10s delay needed)
-                        manager.add_or_update_entry(inv_data["invoice"], build_invoice_entry, "invoice")
-                    except Exception as inv_error:
-                        frappe.log_error(
-                            f"Failed to add invoice {inv_data['invoice']} to payment history for member {member_name}: {str(inv_error)}",
-                            "Individual Invoice Payment History Update",
-                        )
-
-                updated_count += 1
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating payment history for member {member_name}: {str(e)}",
-                "Bulk Payment History Member Update",
-            )
-
-    return updated_count
+    return get_bulk_invoice_generation_service().bulk_update_payment_history(
+        member_names, successful_invoices
+    )
 
 
 @frappe.whitelist()
@@ -2425,493 +1473,114 @@ def update_member_contribution(schedule_name, updates):
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 def test_billing_day_field():
-    """Test billing_day field implementation"""
-    try:
-        # Test 1: Create a member with member_since date
-        test_member = frappe.new_doc("Member")
-        test_member.first_name = "Billing"
-        test_member.last_name = "Test"
-        test_member.email = f"billing.test.{frappe.generate_hash(length=6)}@example.com"
-        test_member.member_since = "2023-03-15"  # 15th of the month
-        test_member.save()
+    """
+    DELEGATES TO: billing_debug_utilities.test_billing_day_field()
 
-        # Test 2: Create a dues schedule for this member
-        schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.schedule_name = f"Test-Billing-Day-{frappe.generate_hash(length=4)}"
-        schedule.is_template = 0
-        schedule.member = test_member.name
-        schedule.membership_type = "Test Membership"  # Use existing membership type
-        schedule.dues_rate = 10.0
-        schedule.save()
+    Test billing_day field implementation.
+    """
+    from verenigingen.utils.billing_debug_utilities import (
+        test_billing_day_field as _test_billing_day_field,
+    )
 
-        # Test 3: Create a member without member_since date
-        no_date_member = frappe.new_doc("Member")
-        no_date_member.first_name = "NoDate"
-        no_date_member.last_name = "Test"
-        no_date_member.email = f"nodate.test.{frappe.generate_hash(length=6)}@example.com"
-        no_date_member.member_since = None
-        no_date_member.save()
-
-        # Test 4: Create a dues schedule for member without date
-        no_date_schedule = frappe.new_doc("Membership Dues Schedule")
-        no_date_schedule.schedule_name = f"Test-No-Date-{frappe.generate_hash(length=4)}"
-        no_date_schedule.is_template = 0
-        no_date_schedule.member = no_date_member.name
-        no_date_schedule.membership_type = "Test Membership"
-        no_date_schedule.dues_rate = 10.0
-        no_date_schedule.save()
-
-        results = {
-            "test_1_member_with_date": {
-                "member_since": test_member.member_since,
-                "expected_billing_day": 15,
-                "actual_billing_day": schedule.billing_day,
-                "correct": schedule.billing_day == 15,
-            },
-            "test_2_member_without_date": {
-                "member_since": no_date_member.member_since,
-                "expected_billing_day": 1,
-                "actual_billing_day": no_date_schedule.billing_day,
-                "correct": no_date_schedule.billing_day == 1,
-            },
-            "field_exists": hasattr(schedule, "billing_day"),
-            "overall_success": schedule.billing_day == 15 and no_date_schedule.billing_day == 1,
-        }
-
-        # Cleanup
-        schedule.delete()
-        no_date_schedule.delete()
-        test_member.delete()
-        no_date_member.delete()
-
-        return results
-
-    except Exception as e:
-        return {"error": str(e), "success": False}
+    return _test_billing_day_field()
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 def create_test_schedule(member_name, membership_name=None):
-    """Create a test dues schedule for development"""
-    try:
-        return MembershipDuesSchedule.create_from_template(member_name)
-    except Exception:
-        # Fallback to manual creation if no template exists
-        # Get membership if not provided
-        if not membership_name:
-            membership_info = get_active_membership_for_member(member_name, ["name"])
-            membership_name = membership_info["name"] if membership_info else None
+    """
+    DELEGATES TO: billing_debug_utilities.create_test_schedule()
 
-        if not membership_name:
-            frappe.throw(f"No membership found for member {member_name}")
+    Create a test dues schedule for development.
+    """
+    from verenigingen.utils.billing_debug_utilities import (
+        create_test_schedule as _create_test_schedule,
+    )
 
-        # Create test schedule
-        schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.is_template = 0
-        schedule.member = member_name
-        schedule.schedule_name = f"Test-Schedule-{member_name}"
-        schedule.billing_frequency = "Monthly"
-        schedule.dues_rate = 10.00  # Test dues rate
-        schedule.next_invoice_date = today()
-        schedule.invoice_days_before = 0  # Generate immediately
-        schedule.test_mode = 1
-        schedule.auto_generate = 1
-        schedule.status = "Test"
-        schedule.insert()
-
-        return schedule.name
+    return _create_test_schedule(member_name, membership_name)
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 def debug_template_daglid_issue():
-    """Debug Template-Daglid billing frequency override issue"""
-    result = {
-        "timestamp": frappe.utils.now(),
-        "template_status": {},
-        "membership_type_status": {},
-        "inheritance_tests": {},
-        "recent_schedules": [],
-    }
+    """
+    DELEGATES TO: billing_debug_utilities.debug_template_daglid_issue()
 
-    # Check Template-Daglid current state
-    try:
-        template = frappe.get_doc("Membership Dues Schedule", "Template-Daglid")
-        result["template_status"] = {
-            "billing_frequency": template.billing_frequency,
-            "is_template": template.is_template,
-            "modified": str(template.modified),
-            "modified_by": template.modified_by,
-        }
-    except Exception as e:
-        result["template_status"]["error"] = str(e)
+    Debug Template-Daglid billing frequency override issue.
+    """
+    from verenigingen.utils.billing_debug_utilities import (
+        debug_template_daglid_issue as _debug_template_daglid_issue,
+    )
 
-    # Check Daglid membership type
-    try:
-        membership_type = frappe.get_doc("Membership Type", "Daglid")
-        result["membership_type_status"] = {
-            "dues_schedule_template": membership_type.dues_schedule_template,
-            "amount": getattr(membership_type, "amount", 0),
-        }
-    except Exception as e:
-        result["membership_type_status"]["error"] = str(e)
-
-    # Test the auto-creator inheritance logic
-    try:
-        billing_frequency = "Annual"  # Default from auto_creator
-        if membership_type.dues_schedule_template:
-            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-            # Use explicit validation instead of fallback
-            if template.billing_frequency:
-                billing_frequency = template.billing_frequency
-            else:
-                billing_frequency = "Annual"
-                frappe.log_error(
-                    f"Template '{membership_type.dues_schedule_template}' has no billing_frequency configured, using default 'Annual'",
-                    "Membership Dues Schedule Template Configuration",
-                )
-
-        result["inheritance_tests"]["auto_creator_logic"] = {
-            "would_set": billing_frequency,
-            "template_value": template.billing_frequency,
-            "template_truthy": bool(template.billing_frequency),
-        }
-    except Exception as e:
-        result["inheritance_tests"]["auto_creator_error"] = str(e)
-
-    # Test the get_template_values() method
-    try:
-        test_schedule = frappe.new_doc("Membership Dues Schedule")
-        test_schedule.membership_type = "Daglid"
-        template_values = test_schedule.get_template_values()
-        result["inheritance_tests"]["get_template_values"] = {
-            "billing_frequency": template_values.get("billing_frequency"),
-            "all_values": template_values,
-        }
-    except Exception as e:
-        result["inheritance_tests"]["get_template_values_error"] = str(e)
-
-    # Check recent dues schedules
-    try:
-        recent_schedules = frappe.db.sql(
-            """
-            SELECT name, billing_frequency, modified, membership_type
-            FROM `tabMembership Dues Schedule`
-            WHERE membership_type = 'Daglid'
-            ORDER BY modified DESC
-            LIMIT 5
-        """,
-            as_dict=True,
-        )
-        result["recent_schedules"] = recent_schedules
-    except Exception as e:
-        result["recent_schedules_error"] = str(e)
-
-    return result
+    return _debug_template_daglid_issue()
 
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 def test_template_daglid_fix():
-    """Test that Template-Daglid billing frequency is preserved during template recreation"""
+    """
+    DELEGATES TO: billing_debug_utilities.test_template_daglid_fix()
 
-    # Step 1: Check current Template-Daglid status
-    before = frappe.get_doc("Membership Dues Schedule", "Template-Daglid")
-    before_frequency = before.billing_frequency
-    before_modified = str(before.modified)
+    Test that Template-Daglid billing frequency is preserved during template recreation.
+    """
+    from verenigingen.utils.billing_debug_utilities import (
+        test_template_daglid_fix as _test_template_daglid_fix,
+    )
 
-    # Step 2: Simulate template recreation (this was the source of the bug)
-    daglid_membership_type = frappe.get_doc("Membership Type", "Daglid")
-    template_name = daglid_membership_type.create_dues_schedule_template()
-
-    # Step 3: Check Template-Daglid status after recreation
-    after = frappe.get_doc("Membership Dues Schedule", "Template-Daglid")
-    after_frequency = after.billing_frequency
-    after_modified = str(after.modified)
-
-    return {
-        "template_name": template_name,
-        "before": {"billing_frequency": before_frequency, "modified": before_modified},
-        "after": {"billing_frequency": after_frequency, "modified": after_modified},
-        "preserved": before_frequency == after_frequency,
-        "test_result": "PASS" if before_frequency == after_frequency else "FAIL",
-    }
+    return _test_template_daglid_fix()
 
 
 def has_permission(doc, user=None, permission_type="read"):
-    """Custom permission handler for Membership Dues Schedule"""
-    if not user:
-        user = frappe.session.user
+    """
+    DELEGATES TO: DuesSchedulePermissionService.check_document_permission()
 
-    # Debug logging
-    frappe.logger().info(
-        f"PERMISSION CHECK: User {user}, Doc {doc.name if hasattr(doc, 'name') else 'Unknown'}, Type {permission_type}"
+    Custom permission handler for Membership Dues Schedule.
+    """
+    from verenigingen.services.billing.dues_schedule_permission_service import (
+        has_permission as _has_permission,
     )
 
-    # System Manager always has access
-    if "System Manager" in frappe.get_roles(user):
-        frappe.logger().info(f"PERMISSION GRANTED: System Manager access for {user}")
-        return True
-
-    # Verenigingen Administrator and Manager have full access
-    user_roles = frappe.get_roles(user)
-    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]):
-        frappe.logger().info(f"PERMISSION GRANTED: Admin role access for {user}")
-        return True
-
-    # Templates are visible to all authenticated users (for viewing available options)
-    if hasattr(doc, "is_template") and doc.is_template:
-        frappe.logger().info(f"PERMISSION GRANTED: Template access for {user}")
-        return True
-
-    # For non-templates, only allow access if user is the member
-    if hasattr(doc, "member") and doc.member:
-        # Check if current user is linked to this member
-        member_user = frappe.db.get_value("Member", doc.member, "user")
-        frappe.logger().info(
-            f"PERMISSION CHECK: Doc member {doc.member}, Member user {member_user}, Current user {user}"
-        )
-        if member_user == user:
-            frappe.logger().info(f"PERMISSION GRANTED: User matches member for {user}")
-            return True
-
-    # Check if user is chapter board member (any active board position grants access)
-    if hasattr(doc, "member") and doc.member and "Verenigingen Chapter Board Member" in user_roles:
-        try:
-            # Get member's chapters
-            member_chapters = frappe.db.get_all(
-                "Chapter Member",
-                filters={"member": doc.member, "status": "Active"},
-                fields=["parent"],
-                pluck="parent",
-            )
-
-            if member_chapters:
-                # Get user's member and volunteer records
-                user_member = frappe.db.get_value("Member", {"user": user}, "name")
-                if user_member:
-                    user_volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
-                    if user_volunteer:
-                        # Check if user is board member in any of the member's chapters
-                        board_position = frappe.db.exists(
-                            "Chapter Board Member",
-                            {
-                                "parent": ["in", member_chapters],
-                                "volunteer": user_volunteer,
-                                "is_active": 1,
-                            },
-                        )
-
-                        if board_position:
-                            frappe.logger().info(
-                                f"PERMISSION GRANTED: Chapter board member access for {user}"
-                            )
-                            return True
-        except Exception as e:
-            frappe.logger().error(f"Error checking chapter board permission: {str(e)}")
-            pass  # If any chapter permission check fails, continue to deny access
-
-    frappe.logger().info(
-        f"PERMISSION DENIED: No access granted for {user} to doc {doc.name if hasattr(doc, 'name') else 'Unknown'}"
-    )
-    return False
+    return _has_permission(doc, user, permission_type)
 
 
 def get_permission_query_conditions(user=None):
-    """Permission query conditions for Membership Dues Schedule list views"""
-    if not user:
-        user = frappe.session.user
+    """
+    DELEGATES TO: DuesSchedulePermissionService.get_permission_query_conditions()
 
-    # Debug logging
-    frappe.logger().info(f"QUERY PERMISSION CHECK: User {user}")
+    Permission query conditions for Membership Dues Schedule list views.
+    """
+    from verenigingen.services.billing.dues_schedule_permission_service import (
+        get_permission_query_conditions as _get_permission_query_conditions,
+    )
 
-    # System Manager and admin roles get full access
-    user_roles = frappe.get_roles(user)
-    if "System Manager" in user_roles:
-        frappe.logger().info(f"QUERY PERMISSION: System Manager full access for {user}")
-        return ""  # No restrictions
-
-    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]):
-        frappe.logger().info(f"QUERY PERMISSION: Admin role full access for {user}")
-        return ""  # No restrictions
-
-    # Chapter Board Members can access dues schedules for members in their chapters
-    if "Verenigingen Chapter Board Member" in user_roles:
-        # Get chapters where user is a board member
-        user_member = frappe.db.get_value("Member", {"user": user}, "name")
-        if user_member:
-            # Get the volunteer record for this member
-            volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
-            if volunteer:
-                chapters = frappe.db.sql(
-                    """
-                    SELECT DISTINCT cbm.parent
-                    FROM `tabChapter Board Member` cbm
-                    WHERE cbm.volunteer = %s AND cbm.is_active = 1
-                    """,
-                    volunteer,
-                    as_dict=False,
-                )
-
-                if chapters:
-                    chapter_names = [f"'{c[0]}'" for c in chapters]
-                    frappe.logger().info(
-                        f"QUERY PERMISSION: Chapter Board Member access for chapters {chapter_names}"
-                    )
-                    # Allow templates OR records for members in their chapters OR their own
-                    return f"""(
-                        `tabMembership Dues Schedule`.is_template = 1
-                        OR `tabMembership Dues Schedule`.member IN (
-                            SELECT DISTINCT cm.member
-                            FROM `tabChapter Member` cm
-                            WHERE cm.parent IN ({','.join(chapter_names)})
-                              AND cm.status = 'Active'
-                        )
-                        OR `tabMembership Dues Schedule`.member = '{user_member}'
-                    )"""
-
-    # For regular members, restrict to templates OR their own records
-    # Get the user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-
-    if user_member:
-        frappe.logger().info(f"QUERY PERMISSION: Member {user_member} access for {user}")
-        # Allow templates OR records where the member field matches their member record
-        return f"(`tabMembership Dues Schedule`.is_template = 1 OR `tabMembership Dues Schedule`.member = '{user_member}')"
-    else:
-        frappe.logger().info(f"QUERY PERMISSION: Template-only access for {user}")
-        # Only allow templates if user is not linked to a member
-        return "`tabMembership Dues Schedule`.is_template = 1"
+    return _get_permission_query_conditions(user)
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def validate_and_fix_schedule_dates():
     """
-    Validate and fix all dues schedule dates to prevent issues like Assoc-Member-2025-07-0030
-    Returns a report of issues found and fixed
+    DELEGATES TO: billing_debug_utilities.validate_and_fix_schedule_dates()
+
+    Validate and fix all dues schedule dates to prevent issues.
+    Returns a report of issues found and fixed.
     """
-    # using add_days, getdate, today from top-level import
+    from verenigingen.utils.billing_debug_utilities import (
+        validate_and_fix_schedule_dates as _validate_and_fix_schedule_dates,
+    )
 
-    today_date = getdate(today())
-    results = {"total_schedules": 0, "issues_found": 0, "fixes_applied": 0, "issues": [], "success": True}
-
-    try:
-        # Get all active schedules
-        schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"status": "Active", "is_template": 0},
-            fields=[
-                "name",
-                "member",
-                "billing_frequency",
-                "next_invoice_date",
-                "last_invoice_date",
-                "modified",
-            ],
-        )
-
-        results["total_schedules"] = len(schedules)
-
-        for schedule_data in schedules:
-            issues = []
-            fixes = []
-
-            try:
-                schedule = frappe.get_doc("Membership Dues Schedule", schedule_data.name)
-
-                if schedule.next_invoice_date:
-                    next_date = getdate(schedule.next_invoice_date)
-
-                    # Check for unreasonably far future dates
-                    if schedule.billing_frequency == "Daily":
-                        max_future_days = 7
-                    elif schedule.billing_frequency == "Weekly":
-                        max_future_days = 14
-                    elif schedule.billing_frequency == "Monthly":
-                        max_future_days = 62
-                    elif schedule.billing_frequency == "Quarterly":
-                        max_future_days = 100
-                    elif schedule.billing_frequency == "Annual":
-                        max_future_days = 400
-                    else:
-                        max_future_days = 30
-
-                    max_future_date = add_days(today_date, max_future_days)
-
-                    if next_date > max_future_date:
-                        issues.append(f"Next invoice date too far in future: {next_date}")
-                        schedule.next_invoice_date = today_date
-                        fixes.append(f"Corrected next_invoice_date from {next_date} to {today_date}")
-
-                    # Check for very old dates
-                    min_past_date = add_days(today_date, -180)  # 6 months ago
-                    if next_date < min_past_date:
-                        issues.append(f"Next invoice date too far in past: {next_date}")
-                        schedule.next_invoice_date = today_date
-                        fixes.append(f"Corrected next_invoice_date from {next_date} to {today_date}")
-
-                # If we made fixes, save the schedule
-                if fixes:
-                    schedule.save()
-                    results["fixes_applied"] += 1
-
-                    results["issues"].append(
-                        {
-                            "schedule": schedule_data.name,
-                            "member": schedule_data.member,
-                            "billing_frequency": schedule_data.billing_frequency,
-                            "issues": issues,
-                            "fixes": fixes,
-                        }
-                    )
-
-            except Exception as e:
-                results["issues"].append(
-                    {
-                        "schedule": schedule_data.name,
-                        "member": schedule_data.member,
-                        "error": f"Failed to process: {str(e)}",
-                    }
-                )
-
-        results["issues_found"] = len([i for i in results["issues"] if "fixes" in i])
-
-    except Exception as e:
-        results["success"] = False
-        results["error"] = str(e)
-
-    return results
+    return _validate_and_fix_schedule_dates()
 
 
 def _log_blocked_members_summary():
     """
-    Generate aggregated report for members blocked from invoice generation.
-    Reduces log spam by consolidating multiple blocked member reports into one.
+    DEPRECATED: Moved to BulkInvoiceGenerationService._log_blocked_members_summary()
+
+    This function is now called internally by BulkInvoiceGenerationService.generate_invoices().
+    This stub is kept for backward compatibility with any direct callers.
     """
-    if not hasattr(frappe.local, "blocked_members") or not frappe.local.blocked_members:
-        return
+    from verenigingen.services.billing.bulk_invoice_generation_service import (
+        get_bulk_invoice_generation_service,
+    )
 
-    # Build summary report
-    total_blocked = sum(len(members) for members in frappe.local.blocked_members.values())
-
-    summary_lines = [
-        f"Daily Invoice Generation - Blocked Members Summary ({total_blocked} members blocked)",
-        "=" * 80,
-    ]
-
-    for status, members in frappe.local.blocked_members.items():
-        summary_lines.append(f"\n{status.upper()} STATUS: {len(members)} members")
-        for member_info in members[:10]:  # Show first 10, truncate if more
-            member_name = member_info.get("member_name", member_info["member"])
-            summary_lines.append(f"  - {member_info['member']} ({member_name})")
-
-        if len(members) > 10:
-            summary_lines.append(f"  ... and {len(members) - 10} more {status} members")
-
-    # Log as single consolidated report
-    frappe.log_error("\n".join(summary_lines), "Daily Blocked Members Summary")
-
-    # Clear the aggregated data
-    frappe.local.blocked_members = {}
+    get_bulk_invoice_generation_service()._log_blocked_members_summary()
