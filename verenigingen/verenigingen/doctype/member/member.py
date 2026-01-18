@@ -946,58 +946,7 @@ def assign_member_id(member_name):
 
 
 # =============================================================================
-# MODULE-LEVEL API FUNCTIONS - RE-EXPORTS FOR BACKWARD COMPATIBILITY
+# BACKWARD COMPATIBILITY RE-EXPORTS
 # =============================================================================
-# These functions have been extracted to api/member/ modules for better organization.
-# Re-exports are provided here to maintain backward compatibility.
-# New code should import directly from the api/member/ package.
-#
-# SEPA functions → api/member/sepa_api.py
-# Member ID functions → api/member/member_id_api.py
-# Chapter functions → api/member/chapter_api.py
-# Financial functions → api/member/financial_api.py
-# General functions → api/member/general_api.py
-
-# SEPA API functions
-# Chapter API functions
-from verenigingen.api.member.chapter_api import (  # noqa: E402
-    get_member_chapter_display_html,
-    get_member_chapter_names,
-    get_member_current_chapters,
-)
-
-# Financial API functions
-from verenigingen.api.member.financial_api import (  # noqa: E402
-    get_current_dues_schedule_details,
-    refresh_fee_change_history,
-    sync_member_dues_rate,
-)
-
-# General member API functions
-from verenigingen.api.member.general_api import (  # noqa: E402
-    check_donor_exists,
-    create_donor_from_member,
-    create_member_user_account,
-    get_linked_donations,
-    test_member_form_functionality,
-)
-
-# Member ID API functions
-from verenigingen.api.member.member_id_api import (  # noqa: E402
-    assign_missing_member_ids,
-    debug_member_id_assignment,
-)
-from verenigingen.api.member.sepa_api import (  # noqa: E402
-    create_and_link_mandate_enhanced,
-    deactivate_old_sepa_mandates,
-    derive_bic_from_iban,
-    get_active_sepa_mandate,
-    refresh_sepa_mandates,
-    validate_mandate_creation,
-)
-
-# NOTE: Member role management functions have been extracted to MemberRoleService
-# - add_member_roles_to_user() → MemberRoleService.add_member_roles_to_user()
-# - set_member_user_modules() → MemberRoleService.set_member_user_modules()
-# - _assign_individual_member_roles() → MemberRoleService._assign_individual_member_roles()
-# - create_verenigingen_member_role() → MemberRoleService.create_verenigingen_member_role()
+# Re-exports moved to member_compat.py. Import from there or directly from api/member/.
+from verenigingen.verenigingen.doctype.member.member_compat import *  # noqa: E402, F401, F403

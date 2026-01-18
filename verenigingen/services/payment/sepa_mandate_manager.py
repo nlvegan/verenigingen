@@ -626,6 +626,76 @@ class SEPAMandateManager(StatelessService):
                 self.logger.error(f"Error linking mandate to member {member_doc.name}: {e}")
                 raise
 
+    # ========== Member Mandate Sync Methods ==========
+
+    def sync_member_mandates(self, member: str) -> ValidationResult:
+        """
+        Sync member's sepa_mandates child table with actual SEPA Mandate documents.
+
+        Consolidates:
+        - sepa_mixin.py:96 refresh_sepa_mandates_table()
+
+        This method rebuilds the member's sepa_mandates child table from the
+        actual SEPA Mandate documents, ensuring consistency.
+
+        Args:
+            member: Member name/ID
+
+        Returns:
+            ValidationResult with sync statistics
+
+        Examples:
+            >>> manager = SEPAMandateManager()
+            >>> result = manager.sync_member_mandates("Assoc-Member-001")
+            >>> result.valid
+            True
+            >>> result.data["mandates_count"]
+            2
+        """
+        try:
+            # Get all SEPA mandates for this member
+            mandates = frappe.get_all(
+                "SEPA Mandate",
+                filters={"member": member},
+                fields=["name", "mandate_id", "status", "is_active", "sign_date", "expiry_date"],
+                order_by="creation desc",
+            )
+
+            # Get member document
+            member_doc = frappe.get_doc("Member", member)
+
+            # Clear existing links
+            member_doc.sepa_mandates = []
+
+            # Rebuild the child table from actual mandates
+            for mandate in mandates:
+                member_doc.append(
+                    "sepa_mandates",
+                    {
+                        "sepa_mandate": mandate.name,
+                        "mandate_reference": mandate.mandate_id,
+                        "status": mandate.status,
+                        "is_current": 1 if mandate.status == "Active" and mandate.is_active else 0,
+                        "valid_from": mandate.sign_date,
+                        "valid_until": mandate.expiry_date,
+                    },
+                )
+
+            # Save using native update_child_table to avoid timestamp conflicts
+            member_doc.update_child_table("sepa_mandates")
+            frappe.db.commit()
+
+            self.logger.info(f"Synced {len(mandates)} SEPA mandate(s) for member {member}")
+
+            return ValidationResult.success(
+                _("Refreshed {0} SEPA mandate(s)").format(len(mandates)),
+                data={"mandates_count": len(mandates), "member": member},
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error syncing SEPA mandates for member {member}: {e}")
+            return ValidationResult.failure(_("Error syncing SEPA mandates: {0}").format(str(e)))
+
     # ========== Mandate Lifecycle Methods ==========
 
     def deactivate_mandates_for_iban_change(self, member: str, new_iban: str) -> ValidationResult:
@@ -710,6 +780,365 @@ class SEPAMandateManager(StatelessService):
         except Exception as e:
             self.logger.error(f"Error deactivating mandates for member {member}: {e}")
             return ValidationResult.failure(_("Error deactivating mandates: {0}").format(str(e)))
+
+    # ========== Discrepancy Detection Methods ==========
+
+    def check_discrepancies(self) -> Dict[str, Any]:
+        """
+        Check for SEPA mandate discrepancies across all members with SEPA Direct Debit.
+
+        Consolidates:
+        - sepa_mixin.py:200 check_sepa_mandate_discrepancies()
+
+        This is typically called as a scheduled task to detect and optionally
+        auto-fix mandate issues like IBAN mismatches or missing mandates.
+
+        Returns:
+            Dict with discrepancy check results including:
+            - total_checked: Number of members checked
+            - missing_mandates: Members with SEPA but no active mandate
+            - iban_mismatches: Mandates where IBAN differs from member's IBAN
+            - name_mismatches: Mandates where account name differs
+            - auto_fixed: Issues automatically resolved
+            - errors: Processing errors
+
+        Examples:
+            >>> manager = SEPAMandateManager()
+            >>> results = manager.check_discrepancies()
+            >>> results["total_checked"]
+            150
+        """
+        import time
+
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        start_time = time.time()
+
+        self.logger.info("Starting scheduled SEPA mandate discrepancy check")
+
+        try:
+            # First check company SEPA settings
+            company_settings_status = self._check_company_sepa_settings()
+            if company_settings_status:
+                self.logger.warning(f"SEPA Settings Issue: {company_settings_status}")
+
+            # Find members with SEPA Direct Debit payment method
+            members_with_direct_debit = frappe.get_all(
+                "Member",
+                filters={"payment_method": "SEPA Direct Debit", "docstatus": ["!=", 2]},
+                fields=["name", "full_name", "iban", "bic", "bank_account_name"],
+            )
+
+            results = {
+                "total_checked": len(members_with_direct_debit),
+                "missing_mandates": [],
+                "iban_mismatches": [],
+                "name_mismatches": [],
+                "auto_fixed": [],
+                "manual_review_needed": [],
+                "errors": [],
+            }
+
+            for member_data in members_with_direct_debit:
+                try:
+                    self._check_member_mandate_discrepancies(member_data, results)
+                except Exception as e:
+                    results["errors"].append(
+                        {"member": member_data.name, "error": str(e), "action": "member_processing_failed"}
+                    )
+
+            # Log results
+            end_time = time.time()
+            processing_time = round(end_time - start_time, 2)
+
+            self.logger.info(f"SEPA mandate discrepancy check completed in {processing_time}s")
+            self.logger.info(
+                f"Results: {results['total_checked']} checked, "
+                f"{len(results['missing_mandates'])} missing mandates, "
+                f"{len(results['iban_mismatches'])} IBAN mismatches, "
+                f"{len(results['name_mismatches'])} name mismatches, "
+                f"{len(results['auto_fixed'])} auto-fixed, "
+                f"{len(results['errors'])} errors"
+            )
+
+            # Create a log entry for significant issues
+            self._create_discrepancy_log(results)
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Error in scheduled SEPA mandate discrepancy check: {e}")
+            return {"error": str(e)}
+
+    def _check_member_mandate_discrepancies(self, member_data: Dict, results: Dict) -> None:
+        """Check a single member for mandate discrepancies."""
+        member_name = member_data.name
+        member_iban = member_data.iban
+        member_account_name = member_data.bank_account_name
+
+        # Skip if no IBAN set
+        if not member_iban:
+            return
+
+        # Get active SEPA mandates for this member
+        active_mandates = frappe.get_all(
+            "SEPA Mandate",
+            filters={"member": member_name, "status": "Active", "is_active": 1},
+            fields=["name", "mandate_id", "iban", "account_holder_name"],
+        )
+
+        if not active_mandates:
+            # No active mandate found
+            results["missing_mandates"].append(
+                {"member": member_name, "member_name": member_data.full_name, "iban": member_iban}
+            )
+            return
+
+        # Check for discrepancies with existing mandates
+        for mandate in active_mandates:
+            mandate_iban = self._normalize_iban(mandate.iban)
+            current_iban = self._normalize_iban(member_iban)
+
+            # Check IBAN mismatch
+            if mandate_iban != current_iban:
+                discrepancy = {
+                    "member": member_name,
+                    "member_name": member_data.full_name,
+                    "mandate_id": mandate.mandate_id,
+                    "mandate_iban": mandate.iban,
+                    "current_iban": member_iban,
+                }
+
+                # Auto-fix: Deactivate old mandate if IBAN changed significantly
+                if self._should_auto_fix_iban_change(mandate_iban, current_iban):
+                    try:
+                        self._deactivate_mandate_for_iban_change(mandate.name, mandate.iban, member_iban)
+                        results["auto_fixed"].append(
+                            {**discrepancy, "action": "deactivated_old_mandate", "reason": "IBAN changed"}
+                        )
+                    except Exception as e:
+                        results["errors"].append(
+                            {**discrepancy, "error": str(e), "action": "failed_to_deactivate"}
+                        )
+                else:
+                    results["iban_mismatches"].append(discrepancy)
+
+            # Check account holder name mismatch
+            if member_account_name and mandate.account_holder_name:
+                if self._names_significantly_different(member_account_name, mandate.account_holder_name):
+                    discrepancy = {
+                        "member": member_name,
+                        "member_name": member_data.full_name,
+                        "mandate_id": mandate.mandate_id,
+                        "mandate_name": mandate.account_holder_name,
+                        "current_name": member_account_name,
+                    }
+
+                    # Auto-fix: Update mandate name if it's a minor difference
+                    if self._should_auto_fix_name_change(mandate.account_holder_name, member_account_name):
+                        try:
+                            self._update_mandate_account_name(mandate.name, member_account_name)
+                            results["auto_fixed"].append(
+                                {
+                                    **discrepancy,
+                                    "action": "updated_account_name",
+                                    "reason": "minor_name_difference",
+                                }
+                            )
+                        except Exception as e:
+                            results["errors"].append(
+                                {**discrepancy, "error": str(e), "action": "failed_to_update_name"}
+                            )
+                    else:
+                        results["name_mismatches"].append(discrepancy)
+
+    def _should_auto_fix_iban_change(self, old_iban: str, new_iban: str) -> bool:
+        """Determine if IBAN change should be auto-fixed."""
+        if not old_iban or not new_iban:
+            return False
+
+        # Don't auto-fix if IBANs are too similar (might be typo)
+        if self._strings_too_similar(old_iban, new_iban):
+            return False
+
+        return True
+
+    def _should_auto_fix_name_change(self, old_name: str, new_name: str) -> bool:
+        """Determine if account name change should be auto-fixed."""
+        if not old_name or not new_name:
+            return False
+
+        # Auto-fix if names are very similar (minor differences)
+        return self._names_slightly_different(old_name, new_name)
+
+    def _names_significantly_different(self, name1: str, name2: str) -> bool:
+        """Check if two names are significantly different."""
+        if not name1 or not name2:
+            return True
+
+        # Normalize names for comparison
+        name1_norm = name1.lower().strip()
+        name2_norm = name2.lower().strip()
+
+        # If exact match, not different
+        if name1_norm == name2_norm:
+            return False
+
+        # Check if one name contains the other
+        if name1_norm in name2_norm or name2_norm in name1_norm:
+            return False
+
+        # Use simple word overlap check
+        words1 = set(name1_norm.split())
+        words2 = set(name2_norm.split())
+
+        # If more than 50% word overlap, consider similar
+        overlap = len(words1.intersection(words2))
+        min_words = min(len(words1), len(words2))
+
+        if min_words > 0 and (overlap / min_words) > 0.5:
+            return False
+
+        return True
+
+    def _names_slightly_different(self, name1: str, name2: str) -> bool:
+        """Check if two names are only slightly different (for auto-fix)."""
+        if not name1 or not name2:
+            return False
+
+        import re
+
+        # Normalize names
+        name1_norm = name1.lower().strip()
+        name2_norm = name2.lower().strip()
+
+        # Check if difference is minimal (like punctuation, spacing, case)
+        name1_clean = re.sub(r"[^\w\s]", "", name1_norm)
+        name2_clean = re.sub(r"[^\w\s]", "", name2_norm)
+
+        # Remove extra spaces
+        name1_clean = " ".join(name1_clean.split())
+        name2_clean = " ".join(name2_clean.split())
+
+        return name1_clean == name2_clean
+
+    def _strings_too_similar(self, str1: str, str2: str) -> bool:
+        """Check if two strings are suspiciously similar (might indicate typo)."""
+        if not str1 or not str2:
+            return False
+
+        # Simple character difference check
+        if len(str1) == len(str2):
+            differences = sum(c1 != c2 for c1, c2 in zip(str1, str2))
+            return differences <= 2  # 2 or fewer character differences
+
+        return False
+
+    def _deactivate_mandate_for_iban_change(self, mandate_name: str, old_iban: str, new_iban: str) -> None:
+        """Deactivate a mandate due to IBAN change."""
+        mandate = frappe.get_doc("SEPA Mandate", mandate_name)
+        mandate.status = "Cancelled"
+        mandate.is_active = 0
+        mandate.cancelled_date = today()
+        mandate.cancellation_reason = f"IBAN changed from {old_iban} to {new_iban} (auto-deactivated)"
+        mandate.save()
+
+        self.logger.info(f"Auto-deactivated SEPA mandate {mandate.mandate_id} due to IBAN change")
+
+    def _update_mandate_account_name(self, mandate_name: str, new_account_name: str) -> None:
+        """Update mandate account holder name."""
+        mandate = frappe.get_doc("SEPA Mandate", mandate_name)
+        old_name = mandate.account_holder_name
+        mandate.account_holder_name = new_account_name
+        mandate.save()
+
+        self.logger.info(
+            f"Auto-updated SEPA mandate {mandate.mandate_id} account name from '{old_name}' to '{new_account_name}'"
+        )
+
+    def _check_company_sepa_settings(self) -> str:
+        """Check if company SEPA settings are configured."""
+        try:
+            from verenigingen.utils.settings_utils import get_payments_settings
+
+            payments_settings = get_payments_settings()
+            general_settings = frappe.get_single("Verenigingen Settings")
+            missing_settings = []
+
+            # Check required SEPA settings (from Payments Settings)
+            if not getattr(payments_settings, "company_iban", None):
+                missing_settings.append("Company IBAN")
+            if not getattr(payments_settings, "company_account_holder", None):
+                missing_settings.append("Bank Account Holder Name")
+            if not getattr(payments_settings, "creditor_id", None):
+                missing_settings.append("SEPA Creditor ID (Incassant ID)")
+            if not getattr(general_settings, "company_name", None):
+                missing_settings.append("Company Name")
+
+            if missing_settings:
+                settings_list = "\n".join(f"- {setting}" for setting in missing_settings)
+                return f"""
+WARNING: Missing Company SEPA Settings!
+The following settings are required for SEPA processing but are not configured:
+{settings_list}
+
+Please configure these in Verenigingen Payments Settings before processing SEPA mandates.
+"""
+            return ""
+        except Exception as e:
+            return f"\nWARNING: Could not check company SEPA settings: {str(e)}\n"
+
+    def _create_discrepancy_log(self, results: Dict) -> None:
+        """Create a log entry for discrepancies that need manual review."""
+        significant_issues = (
+            len(results.get("missing_mandates", []))
+            + len(results.get("iban_mismatches", []))
+            + len(results.get("name_mismatches", []))
+            + len(results.get("errors", []))
+        )
+
+        if significant_issues > 0:
+            company_settings_warning = self._check_company_sepa_settings()
+
+            log_message = f"""SEPA Mandate Discrepancy Check Results:
+
+Total Members Checked: {results['total_checked']}
+Auto-Fixed Issues: {len(results.get('auto_fixed', []))}
+{company_settings_warning}
+MANUAL REVIEW NEEDED:
+- Missing Mandates: {len(results.get('missing_mandates', []))}
+- IBAN Mismatches: {len(results.get('iban_mismatches', []))}
+- Name Mismatches: {len(results.get('name_mismatches', []))}
+- Processing Errors: {len(results.get('errors', []))}
+
+Missing Mandates:
+{self._format_issue_list(results.get('missing_mandates', []), ['member', 'member_name', 'iban'])}
+
+IBAN Mismatches:
+{self._format_issue_list(results.get('iban_mismatches', []), ['member', 'member_name', 'mandate_id', 'mandate_iban', 'current_iban'])}
+
+Name Mismatches:
+{self._format_issue_list(results.get('name_mismatches', []), ['member', 'member_name', 'mandate_id', 'mandate_name', 'current_name'])}
+
+Errors:
+{self._format_issue_list(results.get('errors', []), ['member', 'error', 'action'])}
+"""
+
+            frappe.log_error(log_message, "SEPA Mandate Discrepancies - Manual Review Required")
+
+    def _format_issue_list(self, issues: List[Dict], fields: List[str]) -> str:
+        """Format a list of issues for logging."""
+        if not issues:
+            return "None"
+
+        formatted = []
+        for issue in issues[:10]:  # Limit to first 10 to avoid huge logs
+            formatted.append(" | ".join([f"{field}: {issue.get(field, 'N/A')}" for field in fields]))
+
+        if len(issues) > 10:
+            formatted.append(f"... and {len(issues) - 10} more")
+
+        return "\n".join(formatted)
 
 
 # ========== Service Factory ==========
