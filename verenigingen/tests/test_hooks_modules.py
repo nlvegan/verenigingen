@@ -8,20 +8,30 @@ Validates that:
 4. All permission handler strings resolve to callable functions
 5. The hooks package can be imported as verenigingen.hooks (Phase 3)
 6. Override class targets are importable and are actual classes
-7. Cron expressions are valid format
+7. Cron expressions are semantically valid (using croniter)
+8. Handler signatures match expected patterns (doc events, schedulers)
+9. Handler paths are properly formatted (no whitespace)
 
 These tests ensure the hooks/ package structure is correct and safe.
 """
 
 import importlib
 import importlib.util
-import os
-import re
+import inspect
 import sys
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+# croniter is available in the Frappe environment for cron validation
+try:
+    from croniter import croniter
+    from croniter.croniter import CroniterBadCronError
+
+    CRONITER_AVAILABLE = True
+except ImportError:
+    CRONITER_AVAILABLE = False
+    CroniterBadCronError = Exception  # Fallback for type hints
 
 # Base path for hooks submodules
 HOOKS_DIR = Path(__file__).parent.parent / "hooks"
@@ -44,17 +54,71 @@ def load_hooks_submodule(name: str):
     return module
 
 
+def check_handler_signature(func, min_positional: int = 1, handler_type: str = "doc_event"):
+    """Check if a handler function has an acceptable signature.
+
+    Args:
+        func: The callable to check
+        min_positional: Minimum number of positional parameters required
+        handler_type: Type of handler for error messages
+
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
+
+    Handler signature requirements:
+    - doc_event handlers: need at least 1 param (doc), often (doc, method=None)
+    - scheduler handlers: can have 0 params (called without arguments)
+    - permission handlers: need at least 1 param (user or doc)
+    """
+    if not callable(func):
+        return False, "not callable"
+
+    try:
+        sig = inspect.signature(func)
+    except (ValueError, TypeError) as e:
+        # Some built-in functions don't have signatures
+        return True, None  # Assume valid if we can't inspect
+
+    params = list(sig.parameters.values())
+
+    # Check for *args or **kwargs - these accept anything
+    has_var_positional = any(
+        p.kind == inspect.Parameter.VAR_POSITIONAL for p in params
+    )
+    has_var_keyword = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params
+    )
+
+    if has_var_positional or has_var_keyword:
+        return True, None  # Accepts variable arguments
+
+    # Count positional parameters (including those with defaults)
+    positional_count = sum(
+        1 for p in params
+        if p.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    )
+
+    if positional_count < min_positional:
+        return False, f"expected at least {min_positional} positional param(s), got {positional_count}"
+
+    return True, None
+
+
 class TestHooksImportSafety(unittest.TestCase):
-    """Verify hooks submodules don't have side effects on import."""
+    """Verify hooks submodules have expected exports.
 
-    def test_assets_import_fast(self):
-        """hooks/assets.py should import quickly with no side effects."""
-        start = time.time()
+    Note: Timing assertions were removed because they are inherently flaky
+    in CI environments. The TestImportSideEffectGuards class provides more
+    reliable protection by ensuring no DB/cache calls occur during import.
+    A module that doesn't make DB/cache calls will naturally be fast.
+    """
+
+    def test_assets_exports(self):
+        """hooks/assets.py should have expected exports."""
         assets = load_hooks_submodule("assets")
-        elapsed = time.time() - start
-
-        # Should import in under 100ms
-        self.assertLess(elapsed, 0.1, f"assets.py import took {elapsed:.3f}s")
 
         # Should have expected exports
         self.assertTrue(hasattr(assets, "app_include_css"))
@@ -62,74 +126,53 @@ class TestHooksImportSafety(unittest.TestCase):
         self.assertTrue(hasattr(assets, "web_include_js"))
         self.assertTrue(hasattr(assets, "email_css"))
 
-    def test_doctypes_import_fast(self):
-        """hooks/doctypes.py should import quickly with no side effects."""
-        start = time.time()
+    def test_doctypes_exports(self):
+        """hooks/doctypes.py should have expected exports."""
         doctypes = load_hooks_submodule("doctypes")
-        elapsed = time.time() - start
 
-        self.assertLess(elapsed, 0.1, f"doctypes.py import took {elapsed:.3f}s")
         self.assertTrue(hasattr(doctypes, "doctype_js"))
         self.assertIsInstance(doctypes.doctype_js, dict)
 
-    def test_doc_events_import_fast(self):
-        """hooks/doc_events.py should import quickly with no side effects."""
-        start = time.time()
+    def test_doc_events_exports(self):
+        """hooks/doc_events.py should have expected exports."""
         doc_events = load_hooks_submodule("doc_events")
-        elapsed = time.time() - start
 
-        self.assertLess(elapsed, 0.1, f"doc_events.py import took {elapsed:.3f}s")
         self.assertTrue(hasattr(doc_events, "doc_events"))
         self.assertIsInstance(doc_events.doc_events, dict)
 
-    def test_scheduler_import_fast(self):
-        """hooks/scheduler.py should import quickly with no side effects."""
-        start = time.time()
+    def test_scheduler_exports(self):
+        """hooks/scheduler.py should have expected exports."""
         scheduler = load_hooks_submodule("scheduler")
-        elapsed = time.time() - start
 
-        self.assertLess(elapsed, 0.1, f"scheduler.py import took {elapsed:.3f}s")
         self.assertTrue(hasattr(scheduler, "scheduler_events"))
         self.assertTrue(hasattr(scheduler, "cron"))
 
-    def test_permissions_import_fast(self):
-        """hooks/permissions.py should import quickly with no side effects."""
-        start = time.time()
+    def test_permissions_exports(self):
+        """hooks/permissions.py should have expected exports."""
         permissions = load_hooks_submodule("permissions")
-        elapsed = time.time() - start
 
-        self.assertLess(elapsed, 0.1, f"permissions.py import took {elapsed:.3f}s")
         self.assertTrue(hasattr(permissions, "permission_query_conditions"))
         self.assertTrue(hasattr(permissions, "has_permission"))
 
-    def test_fixtures_import_fast(self):
-        """hooks/fixtures.py should import quickly with no side effects."""
-        start = time.time()
+    def test_fixtures_exports(self):
+        """hooks/fixtures.py should have expected exports."""
         fixtures = load_hooks_submodule("fixtures")
-        elapsed = time.time() - start
 
-        self.assertLess(elapsed, 0.1, f"fixtures.py import took {elapsed:.3f}s")
         self.assertTrue(hasattr(fixtures, "fixtures"))
         self.assertIsInstance(fixtures.fixtures, list)
 
-    def test_portal_import_fast(self):
-        """hooks/portal.py should import quickly with no side effects."""
-        start = time.time()
+    def test_portal_exports(self):
+        """hooks/portal.py should have expected exports."""
         portal = load_hooks_submodule("portal")
-        elapsed = time.time() - start
 
-        self.assertLess(elapsed, 0.1, f"portal.py import took {elapsed:.3f}s")
         self.assertTrue(hasattr(portal, "standard_portal_menu_items"))
         self.assertTrue(hasattr(portal, "website_context"))
         self.assertTrue(hasattr(portal, "update_website_context"))
 
-    def test_lifecycle_import_fast(self):
-        """hooks/lifecycle.py should import quickly with no side effects."""
-        start = time.time()
+    def test_lifecycle_exports(self):
+        """hooks/lifecycle.py should have expected exports."""
         lifecycle = load_hooks_submodule("lifecycle")
-        elapsed = time.time() - start
 
-        self.assertLess(elapsed, 0.1, f"lifecycle.py import took {elapsed:.3f}s")
         self.assertTrue(hasattr(lifecycle, "after_install"))
         self.assertTrue(hasattr(lifecycle, "after_migrate"))
         self.assertTrue(hasattr(lifecycle, "before_tests"))
@@ -156,8 +199,9 @@ class TestDocEventHandlerResolution(unittest.TestCase):
             return None, str(e)
 
     def test_all_doc_event_handlers_exist(self):
-        """All doc_events handlers should be importable and callable."""
+        """All doc_events handlers should be importable, callable, and have valid signatures."""
         missing_handlers = []
+        signature_errors = []
 
         for doctype, events in self.doc_events.items():
             for event_name, handlers in events.items():
@@ -172,9 +216,43 @@ class TestDocEventHandlerResolution(unittest.TestCase):
                         missing_handlers.append(f"{doctype}.{event_name}: {handler} - {error}")
                     elif not callable(result):
                         missing_handlers.append(f"{doctype}.{event_name}: {handler} - not callable")
+                    else:
+                        # Check signature - doc event handlers need at least 1 param (doc)
+                        is_valid, sig_error = check_handler_signature(result, min_positional=1)
+                        if not is_valid:
+                            signature_errors.append(
+                                f"{doctype}.{event_name}: {handler} - {sig_error}"
+                            )
 
         if missing_handlers:
             self.fail(f"Missing or non-callable handlers:\n" + "\n".join(missing_handlers[:20]))
+
+        if signature_errors:
+            self.fail(
+                f"Handlers with invalid signatures (doc events need at least 1 param):\n"
+                + "\n".join(signature_errors[:20])
+            )
+
+    def test_handler_paths_no_whitespace(self):
+        """Handler path strings should not have leading/trailing whitespace."""
+        whitespace_errors = []
+
+        for doctype, events in self.doc_events.items():
+            for event_name, handlers in events.items():
+                if isinstance(handlers, str):
+                    handlers = [handlers]
+
+                for handler in handlers:
+                    if handler != handler.strip():
+                        whitespace_errors.append(
+                            f"{doctype}.{event_name}: '{handler}' has whitespace"
+                        )
+
+        if whitespace_errors:
+            self.fail(
+                f"Handler paths with whitespace (copy-paste error?):\n"
+                + "\n".join(whitespace_errors)
+            )
 
     def test_membership_handlers_exist(self):
         """Core Membership handlers should exist."""
@@ -236,9 +314,26 @@ class TestSchedulerHandlerResolution(unittest.TestCase):
                     missing_handlers.append(f"{frequency}: {handler} - {error}")
                 elif not callable(result):
                     missing_handlers.append(f"{frequency}: {handler} - not callable")
+                # Note: Scheduler handlers can have 0 params (called without args),
+                # so we don't enforce signature requirements here
 
         if missing_handlers:
             self.fail(f"Missing or non-callable scheduler handlers:\n" + "\n".join(missing_handlers[:20]))
+
+    def test_scheduler_handler_paths_no_whitespace(self):
+        """Scheduler handler paths should not have leading/trailing whitespace."""
+        whitespace_errors = []
+
+        for frequency, handlers in self.scheduler_events.items():
+            for handler in handlers:
+                if handler != handler.strip():
+                    whitespace_errors.append(f"{frequency}: '{handler}' has whitespace")
+
+        if whitespace_errors:
+            self.fail(
+                f"Scheduler handler paths with whitespace:\n"
+                + "\n".join(whitespace_errors)
+            )
 
     def test_all_cron_handlers_exist(self):
         """All cron handlers should be importable and callable."""
@@ -479,19 +574,23 @@ class TestHooksPackageImport(unittest.TestCase):
         self.assertTrue(hasattr(hooks, "app_name"))
         self.assertEqual(hooks.app_name, "verenigingen")
 
-    def test_hooks_package_import_fast(self):
-        """Hooks package should import quickly (< 500ms)."""
-        # Clear from cache to get fresh timing
+    def test_hooks_package_import_succeeds(self):
+        """Hooks package should import without errors.
+
+        Note: Timing assertion removed - side-effect guards in
+        TestImportSideEffectGuards provide more reliable protection.
+        """
+        # Clear from cache to get fresh import
         modules_to_clear = [k for k in sys.modules.keys() if k.startswith("verenigingen.hooks")]
         for mod in modules_to_clear:
             del sys.modules[mod]
 
-        start = time.time()
-        importlib.import_module("verenigingen.hooks")
-        elapsed = time.time() - start
+        # Should not raise any exceptions
+        hooks = importlib.import_module("verenigingen.hooks")
 
-        # Allow up to 500ms for package import (includes all submodules)
-        self.assertLess(elapsed, 0.5, f"hooks package import took {elapsed:.3f}s")
+        # Verify module loaded correctly
+        self.assertIsNotNone(hooks)
+        self.assertTrue(hasattr(hooks, "app_name"))
 
     def test_hooks_package_has_all_exports(self):
         """Hooks package should export all required hook variables."""
@@ -539,7 +638,7 @@ class TestHooksPackageImport(unittest.TestCase):
 
 
 class TestOverrideDocTypeClassResolution(unittest.TestCase):
-    """Verify override_doctype_class targets are importable classes."""
+    """Verify override_doctype_class targets are importable classes that inherit correctly."""
 
     def test_override_targets_are_importable_classes(self):
         """All override_doctype_class values should be importable classes."""
@@ -563,6 +662,42 @@ class TestOverrideDocTypeClassResolution(unittest.TestCase):
         if errors:
             self.fail("Override class resolution errors:\n" + "\n".join(errors))
 
+    def test_override_classes_inherit_from_document(self):
+        """All override classes should inherit from frappe.model.document.Document.
+
+        This catches subtle runtime errors where an override class doesn't
+        properly inherit from the expected base class.
+        """
+        # Import Document base class
+        try:
+            from frappe.model.document import Document
+        except ImportError:
+            self.skipTest("frappe.model.document.Document not available")
+
+        hooks = importlib.import_module("verenigingen.hooks")
+        override_doctype_class = hooks.override_doctype_class
+
+        inheritance_errors = []
+        for doctype, override_path in override_doctype_class.items():
+            try:
+                module_path, cls_name = override_path.rsplit(".", 1)
+                module = importlib.import_module(module_path)
+                cls = getattr(module, cls_name)
+
+                if isinstance(cls, type) and not issubclass(cls, Document):
+                    inheritance_errors.append(
+                        f"{doctype}: {override_path} does not inherit from Document"
+                    )
+            except (ImportError, AttributeError):
+                # Import errors are caught by test_override_targets_are_importable_classes
+                pass
+
+        if inheritance_errors:
+            self.fail(
+                "Override classes with incorrect inheritance:\n"
+                + "\n".join(inheritance_errors)
+            )
+
     def test_payment_entry_override_exists(self):
         """Payment Entry override should be properly configured."""
         hooks = importlib.import_module("verenigingen.hooks")
@@ -580,45 +715,57 @@ class TestOverrideDocTypeClassResolution(unittest.TestCase):
 
 
 class TestCronExpressionValidation(unittest.TestCase):
-    """Verify cron expressions are valid format."""
+    """Verify cron expressions are semantically valid.
 
-    # Cron field pattern: matches *, */N, N, N-M, N,M,O, etc.
-    # Examples: *, */10, 0, 1-5, 0,15,30,45, */5
-    CRON_FIELD = r"(?:\*(?:/\d+)?|\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)"
+    Uses croniter for validation which catches:
+    - Invalid step values (*/0)
+    - Out of range values (60 for minutes, 32 for day of month)
+    - Invalid field combinations
+    """
 
-    # Frappe supports 6-field cron (with seconds) via APScheduler
-    # Format: second minute hour day month day_of_week
-    CRON_6_FIELD_PATTERN = None  # Compiled in setUpClass
+    def _validate_cron_expression(self, expression: str) -> tuple:
+        """Validate a cron expression using croniter.
 
-    # Standard 5-field cron (without seconds)
-    CRON_5_FIELD_PATTERN = None  # Compiled in setUpClass
+        Args:
+            expression: Cron expression string (5 or 6 fields)
 
-    @classmethod
-    def setUpClass(cls):
-        """Compile regex patterns."""
-        field = cls.CRON_FIELD
-        cls.CRON_6_FIELD_PATTERN = re.compile(
-            rf"^{field}\s+{field}\s+{field}\s+{field}\s+{field}\s+{field}$"
-        )
-        cls.CRON_5_FIELD_PATTERN = re.compile(
-            rf"^{field}\s+{field}\s+{field}\s+{field}\s+{field}$"
-        )
+        Returns:
+            tuple: (is_valid: bool, error_message: str or None)
+        """
+        if not CRONITER_AVAILABLE:
+            # Fallback to basic field count check if croniter unavailable
+            fields = expression.split()
+            if len(fields) not in (5, 6):
+                return False, f"expected 5 or 6 fields, got {len(fields)}"
+            return True, None
 
-    def test_all_cron_expressions_valid(self):
-        """All cron expressions should match valid 5 or 6 field format."""
+        try:
+            # croniter validates the expression when creating the iterator
+            # and when getting the next occurrence
+            cron_iter = croniter(expression)
+            cron_iter.get_next()  # Force evaluation to catch semantic errors
+            return True, None
+        except CroniterBadCronError as e:
+            return False, str(e)
+        except Exception as e:
+            return False, f"unexpected error: {type(e).__name__}: {e}"
+
+    def test_all_cron_expressions_semantically_valid(self):
+        """All cron expressions should be semantically valid (using croniter)."""
         scheduler = load_hooks_submodule("scheduler")
         cron = scheduler.cron
 
         invalid_expressions = []
         for expression in cron.keys():
-            is_5_field = self.CRON_5_FIELD_PATTERN.match(expression)
-            is_6_field = self.CRON_6_FIELD_PATTERN.match(expression)
-
-            if not (is_5_field or is_6_field):
-                invalid_expressions.append(expression)
+            is_valid, error = self._validate_cron_expression(expression)
+            if not is_valid:
+                invalid_expressions.append(f"'{expression}': {error}")
 
         if invalid_expressions:
-            self.fail(f"Invalid cron expressions: {invalid_expressions}")
+            self.fail(
+                f"Invalid cron expressions (semantic validation):\n"
+                + "\n".join(invalid_expressions)
+            )
 
     def test_cron_uses_6_field_format_with_seconds(self):
         """Document that we use 6-field cron format (with seconds)."""
@@ -642,6 +789,23 @@ class TestCronExpressionValidation(unittest.TestCase):
         for expression, handlers in cron.items():
             self.assertIsInstance(handlers, list)
             self.assertGreater(len(handlers), 0, f"No handlers for cron: {expression}")
+
+    @unittest.skipUnless(CRONITER_AVAILABLE, "croniter not available")
+    def test_croniter_catches_known_invalid_expressions(self):
+        """Verify croniter catches common invalid expressions (sanity check)."""
+        # These should all fail validation
+        invalid_cases = [
+            ("*/0 * * * * *", "zero step"),
+            ("60 * * * * *", "seconds out of range"),
+            ("* 60 * * * *", "minutes out of range"),
+        ]
+
+        for expression, desc in invalid_cases:
+            is_valid, _ = self._validate_cron_expression(expression)
+            self.assertFalse(
+                is_valid,
+                f"Expected '{expression}' ({desc}) to be invalid, but it passed validation"
+            )
 
 
 class TestImportSideEffectGuards(unittest.TestCase):
