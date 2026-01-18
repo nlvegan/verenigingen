@@ -5,14 +5,21 @@ Tests the volunteer assignment history HTML display feature on Member forms.
 Validates security (XSS, URL injection), permissions, edge cases, and integration.
 
 Related files:
-- verenigingen/doctype/member/member.py:95-224 (generate_volunteer_details_html)
-- verenigingen/doctype/member/member.py:705-713 (onload integration)
+- verenigingen/services/member/display/member_volunteer_display_service.py (generate_volunteer_details_html)
+- verenigingen/services/member/display/member_onload_service.py (onload integration)
 """
 
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen.doctype.member.member import generate_volunteer_details_html
+from verenigingen.services.member.display.member_volunteer_display_service import (
+    get_member_volunteer_display_service,
+)
+
+
+def generate_volunteer_details_html(member_doc):
+    """Wrapper for backward compatibility with tests."""
+    return get_member_volunteer_display_service().generate_volunteer_details_html(member_doc)
 
 
 class TestVolunteerDetailsHTML(EnhancedTestCase):
