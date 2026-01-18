@@ -40,6 +40,14 @@ before_tests = "verenigingen.tests.setup.before_tests"
 # Run when user logs out
 on_logout = "verenigingen.auth_hooks.on_logout"
 
+# Boot session hooks - run when user session starts
+# Note: Original hooks.py had two declarations that overwrote each other.
+# Consolidated here to include both handlers.
+boot_session = [
+    "verenigingen.boot.boot_session",
+    "verenigingen.setup.document_links.setup_custom_document_links",
+]
+
 # Note: The following hooks are DISABLED due to issues:
 #
 # on_session_creation: Disabled because it interferes with session resumption.

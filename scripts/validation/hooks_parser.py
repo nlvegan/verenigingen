@@ -33,18 +33,30 @@ class EventMapping:
     confidence: float = 1.0
 
 class HooksParser:
-    """Parse hooks.py to extract DocType event mappings"""
-    
+    """Parse hooks.py or hooks/ package to extract DocType event mappings"""
+
     def __init__(self, app_path: str, verbose: bool = False):
         self.app_path = Path(app_path)
         self.verbose = verbose
         self.event_mappings: Dict[str, List[EventMapping]] = {}
         self.function_to_doctype: Dict[str, Set[str]] = {}
-        
+
         # Parse hooks file (in the main app module directory)
+        # Support both hooks.py (file) and hooks/ (package) structures
         hooks_file = self.app_path / "verenigingen" / "hooks.py"
+        hooks_package_init = self.app_path / "verenigingen" / "hooks" / "__init__.py"
+        hooks_doc_events = self.app_path / "verenigingen" / "hooks" / "doc_events.py"
+
         if hooks_file.exists():
             self.parse_hooks_file(hooks_file)
+        elif hooks_doc_events.exists():
+            # New package structure - parse doc_events.py directly
+            self.parse_hooks_file(hooks_doc_events)
+            if self.verbose:
+                print("📦 Using hooks/ package structure")
+        elif hooks_package_init.exists():
+            # Try __init__.py as fallback
+            self.parse_hooks_file(hooks_package_init)
         else:
             logger.warning(f"hooks.py not found at {hooks_file}")
     
