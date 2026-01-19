@@ -440,9 +440,10 @@ class BulkInvoiceGenerationService(StatefulService):
                 return self._execute_invoice_generation(test_mode, result)
 
         except AdvisoryLockError as e:
-            # This shouldn't happen with raise_on_timeout=False, but handle gracefully
-            self.logger.warning(f"Lock acquisition error: {str(e)}. Proceeding without lock.")
-            return self._execute_invoice_generation(test_mode, result)
+            # Lock system error - do NOT proceed without protection to prevent duplicates
+            self.logger.error(f"Lock system error: {str(e)}. Aborting to prevent duplicate generation.")
+            result.errors.append(f"Lock system error: {str(e)}. Please retry or contact support.")
+            return result
 
     def _execute_invoice_generation(
         self, test_mode: bool, result: BulkGenerationResult

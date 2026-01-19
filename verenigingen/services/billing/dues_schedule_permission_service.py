@@ -404,7 +404,9 @@ class DuesSchedulePermissionService(StatelessService):
                     )
 
                     if chapters:
-                        chapter_names = [f"'{c[0]}'" for c in chapters]
+                        # Use proper SQL escaping to prevent SQL injection
+                        chapter_names = [frappe.db.escape(c[0]) for c in chapters]
+                        escaped_member = frappe.db.escape(user_member)
                         # Allow templates OR records for members in their chapters OR their own
                         return f"""(
                             `tabMembership Dues Schedule`.is_template = 1
@@ -414,15 +416,17 @@ class DuesSchedulePermissionService(StatelessService):
                                 WHERE cm.parent IN ({','.join(chapter_names)})
                                   AND cm.status = 'Active'
                             )
-                            OR `tabMembership Dues Schedule`.member = '{user_member}'
+                            OR `tabMembership Dues Schedule`.member = {escaped_member}
                         )"""
 
         # For regular members, restrict to templates OR their own records
         user_member = frappe.db.get_value("Member", {"user": user}, "name")
 
         if user_member:
+            # Use proper SQL escaping to prevent SQL injection
+            escaped_member = frappe.db.escape(user_member)
             # Allow templates OR records where the member field matches their member record
-            return f"(`tabMembership Dues Schedule`.is_template = 1 OR `tabMembership Dues Schedule`.member = '{user_member}')"
+            return f"(`tabMembership Dues Schedule`.is_template = 1 OR `tabMembership Dues Schedule`.member = {escaped_member})"
         else:
             # Only allow templates if user is not linked to a member
             return "`tabMembership Dues Schedule`.is_template = 1"

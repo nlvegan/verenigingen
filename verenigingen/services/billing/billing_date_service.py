@@ -120,7 +120,7 @@ class BillingDateService(StatelessService):
         """
         Update the member's next_invoice_date field to match the schedule.
 
-        Skips update for terminated/deceased/banned members.
+        Skips update for terminated/deceased/banned members, or if member doesn't exist.
 
         Args:
             schedule_doc: The schedule document with updated dates
@@ -128,8 +128,13 @@ class BillingDateService(StatelessService):
         if not schedule_doc.member:
             return
 
-        # Check member status before updating
+        # Check member exists and get status before updating
         member_status = frappe.db.get_value("Member", schedule_doc.member, "status")
+
+        if member_status is None:
+            # Member doesn't exist (possibly deleted)
+            self.logger.warning(f"Member {schedule_doc.member} not found, skipping next_invoice_date update")
+            return
 
         if member_status in ["Deceased", "Banned", "Terminated"]:
             self.logger.debug(
