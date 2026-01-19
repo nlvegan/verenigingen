@@ -14,11 +14,15 @@ The advisory lock pattern provides distributed locking for preventing concurrent
    - Session-scoped locks
    - Automatically released when connection closes
    - Works without additional infrastructure
+   - **Caution**: Session-scoped means locks are tied to the DB connection, not the Python thread. Use with care in connection-pooled environments.
 
-2. **Redis** - Uses `SET NX` with TTL
+2. **Redis** - Uses `SET NX` with token-based ownership
    - Distributed locking across multiple workers/processes
-   - TTL-based automatic expiry for safety
+   - **Token-based ownership**: Uses unique UUID per acquisition
+   - **Safe release**: Lua script ensures only the owner can release the lock
+   - TTL-based automatic expiry as safety net (if holder crashes)
    - Requires Redis infrastructure
+   - **Recommended for production multi-worker deployments**
 
 ### Usage
 
@@ -82,13 +86,23 @@ For bulk operations with parallel processing:
   }
   ```
 
-### Graceful Degradation
+### Backend Selection
 
-The system automatically degrades gracefully:
+The system selects backends as follows:
 
-1. **Redis available** → Uses Redis distributed locks
-2. **Redis unavailable** → Falls back to MySQL advisory locks
-3. **Lock unavailable** → Operation proceeds without lock (logged as warning)
+1. **Redis available** → Uses Redis distributed locks (preferred for multi-worker)
+2. **Redis unavailable** → Falls back to MySQL advisory locks (single-process safe)
+
+### Lock Failure Handling
+
+**Critical operations (like bulk invoice generation) MUST NOT proceed without a lock.**
+
+If lock acquisition fails:
+- The operation is aborted with a clear error message
+- No partial or duplicate work is performed
+- The caller receives an error they can report to the user
+
+This prevents duplicate invoice generation and other race conditions.
 
 ## Bulk Invoice Generation
 
@@ -133,6 +147,32 @@ except AdvisoryLockError as e:
     handle_concurrency_conflict()
 ```
 
+## Redis Safe Release Pattern
+
+The Redis implementation uses token-based ownership to prevent accidentally releasing another worker's lock:
+
+```python
+# On acquisition:
+token = uuid4()
+redis.set(lock_key, token, nx=True, ex=ttl)
+store_token_locally(lock_name, token)
+
+# On release (Lua script for atomicity):
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])  -- Only delete if token matches
+else
+    return 0  -- Token mismatch - lock was re-acquired by someone else
+end
+```
+
+This prevents the following race condition:
+1. Worker A acquires lock with TTL=60s
+2. Worker A takes longer than 60s (lock expires)
+3. Worker B acquires the same lock with a new token
+4. Worker A tries to release "its" lock
+5. **Without token check**: Worker A deletes Worker B's lock (BAD!)
+6. **With token check**: Worker A's release fails safely (token mismatch)
+
 ## Testing
 
 Tests are located at: `verenigingen/tests/utils/test_db_advisory_lock.py`
@@ -143,6 +183,9 @@ Key test scenarios:
 - Backend detection
 - Redis backend (mocked)
 - MySQL re-entrancy behavior
+- **Token-based safe release** (Redis)
+- **Release without token fails** (Redis)
+- **Release with wrong token fails** (Redis)
 
 ## See Also
 

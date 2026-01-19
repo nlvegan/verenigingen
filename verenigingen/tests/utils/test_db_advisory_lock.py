@@ -280,30 +280,104 @@ class TestRedisBackendMocked(EnhancedTestCase):
         self.mock_redis.exists.return_value = False
 
     def test_redis_lock_acquisition_mocked(self):
-        """Test Redis lock acquisition with mocked client."""
+        """Test Redis lock acquisition with mocked client stores token."""
         with patch(
             "verenigingen.utils.db_advisory_lock._get_redis_client",
             return_value=self.mock_redis,
         ):
-            from verenigingen.utils.db_advisory_lock import _get_redis_lock
+            from verenigingen.utils.db_advisory_lock import (
+                _clear_lock_token,
+                _get_lock_token,
+                _get_redis_lock,
+            )
+
+            # Clear any existing token
+            _clear_lock_token("test_lock")
 
             result = _get_redis_lock("test_lock", timeout=5, ttl=60)
 
             self.assertTrue(result)
             self.mock_redis.set.assert_called()
 
+            # Verify token was stored
+            token = _get_lock_token("test_lock")
+            self.assertIsNotNone(token)
+            self.assertEqual(len(token), 36)  # UUID format
+
+            # Cleanup
+            _clear_lock_token("test_lock")
+
     def test_redis_lock_release_mocked(self):
-        """Test Redis lock release with mocked client."""
+        """Test Redis lock release uses Lua script with token."""
+        # Set up mock to return 1 (success) from eval
+        self.mock_redis.eval.return_value = 1
+
         with patch(
             "verenigingen.utils.db_advisory_lock._get_redis_client",
             return_value=self.mock_redis,
         ):
-            from verenigingen.utils.db_advisory_lock import _release_redis_lock
+            from verenigingen.utils.db_advisory_lock import (
+                _release_redis_lock,
+                _set_lock_token,
+            )
+
+            # Set a token as if we acquired the lock
+            test_token = "test-uuid-token-12345"
+            _set_lock_token("test_lock", test_token)
 
             result = _release_redis_lock("test_lock")
 
             self.assertTrue(result)
-            self.mock_redis.delete.assert_called_with("advisory_lock:test_lock")
+            # Verify Lua script was called with correct arguments
+            self.mock_redis.eval.assert_called_once()
+            call_args = self.mock_redis.eval.call_args
+            self.assertIn("advisory_lock:test_lock", call_args[0])
+            self.assertIn(test_token, call_args[0])
+
+    def test_redis_lock_release_without_token_fails(self):
+        """Test Redis lock release fails if we don't have ownership token."""
+        with patch(
+            "verenigingen.utils.db_advisory_lock._get_redis_client",
+            return_value=self.mock_redis,
+        ):
+            from verenigingen.utils.db_advisory_lock import (
+                _clear_lock_token,
+                _release_redis_lock,
+            )
+
+            # Ensure no token exists
+            _clear_lock_token("test_lock_no_token")
+
+            result = _release_redis_lock("test_lock_no_token")
+
+            # Should fail because we don't have a token
+            self.assertFalse(result)
+            # Should NOT have called eval (the Lua script)
+            self.mock_redis.eval.assert_not_called()
+
+    def test_redis_lock_release_with_wrong_token_fails(self):
+        """Test Redis lock release fails if token doesn't match (lock was re-acquired by another worker)."""
+        # Set up mock to return 0 (token mismatch) from eval
+        self.mock_redis.eval.return_value = 0
+
+        with patch(
+            "verenigingen.utils.db_advisory_lock._get_redis_client",
+            return_value=self.mock_redis,
+        ):
+            from verenigingen.utils.db_advisory_lock import (
+                _release_redis_lock,
+                _set_lock_token,
+            )
+
+            # Set a token (but Redis has a different value - simulating TTL expiry and re-acquisition)
+            _set_lock_token("test_lock_mismatch", "our-old-token")
+
+            result = _release_redis_lock("test_lock_mismatch")
+
+            # Should fail because token doesn't match
+            self.assertFalse(result)
+            # Lua script was called, but returned 0
+            self.mock_redis.eval.assert_called_once()
 
     def test_redis_is_lock_held_mocked(self):
         """Test Redis lock check with mocked client."""

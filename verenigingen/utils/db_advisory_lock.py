@@ -7,26 +7,46 @@ Advisory Lock Helper with Pluggable Backends
 Provides centralized advisory locking for preventing concurrent operations.
 Supports multiple backends:
 - MySQL/MariaDB: GET_LOCK() / RELEASE_LOCK() (session-scoped)
-- Redis: SET NX with expiry (distributed, cross-process)
+- Redis: SET NX with token-based ownership (distributed, cross-process)
 
-IMPORTANT: Advisory locks are session-scoped in MySQL/MariaDB. They are
-automatically released when the connection closes or when explicitly released.
-Redis locks use TTL expiry as a safety net.
+IMPORTANT BACKEND CONSIDERATIONS:
+
+MySQL/MariaDB Locks:
+- Session-scoped: automatically released when connection closes
+- Safe within single-process apps; use with caution in connection-pooled environments
+- The lock is tied to the database session, not the Python thread
+- If using connection pooling, ensure sessions aren't shared while locks are held
+
+Redis Locks:
+- Token-based ownership: uses unique UUID per acquisition
+- Safe release: Lua script ensures only the owner can release the lock
+- TTL safety net: locks auto-expire if holder crashes
+- Recommended for multi-worker/multi-process deployments
 
 Usage:
-    from verenigingen.utils.db_advisory_lock import advisory_lock, get_lock, release_lock
+    from verenigingen.utils.db_advisory_lock import (
+        advisory_lock,
+        advisory_lock_with_backend,
+        get_lock,
+        release_lock,
+    )
 
-    # Context manager (preferred) - uses database by default
+    # Simple context manager - uses MySQL/MariaDB (single-process safe)
     with advisory_lock("member_id_bulk_assignment", timeout=10):
         # Critical section
         ...
 
-    # Use Redis backend for distributed locking
-    with advisory_lock("bulk_invoice_generation", timeout=300, backend="redis"):
+    # Backend-aware context manager - use for distributed locking
+    with advisory_lock_with_backend("bulk_invoice_generation", timeout=300, backend="redis"):
         # Critical section - works across multiple workers/processes
         ...
 
-    # Manual locking (when context manager isn't suitable)
+    # Auto-detect best available backend
+    with advisory_lock_with_backend("my_lock", backend="auto") as acquired:
+        if acquired:
+            do_work()
+
+    # Manual locking (database backend, when context manager isn't suitable)
     if get_lock("my_lock", timeout=5):
         try:
             # Critical section
@@ -36,12 +56,20 @@ Usage:
 
 Backend Support:
     - database (default): MySQL/MariaDB GET_LOCK() / RELEASE_LOCK()
-    - redis: Redis SET NX with TTL (requires redis_cache in site config)
+    - redis: Redis SET NX with token + Lua atomic release (requires redis_cache)
+    - auto: Auto-detect (prefers Redis if available)
     - PostgreSQL: Not currently supported (raises NotImplementedError)
+
+Production Recommendations:
+    - Use Redis backend for bulk operations with multiple workers
+    - Configure redis_cache in site_config.json
+    - Set appropriate TTL values (default: timeout * 2 or 60s minimum)
+    - Always use context managers for automatic cleanup
 
 See: docs/patterns/ADVISORY_LOCK_PATTERN.md
 """
 
+import threading
 from contextlib import contextmanager
 from typing import Generator, Literal, Optional
 
@@ -236,6 +264,39 @@ def is_lock_held(lock_name: str, backend: LockBackend = "database") -> bool:
 # Redis Backend Implementation
 # =============================================================================
 
+# Thread-local storage for lock ownership tokens
+_lock_tokens = threading.local()
+
+# Lua script for atomic compare-and-delete (safe lock release)
+# Only deletes the key if the value matches the owner's token
+_REDIS_RELEASE_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
+
+
+def _get_lock_token(lock_name: str) -> str:
+    """Get the ownership token for a lock (if we hold it)."""
+    if not hasattr(_lock_tokens, "tokens"):
+        _lock_tokens.tokens = {}
+    return _lock_tokens.tokens.get(lock_name)
+
+
+def _set_lock_token(lock_name: str, token: str) -> None:
+    """Store the ownership token for a lock we acquired."""
+    if not hasattr(_lock_tokens, "tokens"):
+        _lock_tokens.tokens = {}
+    _lock_tokens.tokens[lock_name] = token
+
+
+def _clear_lock_token(lock_name: str) -> None:
+    """Clear the ownership token for a lock we released."""
+    if hasattr(_lock_tokens, "tokens") and lock_name in _lock_tokens.tokens:
+        del _lock_tokens.tokens[lock_name]
+
 
 def _detect_backend() -> LockBackend:
     """
@@ -306,9 +367,11 @@ def _get_redis_client():
 
 def _get_redis_lock(lock_name: str, timeout: int = 10, ttl: int = None) -> bool:
     """
-    Acquire a Redis-based distributed lock.
+    Acquire a Redis-based distributed lock with ownership token.
 
     Uses SET NX (set if not exists) with TTL for automatic expiry.
+    Stores a unique token as the value to enable safe release (only the
+    owner can release the lock).
 
     Args:
         lock_name: Unique name for the lock
@@ -317,8 +380,14 @@ def _get_redis_lock(lock_name: str, timeout: int = 10, ttl: int = None) -> bool:
 
     Returns:
         True if lock acquired, False if timed out
+
+    Note:
+        The ownership token is stored thread-locally. This ensures that
+        if the TTL expires and another worker acquires the lock, our
+        release call won't accidentally delete their lock.
     """
     import time
+    import uuid
 
     if ttl is None:
         ttl = max(timeout * 2, 60)  # At least 60 seconds TTL
@@ -326,14 +395,21 @@ def _get_redis_lock(lock_name: str, timeout: int = 10, ttl: int = None) -> bool:
     redis = _get_redis_client()
     lock_key = f"advisory_lock:{lock_name}"
 
+    # Generate unique ownership token for this acquisition attempt
+    token = str(uuid.uuid4())
+
     # Try to acquire lock with exponential backoff
     start_time = time.time()
     attempt = 0
 
     while (time.time() - start_time) < timeout:
-        # Try to set the lock (NX = only if not exists, EX = expiry in seconds)
-        if redis.set(lock_key, "locked", nx=True, ex=ttl):
-            frappe.logger("advisory_lock").debug(f"Acquired Redis lock: {lock_name} (TTL={ttl}s)")
+        # Try to set the lock with our token (NX = only if not exists, EX = expiry)
+        if redis.set(lock_key, token, nx=True, ex=ttl):
+            # Store token for safe release
+            _set_lock_token(lock_name, token)
+            frappe.logger("advisory_lock").debug(
+                f"Acquired Redis lock: {lock_name} (TTL={ttl}s, token={token[:8]}...)"
+            )
             return True
 
         # Lock not acquired, wait with exponential backoff
@@ -347,24 +423,52 @@ def _get_redis_lock(lock_name: str, timeout: int = 10, ttl: int = None) -> bool:
 
 def _release_redis_lock(lock_name: str) -> bool:
     """
-    Release a Redis-based distributed lock.
+    Safely release a Redis-based distributed lock.
+
+    Uses atomic compare-and-delete via Lua script to ensure we only release
+    locks we actually own. This prevents accidentally releasing another
+    worker's lock if our TTL expired and they acquired it.
 
     Args:
         lock_name: Name of the lock to release
 
     Returns:
-        True if lock was released, False otherwise
+        True if lock was released, False if we didn't own it or error occurred
+
+    Note:
+        If we don't have an ownership token (e.g., process crash and restart),
+        we cannot safely release the lock - it must expire via TTL.
     """
     try:
+        # Get our ownership token
+        token = _get_lock_token(lock_name)
+        if not token:
+            frappe.logger("advisory_lock").warning(
+                f"Cannot release Redis lock {lock_name}: no ownership token (lock may have expired)"
+            )
+            return False
+
         redis = _get_redis_client()
         lock_key = f"advisory_lock:{lock_name}"
 
-        result = redis.delete(lock_key)
+        # Use Lua script for atomic compare-and-delete
+        # Only deletes if the value matches our token
+        result = redis.eval(_REDIS_RELEASE_SCRIPT, 1, lock_key, token)
+
+        # Clear our token regardless of result
+        _clear_lock_token(lock_name)
+
         if result:
             frappe.logger("advisory_lock").debug(f"Released Redis lock: {lock_name}")
-        return bool(result)
+            return True
+        else:
+            frappe.logger("advisory_lock").warning(
+                f"Redis lock {lock_name} not released: token mismatch (lock may have expired and been re-acquired)"
+            )
+            return False
     except Exception as e:
         frappe.logger("advisory_lock").warning(f"Failed to release Redis lock {lock_name}: {str(e)}")
+        _clear_lock_token(lock_name)  # Clean up token even on error
         return False
 
 
