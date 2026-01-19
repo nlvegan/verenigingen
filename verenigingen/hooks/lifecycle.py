@@ -13,6 +13,7 @@ These hooks are called at specific points in the application lifecycle:
 after_install = [
     "verenigingen.setup.execute_after_install",
     "verenigingen.setup.security_setup.setup_all_security",
+    "verenigingen.setup.critical_operation_rules_setup.setup_critical_operation_rules",
 ]
 
 # Run after database migrations complete

@@ -222,6 +222,7 @@ fixtures = [
     },
     # Verenigingen Settings singleton
     {"doctype": "Verenigingen Settings"},
-    # Critical Operation Rules (security rate limiting)
-    "Critical Operation Rule",
+    # NOTE: Critical Operation Rules are NOT included here.
+    # They are created once during app install via setup.critical_operation_rules_setup
+    # to prevent migrations from overwriting user customizations to rate limits, roles, etc.
 ]
