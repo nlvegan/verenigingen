@@ -95,9 +95,9 @@ class BulkInvoiceGenerationService(StatefulService):
 
     Concurrency Protection:
     - Uses centralized advisory_lock helper (verenigingen.utils.db_advisory_lock)
-    - Redis backend for distributed locking across workers
+    - Redis backend for distributed locking across workers (uses redis.lock.Lock)
     - Falls back to database advisory lock if Redis unavailable
-    - Graceful degradation: proceeds without lock if locking fails
+    - Aborts with error if lock acquisition fails (prevents duplicate generation)
 
     Example:
         service = get_bulk_invoice_generation_service()

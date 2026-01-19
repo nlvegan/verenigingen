@@ -16,10 +16,11 @@ The advisory lock pattern provides distributed locking for preventing concurrent
    - Works without additional infrastructure
    - **Caution**: Session-scoped means locks are tied to the DB connection, not the Python thread. Use with care in connection-pooled environments.
 
-2. **Redis** - Uses `SET NX` with token-based ownership
+2. **Redis** - Uses native `redis.lock.Lock` from the redis package
    - Distributed locking across multiple workers/processes
-   - **Token-based ownership**: Uses unique UUID per acquisition
-   - **Safe release**: Lua script ensures only the owner can release the lock
+   - **Token-based ownership**: Handled internally by `redis.lock.Lock`
+   - **Safe release**: `Lock.release()` uses Lua scripts for atomic compare-and-delete
+   - **Ownership check**: `Lock.owned()` verifies we still hold the lock before release
    - TTL-based automatic expiry as safety net (if holder crashes)
    - Requires Redis infrastructure
    - **Recommended for production multi-worker deployments**
@@ -149,29 +150,28 @@ except AdvisoryLockError as e:
 
 ## Redis Safe Release Pattern
 
-The Redis implementation uses token-based ownership to prevent accidentally releasing another worker's lock:
+The Redis implementation uses `redis.lock.Lock` which handles token-based ownership internally:
 
 ```python
-# On acquisition:
-token = uuid4()
-redis.set(lock_key, token, nx=True, ex=ttl)
-store_token_locally(lock_name, token)
+from redis.lock import Lock
 
-# On release (Lua script for atomicity):
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    return redis.call('del', KEYS[1])  -- Only delete if token matches
-else
-    return 0  -- Token mismatch - lock was re-acquired by someone else
-end
+# On acquisition:
+lock = Lock(redis_client, lock_key, timeout=ttl, blocking_timeout=timeout)
+if lock.acquire():
+    store_lock_object(lock_name, lock)  # Store Lock object for later release
+
+# On release:
+lock = get_lock_object(lock_name)
+if lock and lock.owned():  # Verify we still own the lock
+    lock.release()  # Uses Lua script internally for atomic compare-and-delete
 ```
 
-This prevents the following race condition:
+The `redis.lock.Lock` class prevents the following race condition:
 1. Worker A acquires lock with TTL=60s
 2. Worker A takes longer than 60s (lock expires)
 3. Worker B acquires the same lock with a new token
 4. Worker A tries to release "its" lock
-5. **Without token check**: Worker A deletes Worker B's lock (BAD!)
-6. **With token check**: Worker A's release fails safely (token mismatch)
+5. `lock.owned()` returns `False` - Worker A's release is skipped safely
 
 ## Testing
 
@@ -181,11 +181,11 @@ Key test scenarios:
 - Lock acquisition and release
 - Timeout handling
 - Backend detection
-- Redis backend (mocked)
+- Redis backend (mocked with `redis.lock.Lock`)
 - MySQL re-entrancy behavior
-- **Token-based safe release** (Redis)
-- **Release without token fails** (Redis)
-- **Release with wrong token fails** (Redis)
+- **Lock object stored on acquisition** (Redis)
+- **Release without Lock object fails** (Redis)
+- **Release when not owned fails** (Redis - TTL expiry scenario)
 
 ## See Also
 
