@@ -374,6 +374,17 @@ repos:
         stages: [pre-push]
         verbose: true
 
+      - id: whitelist-type-safety
+        name: 🔒 Whitelist Type Safety (Frappe v15+)
+        description: Validate type annotations on @whitelist params to prevent type confusion attacks
+        entry: python scripts/validation/security/whitelist_type_safety_validator.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/.*\.py$'
+        exclude: '^(verenigingen/tests/|.*test.*\.py|.*debug.*\.py|archived_.*)'
+        stages: [pre-commit]
+        verbose: true
+
       # Performance and Quality Checks
       - id: email-template-validator
         name: 📧 Email Template Validator
