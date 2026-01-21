@@ -712,6 +712,150 @@ class TestToDictNestedSchema(FrappeTestCase):
         self.assertNotIn("meta", result_dict)
 
 
+class TestMapPreservesTraceback(FrappeTestCase):
+    """Test cases for map() preserving exception info via from_exception."""
+
+    def test_map_preserves_traceback_on_exception(self):
+        """Test that map() captures traceback when transform fails."""
+        result = OperationResult.ok({"value": 1})
+
+        def failing_transform(data):
+            raise ValueError("Transform failed intentionally")
+
+        mapped = result.map(failing_transform)
+
+        self.assertFalse(mapped.success)
+        self.assertIn("Transform failed", mapped.error_message)
+        # Should have traceback and exception in metadata
+        self.assertIn("traceback", mapped.metadata)
+        self.assertIn("exception", mapped.metadata)
+        # Should have exception type in errors list
+        self.assertIn("ValueError", mapped.errors)
+
+    def test_map_preserves_original_metadata(self):
+        """Test that map() preserves original metadata even on exception."""
+        result = OperationResult.ok({"value": 1}, original_key="original_value")
+
+        def failing_transform(data):
+            raise RuntimeError("Oops")
+
+        mapped = result.map(failing_transform)
+
+        self.assertFalse(mapped.success)
+        self.assertEqual(mapped.metadata.get("original_key"), "original_value")
+
+
+class TestScrubMetadata(FrappeTestCase):
+    """Test cases for scrub_metadata function."""
+
+    def test_scrub_metadata_redacts_token(self):
+        """Test that scrub_metadata redacts token fields."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = {"user": "john", "token": "secret123"}
+        result = scrub_metadata(metadata)
+
+        self.assertEqual(result["user"], "john")
+        self.assertEqual(result["token"], "***REDACTED***")
+
+    def test_scrub_metadata_redacts_api_key(self):
+        """Test that scrub_metadata redacts api_key fields."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = {"api_key": "sk_test_123", "normal": "value"}
+        result = scrub_metadata(metadata)
+
+        self.assertEqual(result["api_key"], "***REDACTED***")
+        self.assertEqual(result["normal"], "value")
+
+    def test_scrub_metadata_case_insensitive(self):
+        """Test that scrub_metadata is case insensitive."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = {"Authorization": "Bearer xyz", "PASSWORD": "secret"}
+        result = scrub_metadata(metadata)
+
+        self.assertEqual(result["Authorization"], "***REDACTED***")
+        self.assertEqual(result["PASSWORD"], "***REDACTED***")
+
+    def test_scrub_metadata_nested_dicts(self):
+        """Test that scrub_metadata handles nested dictionaries."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = {
+            "config": {
+                "secret_key": "hidden",
+                "public_setting": "visible"
+            }
+        }
+        result = scrub_metadata(metadata)
+
+        self.assertEqual(result["config"]["secret_key"], "***REDACTED***")
+        self.assertEqual(result["config"]["public_setting"], "visible")
+
+    def test_scrub_metadata_empty_input(self):
+        """Test that scrub_metadata handles empty input."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        self.assertEqual(scrub_metadata({}), {})
+        self.assertEqual(scrub_metadata(None), {})
+
+
+class TestToDictScrubSensitive(FrappeTestCase):
+    """Test cases for to_dict with scrub_sensitive parameter."""
+
+    def test_to_dict_scrub_sensitive_redacts_tokens(self):
+        """Test that to_dict(scrub_sensitive=True) redacts sensitive metadata."""
+        result = OperationResult.fail(
+            "Auth failed",
+            token="secret_token",
+            user="john"
+        )
+
+        output = result.to_dict(nested=True, scrub_sensitive=True)
+
+        self.assertEqual(output["meta"]["token"], "***REDACTED***")
+        self.assertEqual(output["meta"]["user"], "john")
+
+    def test_to_dict_no_scrub_by_default(self):
+        """Test that to_dict does not scrub by default."""
+        result = OperationResult.fail(
+            "Auth failed",
+            token="secret_token"
+        )
+
+        output = result.to_dict(nested=True)
+
+        self.assertEqual(output["meta"]["token"], "secret_token")
+
+
+class TestLogErrorTraceId(FrappeTestCase):
+    """Test cases for log_error trace_id generation."""
+
+    def test_log_error_returns_trace_id(self):
+        """Test that log_error returns a trace_id string."""
+        from verenigingen.utils.error_handling import log_error
+
+        exc = ValueError("Test error")
+        trace_id = log_error(exc, module="test_module")
+
+        self.assertIsInstance(trace_id, str)
+        self.assertGreater(len(trace_id), 0)
+
+    def test_log_error_preserves_provided_trace_id(self):
+        """Test that log_error uses provided trace_id if given."""
+        from verenigingen.utils.error_handling import log_error
+
+        exc = ValueError("Test error")
+        trace_id = log_error(
+            exc,
+            context={"trace_id": "custom-trace-123"},
+            module="test_module"
+        )
+
+        self.assertEqual(trace_id, "custom-trace-123")
+
+
 def run_tests():
     """Helper function to run all OperationResult tests."""
     import sys
@@ -730,6 +874,10 @@ def run_tests():
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestHttpStatusField))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestWrapOperation))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestToDictNestedSchema))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMapPreservesTraceback))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestScrubMetadata))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestToDictScrubSensitive))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestLogErrorTraceId))
 
     # Run tests
     runner = unittest.TextTestRunner(verbosity=2)

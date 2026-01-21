@@ -262,18 +262,93 @@ def get_logger(module_name: str):
     return frappe.logger(module_name, allow_site=True, file_count=50)
 
 
-def log_error(error: Exception, context: Dict[str, Any] = None, module: str = None):
+# Keys that should be redacted from metadata before logging
+SENSITIVE_METADATA_KEYS = frozenset(
+    {
+        "authorization",
+        "x-api-key",
+        "api_key",
+        "apikey",
+        "token",
+        "access_token",
+        "refresh_token",
+        "bearer",
+        "password",
+        "passwd",
+        "secret",
+        "card_number",
+        "cvv",
+        "cvc",
+        "ssn",
+        "social_security",
+        "private_key",
+        "secret_key",
+    }
+)
+
+
+def scrub_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Log an error with standardized formatting and context
+    Scrub sensitive keys from metadata before logging or returning in API responses.
+
+    This function prevents accidental leakage of secrets, tokens, and other
+    sensitive data that may be passed in metadata dictionaries.
+
+    Args:
+        metadata: Dictionary that may contain sensitive keys
+
+    Returns:
+        New dictionary with sensitive values redacted
+
+    Examples:
+        >>> scrub_metadata({"user": "john", "token": "secret123"})
+        {'user': 'john', 'token': '***REDACTED***'}
+
+        >>> scrub_metadata({"Authorization": "Bearer xyz"})
+        {'Authorization': '***REDACTED***'}
+    """
+    if not metadata:
+        return {}
+
+    result = {}
+    for key, value in metadata.items():
+        key_lower = key.lower()
+        # Check if key matches any sensitive pattern
+        if any(sensitive in key_lower for sensitive in SENSITIVE_METADATA_KEYS):
+            result[key] = "***REDACTED***"
+        elif isinstance(value, dict):
+            # Recursively scrub nested dicts
+            result[key] = scrub_metadata(value)
+        else:
+            result[key] = value
+
+    return result
+
+
+def log_error(error: Exception, context: Dict[str, Any] = None, module: str = None) -> str:
+    """
+    Log an error with standardized formatting, context, and trace ID.
 
     Args:
         error: The exception that occurred
         context: Additional context information
         module: Module name where error occurred
+
+    Returns:
+        trace_id: Unique identifier for correlating logs and API responses
     """
+    import uuid
+
     logger = get_logger(module or "verenigingen.error")
 
+    # Generate or extract trace_id for correlation
+    trace_id = (context or {}).get("trace_id") or uuid.uuid4().hex[:16]
+
+    # Scrub sensitive data from context before logging
+    safe_context = scrub_metadata(context or {})
+
     error_context = {
+        "trace_id": trace_id,
         "user": frappe.session.user if frappe.session else "System",
         "site": frappe.local.site if frappe.local else "Unknown",
         "error_type": type(error).__name__,
@@ -281,37 +356,44 @@ def log_error(error: Exception, context: Dict[str, Any] = None, module: str = No
     }
 
     # Add context without overwriting logging's reserved fields
-    if context:
-        for key, value in context.items():
-            # Avoid reserved logging fields that could cause conflicts
-            if key not in [
-                "name",
-                "msg",
-                "args",
-                "levelname",
-                "levelno",
-                "pathname",
-                "filename",
-                "module",
-                "lineno",
-                "funcName",
-                "created",
-                "msecs",
-                "relativeCreated",
-                "thread",
-                "threadName",
-                "processName",
-                "process",
-            ]:
-                error_context[f"ctx_{key}"] = value
+    for key, value in safe_context.items():
+        # Avoid reserved logging fields that could cause conflicts
+        if key not in [
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "processName",
+            "process",
+            "trace_id",  # Already added above
+        ]:
+            error_context[f"ctx_{key}"] = value
 
     # Log the error with safe context
-    logger.error(f"Error in {module}: {str(error)}", extra=error_context, exc_info=True)
+    logger.error(
+        f"[trace_id={trace_id}] Error in {module}: {str(error)}",
+        extra=error_context,
+        exc_info=True,
+    )
 
     # Also create a Frappe Error Log entry for tracking
     frappe.log_error(
-        title=f"{module}: {type(error).__name__}", message=f"Error: {str(error)}\nContext: {error_context}"
+        title=f"{module}: {type(error).__name__} [trace_id={trace_id}]",
+        message=f"Error: {str(error)}\nTrace ID: {trace_id}\nContext: {error_context}",
     )
+
+    return trace_id
 
 
 def handle_api_error(func: Callable) -> Callable:

@@ -367,7 +367,12 @@ class OperationResult(Generic[T]):
             try:
                 return OperationResult.ok(func(self.data), **self.metadata)
             except Exception as e:
-                return OperationResult.fail(str(e))
+                # Preserve structured exception info for debugging
+                return OperationResult.from_exception(
+                    e,
+                    message=f"Transform failed: {e}",
+                    **self.metadata,
+                )
         return self  # type: ignore
 
     def chain(self, message: str, **extra_metadata: Any) -> "OperationResult[T]":
@@ -409,7 +414,7 @@ class OperationResult(Generic[T]):
         # Preserve error_code from original result
         return OperationResult.fail(message, errors=errors, error_code=self.error_code, **merged_metadata)
 
-    def to_dict(self, nested: bool = True) -> Dict[str, Any]:
+    def to_dict(self, nested: bool = True, scrub_sensitive: bool = False) -> Dict[str, Any]:
         """
         Convert to dictionary for API responses.
 
@@ -417,6 +422,9 @@ class OperationResult(Generic[T]):
             nested: If True (default), uses stable nested schema where metadata
                     is under "meta" key and errors are in a structured "error" object.
                     If False, uses legacy flat schema for backward compatibility.
+            scrub_sensitive: If True, redact sensitive keys (tokens, passwords, etc.)
+                            from metadata before including in output. Use this when
+                            returning results to clients or logging.
 
         Returns:
             Dictionary representation
@@ -448,6 +456,9 @@ class OperationResult(Generic[T]):
 
             >>> # Legacy flat schema (nested=False)
             >>> result.to_dict(nested=False)
+
+            >>> # Scrub sensitive data before returning to client
+            >>> result.to_dict(scrub_sensitive=True)
         """
         result_dict: Dict[str, Any] = {
             "success": self.success,
@@ -459,6 +470,13 @@ class OperationResult(Generic[T]):
             if hasattr(data, "as_dict") and callable(getattr(data, "as_dict", None)):
                 return data.as_dict()
             return data
+
+        # Optionally scrub metadata
+        metadata_to_use = self.metadata
+        if scrub_sensitive and self.metadata:
+            from verenigingen.utils.error_handling import scrub_metadata
+
+            metadata_to_use = scrub_metadata(self.metadata)
 
         if nested:
             # New nested schema - stable, no key collisions
@@ -478,8 +496,8 @@ class OperationResult(Generic[T]):
                 result_dict["error"] = error_obj
 
             # Metadata under separate key to prevent collisions
-            if self.metadata:
-                result_dict["meta"] = dict(self.metadata)
+            if metadata_to_use:
+                result_dict["meta"] = dict(metadata_to_use)
         else:
             # Legacy flat schema for backward compatibility
             if self.success:
@@ -494,7 +512,7 @@ class OperationResult(Generic[T]):
                     result_dict["http_status"] = self.http_status
 
             # Flatten metadata into top level (legacy behavior - can cause collisions)
-            result_dict.update(self.metadata)
+            result_dict.update(metadata_to_use)
 
         return result_dict
 
@@ -543,6 +561,7 @@ def wrap_operation(func: callable) -> callable:
     Features:
         - If the function already returns an OperationResult, it is passed through unchanged
         - On exceptions, captures full traceback and exception type for debugging
+        - Logs errors immediately via log_error() for observability
         - Preserves function metadata via functools.wraps
 
     Args:
@@ -561,7 +580,8 @@ def wrap_operation(func: callable) -> callable:
         >>> result = create_member(data)  # Returns OperationResult
     """
     import functools
-    import traceback as tb_module
+
+    from verenigingen.utils.error_handling import log_error
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> OperationResult:
@@ -572,13 +592,17 @@ def wrap_operation(func: callable) -> callable:
                 return result
             return OperationResult.ok(result)
         except Exception as e:
-            # Capture full traceback for debugging
-            tb_str = tb_module.format_exc()
-            return OperationResult.fail(
+            # Log error immediately for observability
+            trace_id = log_error(
+                e,
+                context={"function": getattr(func, "__name__", "<unknown>")},
+                module=getattr(func, "__module__", "vereinigingen.utils.operation_result"),
+            )
+            # Return structured result with trace_id for correlation
+            return OperationResult.from_exception(
+                e,
                 message=str(e),
-                errors=[type(e).__name__],
-                exception=repr(e),
-                traceback=tb_str,
+                trace_id=trace_id,
             )
 
     return wrapper
