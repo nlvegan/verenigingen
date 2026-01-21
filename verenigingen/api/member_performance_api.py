@@ -68,10 +68,7 @@ def create_member_optimized(member_data: str) -> OperationResult[Dict[str, Any]]
             title=_("Optimized member creation failed"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Member creation failed"),
-        )
+        return OperationResult.from_exception(e, message=_("Member creation failed"))
 
 
 @standard_api(operation_type=OperationType.MEMBER_DATA)
@@ -115,10 +112,8 @@ def search_members_fast(filters: str = None, limit: int = 20) -> OperationResult
             title=_("Fast member search failed"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Search failed"),
-            data={"results": [], "count": 0},
+        return OperationResult.from_exception(
+            e, message=_("Search failed"), fallback_data={"results": [], "count": 0}
         )
 
 
@@ -156,10 +151,8 @@ def get_member_dashboard_fast(member_name: str) -> OperationResult[Dict[str, Any
             title=_("Fast dashboard load failed for {0}").format(member_name),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Dashboard load failed"),
-            data={"data": {}},
+        return OperationResult.from_exception(
+            e, message=_("Dashboard load failed"), fallback_data={"data": {}}
         )
 
 
@@ -192,10 +185,7 @@ def clear_member_cache(member_name: str = None) -> OperationResult[Dict[str, Any
             title=_("Cache clearing failed"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Cache clearing failed"),
-        )
+        return OperationResult.from_exception(e, message=_("Cache clearing failed"))
 
 
 @standard_api(operation_type=OperationType.REPORTING)
@@ -254,10 +244,8 @@ def get_performance_stats() -> OperationResult[Dict[str, Any]]:
             title=_("Performance stats retrieval failed"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Performance stats retrieval failed"),
-            data={"stats": {}},
+        return OperationResult.from_exception(
+            e, message=_("Performance stats retrieval failed"), fallback_data={"stats": {}}
         )
 
 
@@ -320,10 +308,10 @@ def bulk_create_members(members_data: str) -> OperationResult[Dict[str, Any]]:
             title=_("Bulk member creation failed"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error=str(e),
+        return OperationResult.from_exception(
+            e,
             message=_("Bulk creation failed"),
-            data={"results": {"created": [], "failed": [], "total": 0}},
+            fallback_data={"results": {"created": [], "failed": [], "total": 0}},
         )
 
 
@@ -395,8 +383,6 @@ def test_performance_optimization() -> OperationResult[Dict[str, Any]]:
             title=_("Performance optimization test failed"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Performance tests failed"),
-            data={"test_results": {}},
+        return OperationResult.from_exception(
+            e, message=_("Performance tests failed"), fallback_data={"test_results": {}}
         )

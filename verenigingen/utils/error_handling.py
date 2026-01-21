@@ -73,57 +73,180 @@ from frappe import _
 
 
 class VerenigingenException(frappe.ValidationError):
-    """Base exception class for Verenigingen-specific errors"""
+    """
+    Base exception class for Verenigingen-specific errors.
 
-    pass
+    Supports structured error information for monitoring, logging, and API responses.
+
+    Attributes:
+        error_code: Structured error code for monitoring/alerting (e.g., "MEM_001")
+        http_status: HTTP status code for API responses (e.g., 400, 404, 500)
+        details: Additional context dictionary for debugging
+
+    Examples:
+        >>> raise VerenigingenException(
+        ...     "Validation failed",
+        ...     error_code="VALIDATION_001",
+        ...     http_status=400,
+        ...     details={"field": "email"}
+        ... )
+    """
+
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(message or "An error occurred")
+        self.error_code = error_code
+        self.http_status = http_status
+        self.details = details or {}
 
 
 class MembershipError(VerenigingenException):
     """Raised when membership-related operations fail"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "Membership operation failed",
+            error_code=error_code or "MEMBERSHIP_ERROR",
+            http_status=http_status or 400,
+            details=details,
+        )
 
 
 class PaymentError(VerenigingenException):
     """Raised when payment processing fails"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "Payment processing failed",
+            error_code=error_code or "PAYMENT_ERROR",
+            http_status=http_status or 400,
+            details=details,
+        )
 
 
 class SEPAError(PaymentError):
     """Raised when SEPA direct debit operations fail"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "SEPA operation failed",
+            error_code=error_code or "SEPA_ERROR",
+            http_status=http_status or 400,
+            details=details,
+        )
 
 
 class VolunteerError(VerenigingenException):
     """Raised when volunteer-related operations fail"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "Volunteer operation failed",
+            error_code=error_code or "VOLUNTEER_ERROR",
+            http_status=http_status or 400,
+            details=details,
+        )
 
 
 class ChapterError(VerenigingenException):
     """Raised when chapter-related operations fail"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "Chapter operation failed",
+            error_code=error_code or "CHAPTER_ERROR",
+            http_status=http_status or 400,
+            details=details,
+        )
 
 
 class PermissionError(VerenigingenException):
     """Raised when user lacks required permissions"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "Permission denied",
+            error_code=error_code or "PERMISSION_DENIED",
+            http_status=http_status or 403,
+            details=details,
+        )
 
 
 class ValidationError(VerenigingenException):
     """Raised when data validation fails"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "Validation failed",
+            error_code=error_code or "VALIDATION_ERROR",
+            http_status=http_status or 400,
+            details=details,
+        )
 
 
 class ConfigurationError(VerenigingenException):
     """Raised when system configuration is invalid"""
 
-    pass
+    def __init__(
+        self,
+        message: str = None,
+        error_code: str = None,
+        http_status: int = None,
+        details: Dict[str, Any] = None,
+    ):
+        super().__init__(
+            message or "Configuration error",
+            error_code=error_code or "CONFIG_ERROR",
+            http_status=http_status or 500,
+            details=details,
+        )
 
 
 def get_logger(module_name: str):
@@ -193,48 +316,54 @@ def log_error(error: Exception, context: Dict[str, Any] = None, module: str = No
 
 def handle_api_error(func: Callable) -> Callable:
     """
-    Decorator to provide standardized error handling for API endpoints
+    Decorator to provide standardized error handling for API endpoints.
+
+    Returns OperationResult for consistent API responses across the application.
 
     Usage:
         @frappe.whitelist()
         @handle_api_error
         def my_api_function():
             # Function implementation
+
+    Note:
+        This decorator returns OperationResult objects, which can be converted
+        to dict via .to_dict() by the standard_api decorator or similar wrappers.
     """
+    from verenigingen.utils.operation_result import OperationResult
 
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except VerenigingenException as e:
-            # Known application errors - return structured error
+            # Known application errors - return structured OperationResult
             log_error(e, context={"function": func.__name__}, module=func.__module__)
-            return {
-                "success": False,
-                "error": {
-                    "type": type(e).__name__,
-                    "message": str(e),
-                    "code": getattr(e, "error_code", "VALIDATION_ERROR"),
-                },
-            }
+            return OperationResult.fail(
+                message=str(e),
+                error_code=getattr(e, "error_code", "VALIDATION_ERROR"),
+                http_status=getattr(e, "http_status", 400),
+                errors=[type(e).__name__],
+                details=getattr(e, "details", {}),
+            )
         except frappe.PermissionError as e:
             # Permission errors
             log_error(e, context={"function": func.__name__}, module=func.__module__)
-            return {
-                "success": False,
-                "error": {
-                    "type": "PermissionError",
-                    "message": _("Access denied: {0}").format(str(e)),
-                    "code": "PERMISSION_DENIED",
-                },
-            }
+            return OperationResult.fail(
+                message=_("Access denied: {0}").format(str(e)),
+                error_code="PERMISSION_DENIED",
+                http_status=403,
+                errors=["PermissionError"],
+            )
         except frappe.ValidationError as e:
             # Frappe validation errors
             log_error(e, context={"function": func.__name__}, module=func.__module__)
-            return {
-                "success": False,
-                "error": {"type": "ValidationError", "message": str(e), "code": "VALIDATION_ERROR"},
-            }
+            return OperationResult.fail(
+                message=str(e),
+                error_code="VALIDATION_ERROR",
+                http_status=400,
+                errors=["ValidationError"],
+            )
         except Exception as e:
             # Unexpected errors - log with full traceback
             log_error(
@@ -248,14 +377,12 @@ def handle_api_error(func: Callable) -> Callable:
                 module=func.__module__,
             )
 
-            return {
-                "success": False,
-                "error": {
-                    "type": "SystemError",
-                    "message": _("An unexpected error occurred. Please contact support."),
-                    "code": "SYSTEM_ERROR",
-                },
-            }
+            return OperationResult.from_exception(
+                e,
+                message=_("An unexpected error occurred. Please contact support."),
+                error_code="SYSTEM_ERROR",
+                http_status=500,
+            )
 
     return wrapper
 

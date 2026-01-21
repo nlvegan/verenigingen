@@ -25,7 +25,7 @@ def get_onboarding_info() -> OperationResult[Dict[str, Any]]:
                 message=_("The Verenigingen Module Onboarding document does not exist in the database"),
             )
             return OperationResult.fail(
-                error_code="ONBOARDING_NOT_FOUND", error_message=_("Verenigingen Module Onboarding not found")
+                message=_("Verenigingen Module Onboarding not found"), error_code="ONBOARDING_NOT_FOUND"
             )
 
         # Get the onboarding document
@@ -73,9 +73,10 @@ def get_onboarding_info() -> OperationResult[Dict[str, Any]]:
             title=_("Error Retrieving Onboarding Information"),
             message=f"{str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
+        return OperationResult.from_exception(
+            e,
+            message=_("Failed to retrieve onboarding information: {0}").format(str(e)),
             error_code="ONBOARDING_RETRIEVAL_ERROR",
-            error_message=_("Failed to retrieve onboarding information: {0}").format(str(e)),
         )
 
 
@@ -108,14 +109,15 @@ def get_direct_onboarding_link() -> OperationResult[Dict[str, Any]]:
                 message=_("The Verenigingen Module Onboarding document does not exist in the database"),
             )
             return OperationResult.fail(
-                error_code="ONBOARDING_NOT_FOUND", error_message=_("Verenigingen Module Onboarding not found")
+                message=_("Verenigingen Module Onboarding not found"), error_code="ONBOARDING_NOT_FOUND"
             )
 
     except Exception as e:
         frappe.log_error(
             title=_("Error Getting Onboarding Link"), message=f"{str(e)}\n\n{traceback.format_exc()}"
         )
-        return OperationResult.fail(
+        return OperationResult.from_exception(
+            e,
+            message=_("Failed to get onboarding link: {0}").format(str(e)),
             error_code="ONBOARDING_LINK_ERROR",
-            error_message=_("Failed to get onboarding link: {0}").format(str(e)),
         )

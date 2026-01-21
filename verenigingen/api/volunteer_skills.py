@@ -96,15 +96,12 @@ def get_skills_overview() -> OperationResult[Dict[str, Any]]:
             title=_("Error getting skills overview"),
             message=f"{str(e)}\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error_message=_("Failed to retrieve skills overview"),
-            error_details=str(e),
-        )
+        return OperationResult.from_exception(e, message=_("Failed to retrieve skills overview"))
 
 
 @high_security_api  # Volunteer search - personal data access
 @frappe.whitelist()
-def search_volunteers_advanced(filters=None) -> OperationResult[Dict[str, Any]]:
+def search_volunteers_advanced(filters: str | None = None) -> OperationResult[Dict[str, Any]]:
     """Advanced volunteer search with multiple skill filters
 
     Args:
@@ -231,15 +228,12 @@ def search_volunteers_advanced(filters=None) -> OperationResult[Dict[str, Any]]:
             title=_("Error in advanced volunteer search"),
             message=f"{str(e)}\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error_message=_("Failed to search volunteers"),
-            error_details=str(e),
-        )
+        return OperationResult.from_exception(e, message=_("Failed to search volunteers"))
 
 
 @standard_api  # Skill recommendations - algorithmic suggestions
 @frappe.whitelist()
-def get_skill_recommendations(volunteer_name, limit=10) -> OperationResult[Dict[str, Any]]:
+def get_skill_recommendations(volunteer_name: str, limit: int = 10) -> OperationResult[Dict[str, Any]]:
     """Get skill recommendations for a volunteer based on similar volunteers
 
     Args:
@@ -334,10 +328,7 @@ def get_skill_recommendations(volunteer_name, limit=10) -> OperationResult[Dict[
             title=_("Error getting skill recommendations"),
             message=f"{str(e)}\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error_message=_("Failed to retrieve skill recommendations"),
-            error_details=str(e),
-        )
+        return OperationResult.from_exception(e, message=_("Failed to retrieve skill recommendations"))
 
 
 @standard_api  # Skill gaps analysis - organizational metrics
@@ -407,10 +398,7 @@ def get_skill_gaps_analysis() -> OperationResult[Dict[str, Any]]:
             title=_("Error in skill gaps analysis"),
             message=f"{str(e)}\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error_message=_("Failed to analyze skill gaps"),
-            error_details=str(e),
-        )
+        return OperationResult.from_exception(e, message=_("Failed to analyze skill gaps"))
 
 
 @high_security_api  # Data export - personal information
@@ -479,7 +467,4 @@ def export_skills_data(format_type="json") -> OperationResult[Dict[str, Any]]:
             title=_("Error exporting skills data"),
             message=f"{str(e)}\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            error_message=_("Failed to export skills data"),
-            error_details=str(e),
-        )
+        return OperationResult.from_exception(e, message=_("Failed to export skills data"))

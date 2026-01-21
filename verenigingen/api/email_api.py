@@ -81,10 +81,8 @@ def send_templated_email(
 
     except Exception as e:
         frappe.log_error(f"Email API error: {str(e)}\n{traceback.format_exc()}", "Email API")
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Failed to send templated email"),
-            details={"operation": "send_templated_email", "traceback": traceback.format_exc()},
+        return OperationResult.from_exception(
+            e, message=_("Failed to send templated email"), operation="send_templated_email"
         )
 
 
@@ -143,10 +141,8 @@ def send_notification(
 
     except Exception as e:
         frappe.log_error(f"Notification API error: {str(e)}\n{traceback.format_exc()}", "Email API")
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Failed to send notification"),
-            details={"operation": "send_notification", "traceback": traceback.format_exc()},
+        return OperationResult.from_exception(
+            e, message=_("Failed to send notification"), operation="send_notification"
         )
 
 
@@ -184,10 +180,8 @@ def send_member_email(
 
     except Exception as e:
         frappe.log_error(f"Member email API error: {str(e)}\n{traceback.format_exc()}", "Email API")
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Failed to send member email"),
-            details={"operation": "send_member_email", "traceback": traceback.format_exc()},
+        return OperationResult.from_exception(
+            e, message=_("Failed to send member email"), operation="send_member_email"
         )
 
 
@@ -247,10 +241,8 @@ def send_chapter_email_api(
 
     except Exception as e:
         frappe.log_error(f"Chapter email API error: {str(e)}\n{traceback.format_exc()}", "Email API")
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Failed to send chapter email"),
-            details={"operation": "send_chapter_email", "traceback": traceback.format_exc()},
+        return OperationResult.from_exception(
+            e, message=_("Failed to send chapter email"), operation="send_chapter_email"
         )
 
 
@@ -273,10 +265,8 @@ def get_available_templates() -> OperationResult[Dict[str, Any]]:
 
     except Exception as e:
         frappe.log_error(f"Template list API error: {str(e)}\n{traceback.format_exc()}", "Email API")
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Failed to retrieve available templates"),
-            details={"operation": "get_available_templates", "traceback": traceback.format_exc()},
+        return OperationResult.from_exception(
+            e, message=_("Failed to retrieve available templates"), operation="get_available_templates"
         )
 
 
@@ -308,10 +298,10 @@ def get_supported_notification_types() -> OperationResult[Dict[str, Any]]:
 
     except Exception as e:
         frappe.log_error(f"Notification types API error: {str(e)}\n{traceback.format_exc()}", "Email API")
-        return OperationResult.fail(
-            error=str(e),
+        return OperationResult.from_exception(
+            e,
             message=_("Failed to retrieve notification types"),
-            details={"operation": "get_supported_notification_types", "traceback": traceback.format_exc()},
+            operation="get_supported_notification_types",
         )
 
 
@@ -369,8 +359,6 @@ def validate_template(template_name: str) -> OperationResult[Dict[str, Any]]:
 
     except Exception as e:
         frappe.log_error(f"Template validation API error: {str(e)}\n{traceback.format_exc()}", "Email API")
-        return OperationResult.fail(
-            error=str(e),
-            message=_("Failed to validate template"),
-            details={"operation": "validate_template", "traceback": traceback.format_exc()},
+        return OperationResult.from_exception(
+            e, message=_("Failed to validate template"), operation="validate_template"
         )

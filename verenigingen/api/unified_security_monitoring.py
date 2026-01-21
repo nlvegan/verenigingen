@@ -109,7 +109,7 @@ def get_unified_monitoring_overview() -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         )
-        return OperationResult.fail(error_msg, error=str(e))
+        return OperationResult.from_exception(e, message=error_msg)
 
 
 @high_security_api(operation_type=OperationType.ADMIN)
@@ -177,7 +177,7 @@ def get_integrated_security_metrics(hours_back: int = 24) -> OperationResult[Dic
         frappe.log_error(
             title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         )
-        return OperationResult.fail(error_msg, error=str(e))
+        return OperationResult.from_exception(e, message=error_msg)
 
 
 @standard_api(operation_type=OperationType.UTILITY)
@@ -281,7 +281,7 @@ def get_monitoring_system_health() -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         )
-        return OperationResult.fail(error_msg, error=str(e))
+        return OperationResult.from_exception(e, message=error_msg)
 
 
 @high_security_api(operation_type=OperationType.ADMIN)
@@ -385,7 +385,7 @@ def trigger_unified_security_test() -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             title=error_msg, message=f"{error_msg}\n\nError: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         )
-        return OperationResult.fail(error_msg, error=str(e))
+        return OperationResult.from_exception(e, message=error_msg)
 
 
 # Helper functions

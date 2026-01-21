@@ -39,6 +39,55 @@ import frappe
 T = TypeVar("T")
 
 
+class OperationResultException(Exception):
+    """
+    Exception raised when unwrapping a failed OperationResult.
+
+    This exception preserves all structured information from the OperationResult,
+    allowing callers to access error_code, http_status, metadata, etc. when
+    converting result-based code to exception-based code.
+
+    Attributes:
+        operation_result: The original failed OperationResult
+        error_code: Shortcut to operation_result.error_code
+        http_status: Shortcut to operation_result.http_status
+        errors: Shortcut to operation_result.errors
+
+    Examples:
+        >>> result = some_operation()
+        >>> try:
+        ...     data = result.unwrap()
+        ... except OperationResultException as e:
+        ...     print(f"Error code: {e.error_code}")
+        ...     print(f"HTTP status: {e.http_status}")
+        ...     print(f"Details: {e.operation_result.metadata}")
+    """
+
+    def __init__(self, operation_result: "OperationResult"):
+        self.operation_result = operation_result
+        # Build a descriptive message
+        error_details = ""
+        if operation_result.errors:
+            error_details = f": {', '.join(operation_result.errors)}"
+        message = f"Operation failed: {operation_result.error_message}{error_details}"
+        super().__init__(message)
+
+    @property
+    def error_code(self) -> Optional[str]:
+        """Get error code from the wrapped result."""
+        return self.operation_result.error_code
+
+    @property
+    def http_status(self) -> Optional[int]:
+        """Get HTTP status from the wrapped result."""
+        return self.operation_result.http_status
+
+    @property
+    def errors(self) -> List[str]:
+        """Get error list from the wrapped result."""
+        return self.operation_result.errors
+
+
 @dataclass
 class OperationResult(Generic[T]):
     """
@@ -53,6 +102,7 @@ class OperationResult(Generic[T]):
         error_message: Error message if failed, None otherwise
         errors: List of specific error messages
         error_code: Structured error code for monitoring/alerting (e.g., "HIST_001")
+        http_status: HTTP status code for API responses (e.g., 400, 404, 500)
         metadata: Additional context about the operation
 
     Examples:
@@ -74,6 +124,13 @@ class OperationResult(Generic[T]):
         ...     errors=["Donor not found"]
         ... )
 
+        >>> # Failure with HTTP status
+        >>> result = OperationResult.fail(
+        ...     "Member not found",
+        ...     error_code="NOT_FOUND",
+        ...     http_status=404
+        ... )
+
         >>> # With metadata
         >>> result = OperationResult.ok(invoice, created=True, submitted=False)
         >>> print(result.metadata["created"])  # True
@@ -84,6 +141,7 @@ class OperationResult(Generic[T]):
     error_message: Optional[str] = None
     errors: List[str] = field(default_factory=list)
     error_code: Optional[str] = None
+    http_status: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -107,9 +165,12 @@ class OperationResult(Generic[T]):
     @classmethod
     def fail(
         cls,
-        message: str,
+        message: Optional[str] = None,
         errors: Optional[List[str]] = None,
         error_code: Optional[str] = None,
+        http_status: Optional[int] = None,
+        exception: Optional[Any] = None,
+        traceback: Optional[str] = None,
         **metadata: Any,
     ) -> "OperationResult[T]":
         """
@@ -119,7 +180,15 @@ class OperationResult(Generic[T]):
             message: Main error message
             errors: List of specific error details
             error_code: Structured error code for monitoring (e.g., "HIST_001")
+            http_status: HTTP status code for API responses (e.g., 400, 404, 500)
+            exception: Exception object or repr string for debugging
+            traceback: Traceback string for debugging
             **metadata: Additional metadata about the failure
+
+        Note:
+            For backward compatibility, passing `error=` in metadata will be used
+            as the message if `message` is not provided. This supports legacy code
+            that used `OperationResult.fail(error=str(e), ...)`.
 
         Returns:
             OperationResult with success=False
@@ -136,13 +205,103 @@ class OperationResult(Generic[T]):
             ...     error_code="HIST_001",
             ...     errors=["Database connection failed"]
             ... )
+
+            >>> # With HTTP status
+            >>> result = OperationResult.fail(
+            ...     "Resource not found",
+            ...     error_code="NOT_FOUND",
+            ...     http_status=404
+            ... )
+
+            >>> # From exception (typically via from_exception helper)
+            >>> result = OperationResult.fail(
+            ...     "Operation failed",
+            ...     exception=repr(e),
+            ...     traceback=traceback.format_exc()
+            ... )
         """
+        # Handle backward compatibility: support `error=` as alias for `message`
+        # This allows legacy code like `OperationResult.fail(error=str(e), ...)`
+        # to work, using `error` as fallback if `message` is not provided.
+        # Always remove `error` from metadata to prevent it from leaking into the result.
+        error_from_metadata = metadata.pop("error", None)
+        resolved_message = message
+        if resolved_message is None:
+            resolved_message = error_from_metadata
+        if resolved_message is None:
+            resolved_message = "Operation failed"
+
+        # Build clean metadata dict, adding exception/traceback if provided
+        clean_metadata = dict(metadata)
+        if exception is not None:
+            clean_metadata["exception"] = repr(exception) if not isinstance(exception, str) else exception
+        if traceback is not None:
+            clean_metadata["traceback"] = traceback
+
         return cls(
             success=False,
-            error_message=message,
+            error_message=resolved_message,
             errors=errors or [],
             error_code=error_code,
-            metadata=metadata,
+            http_status=http_status,
+            metadata=clean_metadata,
+        )
+
+    @classmethod
+    def from_exception(
+        cls,
+        exc: Exception,
+        message: Optional[str] = None,
+        error_code: Optional[str] = None,
+        http_status: Optional[int] = None,
+        include_traceback: bool = True,
+        **metadata: Any,
+    ) -> "OperationResult[T]":
+        """
+        Create a failed OperationResult from an exception.
+
+        This is the preferred way to convert exceptions to OperationResult,
+        as it captures structured information for debugging while maintaining
+        a clean API.
+
+        Args:
+            exc: The exception to convert
+            message: Override message (defaults to str(exc))
+            error_code: Structured error code for monitoring
+            http_status: HTTP status code for API responses
+            include_traceback: Whether to capture and include the traceback
+            **metadata: Additional metadata
+
+        Returns:
+            OperationResult with success=False and exception details
+
+        Examples:
+            >>> try:
+            ...     do_something()
+            ... except ValidationError as e:
+            ...     return OperationResult.from_exception(
+            ...         e,
+            ...         message="Validation failed",
+            ...         error_code="VALIDATION_ERROR",
+            ...         http_status=400
+            ...     )
+
+            >>> # Quick conversion with defaults
+            >>> except Exception as e:
+            ...     return OperationResult.from_exception(e)
+        """
+        import traceback as tb_module
+
+        tb_str = tb_module.format_exc() if include_traceback else None
+
+        return cls.fail(
+            message=message or str(exc),
+            errors=[type(exc).__name__],
+            error_code=error_code,
+            http_status=http_status,
+            exception=exc,
+            traceback=tb_str,
+            **metadata,
         )
 
     def unwrap(self) -> T:
@@ -150,20 +309,28 @@ class OperationResult(Generic[T]):
         Get data or raise exception if failed.
 
         Use this when you want to convert to exception-based flow.
+        The raised OperationResultException preserves all structured information
+        from the failed result (error_code, http_status, metadata, etc.).
 
         Returns:
             The result data
 
         Raises:
-            ValueError: If the operation failed
+            OperationResultException: If the operation failed, with full result details
 
         Examples:
             >>> result = create_member(data)
             >>> member = result.unwrap()  # Raises if failed
+
+            >>> # Catching and inspecting the exception
+            >>> try:
+            ...     member = result.unwrap()
+            ... except OperationResultException as e:
+            ...     print(f"Error code: {e.error_code}")
+            ...     print(f"HTTP status: {e.http_status}")
         """
         if not self.success:
-            error_details = f": {', '.join(self.errors)}" if self.errors else ""
-            raise ValueError(f"Operation failed: {self.error_message}{error_details}")
+            raise OperationResultException(self)
         return self.data  # type: ignore
 
     def unwrap_or(self, default: T) -> T:
@@ -242,9 +409,14 @@ class OperationResult(Generic[T]):
         # Preserve error_code from original result
         return OperationResult.fail(message, errors=errors, error_code=self.error_code, **merged_metadata)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, nested: bool = True) -> Dict[str, Any]:
         """
         Convert to dictionary for API responses.
+
+        Args:
+            nested: If True (default), uses stable nested schema where metadata
+                    is under "meta" key and errors are in a structured "error" object.
+                    If False, uses legacy flat schema for backward compatibility.
 
         Returns:
             Dictionary representation
@@ -252,27 +424,77 @@ class OperationResult(Generic[T]):
         Examples:
             >>> result = OperationResult.ok(member)
             >>> return result.to_dict()
+
+            >>> # Nested schema (default) - stable API
+            >>> {
+            ...     "success": True,
+            ...     "timestamp": "2025-01-20 12:00:00",
+            ...     "data": {...},
+            ...     "meta": {"cached": True}
+            ... }
+
+            >>> # Nested schema for failures
+            >>> {
+            ...     "success": False,
+            ...     "timestamp": "2025-01-20 12:00:00",
+            ...     "error": {
+            ...         "message": "Validation failed",
+            ...         "errors": ["Email required"],
+            ...         "code": "VALIDATION_ERROR",
+            ...         "http_status": 400
+            ...     },
+            ...     "meta": {"field": "email"}
+            ... }
+
+            >>> # Legacy flat schema (nested=False)
+            >>> result.to_dict(nested=False)
         """
-        result_dict = {
+        result_dict: Dict[str, Any] = {
             "success": self.success,
             "timestamp": frappe.utils.now(),
         }
 
-        if self.success:
-            # For Document objects, convert to dict
-            if hasattr(self.data, "as_dict") and callable(getattr(self.data, "as_dict", None)):
-                result_dict["data"] = self.data.as_dict()
-            else:
-                result_dict["data"] = self.data
-        else:
-            result_dict["error"] = self.error_message
-            if self.errors:
-                result_dict["errors"] = self.errors
-            if self.error_code:
-                result_dict["error_code"] = self.error_code
+        # Serialize data
+        def serialize_data(data: Any) -> Any:
+            if hasattr(data, "as_dict") and callable(getattr(data, "as_dict", None)):
+                return data.as_dict()
+            return data
 
-        # Add metadata
-        result_dict.update(self.metadata)
+        if nested:
+            # New nested schema - stable, no key collisions
+            if self.success:
+                result_dict["data"] = serialize_data(self.data)
+            else:
+                # Structured error object
+                error_obj: Dict[str, Any] = {
+                    "message": self.error_message,
+                }
+                if self.errors:
+                    error_obj["errors"] = self.errors
+                if self.error_code:
+                    error_obj["code"] = self.error_code
+                if self.http_status:
+                    error_obj["http_status"] = self.http_status
+                result_dict["error"] = error_obj
+
+            # Metadata under separate key to prevent collisions
+            if self.metadata:
+                result_dict["meta"] = dict(self.metadata)
+        else:
+            # Legacy flat schema for backward compatibility
+            if self.success:
+                result_dict["data"] = serialize_data(self.data)
+            else:
+                result_dict["error"] = self.error_message
+                if self.errors:
+                    result_dict["errors"] = self.errors
+                if self.error_code:
+                    result_dict["error_code"] = self.error_code
+                if self.http_status:
+                    result_dict["http_status"] = self.http_status
+
+            # Flatten metadata into top level (legacy behavior - can cause collisions)
+            result_dict.update(self.metadata)
 
         return result_dict
 
@@ -318,6 +540,11 @@ def wrap_operation(func: callable) -> callable:
 
     Use this to convert exception-based code to OperationResult pattern.
 
+    Features:
+        - If the function already returns an OperationResult, it is passed through unchanged
+        - On exceptions, captures full traceback and exception type for debugging
+        - Preserves function metadata via functools.wraps
+
     Args:
         func: Function that may raise exceptions
 
@@ -333,19 +560,33 @@ def wrap_operation(func: callable) -> callable:
         >>>
         >>> result = create_member(data)  # Returns OperationResult
     """
+    import functools
+    import traceback as tb_module
 
+    @functools.wraps(func)
     def wrapper(*args, **kwargs) -> OperationResult:
         try:
             result = func(*args, **kwargs)
+            # If function already returns OperationResult, pass through unchanged
+            if isinstance(result, OperationResult):
+                return result
             return OperationResult.ok(result)
         except Exception as e:
-            return OperationResult.fail(str(e))
+            # Capture full traceback for debugging
+            tb_str = tb_module.format_exc()
+            return OperationResult.fail(
+                message=str(e),
+                errors=[type(e).__name__],
+                exception=repr(e),
+                traceback=tb_str,
+            )
 
     return wrapper
 
 
 __all__ = [
     "OperationResult",
+    "OperationResultException",
     "MemberResult",
     "VolunteerResult",
     "InvoiceResult",

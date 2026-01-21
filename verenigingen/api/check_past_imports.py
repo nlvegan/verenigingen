@@ -91,8 +91,8 @@ def check_existing_journal_entries() -> OperationResult[Dict[str, Any]]:
             title=_("Failed to check existing journal entries"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            message=_("Failed to check existing journal entries: {0}").format(str(e)), error=str(e)
+        return OperationResult.from_exception(
+            e, message=_("Failed to check existing journal entries: {0}").format(str(e))
         )
 
 
@@ -169,8 +169,8 @@ def get_journal_entry_details() -> OperationResult[Dict[str, Any]]:
             title=_("Failed to get journal entry details"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            message=_("Failed to get journal entry details: {0}").format(str(e)), error=str(e)
+        return OperationResult.from_exception(
+            e, message=_("Failed to get journal entry details: {0}").format(str(e))
         )
 
 
@@ -216,6 +216,6 @@ def check_mutation_import_history() -> OperationResult[Dict[str, Any]]:
             title=_("Failed to check mutation import history"),
             message=f"Error: {str(e)}\n\n{traceback.format_exc()}",
         )
-        return OperationResult.fail(
-            message=_("Failed to check mutation import history: {0}").format(str(e)), error=str(e)
+        return OperationResult.from_exception(
+            e, message=_("Failed to check mutation import history: {0}").format(str(e))
         )
