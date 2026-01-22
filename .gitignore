@@ -7,6 +7,10 @@ one-off-test-debug-folder
 *.swp
 tags
 node_modules
+
+# Generated CSS (rebuilt via `npm run build:css`)
+verenigingen/public/css/tailwind.css
+
 CLAUDE.md
 TEST_SUMMARY.md
 .claude

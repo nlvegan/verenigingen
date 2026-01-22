@@ -32,6 +32,11 @@ Usage:
     )
 """
 
+# =============================================================================
+# Impersonation Stack - Prevents nested impersonation attacks
+# =============================================================================
+# Thread-local storage for tracking active impersonations
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -47,12 +52,6 @@ from verenigingen.utils.error_handling import (
     sanitize_audit_details,
     sanitize_error_for_audit,
 )
-
-# =============================================================================
-# Impersonation Stack - Prevents nested impersonation attacks
-# =============================================================================
-# Thread-local storage for tracking active impersonations
-import threading
 
 _impersonation_stack = threading.local()
 
@@ -99,6 +98,7 @@ def increment_metric(name: str, value: int = 1):
         frappe.logger("verenigingen.secure_ops.metrics").info(
             f"METRIC:{name}={counters[name]} increment={value}"
         )
+
 
 # =============================================================================
 # Security Configuration
