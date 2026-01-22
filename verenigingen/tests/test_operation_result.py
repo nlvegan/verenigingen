@@ -856,6 +856,302 @@ class TestLogErrorTraceId(FrappeTestCase):
         self.assertEqual(trace_id, "custom-trace-123")
 
 
+class TestFromExceptionTracebackRobustness(FrappeTestCase):
+    """Test cases for from_exception() traceback robustness (audit finding #1)."""
+
+    def test_from_exception_captures_correct_traceback_outside_except(self):
+        """Test that from_exception() captures correct traceback even outside except block.
+
+        This tests the fix for using format_exception() instead of format_exc(),
+        which ensures we get the correct traceback for the passed exception,
+        not the current thread's exception state.
+        """
+
+        def nested_raiser():
+            raise ValueError("Inner error from nested_raiser")
+
+        # Capture the exception and its traceback
+        captured_exc = None
+        try:
+            nested_raiser()
+        except Exception as e:
+            captured_exc = e
+
+        # Call from_exception OUTSIDE the except block
+        # With the old format_exc() this would return wrong/empty traceback
+        result = OperationResult.from_exception(captured_exc)
+
+        self.assertFalse(result.success)
+        self.assertIn("traceback", result.metadata)
+        # The traceback should contain the actual frame info
+        self.assertIn("nested_raiser", result.metadata["traceback"])
+        self.assertIn("Inner error from nested_raiser", result.metadata["traceback"])
+
+    def test_from_exception_handles_exception_without_traceback(self):
+        """Test that from_exception() handles exceptions without __traceback__."""
+        # Manually constructed exception has no __traceback__
+        exc = ValueError("Manually constructed")
+
+        result = OperationResult.from_exception(exc)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_message, "Manually constructed")
+        # Should still work, traceback may be None or minimal
+        self.assertIn("ValueError", result.errors)
+
+
+class TestScrubMetadataLists(FrappeTestCase):
+    """Test cases for scrub_metadata() handling lists (audit finding #2)."""
+
+    def test_scrub_metadata_handles_list_of_dicts(self):
+        """Test that scrub_metadata recursively processes lists of dicts."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = {
+            "headers": [
+                {"Authorization": "Bearer secret123"},
+                {"X-Custom": "public-value"},
+            ]
+        }
+        result = scrub_metadata(metadata)
+
+        self.assertEqual(result["headers"][0]["Authorization"], "***REDACTED***")
+        self.assertEqual(result["headers"][1]["X-Custom"], "public-value")
+
+    def test_scrub_metadata_handles_nested_lists(self):
+        """Test that scrub_metadata handles deeply nested structures."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = {
+            "configs": [
+                {"name": "config1", "settings": {"api_key": "secret"}},
+                {"name": "config2", "settings": {"normal_key": "visible"}},
+            ]
+        }
+        result = scrub_metadata(metadata)
+
+        self.assertEqual(
+            result["configs"][0]["settings"]["api_key"], "***REDACTED***"
+        )
+        self.assertEqual(
+            result["configs"][1]["settings"]["normal_key"], "visible"
+        )
+
+    def test_scrub_metadata_avoids_false_positives(self):
+        """Test that scrub_metadata doesn't redact 'secretary' (contains 'secret')."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = {
+            "secretary": "Jane Doe",  # Should NOT be redacted
+            "secret_key": "hidden123",  # SHOULD be redacted
+            "company_secretary": "John Smith",  # Should NOT be redacted
+        }
+        result = scrub_metadata(metadata)
+
+        # secretary should NOT be redacted - it's a false positive
+        self.assertEqual(result["secretary"], "Jane Doe")
+        self.assertEqual(result["company_secretary"], "John Smith")
+        # secret_key SHOULD be redacted
+        self.assertEqual(result["secret_key"], "***REDACTED***")
+
+    def test_scrub_metadata_handles_tuples(self):
+        """Test that scrub_metadata handles tuples like lists."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        metadata = ({"token": "secret"}, {"name": "visible"})
+        result = scrub_metadata(metadata)
+
+        self.assertIsInstance(result, list)  # Tuples become lists
+        self.assertEqual(result[0]["token"], "***REDACTED***")
+        self.assertEqual(result[1]["name"], "visible")
+
+    def test_scrub_metadata_preserves_primitives(self):
+        """Test that scrub_metadata preserves primitive values unchanged."""
+        from verenigingen.utils.error_handling import scrub_metadata
+
+        self.assertEqual(scrub_metadata("string"), "string")
+        self.assertEqual(scrub_metadata(123), 123)
+        self.assertEqual(scrub_metadata(True), True)
+        self.assertEqual(scrub_metadata(None), {})  # None returns empty dict
+
+
+class TestChainPreservesHttpStatus(FrappeTestCase):
+    """Test cases for chain() preserving http_status (audit finding #3)."""
+
+    def test_chain_preserves_http_status(self):
+        """Test that chain() preserves http_status from original result."""
+        original = OperationResult.fail(
+            "Not found",
+            error_code="NOT_FOUND",
+            http_status=404
+        )
+
+        chained = original.chain("Resource lookup failed")
+
+        self.assertFalse(chained.success)
+        self.assertEqual(chained.error_message, "Resource lookup failed")
+        self.assertEqual(chained.error_code, "NOT_FOUND")
+        self.assertEqual(chained.http_status, 404)  # Must be preserved!
+
+    def test_chain_preserves_http_status_through_multiple_chains(self):
+        """Test that http_status is preserved through multiple chain calls."""
+        original = OperationResult.fail(
+            "Unauthorized",
+            error_code="AUTH_ERROR",
+            http_status=401
+        )
+
+        result = original.chain("Service A failed")
+        result = result.chain("Service B failed")
+        result = result.chain("API request failed")
+
+        self.assertEqual(result.http_status, 401)
+        self.assertEqual(result.error_code, "AUTH_ERROR")
+
+
+class TestHandleApiErrorTraceId(FrappeTestCase):
+    """Test cases for handle_api_error() including trace_id (audit finding #4)."""
+
+    def test_handle_api_error_includes_trace_id(self):
+        """Test that handle_api_error decorator includes trace_id in result."""
+        from verenigingen.utils.error_handling import (
+            handle_api_error,
+            VerenigingenException,
+        )
+
+        @handle_api_error
+        def raising_function():
+            raise VerenigingenException("Test error", error_code="TEST_001")
+
+        result = raising_function()
+
+        self.assertFalse(result.success)
+        self.assertIn("trace_id", result.metadata)
+        self.assertIsInstance(result.metadata["trace_id"], str)
+        self.assertGreater(len(result.metadata["trace_id"]), 0)
+
+    def test_handle_api_error_includes_trace_id_for_generic_exception(self):
+        """Test that handle_api_error includes trace_id for unexpected exceptions."""
+        from verenigingen.utils.error_handling import handle_api_error
+
+        @handle_api_error
+        def generic_exception_function():
+            raise RuntimeError("Unexpected error")
+
+        result = generic_exception_function()
+
+        self.assertFalse(result.success)
+        self.assertIn("trace_id", result.metadata)
+        self.assertEqual(result.error_code, "SYSTEM_ERROR")
+
+
+class TestToDictScrubsExceptionTraceback(FrappeTestCase):
+    """Test cases for to_dict() scrubbing exception/traceback (audit finding #5)."""
+
+    def test_to_dict_scrub_sensitive_removes_exception(self):
+        """Test that to_dict(scrub_sensitive=True) removes exception from metadata."""
+        try:
+            raise ValueError("SELECT * FROM users WHERE password='secret'")
+        except Exception as e:
+            result = OperationResult.from_exception(e)
+
+        # Without scrubbing, exception and traceback should be present
+        output_unscrubbed = result.to_dict(nested=True, scrub_sensitive=False)
+        self.assertIn("exception", output_unscrubbed.get("meta", {}))
+        self.assertIn("traceback", output_unscrubbed.get("meta", {}))
+
+        # With scrubbing, exception and traceback should be removed
+        output_scrubbed = result.to_dict(nested=True, scrub_sensitive=True)
+        self.assertNotIn("exception", output_scrubbed.get("meta", {}))
+        self.assertNotIn("traceback", output_scrubbed.get("meta", {}))
+
+    def test_to_dict_scrub_sensitive_preserves_safe_metadata(self):
+        """Test that to_dict(scrub_sensitive=True) preserves non-sensitive metadata."""
+        try:
+            raise ValueError("Error")
+        except Exception as e:
+            result = OperationResult.from_exception(e, operation="test", count=5)
+
+        output = result.to_dict(nested=True, scrub_sensitive=True)
+
+        # Safe metadata should be preserved
+        self.assertEqual(output["meta"]["operation"], "test")
+        self.assertEqual(output["meta"]["count"], 5)
+
+
+class TestToDictDataScrubber(FrappeTestCase):
+    """Test cases for to_dict() data_scrubber hook (audit finding #6)."""
+
+    def test_to_dict_with_data_scrubber(self):
+        """Test that to_dict applies data_scrubber when scrub_sensitive=True."""
+
+        def member_scrubber(data):
+            if isinstance(data, dict):
+                data = dict(data)
+                if "email" in data:
+                    data["email"] = "[REDACTED]"
+                if "phone" in data:
+                    data["phone"] = "[REDACTED]"
+            return data
+
+        result = OperationResult.ok({
+            "name": "John Doe",
+            "email": "john@example.com",
+            "phone": "+31612345678"
+        })
+
+        output = result.to_dict(
+            nested=True,
+            scrub_sensitive=True,
+            data_scrubber=member_scrubber
+        )
+
+        self.assertEqual(output["data"]["name"], "John Doe")
+        self.assertEqual(output["data"]["email"], "[REDACTED]")
+        self.assertEqual(output["data"]["phone"], "[REDACTED]")
+
+    def test_to_dict_data_scrubber_not_called_without_scrub_sensitive(self):
+        """Test that data_scrubber is NOT called when scrub_sensitive=False."""
+
+        call_count = [0]
+
+        def counting_scrubber(data):
+            call_count[0] += 1
+            return data
+
+        result = OperationResult.ok({"email": "john@example.com"})
+
+        # With scrub_sensitive=False, scrubber should NOT be called
+        output = result.to_dict(
+            nested=True,
+            scrub_sensitive=False,
+            data_scrubber=counting_scrubber
+        )
+
+        self.assertEqual(call_count[0], 0)
+        self.assertEqual(output["data"]["email"], "john@example.com")
+
+    def test_to_dict_data_scrubber_works_with_flat_schema(self):
+        """Test that data_scrubber works with legacy flat schema."""
+
+        def simple_scrubber(data):
+            if isinstance(data, dict) and "secret" in data:
+                data = dict(data)
+                data["secret"] = "[SCRUBBED]"
+            return data
+
+        result = OperationResult.ok({"secret": "value123", "public": "visible"})
+
+        output = result.to_dict(
+            nested=False,
+            scrub_sensitive=True,
+            data_scrubber=simple_scrubber
+        )
+
+        self.assertEqual(output["data"]["secret"], "[SCRUBBED]")
+        self.assertEqual(output["data"]["public"], "visible")
+
+
 def run_tests():
     """Helper function to run all OperationResult tests."""
     import sys
@@ -878,6 +1174,13 @@ def run_tests():
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestScrubMetadata))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestToDictScrubSensitive))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestLogErrorTraceId))
+    # New test classes for third audit findings
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestFromExceptionTracebackRobustness))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestScrubMetadataLists))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestChainPreservesHttpStatus))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestHandleApiErrorTraceId))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestToDictScrubsExceptionTraceback))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestToDictDataScrubber))
 
     # Run tests
     runner = unittest.TextTestRunner(verbosity=2)

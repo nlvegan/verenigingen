@@ -292,7 +292,20 @@ class OperationResult(Generic[T]):
         """
         import traceback as tb_module
 
-        tb_str = tb_module.format_exc() if include_traceback else None
+        # Use format_exception() with the exception's __traceback__ to reliably
+        # capture the correct traceback even if called outside an active except block.
+        # format_exc() only works when called within the except block as it uses
+        # the thread's current exception state.
+        if include_traceback and exc.__traceback__ is not None:
+            tb_str = "".join(tb_module.format_exception(type(exc), exc, exc.__traceback__))
+        elif include_traceback:
+            # Fallback for exceptions without __traceback__ (e.g., manually constructed)
+            tb_str = tb_module.format_exc()
+            # If format_exc() returns "NoneType: None", there's no active exception
+            if tb_str == "NoneType: None\n":
+                tb_str = None
+        else:
+            tb_str = None
 
         return cls.fail(
             message=message or str(exc),
@@ -411,10 +424,21 @@ class OperationResult(Generic[T]):
         # Merge metadata
         merged_metadata = {**self.metadata, **extra_metadata}
 
-        # Preserve error_code from original result
-        return OperationResult.fail(message, errors=errors, error_code=self.error_code, **merged_metadata)
+        # Preserve error_code and http_status from original result
+        return OperationResult.fail(
+            message,
+            errors=errors,
+            error_code=self.error_code,
+            http_status=self.http_status,
+            **merged_metadata,
+        )
 
-    def to_dict(self, nested: bool = True, scrub_sensitive: bool = False) -> Dict[str, Any]:
+    def to_dict(
+        self,
+        nested: bool = True,
+        scrub_sensitive: bool = False,
+        data_scrubber: Optional[callable] = None,
+    ) -> Dict[str, Any]:
         """
         Convert to dictionary for API responses.
 
@@ -423,8 +447,16 @@ class OperationResult(Generic[T]):
                     is under "meta" key and errors are in a structured "error" object.
                     If False, uses legacy flat schema for backward compatibility.
             scrub_sensitive: If True, redact sensitive keys (tokens, passwords, etc.)
-                            from metadata before including in output. Use this when
+                            from metadata before including in output. Also removes
+                            exception/traceback from metadata (which may contain
+                            sensitive paths, SQL queries, etc.). Use this when
                             returning results to clients or logging.
+
+                            NOTE: This only affects metadata. If your data contains
+                            PII (emails, names, etc.), use the data_scrubber parameter.
+            data_scrubber: Optional callable to scrub sensitive fields from data.
+                          Called as data_scrubber(serialized_data) and should return
+                          the scrubbed data. Only invoked when scrub_sensitive=True.
 
         Returns:
             Dictionary representation
@@ -459,6 +491,15 @@ class OperationResult(Generic[T]):
 
             >>> # Scrub sensitive data before returning to client
             >>> result.to_dict(scrub_sensitive=True)
+
+            >>> # With custom data scrubber for PII
+            >>> def scrub_member_pii(data):
+            ...     if isinstance(data, dict):
+            ...         data = dict(data)
+            ...         if "email" in data:
+            ...             data["email"] = "[REDACTED]"
+            ...     return data
+            >>> result.to_dict(scrub_sensitive=True, data_scrubber=scrub_member_pii)
         """
         result_dict: Dict[str, Any] = {
             "success": self.success,
@@ -477,11 +518,20 @@ class OperationResult(Generic[T]):
             from verenigingen.utils.error_handling import scrub_metadata
 
             metadata_to_use = scrub_metadata(self.metadata)
+            # Also remove exception/traceback from metadata when scrubbing,
+            # as these may contain sensitive paths, SQL queries, or other internals
+            metadata_to_use = {
+                k: v for k, v in metadata_to_use.items() if k not in ("exception", "traceback")
+            }
 
         if nested:
             # New nested schema - stable, no key collisions
             if self.success:
-                result_dict["data"] = serialize_data(self.data)
+                serialized = serialize_data(self.data)
+                # Apply data_scrubber if provided and scrub_sensitive is True
+                if scrub_sensitive and data_scrubber is not None:
+                    serialized = data_scrubber(serialized)
+                result_dict["data"] = serialized
             else:
                 # Structured error object
                 error_obj: Dict[str, Any] = {
@@ -501,7 +551,11 @@ class OperationResult(Generic[T]):
         else:
             # Legacy flat schema for backward compatibility
             if self.success:
-                result_dict["data"] = serialize_data(self.data)
+                serialized = serialize_data(self.data)
+                # Apply data_scrubber if provided and scrub_sensitive is True
+                if scrub_sensitive and data_scrubber is not None:
+                    serialized = data_scrubber(serialized)
+                result_dict["data"] = serialized
             else:
                 result_dict["error"] = self.error_message
                 if self.errors:

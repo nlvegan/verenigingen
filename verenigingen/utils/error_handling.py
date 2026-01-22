@@ -262,43 +262,66 @@ def get_logger(module_name: str):
     return frappe.logger(module_name, allow_site=True, file_count=50)
 
 
-# Keys that should be redacted from metadata before logging
-SENSITIVE_METADATA_KEYS = frozenset(
+# Regex pattern for sensitive key matching
+# Uses word boundaries to avoid false positives (e.g., "secretary" won't match "secret")
+# Matches keys like: api_key, apiKey, API-KEY, x-api-key, access_token, etc.
+SENSITIVE_KEY_PATTERN = re.compile(
+    r"(^|[^a-z0-9])"  # Start of string or non-alphanumeric before
+    r"("
+    r"authorization|"
+    r"api[_-]?key|"
+    r"token|"
+    r"access[_-]?token|"
+    r"refresh[_-]?token|"
+    r"bearer|"
+    r"password|"
+    r"passwd|"
+    r"secret[_-]?key|"  # secret_key, secretKey, but not "secretary"
+    r"card[_-]?number|"
+    r"cvv|"
+    r"cvc|"
+    r"ssn|"
+    r"social[_-]?security|"
+    r"private[_-]?key"
+    r")"
+    r"([^a-z0-9]|$)",  # Non-alphanumeric after or end of string
+    re.IGNORECASE,
+)
+
+# Exact match keys that should always be redacted (common standalone names)
+SENSITIVE_EXACT_KEYS = frozenset(
     {
-        "authorization",
-        "x-api-key",
-        "api_key",
-        "apikey",
         "token",
-        "access_token",
-        "refresh_token",
-        "bearer",
+        "secret",
         "password",
         "passwd",
-        "secret",
-        "card_number",
+        "apikey",
+        "api_key",
+        "authorization",
+        "bearer",
         "cvv",
         "cvc",
         "ssn",
-        "social_security",
-        "private_key",
-        "secret_key",
     }
 )
 
 
-def scrub_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+def scrub_metadata(value: Any) -> Any:
     """
     Scrub sensitive keys from metadata before logging or returning in API responses.
 
     This function prevents accidental leakage of secrets, tokens, and other
-    sensitive data that may be passed in metadata dictionaries.
+    sensitive data that may be passed in metadata dictionaries. It recursively
+    processes nested dicts and lists.
+
+    Key matching uses word-boundary-aware regex to avoid false positives
+    (e.g., "secretary" won't be redacted because it contains "secret").
 
     Args:
-        metadata: Dictionary that may contain sensitive keys
+        value: Value to scrub (dict, list, or primitive)
 
     Returns:
-        New dictionary with sensitive values redacted
+        New structure with sensitive values redacted
 
     Examples:
         >>> scrub_metadata({"user": "john", "token": "secret123"})
@@ -306,23 +329,32 @@ def scrub_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
 
         >>> scrub_metadata({"Authorization": "Bearer xyz"})
         {'Authorization': '***REDACTED***'}
+
+        >>> scrub_metadata({"secretary": "Jane"})  # Not redacted - false positive avoided
+        {'secretary': 'Jane'}
+
+        >>> scrub_metadata([{"api_key": "xyz"}, {"name": "test"}])
+        [{'api_key': '***REDACTED***'}, {'name': 'test'}]
     """
-    if not metadata:
+    if value is None:
         return {}
 
-    result = {}
-    for key, value in metadata.items():
-        key_lower = key.lower()
-        # Check if key matches any sensitive pattern
-        if any(sensitive in key_lower for sensitive in SENSITIVE_METADATA_KEYS):
-            result[key] = "***REDACTED***"
-        elif isinstance(value, dict):
-            # Recursively scrub nested dicts
-            result[key] = scrub_metadata(value)
-        else:
-            result[key] = value
+    if isinstance(value, dict):
+        result = {}
+        for key, val in value.items():
+            key_lower = key.lower()
+            # Check exact match first (faster), then regex pattern
+            if key_lower in SENSITIVE_EXACT_KEYS or SENSITIVE_KEY_PATTERN.search(key):
+                result[key] = "***REDACTED***"
+            else:
+                result[key] = scrub_metadata(val)
+        return result
 
-    return result
+    if isinstance(value, (list, tuple)):
+        return [scrub_metadata(item) for item in value]
+
+    # Primitives (str, int, float, bool, None) pass through unchanged
+    return value
 
 
 def log_error(error: Exception, context: Dict[str, Any] = None, module: str = None) -> str:
@@ -420,35 +452,39 @@ def handle_api_error(func: Callable) -> Callable:
             return func(*args, **kwargs)
         except VerenigingenException as e:
             # Known application errors - return structured OperationResult
-            log_error(e, context={"function": func.__name__}, module=func.__module__)
+            # Capture trace_id for correlation between logs and API responses
+            trace_id = log_error(e, context={"function": func.__name__}, module=func.__module__)
             return OperationResult.fail(
                 message=str(e),
                 error_code=getattr(e, "error_code", "VALIDATION_ERROR"),
                 http_status=getattr(e, "http_status", 400),
                 errors=[type(e).__name__],
                 details=getattr(e, "details", {}),
+                trace_id=trace_id,
             )
         except frappe.PermissionError as e:
             # Permission errors
-            log_error(e, context={"function": func.__name__}, module=func.__module__)
+            trace_id = log_error(e, context={"function": func.__name__}, module=func.__module__)
             return OperationResult.fail(
                 message=_("Access denied: {0}").format(str(e)),
                 error_code="PERMISSION_DENIED",
                 http_status=403,
                 errors=["PermissionError"],
+                trace_id=trace_id,
             )
         except frappe.ValidationError as e:
             # Frappe validation errors
-            log_error(e, context={"function": func.__name__}, module=func.__module__)
+            trace_id = log_error(e, context={"function": func.__name__}, module=func.__module__)
             return OperationResult.fail(
                 message=str(e),
                 error_code="VALIDATION_ERROR",
                 http_status=400,
                 errors=["ValidationError"],
+                trace_id=trace_id,
             )
         except Exception as e:
             # Unexpected errors - log with full traceback
-            log_error(
+            trace_id = log_error(
                 e,
                 context={
                     "function": func.__name__,
@@ -464,6 +500,7 @@ def handle_api_error(func: Callable) -> Callable:
                 message=_("An unexpected error occurred. Please contact support."),
                 error_code="SYSTEM_ERROR",
                 http_status=500,
+                trace_id=trace_id,
             )
 
     return wrapper
