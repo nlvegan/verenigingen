@@ -938,22 +938,6 @@ class MembershipDuesSchedule(Document):
 
         return item_name
 
-    def get_invoice_description(self):
-        """Generate invoice description with appropriate period formatting"""
-        period_start = self.last_invoice_date or self.next_invoice_date
-        period_end = self.calculate_next_invoice_date(self.next_invoice_date)
-
-        # Format period description based on billing frequency
-        if self.billing_frequency == "Daily":
-            # For daily billing, show the specific date
-            return f"Membership dues for {self.member_name} ({self.membership_type}) - Daily fee for {period_start}"
-        elif self.billing_frequency in ["Monthly", "Quarterly", "Semi-Annual", "Annual"]:
-            # For longer periods, show the range
-            return f"Membership dues for {self.member_name} ({self.membership_type}) - {self.billing_frequency} period: {period_start} to {period_end}"
-        else:
-            # For custom or other frequencies, show the generic range
-            return f"Membership dues for {self.member_name} ({self.membership_type}) - Period: {period_start} to {period_end}"
-
     def update_schedule_dates(self, actual_invoice_date=None):
         """
         Update schedule dates after invoice generation.

@@ -297,8 +297,8 @@ class InvoiceGenerator(StatelessService):
         if member_doc.name != self.member_name:
             return f"Member document mismatch: expected {self.member_name}, got {member_doc.name}"
 
-        # Validate dues rate is positive (financial correctness)
-        if self.dues_rate <= 0:
+        # Validate dues rate is non-negative (0 allowed for free memberships)
+        if self.dues_rate < 0:
             return f"Invalid dues rate on schedule: {self.dues_rate}"
 
         return None  # Validation passed
