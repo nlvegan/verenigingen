@@ -366,6 +366,16 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
             account_code, invoice_type, company, debug_info, allow_fallback=False
         )
 
+        # CRITICAL: Fail early if no account found - prevents ERPNext from using Item Defaults
+        # which might contain invalid or cross-company account references
+        if not gl_account:
+            error_msg = (
+                f"No account mapping found for account code {account_code} ({invoice_type} transaction). "
+                f"Please create a ledger mapping or ERPNext account with this code."
+            )
+            debug_info.append(f"ERROR: {error_msg}")
+            frappe.throw(error_msg, title="Account Mapping Required")
+
         # For standardized items (Event-Ticket, Bank-Costs), use clean item details instead of ugly transaction description
         if item_code in ["Event-Ticket", "Bank-Costs"]:
             # Get clean details from the actual Item master
@@ -724,12 +734,41 @@ def auto_create_ledger_mapping(ledger_id, transaction_type, company, debug_info)
         # Check if ERPNext Account already exists with this code
         # MODIFIED 2025-11-11: When multiple accounts exist with same grootboek_nummer,
         # prefer Expense Account type for cost-related accounts to avoid using Contra-Revenue variants
+        # MODIFIED 2025-01-23: Also search by account_number and name pattern for accounts
+        # created via Chart of Accounts import or manually (which don't have eboekhouden_grootboek_nummer)
         existing_accounts = frappe.db.get_all(
             "Account",
             filters={"company": company, "eboekhouden_grootboek_nummer": ledger_code},
             fields=["name", "account_type", "account_name"],
             order_by="creation",
         )
+
+        # If not found by eboekhouden_grootboek_nummer, try account_number
+        if not existing_accounts:
+            existing_accounts = frappe.db.get_all(
+                "Account",
+                filters={"company": company, "account_number": ledger_code},
+                fields=["name", "account_type", "account_name"],
+                order_by="creation",
+            )
+            if existing_accounts:
+                debug_info.append(
+                    f"Found account by account_number instead of eboekhouden_grootboek_nummer: {ledger_code}"
+                )
+
+        # If still not found, try by name pattern (e.g., "4645 - % - NVV")
+        if not existing_accounts:
+            company_abbr = frappe.db.get_value("Company", company, "abbr")
+            if company_abbr:
+                name_pattern = f"{ledger_code} - % - {company_abbr}"
+                existing_accounts = frappe.db.get_all(
+                    "Account",
+                    filters={"company": company, "name": ["like", name_pattern], "disabled": 0},
+                    fields=["name", "account_type", "account_name"],
+                    order_by="creation",
+                )
+                if existing_accounts:
+                    debug_info.append(f"Found account by name pattern '{name_pattern}': {existing_accounts}")
 
         existing_account = None
         if existing_accounts:
@@ -792,12 +831,74 @@ def auto_create_ledger_mapping(ledger_id, transaction_type, company, debug_info)
                 debug_info.append(f"Created ERPNext Account: {account_name} (type: {account_type})")
 
             except Exception as e:
-                debug_info.append(f"Error creating ERPNext Account: {str(e)}")
-                frappe.log_error(
-                    title=f"Auto-Create Account Failed - {ledger_code}",
-                    message=f"Error creating account for ledger {ledger_id} ({ledger_code})\n\n{str(e)}\n\n{frappe.get_traceback()}",
-                )
-                return None
+                error_str = str(e)
+                debug_info.append(f"Error creating ERPNext Account: {error_str}")
+
+                # If duplicate key error, try to find the existing account by name
+                if "Duplicate entry" in error_str or "IntegrityError" in error_str:
+                    debug_info.append(
+                        f"Account creation failed due to duplicate - searching for existing account by name"
+                    )
+                    company_abbr = frappe.db.get_value("Company", company, "abbr")
+                    if company_abbr:
+                        # Try exact name match first
+                        expected_name = f"{ledger_code} - {ledger_name[:50]} - {company_abbr}"
+                        existing_by_name = frappe.db.get_value(
+                            "Account",
+                            {"name": expected_name, "company": company},
+                            ["name", "account_type"],
+                            as_dict=True,
+                        )
+                        if existing_by_name:
+                            account_name = existing_by_name.name
+                            debug_info.append(f"Found existing account by exact name: {account_name}")
+                            # Update eboekhouden_grootboek_nummer if not set
+                            current_grootboek = frappe.db.get_value(
+                                "Account", account_name, "eboekhouden_grootboek_nummer"
+                            )
+                            if not current_grootboek:
+                                frappe.db.set_value(
+                                    "Account", account_name, "eboekhouden_grootboek_nummer", ledger_code
+                                )
+                                debug_info.append(f"Updated eboekhouden_grootboek_nummer to {ledger_code}")
+                        else:
+                            # Try pattern match
+                            pattern = f"{ledger_code} - % - {company_abbr}"
+                            existing_by_pattern = frappe.db.get_value(
+                                "Account",
+                                {"name": ["like", pattern], "company": company},
+                                ["name", "account_type"],
+                                as_dict=True,
+                            )
+                            if existing_by_pattern:
+                                account_name = existing_by_pattern.name
+                                debug_info.append(f"Found existing account by pattern: {account_name}")
+                                # Update eboekhouden_grootboek_nummer if not set
+                                current_grootboek = frappe.db.get_value(
+                                    "Account", account_name, "eboekhouden_grootboek_nummer"
+                                )
+                                if not current_grootboek:
+                                    frappe.db.set_value(
+                                        "Account", account_name, "eboekhouden_grootboek_nummer", ledger_code
+                                    )
+                                    debug_info.append(
+                                        f"Updated eboekhouden_grootboek_nummer to {ledger_code}"
+                                    )
+                            else:
+                                debug_info.append(
+                                    f"Could not find existing account by name pattern: {pattern}"
+                                )
+                                frappe.log_error(
+                                    title=f"Auto-Create Account Failed - {ledger_code}",
+                                    message=f"Account creation failed for ledger {ledger_id} ({ledger_code}) and could not find existing account.\n\nError: {error_str}\n\n{frappe.get_traceback()}",
+                                )
+                                return None
+                else:
+                    frappe.log_error(
+                        title=f"Auto-Create Account Failed - {ledger_code}",
+                        message=f"Error creating account for ledger {ledger_id} ({ledger_code})\n\n{error_str}\n\n{frappe.get_traceback()}",
+                    )
+                    return None
         else:
             # Use existing account
             account_name = existing_account.name

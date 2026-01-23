@@ -359,11 +359,15 @@ def get_or_create_item_improved(
             from verenigingen.e_boekhouden.utils.invoice_helpers import map_grootboek_to_erpnext_account
 
             mapped_account = None
-            if account_code:
-                debug_info = []
+            if account_code and company:
+                mapping_debug_info = []
                 try:
                     mapped_account = map_grootboek_to_erpnext_account(
-                        account_code, transaction_type.lower(), debug_info, allow_fallback=False
+                        account_code,
+                        transaction_type.lower(),
+                        company,
+                        mapping_debug_info,
+                        allow_fallback=False,
                     )
                 except Exception as e:
                     frappe.logger().debug(f"No account mapping found for {account_code}: {str(e)}")
