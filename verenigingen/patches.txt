@@ -37,3 +37,4 @@ verenigingen.patches.v2_1.fix_notification_condition_type
 verenigingen.patches.v2_1.add_batch_rate_limits_to_critical_operations
 verenigingen.patches.v2_1.add_volunteer_assignment_query_indexes
 verenigingen.patches.v2_1.add_ponto_oauth2_critical_operation_rules
+verenigingen.patches.v2_1.add_mollie_payment_entry_unique_index

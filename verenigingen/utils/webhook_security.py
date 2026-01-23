@@ -20,6 +20,46 @@ class WebhookAuthenticationError(frappe.ValidationError):
     pass
 
 
+def _validate_test_mode_safety() -> None:
+    """
+    Validate that test_mode is not enabled in production environments.
+
+    SECURITY: Test mode bypasses signature validation which is dangerous in production.
+    This check ensures test_mode is only used in development environments.
+
+    Raises:
+        WebhookAuthenticationError: If test_mode is enabled without developer_mode
+    """
+    settings = frappe.get_single("Mollie Settings")
+
+    if not settings.test_mode:
+        return  # Live mode - no safety concern
+
+    # Allow test mode in explicit development environments
+    if frappe.conf.get("developer_mode"):
+        return
+
+    # Allow test mode with explicit override (for staging environments)
+    if frappe.conf.get("allow_mollie_test_mode"):
+        frappe.logger().warning(
+            "Mollie test_mode enabled via allow_mollie_test_mode override. "
+            "Ensure this is intentional for this environment."
+        )
+        return
+
+    # SECURITY: Test mode is enabled without proper environment flags
+    error_msg = (
+        "CRITICAL SECURITY ERROR: Mollie test_mode is enabled but this does not appear "
+        "to be a development environment (developer_mode is not set). "
+        "Test mode bypasses webhook signature validation and is a security risk in production. "
+        "Either: (1) Disable test_mode in Mollie Settings, or "
+        "(2) Set developer_mode: true in site_config.json for dev environments, or "
+        "(3) Set allow_mollie_test_mode: true in site_config.json for staging (not recommended for production)."
+    )
+    frappe.log_error(error_msg, "Mollie Security - CRITICAL")
+    raise WebhookAuthenticationError(error_msg)
+
+
 def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str]) -> bool:
     """
     Verify Mollie webhook signature to authenticate the request
@@ -38,13 +78,18 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
     settings = frappe.get_single("Mollie Settings")
     webhook_secret = settings.get_webhook_secret()
 
+    # SECURITY: Validate test mode is safe before allowing bypass
+    _validate_test_mode_safety()
+
     # IMPORTANT: In Mollie test mode, webhooks don't include signature headers
     # This is documented behavior for Mollie's test environment
+    # (Only reaches here if test_mode safety check passed)
     if settings.test_mode and not signature_header:
         frappe.logger().info("🔒 Test mode: Accepting webhook without signature (Mollie test mode behavior)")
         return True
 
     # For testing purposes: Accept test signatures in test mode
+    # (Only reaches here if test_mode safety check passed)
     if settings.test_mode and signature_header and signature_header.startswith("test_signature"):
         frappe.logger().info(f"🔒 Test mode: Accepting test signature: {signature_header}")
         return True

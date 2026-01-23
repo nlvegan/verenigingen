@@ -213,16 +213,24 @@ class MollieSecurityManager:
                 frappe.db.commit()
                 self._create_audit_log("ENCRYPTION_KEY_CREATED", "success")
             except Exception as e:
-                # If we can't store the key, just use a session key
-                frappe.log_error(f"Could not store encryption key in settings: {str(e)}", "Mollie Security")
-                # Use a deterministic key based on site config for consistency
-                import hashlib
-
-                site_key = frappe.local.conf.get("secret_key", "default_secret")
-                # Generate a proper Fernet key from site secret
-                key_material = hashlib.sha256(f"mollie_security_{site_key}".encode()).digest()
-                # Fernet requires a URL-safe base64-encoded 32-byte key
-                key = base64.urlsafe_b64encode(key_material)
+                # SECURITY: Do NOT fall back to a deterministic key - this is a security risk
+                # If the encryption key cannot be persisted, fail loudly and require manual intervention
+                error_msg = (
+                    f"CRITICAL: Could not persist Mollie encryption key: {str(e)}. "
+                    "Manual intervention required. Please ensure the 'encryption_key' "
+                    "Password field exists in Mollie Settings DocType and has proper permissions."
+                )
+                frappe.log_error(error_msg, "Mollie Security - CRITICAL")
+                self._create_security_alert(
+                    "ENCRYPTION_KEY_STORAGE_FAILED",
+                    "critical",
+                    f"Cannot persist encryption key: {str(e)}",
+                )
+                raise SecurityException(
+                    "Failed to store encryption key securely. Cannot proceed without secure key storage. "
+                    "Please check that Mollie Settings DocType has the 'encryption_key' Password field "
+                    "and that the current user has permission to modify it."
+                )
 
             return key
 
