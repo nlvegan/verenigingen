@@ -2237,11 +2237,12 @@ def _get_or_create_stock_temporary_account(company, debug_info):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def import_opening_balances_only(migration_name):
+def import_opening_balances_only(migration_name: str):
     """Import only opening balances via REST API"""
     try:
-        # Get migration record
-        frappe.get_doc("E-Boekhouden Migration", migration_name)
+        # Get migration record and check permissions
+        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        migration_doc.check_permission("write")
 
         # Get settings
         settings = frappe.get_single("E-Boekhouden Settings")
@@ -2811,12 +2812,39 @@ def _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info):
             ledger_name = ledger_data.get("description", "")
 
             if ledger_code:
-                # Check if account exists with this code
+                # Check if account exists with this code - try multiple lookup methods
+                # 1. First try by eboekhouden_grootboek_nummer (custom field)
                 account_name = frappe.db.get_value(
                     "Account",
                     {"company": company, "eboekhouden_grootboek_nummer": ledger_code},
                     "name",
                 )
+
+                # 2. If not found, try by account_number (standard field from CoA import)
+                if not account_name:
+                    account_name = frappe.db.get_value(
+                        "Account",
+                        {"company": company, "account_number": ledger_code},
+                        "name",
+                    )
+                    if account_name:
+                        debug_info.append(f"Found account by account_number: {ledger_code} -> {account_name}")
+
+                # 3. If still not found, try by name pattern (e.g., "1101 - Name - ABBR")
+                if not account_name:
+                    company_abbr = frappe.db.get_value("Company", company, "abbr")
+                    if company_abbr:
+                        name_pattern = f"{ledger_code} - % - {company_abbr}"
+                        result = frappe.db.get_value(
+                            "Account",
+                            {"company": company, "name": ("like", name_pattern)},
+                            "name",
+                        )
+                        if result:
+                            account_name = result
+                            debug_info.append(
+                                f"Found account by name pattern: {name_pattern} -> {account_name}"
+                            )
 
                 if account_name:
                     # Check if mapping was created by another concurrent call
@@ -2848,7 +2876,11 @@ def _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info):
                             "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "erpnext_account"
                         )
                 else:
-                    debug_info.append(f"No account found for ledger code {ledger_code}")
+                    debug_info.append(
+                        f"No account found for ledger code {ledger_code} (name: {ledger_name}) "
+                        f"in company {company}. Searched by eboekhouden_grootboek_nummer, "
+                        f"account_number, and name pattern."
+                    )
 
         else:
             debug_info.append(f"API error fetching ledger {ledger_id}: {response.status_code}")
