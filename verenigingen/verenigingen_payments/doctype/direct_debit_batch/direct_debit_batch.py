@@ -52,41 +52,20 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
-import os
-import tempfile
-import xml.etree.ElementTree as ET
-from datetime import datetime
-
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import format_datetime, getdate, nowdate, nowtime, random_string, today
+from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.services.batch_processing_service import batch_processing_service
-from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
-from verenigingen.verenigingen_payments.services.business_logic_orchestration_service import (
-    business_logic_service,
-)
-
-# Import refactored services
-from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
-from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
-    get_batch_performance_optimizer,
-)
-from verenigingen.verenigingen_payments.utils.financial_error_handler import (
-    get_financial_error_handler,
-    handle_data_integrity_error,
-    handle_permission_error,
-    handle_sepa_validation_error,
-)
+from verenigingen.verenigingen_payments.utils.financial_error_handler import handle_data_integrity_error
 from verenigingen.verenigingen_payments.utils.sepa_utilities import (
     BatchLoggingUtilities,
     CalculationUtilities,
     FileManagementUtilities,
     InvoiceManagementUtilities,
-    SEPAUtilities,
     SEPAXMLValidator,
 )
 
@@ -332,246 +311,6 @@ class DirectDebitBatch(Document):
         """Mark all invoices in the batch as paid"""
         return batch_processing_service.mark_batch_invoices_as_paid(self)
 
-    def create_dutch_sepa_xml_structure(self, message_id, payment_info_id, company, settings):
-        """Create SEPA XML structure specifically for Dutch direct debit"""
-        # This follows the Pain.008.001.08 format (2019 version) for Dutch banks
-        # Supports structured address information and enhanced features
-
-        frappe.logger().info(f"Creating Dutch SEPA XML structure for batch {self.name} (pain.008.001.08)")
-
-        # Create root element with updated namespace for 2019 version
-        root = ET.Element("Document")
-        root.set("xmlns", "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08")
-        root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-        root.set("xsi:schemaLocation", "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08 pain.008.001.08.xsd")
-
-        # Customer SEPA Direct Debit Initiation
-        cstmr_drct_dbt_initn = ET.SubElement(root, "CstmrDrctDbtInitn")
-
-        # Group Header
-        grp_hdr = ET.SubElement(cstmr_drct_dbt_initn, "GrpHdr")
-        ET.SubElement(grp_hdr, "MsgId").text = message_id
-        ET.SubElement(grp_hdr, "CreDtTm").text = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        ET.SubElement(grp_hdr, "NbOfTxs").text = str(self.entry_count)
-        ET.SubElement(grp_hdr, "CtrlSum").text = str(self.total_amount)
-
-        # Initiating Party (Creditor) - use account holder name if available
-        init_party = ET.SubElement(grp_hdr, "InitgPty")
-        initiating_party_name = getattr(settings, "company_account_holder", None) or company.name
-        ET.SubElement(init_party, "Nm").text = initiating_party_name
-
-        # Payment Information
-        pmt_inf = ET.SubElement(cstmr_drct_dbt_initn, "PmtInf")
-        ET.SubElement(pmt_inf, "PmtInfId").text = payment_info_id
-        ET.SubElement(pmt_inf, "PmtMtd").text = "DD"
-        ET.SubElement(pmt_inf, "BtchBookg").text = "true"
-        ET.SubElement(pmt_inf, "NbOfTxs").text = str(self.entry_count)
-        ET.SubElement(pmt_inf, "CtrlSum").text = str(self.total_amount)
-
-        # Payment Type Information
-        pmt_tp_inf = ET.SubElement(pmt_inf, "PmtTpInf")
-        svc_lvl = ET.SubElement(pmt_tp_inf, "SvcLvl")
-        ET.SubElement(svc_lvl, "Cd").text = "SEPA"
-        lcl_instrm = ET.SubElement(pmt_tp_inf, "LclInstrm")
-        ET.SubElement(lcl_instrm, "Cd").text = "CORE"
-        ET.SubElement(pmt_tp_inf, "SeqTp").text = self.batch_type  # "RCUR" for recurring
-
-        # Requested Collection Date
-        ET.SubElement(pmt_inf, "ReqdColltnDt").text = getdate(self.batch_date).strftime("%Y-%m-%d")
-
-        # Creditor - use account holder name if available
-        cdtr = ET.SubElement(pmt_inf, "Cdtr")
-        creditor_name = getattr(settings, "company_account_holder", None) or company.name
-        ET.SubElement(cdtr, "Nm").text = creditor_name
-
-        # Creditor Account (Company's IBAN) - MUST be configured
-        company_iban = getattr(settings, "company_iban", None)
-        if not company_iban:
-            handle_sepa_validation_error(
-                "F1001", {"batch_name": self.name, "settings_doctype": "Verenigingen Settings"}
-            )
-
-        cdtr_acct = ET.SubElement(pmt_inf, "CdtrAcct")
-        id_element = ET.SubElement(cdtr_acct, "Id")
-        ET.SubElement(id_element, "IBAN").text = company_iban
-
-        # Creditor Agent (BIC) - MUST be configured or derivable
-        company_bic = getattr(settings, "company_bic", None)
-        if not company_bic:
-            # Try to derive BIC from IBAN
-            from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
-
-            company_bic = derive_bic_from_iban(company_iban)
-            if not company_bic:
-                handle_sepa_validation_error(
-                    "F1002",
-                    {
-                        "batch_name": self.name,
-                        "company_iban": company_iban,
-                        "settings_doctype": "Verenigingen Settings",
-                    },
-                )
-
-        cdtr_agt = ET.SubElement(pmt_inf, "CdtrAgt")
-        fin_instn_id = ET.SubElement(cdtr_agt, "FinInstnId")
-        ET.SubElement(fin_instn_id, "BIC").text = company_bic
-
-        # Creditor Scheme ID (Incassant ID) - MUST be configured
-        creditor_id = getattr(settings, "creditor_id", None)
-        if not creditor_id:
-            handle_sepa_validation_error(
-                "F1003", {"batch_name": self.name, "settings_doctype": "Verenigingen Settings"}
-            )
-        cdtr_schme_id = ET.SubElement(pmt_inf, "CdtrSchmeId")
-        id_element = ET.SubElement(cdtr_schme_id, "Id")
-        prvt_id = ET.SubElement(id_element, "PrvtId")
-        othr = ET.SubElement(prvt_id, "Othr")
-        ET.SubElement(othr, "Id").text = creditor_id
-        schme_nm = ET.SubElement(othr, "SchmeNm")
-        ET.SubElement(schme_nm, "Prtry").text = "SEPA"
-
-        # Add transactions
-        for invoice in self.invoices:
-            drct_dbt_tx_inf = ET.SubElement(pmt_inf, "DrctDbtTxInf")
-
-            # Payment ID
-            pmt_id = ET.SubElement(drct_dbt_tx_inf, "PmtId")
-            ET.SubElement(pmt_id, "EndToEndId").text = f"E2E-{invoice.invoice}"
-
-            # Amount
-            instd_amt = ET.SubElement(drct_dbt_tx_inf, "InstdAmt")
-            instd_amt.text = format(invoice.amount, ".2f")
-            instd_amt.set("Ccy", invoice.currency)
-
-            # Mandate information
-            drct_dbt_tx = ET.SubElement(drct_dbt_tx_inf, "DrctDbtTx")
-            mndt_rltd_inf = ET.SubElement(drct_dbt_tx, "MndtRltd_Inf")
-            ET.SubElement(mndt_rltd_inf, "MndtId").text = invoice.mandate_reference
-
-            # Get mandate sign date
-            sign_date = "2023-01-01"  # default fallback
-            if invoice.member:
-                mandates = frappe.get_all(
-                    "SEPA Mandate",
-                    filters={"member": invoice.member, "mandate_id": invoice.mandate_reference},
-                    fields=["sign_date"],
-                )
-                if mandates and mandates[0].sign_date:
-                    sign_date = mandates[0].sign_date
-
-            ET.SubElement(mndt_rltd_inf, "DtOfSgntr").text = getdate(sign_date).strftime("%Y-%m-%d")
-
-            # Debtor Agent (Customer's bank)
-            dbtr_agt = ET.SubElement(drct_dbt_tx_inf, "DbtrAgt")
-            fin_instn_id = ET.SubElement(dbtr_agt, "FinInstnId")
-            ET.SubElement(fin_instn_id, "BIC").text = get_bic_from_iban(invoice.iban) or "INGBNL2A"
-
-            # Debtor with structured address (pain.008.001.08 feature)
-            dbtr = ET.SubElement(drct_dbt_tx_inf, "Dbtr")
-            ET.SubElement(dbtr, "Nm").text = invoice.member_name
-
-            # Add structured postal address for debtor (required for pain.008.001.08)
-            if invoice.member:
-                member_address = self._get_member_structured_address(invoice.member)
-                if member_address:
-                    pstl_adr = ET.SubElement(dbtr, "PstlAdr")
-                    if member_address.get("country"):
-                        ET.SubElement(pstl_adr, "Ctry").text = member_address["country"]
-                    if member_address.get("address_line_1"):
-                        ET.SubElement(pstl_adr, "AdrLine").text = member_address["address_line_1"]
-                    if member_address.get("address_line_2"):
-                        ET.SubElement(pstl_adr, "AdrLine").text = member_address["address_line_2"]
-                    if member_address.get("postal_code"):
-                        ET.SubElement(pstl_adr, "PstCd").text = member_address["postal_code"]
-                    if member_address.get("town"):
-                        ET.SubElement(pstl_adr, "TwnNm").text = member_address["town"]
-
-            # Debtor Account
-            dbtr_acct = ET.SubElement(drct_dbt_tx_inf, "DbtrAcct")
-            id_element = ET.SubElement(dbtr_acct, "Id")
-            ET.SubElement(id_element, "IBAN").text = invoice.iban
-
-            # Remittance Information
-            rmt_inf = ET.SubElement(drct_dbt_tx_inf, "RmtInf")
-            ET.SubElement(rmt_inf, "Ustrd").text = f"Invoice {invoice.invoice} for {invoice.member_name}"
-
-        return root
-
-    def _get_member_structured_address(self, member_name):
-        """Get structured address information for a member (pain.008.001.08 requirement)"""
-        try:
-            # Get member document with address information
-            member = frappe.get_doc("Member", member_name)
-
-            # Initialize address info
-            address_info = {}
-
-            # First try member's primary address (correct relationship)
-            if member.primary_address:
-                try:
-                    address = frappe.get_doc("Address", member.primary_address)
-                    if address.address_line1:
-                        address_info["address_line_1"] = address.address_line1[:70]  # SEPA limit
-                    if address.address_line2:
-                        address_info["address_line_2"] = address.address_line2[:70]  # SEPA limit
-                    if address.pincode:
-                        address_info["postal_code"] = address.pincode
-                    if address.city:
-                        address_info["town"] = address.city
-                    if address.country:
-                        address_info["country"] = address.country
-                except Exception as e:
-                    frappe.logger().info(f"Primary address lookup failed for member {member_name}: {str(e)}")
-
-            # Default country for Dutch members if not set
-            if not address_info.get("country"):
-                address_info["country"] = "NL"
-
-            # Fallback: try to get address from linked customer if primary address failed
-            if member.customer and not address_info.get("address_line_1"):
-                try:
-                    # customer = frappe.get_doc("Customer", member.customer)  # Unused variable
-                    # Get primary address for customer
-                    addresses = frappe.get_all(
-                        "Dynamic Link",
-                        filters={
-                            "link_doctype": "Customer",
-                            "link_name": member.customer,
-                            "parenttype": "Address",
-                        },
-                        fields=["parent"],
-                        limit=1,
-                    )
-
-                    if addresses:
-                        address = frappe.get_doc("Address", addresses[0].parent)
-                        if address.address_line1:
-                            address_info["address_line_1"] = address.address_line1[:70]
-                        if address.address_line2:
-                            address_info["address_line_2"] = address.address_line2[:70]
-                        if address.pincode:
-                            address_info["postal_code"] = address.pincode
-                        if address.city:
-                            address_info["town"] = address.city
-                        if address.country:
-                            address_info["country"] = address.country
-
-                except Exception as e:
-                    # Log address lookup failures for debugging but continue
-                    frappe.logger().info(f"Customer address lookup failed for member {member_name}: {str(e)}")
-                    # Continue with member-only data
-
-            # Validate required fields for structured address
-            # Town name and country are mandatory as of November 2025
-            if not address_info.get("town") or not address_info.get("country"):
-                return None
-
-            return address_info
-
-        except Exception as e:
-            frappe.logger().warning(f"Could not get structured address for member {member_name}: {str(e)}")
-            return None
-
     def _validate_sepa_xml_schema(self, xml_string):
         """Validate SEPA XML against pain.008.001.08 schema (Recommendation #3)"""
         return SEPAXMLValidator.validate_sepa_xml_schema(xml_string, self.name)
@@ -683,10 +422,11 @@ def generate_direct_debit_batch(date=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def process_batch(batch_name):
+def process_batch(batch_name: str):
     """Process a direct debit batch"""
     try:
         batch = frappe.get_doc("Direct Debit Batch", batch_name)
+        batch.check_permission("write")
 
         if batch.docstatus != 1:
             frappe.throw(_("Batch must be submitted before processing"))
@@ -706,10 +446,11 @@ def process_batch(batch_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def mark_invoices_as_paid(batch_name):
+def mark_invoices_as_paid(batch_name: str):
     """Mark all invoices in a batch as paid"""
     try:
         batch = frappe.get_doc("Direct Debit Batch", batch_name)
+        batch.check_permission("write")
 
         if batch.docstatus != 1:
             frappe.throw(_("Batch must be submitted before marking invoices as paid"))

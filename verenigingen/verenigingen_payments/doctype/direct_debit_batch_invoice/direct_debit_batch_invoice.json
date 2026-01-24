@@ -17,6 +17,7 @@
     "iban",
     "bic",
     "mandate_reference",
+    "mandate_sign_date",
     "sequence_type",
     "column_break_12",
     "status",
@@ -99,6 +100,12 @@
       "fieldtype": "Data",
       "label": "Mandate Reference",
       "reqd": 1
+    },
+    {
+      "fieldname": "mandate_sign_date",
+      "fieldtype": "Date",
+      "label": "Mandate Sign Date",
+      "description": "Date the SEPA mandate was signed (for DtOfSgntr in XML)"
     },
     {
       "description": "SEPA sequence type: FRST (First), RCUR (Recurring), OOFF (One-Off), FNAL (Final)",

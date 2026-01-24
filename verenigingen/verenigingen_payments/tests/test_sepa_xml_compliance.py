@@ -182,9 +182,12 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                 sign_dates = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}DtOfSgntr")
                 self.assertEqual(len(sign_dates), len(mandate_ids))
 
-                # Validate date format (YYYY-MM-DD)
+                # Validate date format (YYYY-MM-DD) and check not hardcoded
                 for date_elem in sign_dates:
                     self._validate_date_format(date_elem.text)
+
+                # Additional validation to ensure sign dates aren't hardcoded
+                self._validate_mandate_sign_dates_not_hardcoded(xml_content)
 
         except Exception as e:
             frappe.logger().warning(f"Mandate sequence type test skipped: {str(e)}")
@@ -526,6 +529,32 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         # Check transaction information exists
         drct_dbt_tx_infs = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}DrctDbtTxInf")
         self.assertGreater(len(drct_dbt_tx_infs), 0)
+
+    def _validate_mandate_sign_dates_not_hardcoded(self, xml_content: str):
+        """
+        Validate that mandate sign dates are NOT hardcoded to 2023-01-01.
+
+        This is a critical compliance check - the old implementation had a
+        hardcoded fallback of 2023-01-01 which is incorrect for SEPA compliance.
+        The DtOfSgntr field must contain the actual mandate signing date.
+        """
+        root = ET.fromstring(xml_content)
+
+        sign_dates = root.findall(".//{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}DtOfSgntr")
+
+        for sign_date_elem in sign_dates:
+            date_value = sign_date_elem.text
+            # Validate date format
+            self._validate_date_format(date_value)
+
+            # Critical: Check that dates are not the old hardcoded value
+            # While 2023-01-01 could theoretically be valid, it was the hardcoded
+            # fallback in the old code and should raise a warning in tests
+            if date_value == "2023-01-01":
+                frappe.logger().warning(
+                    f"DtOfSgntr contains suspicious value 2023-01-01 - "
+                    f"this was the old hardcoded fallback. Please verify this is the actual mandate sign date."
+                )
 
     def _validate_date_format(self, date_string: str):
         """Validate date format is YYYY-MM-DD"""

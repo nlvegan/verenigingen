@@ -2,20 +2,24 @@
 SEPA XML Generation Service
 
 This service handles SEPA XML generation for Dutch direct debit processing.
-Extracted from Direct Debit Batch system for better separation of concerns.
-Implements the pain.008.001.08 standard with Dutch banking requirements.
+Uses the SEPAXMLAdapter to generate pain.008.001.08 compliant XML with
+proper mandate sign dates.
+
+The actual XML generation is delegated to EnhancedSEPAXMLGenerator via
+the SEPAXMLAdapter for better separation of concerns and code reuse.
 """
 
+import os
 import tempfile
-import xml.etree.ElementTree as ET
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+import xml.dom.minidom
+from typing import Any, Dict
 
 import frappe
 from frappe.utils import nowdate, nowtime, random_string
 
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
-from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities, SEPAXMLValidator
+from verenigingen.verenigingen_payments.services.sepa_xml_adapter import get_sepa_xml_adapter
+from verenigingen.verenigingen_payments.utils.sepa_utilities import FileManagementUtilities, SEPAXMLValidator
 
 
 class SEPAXMLGenerationService:
@@ -23,10 +27,15 @@ class SEPAXMLGenerationService:
 
     def __init__(self):
         self.config_service = sepa_config_service
+        self.xml_adapter = get_sepa_xml_adapter()
 
     def generate_sepa_xml_for_batch(self, batch_doc) -> str:
         """
         Generate SEPA Direct Debit XML file for Dutch banks.
+
+        Uses the SEPAXMLAdapter to generate properly formatted XML with
+        correct mandate sign dates (DtOfSgntr) from the batch invoices
+        or database lookup fallback.
 
         Args:
             batch_doc: Direct Debit Batch document
@@ -50,9 +59,6 @@ class SEPAXMLGenerationService:
             batch_doc.db_set("sepa_payment_info_id", payment_info_id)
             batch_doc.db_set("sepa_generation_date", f"{nowdate()} {nowtime()}")
 
-            # Get configuration
-            settings = self.config_service.get_sepa_settings()
-
             # Validate required settings
             validation_result = self.config_service.validate_sepa_configuration()
             if not validation_result["is_valid"]:
@@ -60,8 +66,15 @@ class SEPAXMLGenerationService:
                 error_msg = f"Missing required SEPA settings: {', '.join(missing_settings)}"
                 frappe.throw(error_msg)
 
-            # Create SEPA XML structure
-            xml_string = self._create_sepa_xml_structure(batch_doc, message_id, payment_info_id, settings)
+            # Clear adapter cache for fresh lookup
+            self.xml_adapter.clear_cache()
+
+            # Generate SEPA XML using the adapter
+            xml_string = self.xml_adapter.generate_xml_for_batch(
+                batch_doc=batch_doc,
+                message_id=message_id,
+                payment_info_id=payment_info_id,
+            )
 
             # Validate XML against schema if available
             validation_result = SEPAXMLValidator.validate_sepa_xml_schema(xml_string, batch_doc.name)
@@ -80,223 +93,11 @@ class SEPAXMLGenerationService:
         except Exception as e:
             error_msg = f"Error generating SEPA file: {str(e)}"
             frappe.log_error(
-                f"Error generating SEPA file for batch {batch_doc.name}: {str(e)}",
+                f"Error generating SEPA file for batch {batch_doc.name}: {str(e)}\n"
+                f"Traceback: {frappe.get_traceback()}",
                 "SEPA Direct Debit Batch Error",
             )
             raise frappe.ValidationError(error_msg)
-
-    def _create_sepa_xml_structure(
-        self, batch_doc, message_id: str, payment_info_id: str, settings: Dict[str, Any]
-    ) -> str:
-        """
-        Create SEPA XML structure specifically for Dutch direct debit.
-
-        Args:
-            batch_doc: Direct Debit Batch document
-            message_id: Unique message identifier
-            payment_info_id: Payment information identifier
-            settings: SEPA configuration settings
-
-        Returns:
-            XML string in pain.008.001.08 format
-        """
-        frappe.logger().info(
-            f"Creating Dutch SEPA XML structure for batch {batch_doc.name} (pain.008.001.08)"
-        )
-
-        # Create root element with updated namespace for 2019 version
-        root = ET.Element("Document")
-        root.set("xmlns", "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08")
-        root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-        root.set("xsi:schemaLocation", "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08 pain.008.001.08.xsd")
-
-        # Customer SEPA Direct Debit Initiation
-        cstmr_drct_dbt_initn = ET.SubElement(root, "CstmrDrctDbtInitn")
-
-        # Group Header
-        self._create_group_header(cstmr_drct_dbt_initn, message_id, batch_doc, settings)
-
-        # Payment Information
-        self._create_payment_information(cstmr_drct_dbt_initn, payment_info_id, batch_doc, settings)
-
-        # Convert to string
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-
-    def _create_group_header(self, parent_element, message_id: str, batch_doc, settings: Dict[str, Any]):
-        """Create the Group Header section of SEPA XML"""
-        grp_hdr = ET.SubElement(parent_element, "GrpHdr")
-        ET.SubElement(grp_hdr, "MsgId").text = message_id
-        ET.SubElement(grp_hdr, "CreDtTm").text = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        ET.SubElement(grp_hdr, "NbOfTxs").text = str(batch_doc.entry_count)
-        ET.SubElement(grp_hdr, "CtrlSum").text = str(batch_doc.total_amount)
-
-        # Initiating Party (Creditor)
-        init_party = ET.SubElement(grp_hdr, "InitgPty")
-        ET.SubElement(init_party, "Nm").text = settings["organization_name"]
-
-    def _create_payment_information(
-        self, parent_element, payment_info_id: str, batch_doc, settings: Dict[str, Any]
-    ):
-        """Create the Payment Information section of SEPA XML"""
-        pmt_inf = ET.SubElement(parent_element, "PmtInf")
-        ET.SubElement(pmt_inf, "PmtInfId").text = payment_info_id
-        ET.SubElement(pmt_inf, "PmtMtd").text = "DD"
-
-        # Payment Type Information
-        pmt_tp_inf = ET.SubElement(pmt_inf, "PmtTpInf")
-        svc_lvl = ET.SubElement(pmt_tp_inf, "SvcLvl")
-        ET.SubElement(svc_lvl, "Cd").text = "SEPA"
-        lcl_instrm = ET.SubElement(pmt_tp_inf, "LclInstrm")
-        ET.SubElement(lcl_instrm, "Cd").text = "CORE"
-        ET.SubElement(pmt_tp_inf, "SeqTp").text = "RCUR"  # Default to recurring
-
-        # Collection Date
-        # Use batch_date as the requested collection date
-        ET.SubElement(pmt_inf, "ReqdColltnDt").text = str(batch_doc.batch_date)
-
-        # Creditor information
-        self._create_creditor_information(pmt_inf, settings)
-
-        # Direct Debit Transaction Information for each invoice
-        self._create_transaction_information(pmt_inf, batch_doc, settings)
-
-    def _create_creditor_information(self, parent_element, settings: Dict[str, Any]):
-        """Create creditor information section"""
-        cdtr = ET.SubElement(parent_element, "Cdtr")
-        ET.SubElement(cdtr, "Nm").text = settings["organization_name"]
-
-        # Creditor Account
-        cdtr_acct = ET.SubElement(parent_element, "CdtrAcct")
-        cdtr_acct_id = ET.SubElement(cdtr_acct, "Id")
-        ET.SubElement(cdtr_acct_id, "IBAN").text = settings["iban"]
-
-        # Creditor Agent (Bank)
-        cdtr_agt = ET.SubElement(parent_element, "CdtrAgt")
-        fin_instn_id = ET.SubElement(cdtr_agt, "FinInstnId")
-        if settings.get("bic"):
-            ET.SubElement(fin_instn_id, "BIC").text = settings["bic"]
-
-        # Creditor Scheme Identification
-        cdtr_schme_id = ET.SubElement(parent_element, "CdtrSchmeId")
-        self._create_creditor_scheme_id(cdtr_schme_id, settings)
-
-    def _create_creditor_scheme_id(self, parent_element, settings: Dict[str, Any]):
-        """Create creditor scheme identification section"""
-        nm = ET.SubElement(parent_element, "Nm")
-        nm.text = settings["organization_name"]
-
-        id_elem = ET.SubElement(parent_element, "Id")
-        prvt_id = ET.SubElement(id_elem, "PrvtId")
-        othr = ET.SubElement(prvt_id, "Othr")
-        ET.SubElement(othr, "Id").text = settings["creditor_id"]
-        schme_nm = ET.SubElement(othr, "SchmeNm")
-        ET.SubElement(schme_nm, "Prtry").text = "SEPA"
-
-    def _create_transaction_information(self, parent_element, batch_doc, settings: Dict[str, Any]):
-        """Create transaction information for each invoice in the batch"""
-        for invoice_item in batch_doc.invoices:
-            drct_dbt_tx_inf = ET.SubElement(parent_element, "DrctDbtTxInf")
-
-            # Payment Identification
-            pmt_id = ET.SubElement(drct_dbt_tx_inf, "PmtId")
-            ET.SubElement(pmt_id, "EndToEndId").text = f"INV-{invoice_item.invoice}"
-
-            # Instructed Amount
-            instd_amt = ET.SubElement(drct_dbt_tx_inf, "InstdAmt")
-            instd_amt.set("Ccy", "EUR")
-            instd_amt.text = str(invoice_item.amount)
-
-            # Direct Debit Transaction
-            drct_dbt_tx = ET.SubElement(drct_dbt_tx_inf, "DrctDbtTx")
-
-            # Mandate Related Information
-            mdt_rltd_inf = ET.SubElement(drct_dbt_tx, "MdtRltdInf")
-            ET.SubElement(mdt_rltd_inf, "MdtId").text = invoice_item.mandate_reference or "UNKNOWN"
-            ET.SubElement(mdt_rltd_inf, "DtOfSgntr").text = "2023-01-01"  # Placeholder
-
-            # Debtor information
-            self._create_debtor_information(drct_dbt_tx_inf, invoice_item, settings)
-
-            # Debtor Account
-            dbtr_acct = ET.SubElement(drct_dbt_tx_inf, "DbtrAcct")
-            dbtr_acct_id = ET.SubElement(dbtr_acct, "Id")
-            ET.SubElement(dbtr_acct_id, "IBAN").text = invoice_item.iban or "UNKNOWN"
-
-            # Remittance Information
-            rmt_inf = ET.SubElement(drct_dbt_tx_inf, "RmtInf")
-            ET.SubElement(rmt_inf, "Ustrd").text = f"Invoice {invoice_item.invoice}"
-
-    def _create_debtor_information(self, parent_element, invoice_item, settings: Dict[str, Any]):
-        """Create debtor information section"""
-        dbtr = ET.SubElement(parent_element, "Dbtr")
-
-        # Try to get structured address information
-        # invoice_item.member contains the Member DocType name
-        member_address = self._get_member_structured_address(invoice_item.member)
-
-        if member_address and member_address.get("name"):
-            ET.SubElement(dbtr, "Nm").text = member_address["name"]
-
-            if member_address.get("address"):
-                pstl_adr = ET.SubElement(dbtr, "PstlAdr")
-                ET.SubElement(pstl_adr, "Ctry").text = "NL"
-                if member_address.get("postal_code"):
-                    ET.SubElement(pstl_adr, "PstCd").text = member_address["postal_code"]
-                if member_address.get("city"):
-                    ET.SubElement(pstl_adr, "TwnNm").text = member_address["city"]
-                # Add address lines
-                for i, line in enumerate(member_address["address"][:2], 1):
-                    ET.SubElement(pstl_adr, "AdrLine").text = line
-        else:
-            # Fallback to member name
-            ET.SubElement(dbtr, "Nm").text = invoice_item.member_name or "UNKNOWN"
-
-    def _get_member_structured_address(self, member_name: str) -> Optional[Dict[str, Any]]:
-        """
-        Get structured address information for pain.008.001.08 requirement.
-
-        Args:
-            member_name: Name of the member
-
-        Returns:
-            Dictionary with structured address data or None
-        """
-        try:
-            if not member_name:
-                return None
-
-            # Get member document
-            member = frappe.get_doc("Member", member_name)
-
-            # Get customer document for address information
-            if hasattr(member, "customer") and member.customer:
-                customer = frappe.get_doc("Customer", member.customer)
-
-                # Build structured address
-                address_info = {
-                    "name": f"{member.first_name} {member.last_name}".strip(),
-                    "address": [],
-                    "postal_code": None,
-                    "city": None,
-                }
-
-                # Try to get address from customer
-                if hasattr(customer, "customer_primary_address") and customer.customer_primary_address:
-                    address = frappe.get_doc("Address", customer.customer_primary_address)
-
-                    if address.address_line1:
-                        address_info["address"].append(address.address_line1)
-                    if address.address_line2:
-                        address_info["address"].append(address.address_line2)
-
-                    address_info["postal_code"] = getattr(address, "pincode", None)
-                    address_info["city"] = getattr(address, "city", None)
-
-                return address_info if address_info["name"] else None
-
-        except Exception as e:
-            frappe.logger().warning(f"Could not get structured address for member {member_name}: {str(e)}")
-            return None
 
     def _save_xml_file(self, batch_doc, xml_string: str) -> str:
         """
@@ -304,22 +105,28 @@ class SEPAXMLGenerationService:
 
         Args:
             batch_doc: Direct Debit Batch document
-            xml_string: XML content as string
+            xml_string: XML content as string (may be bytes or str)
 
         Returns:
             File URL of saved XML file
         """
-        import os
-        import xml.dom.minidom
+        # Handle both bytes and string input
+        if isinstance(xml_string, bytes):
+            xml_content = xml_string.decode("utf-8")
+        else:
+            xml_content = xml_string
 
-        from verenigingen.verenigingen_payments.utils.sepa_utilities import FileManagementUtilities
-
-        # Prettify XML
-        xml_pretty = xml.dom.minidom.parseString(xml_string).toprettyxml()
+        # Prettify XML if not already prettified
+        try:
+            dom = xml.dom.minidom.parseString(xml_content.encode("utf-8"))
+            xml_pretty = dom.toprettyxml(indent="  ", encoding="utf-8").decode("utf-8")
+        except Exception:
+            # If parsing fails, use as-is
+            xml_pretty = xml_content
 
         # Create temporary file
         temp_file_path = os.path.join(tempfile.gettempdir(), f"sepa-{batch_doc.name}.xml")
-        with open(temp_file_path, "w") as f:
+        with open(temp_file_path, "w", encoding="utf-8") as f:
             f.write(xml_pretty)
 
         try:
