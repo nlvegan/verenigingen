@@ -7,10 +7,12 @@ OOFF (One-off), FRST (First), RCUR (Recurring), FNAL (Final)
 Implements Week 3 Day 3-4 requirements from the SEPA billing improvements project.
 """
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
+from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
@@ -21,6 +23,26 @@ from verenigingen.utils.error_handling import SEPAError, ValidationError, handle
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import SEPASequenceType
+
+# =============================================================================
+# Cache Configuration
+# =============================================================================
+
+# Cache TTL in seconds (5 minutes default - balance between freshness and performance)
+MANDATE_USAGE_CACHE_TTL_SECONDS = 300
+
+
+@dataclass
+class CacheEntry:
+    """Cache entry with TTL support"""
+
+    data: Any
+    created_at: float
+    ttl_seconds: float = MANDATE_USAGE_CACHE_TTL_SECONDS
+
+    def is_expired(self) -> bool:
+        """Check if cache entry has expired"""
+        return (time.time() - self.created_at) > self.ttl_seconds
 
 
 class MandateStatus(Enum):
@@ -84,7 +106,75 @@ class SEPAMandateLifecycleManager:
 
     def __init__(self):
         self.mandate_validity_months = 36  # SEPA standard: 36 months
-        self.mandate_usage_cache = {}
+        self.mandate_usage_cache: Dict[str, CacheEntry] = {}
+        self._cache_lock = Lock()
+
+    # =========================================================================
+    # Cache Management
+    # =========================================================================
+
+    def _get_cached_usage_history(self, mandate_id: str) -> Optional[List["MandateUsageRecord"]]:
+        """
+        Get usage history from cache if available and not expired.
+
+        Args:
+            mandate_id: SEPA mandate ID
+
+        Returns:
+            Cached usage history or None if not cached/expired
+        """
+        with self._cache_lock:
+            entry = self.mandate_usage_cache.get(mandate_id)
+            if entry and not entry.is_expired():
+                return entry.data
+            # Remove expired entry
+            if entry:
+                del self.mandate_usage_cache[mandate_id]
+            return None
+
+    def _set_cached_usage_history(self, mandate_id: str, usage_history: List["MandateUsageRecord"]) -> None:
+        """
+        Cache usage history for a mandate.
+
+        Args:
+            mandate_id: SEPA mandate ID
+            usage_history: Usage history to cache
+        """
+        import time
+
+        with self._cache_lock:
+            self.mandate_usage_cache[mandate_id] = CacheEntry(
+                data=usage_history,
+                created_at=time.time(),
+            )
+
+    def invalidate_cache(self, mandate_id: str = None) -> None:
+        """
+        Invalidate cache for a specific mandate or all mandates.
+
+        Call this when mandate usage records are created/updated.
+
+        Args:
+            mandate_id: Specific mandate to invalidate, or None for all
+        """
+        with self._cache_lock:
+            if mandate_id:
+                self.mandate_usage_cache.pop(mandate_id, None)
+            else:
+                self.mandate_usage_cache.clear()
+
+    def _cleanup_expired_cache_entries(self) -> int:
+        """
+        Remove expired cache entries. Called periodically.
+
+        Returns:
+            Number of entries removed
+        """
+        with self._cache_lock:
+            expired_keys = [key for key, entry in self.mandate_usage_cache.items() if entry.is_expired()]
+            for key in expired_keys:
+                del self.mandate_usage_cache[key]
+            return len(expired_keys)
 
     @performance_monitor(threshold_ms=1000)
     def determine_sequence_type(
@@ -184,42 +274,72 @@ class SEPAMandateLifecycleManager:
             return None
 
     def _get_mandate_usage_history(self, mandate_id: str) -> List[MandateUsageRecord]:
-        """Get complete usage history for a mandate"""
+        """
+        Get complete usage history for a mandate from authoritative SEPA Mandate Usage table.
+
+        Uses caching with TTL to improve performance for batch processing.
+
+        Args:
+            mandate_id: SEPA mandate ID (the reference ID, not document name)
+
+        Returns:
+            List of MandateUsageRecord ordered by usage_date ascending
+        """
+        # Check cache first
+        cached = self._get_cached_usage_history(mandate_id)
+        if cached is not None:
+            return cached
+
         try:
-            # Check if usage tracking table exists
-            usage_records = frappe.db.sql(
-                """
-                SELECT
-                    ddi.invoice,
-                    ddb.batch_date as usage_date,
-                    ddi.amount,
-                    ddb.name as batch_name,
-                    ddi.status,
-                    ddb.status as batch_status,
-                    'RCUR' as sequence_type  -- Default assumption
-                FROM `tabDirect Debit Batch Invoice` ddi
-                JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
-                WHERE ddi.mandate_reference = %(mandate_id)s
-                AND ddb.docstatus = 1
-                ORDER BY ddb.batch_date ASC
-            """,
-                {"mandate_id": mandate_id},
-                as_dict=True,
+            # Get mandate name from mandate_id
+            mandate_name = frappe.db.get_value("SEPA Mandate", {"mandate_id": mandate_id}, "name")
+            if not mandate_name:
+                return []
+
+            # Query the authoritative SEPA Mandate Usage child table
+            usage_records = frappe.get_all(
+                "SEPA Mandate Usage",
+                filters={"parent": mandate_name},
+                fields=[
+                    "usage_date",
+                    "sequence_type",
+                    "amount",
+                    "reference_name",
+                    "batch_reference",
+                    "status",
+                    "failure_reason",
+                ],
+                order_by="usage_date ASC",
             )
+
+            # Map sequence type strings to enum values
+            sequence_type_map = {
+                "OOFF": SEPASequenceType.OOFF,
+                "FRST": SEPASequenceType.FRST,
+                "RCUR": SEPASequenceType.RCUR,
+                "FNAL": SEPASequenceType.FNAL,
+            }
 
             usage_history = []
             for record in usage_records:
+                # Convert sequence_type string to enum, default to RCUR if unknown
+                seq_type_str = record.sequence_type or "RCUR"
+                seq_type = sequence_type_map.get(seq_type_str, SEPASequenceType.RCUR)
+
                 usage_history.append(
                     MandateUsageRecord(
                         usage_date=getdate(record.usage_date),
-                        sequence_type=SEPASequenceType.RCUR,  # Default - would need more logic
-                        amount=Decimal(str(record.amount)),
-                        invoice_reference=record.invoice,
-                        transaction_id=record.batch_name,
+                        sequence_type=seq_type,
+                        amount=Decimal(str(record.amount or 0)),
+                        invoice_reference=record.reference_name or "",
+                        transaction_id=record.batch_reference or "",
                         status=record.status or "Pending",
-                        result_code=None,
+                        result_code=record.failure_reason,
                     )
                 )
+
+            # Cache the result
+            self._set_cached_usage_history(mandate_id, usage_history)
 
             return usage_history
 
@@ -263,8 +383,24 @@ class SEPAMandateLifecycleManager:
         usage_history: List[MandateUsageRecord],
         transaction_context: Dict[str, Any] = None,
     ) -> Tuple[MandateUsageType, SEPASequenceType]:
-        """Analyze mandate usage to determine sequence type"""
+        """
+        Analyze mandate usage to determine appropriate SEPA sequence type.
 
+        Handles edge cases:
+        - OOFF (one-off) mandates
+        - FNAL (final) usage detection and prevention of reuse
+        - Mandate renewal (sign_date > last_usage_date)
+        - Expired-but-renewed mandates
+        - 36-month non-use expiry
+
+        Args:
+            mandate: Mandate information dict
+            usage_history: List of previous usage records
+            transaction_context: Optional context (is_one_off, is_final flags)
+
+        Returns:
+            Tuple of (MandateUsageType, SEPASequenceType)
+        """
         # Check for explicit mandate type (OOFF mandates)
         mandate_type = mandate.get("mandate_type", "").upper()
         if mandate_type == "OOFF":
@@ -292,22 +428,64 @@ class SEPAMandateLifecycleManager:
             # Never used - first transaction
             return MandateUsageType.FIRST_USE, SEPASequenceType.FRST
 
-        # Check last usage date for recurring validation
+        # Get relevant dates
         last_usage = usage_history[-1]
         last_usage_date = last_usage.usage_date
         today_date = getdate(today())
+        sign_date = getdate(mandate["sign_date"]) if mandate.get("sign_date") else None
 
-        # If last usage was FNAL, mandate should not be used again
+        # =================================================================
+        # EDGE CASE 1: FNAL detection - mandate should not be used again
+        # =================================================================
         if last_usage.sequence_type == SEPASequenceType.FNAL:
-            return MandateUsageType.EXPIRED_USE, SEPASequenceType.RCUR
+            # FNAL was sent - mandate is terminated and cannot be reused
+            # A new mandate must be signed to continue collections
+            frappe.logger().warning(
+                f"Mandate {mandate.get('mandate_id')} was marked FNAL on {last_usage_date}. "
+                "A new mandate is required for further collections."
+            )
+            return MandateUsageType.EXPIRED_USE, SEPASequenceType.FNAL
 
-        # Check if mandate has been used recently (within 36 months)
+        # =================================================================
+        # EDGE CASE 2: Mandate renewal (sign_date > last_usage_date)
+        # =================================================================
+        # If the mandate was re-signed after the last usage, treat as renewed
+        # This handles expired-but-renewed mandates
+        if sign_date and sign_date > last_usage_date:
+            # Mandate was renewed - use FRST for first collection after renewal
+            frappe.logger().info(
+                f"Mandate {mandate.get('mandate_id')} was renewed on {sign_date} "
+                f"(last usage was {last_usage_date}). Using FRST for renewed mandate."
+            )
+            return MandateUsageType.FIRST_USE, SEPASequenceType.FRST
+
+        # =================================================================
+        # EDGE CASE 3: 36-month non-use expiry with renewal check
+        # =================================================================
         months_since_last_use = (today_date.year - last_usage_date.year) * 12 + (
             today_date.month - last_usage_date.month
         )
 
         if months_since_last_use > self.mandate_validity_months:
             # Mandate expired due to non-use
+            # Check if mandate was renewed (sign_date is recent)
+            if sign_date:
+                months_since_sign = (today_date.year - sign_date.year) * 12 + (
+                    today_date.month - sign_date.month
+                )
+                if months_since_sign <= self.mandate_validity_months:
+                    # Sign date is recent - mandate was renewed, use FRST
+                    frappe.logger().info(
+                        f"Mandate {mandate.get('mandate_id')} expired due to non-use but "
+                        f"was re-signed on {sign_date}. Using FRST for renewed mandate."
+                    )
+                    return MandateUsageType.FIRST_USE, SEPASequenceType.FRST
+
+            # Mandate truly expired - cannot be used without renewal
+            frappe.logger().warning(
+                f"Mandate {mandate.get('mandate_id')} expired after {months_since_last_use} months "
+                f"of non-use (limit: {self.mandate_validity_months} months). Renewal required."
+            )
             return MandateUsageType.EXPIRED_USE, SEPASequenceType.FRST
 
         # Regular recurring usage
@@ -813,3 +991,224 @@ def bulk_validate_mandates(mandate_ids: str) -> Dict[str, Any]:
 
     except Exception as e:
         return {"success": False, "error": str(e), "summary": None, "results": {}}
+
+
+# =============================================================================
+# Reconciliation Functions
+# =============================================================================
+
+
+@dataclass
+class ReconciliationResult:
+    """Result of mandate usage reconciliation"""
+
+    success: bool
+    discrepancies: List[Dict[str, Any]]
+    summary: Dict[str, int]
+    errors: List[str]
+
+
+def reconcile_mandate_usage_records(
+    mandate_id: str = None, date_from: str = None, date_to: str = None
+) -> ReconciliationResult:
+    """
+    Reconcile SEPA Mandate Usage records against Direct Debit Batch Invoice records.
+
+    This helps detect discrepancies between the authoritative usage table and
+    the batch invoice records for auditing and data integrity purposes.
+
+    Args:
+        mandate_id: Optional specific mandate to reconcile
+        date_from: Optional start date filter
+        date_to: Optional end date filter
+
+    Returns:
+        ReconciliationResult with discrepancies and summary
+    """
+    discrepancies = []
+    errors = []
+    summary = {
+        "total_usage_records": 0,
+        "total_batch_records": 0,
+        "matched_records": 0,
+        "missing_in_usage": 0,  # In batch but not in usage table
+        "missing_in_batch": 0,  # In usage table but not in batch
+        "amount_mismatches": 0,
+        "status_mismatches": 0,
+    }
+
+    try:
+        # Build filters
+        usage_filters = {}
+        batch_filters = []
+        batch_params = {}
+
+        if mandate_id:
+            # Get mandate name from ID
+            mandate_name = frappe.db.get_value("SEPA Mandate", {"mandate_id": mandate_id}, "name")
+            if mandate_name:
+                usage_filters["parent"] = mandate_name
+                batch_filters.append("ddi.mandate_reference = %(mandate_id)s")
+                batch_params["mandate_id"] = mandate_id
+
+        if date_from:
+            batch_filters.append("ddb.batch_date >= %(date_from)s")
+            batch_params["date_from"] = date_from
+
+        if date_to:
+            batch_filters.append("ddb.batch_date <= %(date_to)s")
+            batch_params["date_to"] = date_to
+
+        # Get usage records from authoritative SEPA Mandate Usage table
+        usage_records = frappe.get_all(
+            "SEPA Mandate Usage",
+            filters=usage_filters,
+            fields=[
+                "name",
+                "parent",
+                "usage_date",
+                "reference_name",
+                "batch_reference",
+                "amount",
+                "status",
+                "sequence_type",
+            ],
+        )
+        summary["total_usage_records"] = len(usage_records)
+
+        # Build lookup by reference_name + parent
+        usage_lookup = {(r.parent, r.reference_name): r for r in usage_records if r.reference_name}
+
+        # Get batch invoice records
+        where_clause = "WHERE ddb.docstatus = 1"
+        if batch_filters:
+            where_clause += " AND " + " AND ".join(batch_filters)
+
+        batch_records = frappe.db.sql(
+            f"""
+            SELECT
+                ddi.name as invoice_row_name,
+                ddi.invoice as reference_name,
+                ddi.mandate_reference,
+                ddi.amount,
+                ddi.status,
+                ddb.name as batch_name,
+                ddb.batch_date,
+                sm.name as mandate_name
+            FROM `tabDirect Debit Batch Invoice` ddi
+            JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
+            LEFT JOIN `tabSEPA Mandate` sm ON ddi.mandate_reference = sm.mandate_id
+            {where_clause}
+            """,
+            batch_params,
+            as_dict=True,
+        )
+        summary["total_batch_records"] = len(batch_records)
+
+        # Check each batch record against usage records
+        for batch_record in batch_records:
+            mandate_name = batch_record.mandate_name
+            ref_name = batch_record.reference_name
+            key = (mandate_name, ref_name)
+
+            if key in usage_lookup:
+                usage_record = usage_lookup[key]
+                summary["matched_records"] += 1
+
+                # Check for amount mismatch
+                batch_amount = Decimal(str(batch_record.amount or 0))
+                usage_amount = Decimal(str(usage_record.amount or 0))
+
+                if batch_amount != usage_amount:
+                    summary["amount_mismatches"] += 1
+                    discrepancies.append(
+                        {
+                            "type": "amount_mismatch",
+                            "mandate_id": batch_record.mandate_reference,
+                            "reference_name": ref_name,
+                            "batch_amount": float(batch_amount),
+                            "usage_amount": float(usage_amount),
+                            "batch_name": batch_record.batch_name,
+                        }
+                    )
+
+                # Remove from lookup to track missing_in_batch later
+                del usage_lookup[key]
+            else:
+                # Batch record not found in usage table
+                summary["missing_in_usage"] += 1
+                discrepancies.append(
+                    {
+                        "type": "missing_in_usage",
+                        "mandate_id": batch_record.mandate_reference,
+                        "reference_name": ref_name,
+                        "batch_amount": float(batch_record.amount or 0),
+                        "batch_date": str(batch_record.batch_date),
+                        "batch_name": batch_record.batch_name,
+                    }
+                )
+
+        # Any remaining usage records are missing in batch
+        for key, usage_record in usage_lookup.items():
+            # Only flag if the usage record has a batch_reference (was meant to be batched)
+            if usage_record.batch_reference:
+                summary["missing_in_batch"] += 1
+                mandate_id_value = frappe.db.get_value("SEPA Mandate", usage_record.parent, "mandate_id")
+                discrepancies.append(
+                    {
+                        "type": "missing_in_batch",
+                        "mandate_id": mandate_id_value,
+                        "reference_name": usage_record.reference_name,
+                        "usage_amount": float(usage_record.amount or 0),
+                        "usage_date": str(usage_record.usage_date),
+                        "expected_batch": usage_record.batch_reference,
+                    }
+                )
+
+        return ReconciliationResult(
+            success=True,
+            discrepancies=discrepancies,
+            summary=summary,
+            errors=errors,
+        )
+
+    except Exception as e:
+        errors.append(str(e))
+        frappe.logger().error(f"Reconciliation error: {str(e)}")
+        return ReconciliationResult(
+            success=False,
+            discrepancies=discrepancies,
+            summary=summary,
+            errors=errors,
+        )
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
+@handle_api_error
+def run_mandate_usage_reconciliation(
+    mandate_id: str = None, date_from: str = None, date_to: str = None
+) -> Dict[str, Any]:
+    """
+    API endpoint to run mandate usage reconciliation.
+
+    Compares SEPA Mandate Usage records against Direct Debit Batch Invoice
+    records to detect discrepancies.
+
+    Args:
+        mandate_id: Optional specific mandate ID to reconcile
+        date_from: Optional start date filter (YYYY-MM-DD)
+        date_to: Optional end date filter (YYYY-MM-DD)
+
+    Returns:
+        Reconciliation results including discrepancies and summary
+    """
+    result = reconcile_mandate_usage_records(mandate_id, date_from, date_to)
+
+    return {
+        "success": result.success,
+        "summary": result.summary,
+        "discrepancies": result.discrepancies,
+        "discrepancy_count": len(result.discrepancies),
+        "errors": result.errors,
+    }
