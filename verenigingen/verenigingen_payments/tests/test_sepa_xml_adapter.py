@@ -25,6 +25,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import (
+    BatchValidationSummary,
     SEPAXMLAdapter,
     get_sepa_xml_adapter,
 )
@@ -70,9 +71,10 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.mandate_reference = "MAND-001"
         mock_invoice.member = None
 
-        result = self.adapter._get_mandate_sign_date(mock_invoice)
+        result_date, used_fallback = self.adapter._get_mandate_sign_date(mock_invoice)
 
-        self.assertEqual(result, date(2024, 6, 15))
+        self.assertEqual(result_date, date(2024, 6, 15))
+        self.assertFalse(used_fallback)
 
     def test_mandate_sign_date_from_invoice_item_string(self):
         """Test mandate sign date extraction when stored as string"""
@@ -81,10 +83,11 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.mandate_reference = "MAND-001"
         mock_invoice.member = None
 
-        result = self.adapter._get_mandate_sign_date(mock_invoice)
+        result_date, used_fallback = self.adapter._get_mandate_sign_date(mock_invoice)
 
         # getdate returns a date object from string
-        self.assertEqual(result, date(2024, 6, 15))
+        self.assertEqual(result_date, date(2024, 6, 15))
+        self.assertFalse(used_fallback)
 
     def test_mandate_sign_date_caching(self):
         """Test that mandate sign dates are cached"""
@@ -96,9 +99,10 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.mandate_reference = "MAND-001"
         mock_invoice.member = None
 
-        result = self.adapter._get_mandate_sign_date(mock_invoice)
+        result_date, used_fallback = self.adapter._get_mandate_sign_date(mock_invoice)
 
-        self.assertEqual(result, date(2024, 3, 10))
+        self.assertEqual(result_date, date(2024, 3, 10))
+        self.assertFalse(used_fallback)
 
     def test_mandate_sign_date_fallback_to_today(self):
         """Test mandate sign date falls back to today when no mandate found"""
@@ -108,9 +112,10 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.member = None
 
         with patch.object(frappe.db, "get_value", return_value=None):
-            result = self.adapter._get_mandate_sign_date(mock_invoice)
+            result_date, used_fallback = self.adapter._get_mandate_sign_date(mock_invoice)
 
-        self.assertEqual(result, date.today())
+        self.assertEqual(result_date, date.today())
+        self.assertTrue(used_fallback)  # Should indicate fallback was used
 
     def test_clear_cache(self):
         """Test cache clearing"""
@@ -140,7 +145,8 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
 
         self.assertIsNotNone(transaction)
-        self.assertEqual(transaction.end_to_end_id, "INV-INV-2024-001")
+        # EndToEndId should NOT double-prefix if invoice already has INV- prefix
+        self.assertEqual(transaction.end_to_end_id, "INV-2024-001")
         self.assertEqual(transaction.amount, Decimal("50.00"))
         self.assertEqual(transaction.currency, "EUR")
         self.assertEqual(transaction.debtor.name, "Jan de Vries")
@@ -176,6 +182,101 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         adapter2 = get_sepa_xml_adapter()
 
         self.assertIs(adapter1, adapter2)
+
+    def test_end_to_end_id_no_double_prefix(self):
+        """Test that EndToEndId doesn't double-prefix INV-"""
+        mock_invoice = MagicMock()
+        mock_invoice.invoice = "INV-2024-001"  # Already has INV- prefix
+        mock_invoice.amount = 50.00
+        mock_invoice.currency = "EUR"
+        mock_invoice.member_name = "Test Member"
+        mock_invoice.iban = "NL91ABNA0417164300"
+        mock_invoice.bic = None
+        mock_invoice.mandate_reference = "MAND-001"
+        mock_invoice.mandate_sign_date = date(2024, 1, 15)
+        mock_invoice.member = None
+        mock_invoice.sequence_type = None
+
+        self.adapter._validation_summary = None  # Reset
+        transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
+
+        # Should NOT be INV-INV-2024-001
+        self.assertEqual(transaction.end_to_end_id, "INV-2024-001")
+
+    def test_end_to_end_id_adds_prefix_when_missing(self):
+        """Test that EndToEndId adds INV- prefix when not present"""
+        mock_invoice = MagicMock()
+        mock_invoice.invoice = "2024-001"  # No INV- prefix
+        mock_invoice.amount = 50.00
+        mock_invoice.currency = "EUR"
+        mock_invoice.member_name = "Test Member"
+        mock_invoice.iban = "NL91ABNA0417164300"
+        mock_invoice.bic = None
+        mock_invoice.mandate_reference = "MAND-001"
+        mock_invoice.mandate_sign_date = date(2024, 1, 15)
+        mock_invoice.member = None
+        mock_invoice.sequence_type = None
+
+        self.adapter._validation_summary = None  # Reset
+        transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
+
+        # Should add prefix
+        self.assertEqual(transaction.end_to_end_id, "INV-2024-001")
+
+
+class TestBatchValidationSummary(FrappeTestCase):
+    """Tests for BatchValidationSummary dataclass"""
+
+    def test_validation_summary_initialization(self):
+        """Test default values"""
+        summary = BatchValidationSummary()
+
+        self.assertEqual(summary.total_invoices, 0)
+        self.assertEqual(summary.successful_transactions, 0)
+        self.assertEqual(summary.skipped_transactions, 0)
+        self.assertEqual(summary.missing_mandate_dates, 0)
+        self.assertEqual(summary.skipped_invoice_details, [])
+
+    def test_has_issues_false_when_clean(self):
+        """Test has_issues returns False when no issues"""
+        summary = BatchValidationSummary(
+            total_invoices=10,
+            successful_transactions=10,
+        )
+
+        self.assertFalse(summary.has_issues)
+
+    def test_has_issues_true_when_skipped(self):
+        """Test has_issues returns True when transactions skipped"""
+        summary = BatchValidationSummary(
+            total_invoices=10,
+            successful_transactions=9,
+            skipped_transactions=1,
+        )
+
+        self.assertTrue(summary.has_issues)
+
+    def test_has_issues_true_when_missing_dates(self):
+        """Test has_issues returns True when mandate dates missing"""
+        summary = BatchValidationSummary(
+            total_invoices=10,
+            successful_transactions=10,
+            missing_mandate_dates=2,
+        )
+
+        self.assertTrue(summary.has_issues)
+
+    def test_add_skipped(self):
+        """Test adding skipped transaction details"""
+        summary = BatchValidationSummary()
+
+        summary.add_skipped("INV-001", "Missing IBAN")
+        summary.add_skipped("INV-002", "Invalid amount")
+
+        self.assertEqual(summary.skipped_transactions, 2)
+        self.assertEqual(len(summary.skipped_invoice_details), 2)
+        self.assertEqual(summary.skipped_invoice_details[0]["invoice"], "INV-001")
+        self.assertEqual(summary.skipped_invoice_details[0]["reason"], "Missing IBAN")
 
 
 class TestSEPAXMLAdapterIntegration(FrappeTestCase):

@@ -40,6 +40,7 @@
   "board_document_categories",
   "monitoring_section",
   "stuck_schedule_notification_emails",
+  "sepa_strict_mandate_validation",
   "column_break_ybid",
   "payment_history_failure_threshold",
   "max_payment_history_entries",
@@ -510,6 +511,13 @@
    "fieldname": "stuck_schedule_notification_emails",
    "fieldtype": "Data",
    "label": "Stuck Schedule Notification Emails"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, SEPA XML generation will fail if any mandate sign date is missing. When disabled (default), missing dates fall back to today with a warning email to financial admins.",
+   "fieldname": "sepa_strict_mandate_validation",
+   "fieldtype": "Check",
+   "label": "SEPA Strict Mandate Validation"
   },
   {
    "default": "10",
