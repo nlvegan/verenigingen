@@ -25,6 +25,19 @@ from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
+from verenigingen.verenigingen_payments.utils.sepa_constants import (
+    MAX_CREDITOR_NAME_LENGTH,
+    MAX_DEBTOR_NAME_LENGTH,
+    MAX_END_TO_END_ID_LENGTH,
+    MAX_MANDATE_ID_LENGTH,
+    MAX_MESSAGE_ID_LENGTH,
+    MAX_PAYMENT_INFO_ID_LENGTH,
+    MAX_POST_CODE_LENGTH,
+    MAX_REMITTANCE_INFO_LENGTH,
+    MAX_STREET_NAME_LENGTH,
+    MAX_TOWN_NAME_LENGTH,
+    SEPA_CHAR_PATTERN,
+)
 
 
 class SEPASequenceType(Enum):
@@ -133,21 +146,21 @@ class EnhancedSEPAXMLGenerator:
     NAMESPACE = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"
     SCHEMA_LOCATION = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08 pain.008.001.08.xsd"
 
-    # Character limits per SEPA specification
-    MAX_MESSAGE_ID_LENGTH = 35
-    MAX_PAYMENT_INFO_ID_LENGTH = 35
-    MAX_END_TO_END_ID_LENGTH = 35
-    MAX_MANDATE_ID_LENGTH = 35
-    MAX_CREDITOR_NAME_LENGTH = 70
-    MAX_DEBTOR_NAME_LENGTH = 70
-    MAX_REMITTANCE_INFO_LENGTH = 140
-    MAX_ADDRESS_LINE_LENGTH = 70
+    # Character limits from canonical constants (for backward compatibility)
+    MAX_MESSAGE_ID_LENGTH = MAX_MESSAGE_ID_LENGTH
+    MAX_PAYMENT_INFO_ID_LENGTH = MAX_PAYMENT_INFO_ID_LENGTH
+    MAX_END_TO_END_ID_LENGTH = MAX_END_TO_END_ID_LENGTH
+    MAX_MANDATE_ID_LENGTH = MAX_MANDATE_ID_LENGTH
+    MAX_CREDITOR_NAME_LENGTH = MAX_CREDITOR_NAME_LENGTH
+    MAX_DEBTOR_NAME_LENGTH = MAX_DEBTOR_NAME_LENGTH
+    MAX_REMITTANCE_INFO_LENGTH = MAX_REMITTANCE_INFO_LENGTH
+    MAX_ADDRESS_LINE_LENGTH = MAX_STREET_NAME_LENGTH  # Address lines use street name limit
     MAX_COUNTRY_CODE_LENGTH = 2
-    MAX_POSTAL_CODE_LENGTH = 16
-    MAX_TOWN_NAME_LENGTH = 35
+    MAX_POSTAL_CODE_LENGTH = MAX_POST_CODE_LENGTH
+    MAX_TOWN_NAME_LENGTH = MAX_TOWN_NAME_LENGTH
 
-    # SEPA character set (restricted to basic Latin)
-    SEPA_CHAR_PATTERN = re.compile(r"^[a-zA-Z0-9\+\?\-\:\(\)\.\,\'\s/]*$")
+    # SEPA character set from canonical constants
+    SEPA_CHAR_PATTERN = SEPA_CHAR_PATTERN
 
     def __init__(self):
         self.validation_errors = []

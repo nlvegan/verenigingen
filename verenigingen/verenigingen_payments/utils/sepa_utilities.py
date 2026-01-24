@@ -17,7 +17,8 @@ See: docs/refactoring/PAYMENT_MODULE_DUPLICATION_AUDIT.md
 
 import re
 import warnings
-from typing import Optional
+from decimal import Decimal, InvalidOperation
+from typing import Optional, Union
 
 import frappe
 
@@ -280,30 +281,44 @@ class CalculationUtilities:
             invoices: List of invoice dictionaries
 
         Returns:
-            Dictionary with total_amount, count, and currency
+            Dictionary with total_amount (Decimal), count, and currency
         """
         if not invoices:
-            return {"total_amount": 0.0, "count": 0, "currency": "EUR"}
+            return {"total_amount": Decimal("0.00"), "count": 0, "currency": "EUR"}
 
-        total_amount = 0.0
+        total_amount = Decimal("0")
         count = len(invoices)
         currency = "EUR"  # Default for Dutch SEPA
 
         for invoice in invoices:
             # Handle different possible field names for amount
-            amount = (
-                invoice.get("outstanding_amount")
-                or invoice.get("grand_total")
-                or invoice.get("amount")
-                or 0.0
+            raw_amount = (
+                invoice.get("outstanding_amount") or invoice.get("grand_total") or invoice.get("amount")
             )
-            total_amount += float(amount)
+
+            # Convert to Decimal safely
+            try:
+                if raw_amount is None:
+                    amount = Decimal("0")
+                elif isinstance(raw_amount, Decimal):
+                    amount = raw_amount
+                else:
+                    amount = Decimal(str(raw_amount))
+            except (InvalidOperation, ValueError, TypeError):
+                amount = Decimal("0")
+
+            total_amount += amount
 
             # Use currency from first invoice if available
             if "currency" in invoice and currency == "EUR":
                 currency = invoice["currency"]
 
-        return {"total_amount": round(total_amount, 2), "count": count, "currency": currency}
+        # Quantize to 2 decimal places for monetary precision
+        return {
+            "total_amount": total_amount.quantize(Decimal("0.01")),
+            "count": count,
+            "currency": currency,
+        }
 
     @staticmethod
     def format_currency_amount(amount: float, currency: str = "EUR") -> str:
@@ -331,32 +346,34 @@ class CalculationUtilities:
             invoices_list: List of invoice objects with amount fields
 
         Returns:
-            Dictionary with entry_count and total_amount
+            Dictionary with entry_count and total_amount (Decimal)
         """
         if not invoices_list:
-            return {"entry_count": 0, "total_amount": 0.0}
+            return {"entry_count": 0, "total_amount": Decimal("0.00")}
 
         # Functionally equivalent to SQL aggregation with comprehensive edge case handling
         entry_count = len(invoices_list)
 
         # Handle None/NULL values same way as SQL COALESCE(amount, 0)
-        # Also handle potential string values and invalid data types gracefully
-        total = 0.0
+        # Use Decimal for monetary precision
+        total = Decimal("0")
         for invoice in invoices_list:
             try:
-                amount = invoice.amount
-                if amount is None:
-                    amount = 0.0
-                elif isinstance(amount, str):
-                    amount = float(amount) if amount.strip() else 0.0
+                raw_amount = invoice.amount
+                if raw_amount is None:
+                    amount = Decimal("0")
+                elif isinstance(raw_amount, Decimal):
+                    amount = raw_amount
+                elif isinstance(raw_amount, str):
+                    amount = Decimal(raw_amount.strip()) if raw_amount.strip() else Decimal("0")
                 else:
-                    amount = float(amount)
+                    amount = Decimal(str(raw_amount))
                 total += amount
-            except (ValueError, TypeError, AttributeError):
+            except (ValueError, TypeError, AttributeError, InvalidOperation):
                 # Skip invalid entries (equivalent to SQL ignoring invalid data)
                 continue
 
-        return {"entry_count": entry_count, "total_amount": round(total, 2)}
+        return {"entry_count": entry_count, "total_amount": total.quantize(Decimal("0.01"))}
 
 
 class FileManagementUtilities:
@@ -561,12 +578,16 @@ class InvoiceManagementUtilities:
 
         # Amount validation
         try:
-            amount = float(invoice_data.get("outstanding_amount", 0))
+            raw_amount = invoice_data.get("outstanding_amount", 0)
+            if isinstance(raw_amount, Decimal):
+                amount = raw_amount
+            else:
+                amount = Decimal(str(raw_amount))
             if amount <= 0:
                 errors.append("Outstanding amount must be greater than zero")
-            elif amount > 999999.99:  # SEPA limit
+            elif amount > Decimal("999999.99"):  # SEPA limit
                 errors.append("Amount exceeds SEPA transaction limit")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, InvalidOperation):
             errors.append("Invalid outstanding amount format")
 
         # Currency validation

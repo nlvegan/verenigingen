@@ -21,27 +21,43 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.utils.error_handling import SEPAError, ValidationError
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation.iban_validator import validate_iban
+from verenigingen.verenigingen_payments.utils.sepa_constants import (
+    DEFAULT_MAX_BATCH_TOTAL,
+    MAX_BATCH_SIZE,
+    MAX_COLLECTION_DATE_OFFSET,
+    MAX_CREDITOR_NAME_LENGTH,
+    MAX_DEBTOR_NAME_LENGTH,
+    MAX_MANDATE_ID_LENGTH,
+    MAX_MESSAGE_ID_LENGTH,
+    MAX_REMITTANCE_INFO_LENGTH,
+    MAX_TRANSACTION_AMOUNT,
+    MIN_COLLECTION_DATE_OFFSET,
+    MIN_TRANSACTION_AMOUNT,
+    SEPA_CHAR_PATTERN,
+    VALID_BATCH_TYPES,
+)
 
 
 class SEPAInputValidator:
     """Comprehensive input validation for SEPA operations"""
 
-    # SEPA XML constraints
-    MAX_MESSAGE_ID_LENGTH = 35
-    MAX_CREDITOR_NAME_LENGTH = 70
-    MAX_DEBTOR_NAME_LENGTH = 70
-    MAX_REMITTANCE_INFO_LENGTH = 140
-    MAX_MANDATE_ID_LENGTH = 35
-    MIN_AMOUNT = Decimal("0.01")
-    MAX_AMOUNT = Decimal("999999999.99")
-    MAX_BATCH_SIZE = 10000
+    # Import constants from canonical source (for backward compatibility with existing code)
+    MAX_MESSAGE_ID_LENGTH = MAX_MESSAGE_ID_LENGTH
+    MAX_CREDITOR_NAME_LENGTH = MAX_CREDITOR_NAME_LENGTH
+    MAX_DEBTOR_NAME_LENGTH = MAX_DEBTOR_NAME_LENGTH
+    MAX_REMITTANCE_INFO_LENGTH = MAX_REMITTANCE_INFO_LENGTH
+    MAX_MANDATE_ID_LENGTH = MAX_MANDATE_ID_LENGTH
+    MIN_AMOUNT = MIN_TRANSACTION_AMOUNT
+    MAX_AMOUNT = MAX_TRANSACTION_AMOUNT
+    MAX_BATCH_TOTAL = DEFAULT_MAX_BATCH_TOTAL
+    MAX_BATCH_SIZE = MAX_BATCH_SIZE
 
     # Date constraints
-    MIN_COLLECTION_DATE_OFFSET = 1  # Days from today
-    MAX_COLLECTION_DATE_OFFSET = 30  # Days from today
+    MIN_COLLECTION_DATE_OFFSET = MIN_COLLECTION_DATE_OFFSET
+    MAX_COLLECTION_DATE_OFFSET = MAX_COLLECTION_DATE_OFFSET
 
-    # Allowed characters in SEPA text fields (basic Latin)
-    SEPA_TEXT_PATTERN = re.compile(r"^[a-zA-Z0-9\+\?\-\:\(\)\.\,\'\s/]*$")
+    # Allowed characters in SEPA text fields (from canonical source)
+    SEPA_TEXT_PATTERN = SEPA_CHAR_PATTERN
 
     @staticmethod
     def validate_batch_creation_params(**params) -> Dict[str, Any]:
@@ -186,13 +202,6 @@ class SEPAInputValidator:
         """
         result = {"valid": True, "errors": [], "cleaned_type": None}
 
-        # Valid SEPA direct debit types
-        valid_types = [
-            "CORE",  # SEPA Core Direct Debit
-            "B2B",  # SEPA Business-to-Business Direct Debit
-            "COR1",  # SEPA Core Direct Debit with 1-day settlement
-        ]
-
         if not batch_type or not isinstance(batch_type, str):
             result["errors"].append("Batch type is required and must be a string")
             result["valid"] = False
@@ -200,9 +209,9 @@ class SEPAInputValidator:
 
         cleaned_type = batch_type.strip().upper()
 
-        if cleaned_type not in valid_types:
+        if cleaned_type not in VALID_BATCH_TYPES:
             result["errors"].append(
-                f"Invalid batch type: {batch_type}. Valid types: {', '.join(valid_types)}"
+                f"Invalid batch type: {batch_type}. Valid types: {', '.join(VALID_BATCH_TYPES)}"
             )
             result["valid"] = False
         else:
@@ -286,9 +295,12 @@ class SEPAInputValidator:
             # Add any warnings
             result["warnings"].extend(invoice_result.get("warnings", []))
 
-        # Validate total amount
-        if total_amount > SEPAInputValidator.MAX_AMOUNT * len(invoices):
-            result["errors"].append(f"Total batch amount too large: {total_amount}")
+        # Validate total batch amount (operational safety limit)
+        if total_amount > SEPAInputValidator.MAX_BATCH_TOTAL:
+            result["errors"].append(
+                f"Total batch amount {total_amount} exceeds limit of "
+                f"{SEPAInputValidator.MAX_BATCH_TOTAL} EUR"
+            )
 
         result["valid"] = len(result["errors"]) == 0
         return result
