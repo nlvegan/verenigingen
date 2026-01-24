@@ -82,10 +82,17 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
         dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedule_name)
         
         # 3. Verify integration
-        self.assertEqual(dues_schedule.member, member.name, 
+        self.assertEqual(dues_schedule.member, member.name,
                         "Dues schedule should be linked to member")
-        self.assertEqual(dues_schedule.payment_method, "SEPA Direct Debit",
-                        "Dues schedule should use SEPA payment method")
+        # Note: payment_method field doesn't exist on MembershipDuesSchedule
+        # Instead verify member has an active SEPA mandate for direct debit
+        sepa_links = frappe.get_all(
+            "Member SEPA Mandate Link",
+            filters={"parent": member.name, "is_active": 1},
+            fields=["mandate_reference"]
+        )
+        self.assertTrue(len(sepa_links) > 0,
+                       "Member should have an active SEPA mandate for direct debit")
         
         # 4. Test invoice generation (if implemented)
         if hasattr(dues_schedule, 'generate_invoice'):

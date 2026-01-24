@@ -17,54 +17,67 @@ Tests for all Week 3 SEPA billing improvements including:
 Implements comprehensive test coverage for Week 3 implementation.
 """
 
-import unittest
-import time
 import json
+import time
+import unittest
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from datetime import datetime, date, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.utils import today, now, add_days, getdate
+from frappe.utils import add_days, getdate, now, today
 
 # Import Enhanced Test Factory for real business logic testing
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen_payments.utils.sepa_conflict_detector import (
+    ConflictSeverity,
+    SEPAConflictDetector,
+)
+from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
+    MandateUsageType,
+    SEPAMandateLifecycleManager,
+)
+from verenigingen.verenigingen_payments.utils.sepa_notification_manager import (
+    NotificationPriority,
+    NotificationType,
+    SEPANotificationManager,
+)
 
 # Import the modules we're testing
 from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
-    SEPADistributedLock, SEPABatchRaceConditionManager
-)
-from verenigingen.verenigingen_payments.utils.sepa_conflict_detector import (
-    SEPAConflictDetector, ConflictSeverity
+    SEPABatchRaceConditionManager,
+    SEPADistributedLock,
 )
 from verenigingen.verenigingen_payments.utils.sepa_retry_manager import (
-    SEPARetryManager, RetryConfig, RetryStrategy, with_retry
-)
-from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
-    EnhancedSEPAXMLGenerator, SEPASequenceType, SEPALocalInstrument
-)
-from verenigingen.verenigingen_payments.utils.sepa_rulebook_validator import (
-    SEPARulebookValidator
-)
-from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
-    SEPAMandateLifecycleManager, MandateUsageType
+    RetryConfig,
+    RetryStrategy,
+    SEPARetryManager,
+    with_retry,
 )
 from verenigingen.verenigingen_payments.utils.sepa_rollback_manager import (
-    SEPARollbackManager, RollbackReason, RollbackScope
+    RollbackReason,
+    RollbackScope,
+    SEPARollbackManager,
 )
-from verenigingen.verenigingen_payments.utils.sepa_notification_manager import (
-    SEPANotificationManager, NotificationType, NotificationPriority
+from verenigingen.verenigingen_payments.utils.sepa_rulebook_validator import SEPARulebookValidator
+from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
+    EnhancedSEPAXMLGenerator,
+    SEPALocalInstrument,
+    SEPASequenceType,
 )
 
 
 class TestSEPAWeek3Features(EnhancedTestCase):
     """Comprehensive test suite for SEPA Week 3 features"""
-    
+
     def setUp(self):
         """Set up test data and environment"""
+        # CRITICAL: Call parent setUp to initialize factory and other required attributes
+        super().setUp()
+
         # Clear any existing test data
         self.cleanup_test_data()
-        
+
         # Create test batch data
         self.test_batch_data = {
             "batch_date": add_days(today(), 5),
@@ -81,7 +94,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                     "mandate_reference": "TEST-MANDATE-001"
                 },
                 {
-                    "invoice": "TEST-INV-002", 
+                    "invoice": "TEST-INV-002",
                     "amount": 75.25,
                     "currency": "EUR",
                     "member_name": "Test Member 2",
@@ -91,84 +104,90 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 }
             ]
         }
-    
+
     def tearDown(self):
         """Clean up test data"""
         self.cleanup_test_data()
-    
+
     def cleanup_test_data(self):
         """Clean up test data from database"""
+        # List of tables to clean up with their filter conditions
+        cleanup_tables = [
+            ("SEPA_Distributed_Lock", "lock_owner LIKE 'test_%'"),
+            ("SEPA_Rollback_Operation", "operation_id LIKE 'TEST_%'"),
+            ("SEPA_Notification_Log", "notification_id LIKE 'TEST_%'"),
+        ]
+
+        for table_name, condition in cleanup_tables:
+            try:
+                # Check if table exists before trying to delete
+                if frappe.db.table_exists(f"tab{table_name}"):
+                    frappe.db.sql(f"DELETE FROM `tab{table_name}` WHERE {condition}")
+            except Exception:
+                pass  # Silently ignore if table doesn't exist or other errors
+
         try:
-            # Clean up test locks
-            frappe.db.sql("DELETE FROM `tabSEPA_Distributed_Lock` WHERE lock_owner LIKE 'test_%'")
-            
-            # Clean up test rollback operations
-            frappe.db.sql("DELETE FROM `tabSEPA_Rollback_Operation` WHERE operation_id LIKE 'TEST_%'")
-            
-            # Clean up test notifications
-            frappe.db.sql("DELETE FROM `tabSEPA_Notification_Log` WHERE notification_id LIKE 'TEST_%'")
-            
             frappe.db.commit()
         except Exception:
-            pass  # Tables might not exist yet
-    
+            pass
+
     # ========================================================================
     # Race Condition Prevention Tests
     # ========================================================================
-    
+
     def test_distributed_lock_acquisition(self):
         """Test distributed lock acquisition and release"""
         lock_manager = SEPADistributedLock()
         resource = "test_resource_001"
-        
+
         # Test successful lock acquisition
         with lock_manager.acquire_lock(resource, timeout=10) as lock_info:
             self.assertIsNotNone(lock_info)
             self.assertEqual(lock_info.resource, resource)
             self.assertIsNotNone(lock_info.lock_id)
-        
+
         # Lock should be released after context manager exits
         # Verify by trying to acquire the same resource again
         with lock_manager.acquire_lock(resource, timeout=1) as lock_info2:
             self.assertIsNotNone(lock_info2)
             self.assertNotEqual(lock_info.lock_id, lock_info2.lock_id)
-    
+
     def test_concurrent_lock_acquisition(self):
         """Test that concurrent lock acquisition is prevented"""
         lock_manager1 = SEPADistributedLock()
         lock_manager2 = SEPADistributedLock()
         resource = "test_resource_002"
-        
+
         # First manager acquires lock
         with lock_manager1.acquire_lock(resource, timeout=10):
             # Second manager should fail to acquire the same lock
             with self.assertRaises(Exception):  # Should raise SEPAError
                 with lock_manager2.acquire_lock(resource, timeout=1):
                     pass
-    
+
     def test_batch_creation_with_race_protection(self):
         """Test batch creation with real race condition protection business logic"""
         manager = SEPABatchRaceConditionManager()
-        
+
         # Test real race condition protection business logic instead of mocking
         # This tests the core SEPA batch processing logic that prevents data races
         try:
             # Test actual race condition protection with real business logic
             result = manager.create_batch_with_race_protection(self.test_batch_data)
-            
+
             # Real business logic validation - catches actual race condition bugs
             self.assertIsInstance(result, dict, "Race condition manager should return dict result")
-            
+
             if "success" in result:
                 self.assertIsInstance(result["success"], bool)
-                
+
             # Test that real race condition logic handles conflicts appropriately
             if result.get("success"):
                 if "batch_name" in result:
                     self.assertIsInstance(result["batch_name"], str)
                 if "invoice_count" in result:
                     self.assertIsInstance(result["invoice_count"], int)
-                    
+
         except Exception as e:
             # Real race condition exceptions provide valuable system feedback
             print(f"SEPA race condition protection real behavior: {e}")
@@ -176,15 +195,15 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             self.assertIsInstance(str(e), str)
             # Real race condition testing may reveal actual concurrency issues
             print(f"This exception reveals real system behavior - valuable for debugging: {type(e).__name__}")
-    
+
     # ========================================================================
     # Conflict Detection Tests
     # ========================================================================
-    
+
     def test_conflict_detection_duplicate_invoices(self):
         """Test detection of duplicate invoices in batch"""
         detector = SEPAConflictDetector()
-        
+
         # Create batch data with duplicate invoice
         batch_data_with_duplicates = {
             "batch_date": today(),
@@ -195,60 +214,60 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 {"invoice": "UNIQUE-001", "amount": 200}
             ]
         }
-        
+
         conflicts = detector.detect_batch_creation_conflicts(batch_data_with_duplicates)
-        
+
         # Should detect duplicate invoice conflict
         duplicate_conflicts = [c for c in conflicts if c.conflict_type == "duplicate_invoice"]
         self.assertTrue(len(duplicate_conflicts) > 0)
         self.assertEqual(duplicate_conflicts[0].severity, ConflictSeverity.CRITICAL)
-    
+
     def test_conflict_detection_date_validation(self):
         """Test detection of date-related conflicts"""
         detector = SEPAConflictDetector()
-        
+
         # Create batch data with past date
         batch_data_past_date = {
             "batch_date": add_days(today(), -1),  # Yesterday
             "batch_type": "CORE",
             "invoice_list": [{"invoice": "TEST-001", "amount": 100}]
         }
-        
+
         conflicts = detector.detect_batch_creation_conflicts(batch_data_past_date)
-        
+
         # Should detect past date conflict
         date_conflicts = [c for c in conflicts if c.conflict_type == "past_date"]
         self.assertTrue(len(date_conflicts) > 0)
         self.assertEqual(date_conflicts[0].severity, ConflictSeverity.CRITICAL)
-    
+
     def test_conflict_detection_weekend_collection(self):
         """Test detection of weekend collection dates"""
         detector = SEPAConflictDetector()
-        
+
         # Find next Saturday
         next_saturday = add_days(today(), (5 - getdate(today()).weekday()) % 7)
-        
+
         batch_data_weekend = {
             "batch_date": next_saturday,
             "batch_type": "CORE",
             "invoice_list": [{"invoice": "TEST-001", "amount": 100}]
         }
-        
+
         conflicts = detector.detect_batch_creation_conflicts(batch_data_weekend)
-        
+
         # Should detect weekend collection warning
         weekend_conflicts = [c for c in conflicts if c.conflict_type == "weekend_collection"]
         self.assertTrue(len(weekend_conflicts) > 0)
         self.assertEqual(weekend_conflicts[0].severity, ConflictSeverity.WARNING)
-    
+
     # ========================================================================
     # Retry Logic Tests
     # ========================================================================
-    
+
     def test_retry_manager_exponential_backoff(self):
         """Test retry manager with exponential backoff"""
         manager = SEPARetryManager()
-        
+
         # Create a function that fails first two times, succeeds third time
         attempt_count = 0
         def failing_operation():
@@ -257,23 +276,23 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             if attempt_count < 3:
                 raise Exception(f"Attempt {attempt_count} failed")
             return f"Success on attempt {attempt_count}"
-        
+
         config = RetryConfig(
             max_attempts=5,
             base_delay=0.1,  # Small delay for testing
             strategy=RetryStrategy.EXPONENTIAL
         )
-        
+
         result = manager.retry_operation(failing_operation, config, "test_operation")
-        
+
         self.assertTrue(result.success)
         self.assertEqual(result.total_attempts, 3)
         self.assertEqual(result.result, "Success on attempt 3")
-    
+
     def test_retry_decorator(self):
         """Test retry decorator functionality"""
         attempt_count = 0
-        
+
         @with_retry(RetryConfig(max_attempts=3, base_delay=0.01))
         def decorated_function():
             nonlocal attempt_count
@@ -281,67 +300,71 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             if attempt_count < 2:
                 raise ValueError("First attempt fails")
             return "Success"
-        
+
         result = decorated_function()
         self.assertEqual(result, "Success")
         self.assertEqual(attempt_count, 2)
-    
+
     def test_circuit_breaker_functionality(self):
         """Test circuit breaker pattern"""
         manager = SEPARetryManager()
-        
+
         # Create operation that always fails
         def always_fails():
             raise Exception("Always fails")
-        
+
         config = RetryConfig(
             max_attempts=1,
             circuit_breaker_threshold=2,
             circuit_breaker_window=1
         )
-        
+
         # First few calls should fail normally
         result1 = manager.retry_operation(always_fails, config, "circuit_test")
         self.assertFalse(result1.success)
-        
+
         result2 = manager.retry_operation(always_fails, config, "circuit_test")
         self.assertFalse(result2.success)
-        
+
         # Circuit should now be open and reject immediately
         with self.assertRaises(Exception):  # Should raise circuit breaker exception
             manager.retry_operation(always_fails, config, "circuit_test")
-    
+
     # ========================================================================
     # Enhanced XML Generation Tests
     # ========================================================================
-    
+
     def test_enhanced_xml_generation(self):
         """Test enhanced SEPA XML generation"""
         generator = EnhancedSEPAXMLGenerator()
-        
+
         # Create test data structures
         from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
-            SEPACreditor, SEPADebtor, SEPAMandate, SEPATransaction, SEPAPaymentInfo
+            SEPACreditor,
+            SEPADebtor,
+            SEPAMandate,
+            SEPAPaymentInfo,
+            SEPATransaction,
         )
-        
+
         creditor = SEPACreditor(
             name="Test Company",
             iban="NL91ABNA0417164300",
             bic="ABNANL2A",
             creditor_id="NL13ZZZ123456780000"
         )
-        
+
         debtor = SEPADebtor(
             name="Test Customer",
             iban="NL13INGB0012345678",
             bic="INGBNL2A"
         )
-        
+
         mandate = SEPAMandate(
             mandate_id="TEST-MANDATE-001",
             date_of_signature=date.today()
         )
-        
+
         transaction = SEPATransaction(
             end_to_end_id="E2E-TEST-001",
             amount=Decimal("100.50"),
@@ -351,7 +374,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             remittance_info="Test payment",
             sequence_type=SEPASequenceType.RCUR
         )
-        
+
         payment_info = SEPAPaymentInfo(
             payment_info_id="PMT-TEST-001",
             payment_method="DD",
@@ -362,7 +385,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             sequence_type=SEPASequenceType.RCUR,
             transactions=[transaction]
         )
-        
+
         # Generate XML
         xml_content = generator.generate_sepa_xml(
             message_id="MSG-TEST-001",
@@ -370,18 +393,18 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             payment_infos=[payment_info],
             initiating_party_name="Test Company"
         )
-        
+
         # Verify XML structure
         self.assertIn("urn:iso:std:iso:20022:tech:xsd:pain.008.001.02", xml_content)
         self.assertIn("CstmrDrctDbtInitn", xml_content)
         self.assertIn("MSG-TEST-001", xml_content)
         self.assertIn("E2E-TEST-001", xml_content)
         self.assertIn("100.50", xml_content)
-    
+
     def test_xml_validation_errors(self):
         """Test XML generation validation errors"""
         generator = EnhancedSEPAXMLGenerator()
-        
+
         # Test with invalid message ID (too long)
         with self.assertRaises(Exception):
             generator.generate_sepa_xml(
@@ -390,15 +413,15 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 payment_infos=[],
                 initiating_party_name="Test"
             )
-    
+
     # ========================================================================
     # SEPA Rulebook Validation Tests
     # ========================================================================
-    
+
     def test_sepa_rulebook_validation(self):
         """Test SEPA rulebook validation"""
         validator = SEPARulebookValidator()
-        
+
         # Create valid SEPA XML
         valid_xml = """<?xml version="1.0" encoding="UTF-8"?>
         <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.02">
@@ -419,17 +442,17 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 </PmtInf>
             </CstmrDrctDbtInitn>
         </Document>"""
-        
+
         result = validator.validate_sepa_xml(valid_xml)
-        
+
         self.assertIn("compliance_score", result)
         self.assertIn("is_compliant", result)
         self.assertIn("issues", result)
-    
+
     def test_rulebook_validation_errors(self):
         """Test rulebook validation with errors"""
         validator = SEPARulebookValidator()
-        
+
         # Create XML with validation errors
         invalid_xml = """<?xml version="1.0" encoding="UTF-8"?>
         <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.008.001.02">
@@ -441,16 +464,16 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 </GrpHdr>
             </CstmrDrctDbtInitn>
         </Document>"""
-        
+
         result = validator.validate_sepa_xml(invalid_xml)
-        
+
         self.assertFalse(result["is_compliant"])
         self.assertTrue(len(result["issues"]) > 0)
-    
+
     # ========================================================================
     # Mandate Lifecycle Management Tests
     # ========================================================================
-    
+
     def test_mandate_lifecycle_manager(self):
         """Test mandate lifecycle management with real SEPA business logic"""
         # Create real test member and SEPA mandate for testing
@@ -460,7 +483,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             email_address="sepa.lifecycle@test.com",
             birth_date="1985-01-01"
         )
-        
+
         # Create real SEPA mandate with proper business data
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
@@ -473,14 +496,14 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             "bic": "ABNANL2A"
         })
         mandate.insert()
-        
+
         # Test real SEPA mandate lifecycle business logic
         manager = SEPAMandateLifecycleManager()
-        
+
         try:
             # Test actual mandate sequence type determination
             result = manager.determine_sequence_type(mandate.name)
-            
+
             # Real business logic validation
             self.assertIsNotNone(result, "Real mandate lifecycle should return result")
             # Test actual SEPA sequence type logic - catches real bugs
@@ -490,27 +513,27 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 self.assertIn(result.usage_type, [MandateUsageType.FIRST_USE, MandateUsageType.RECURRING, MandateUsageType.FINAL])
             if hasattr(result, 'recommended_sequence_type'):
                 self.assertIn(result.recommended_sequence_type, [SEPASequenceType.FRST, SEPASequenceType.RCUR, SEPASequenceType.FNAL])
-                
+
         except Exception as e:
             # Real business logic exceptions provide valuable feedback
             print(f"SEPA mandate lifecycle real behavior: {e}")
             # Test that system handles real mandate lifecycle issues appropriately
             self.assertIsInstance(str(e), str)
-            
+
         finally:
             # Clean up
             mandate.delete()
-    
+
     def test_mandate_usage_validation(self):
         """Test mandate usage validation with real SEPA business logic"""
         # Create real test member and SEPA mandate
         member = self.create_test_member(
             first_name="SEPA",
-            last_name="Validation", 
+            last_name="Validation",
             email_address="sepa.validation@test.com",
             birth_date="1985-01-01"
         )
-        
+
         # Create real SEPA mandate for transaction validation
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
@@ -523,17 +546,17 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             "bic": "ABNANL2A"
         })
         mandate.insert()
-        
+
         # Test real mandate transaction validation business logic
         manager = SEPAMandateLifecycleManager()
-        
+
         try:
             # Test actual mandate validation for transaction - real business logic
             result = manager.validate_mandate_for_transaction(
                 mandate.name,
                 Decimal("100.50")
             )
-            
+
             # Real business logic validation - catches actual validation bugs
             self.assertIsNotNone(result, "Real mandate validation should return result")
             if hasattr(result, 'is_valid'):
@@ -542,31 +565,31 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 self.assertIsInstance(result.errors, list)
             if hasattr(result, 'warnings'):
                 self.assertIsInstance(result.warnings, list)
-                
+
         except Exception as e:
             # Real mandate validation exceptions reveal system behavior
             print(f"SEPA mandate validation real behavior: {e}")
             self.assertIsInstance(str(e), str)
-            
+
         finally:
             # Clean up
             mandate.delete()
-    
+
     # ========================================================================
     # Rollback Manager Tests
     # ========================================================================
-    
+
     def test_rollback_manager_initialization(self):
         """Test rollback manager initialization"""
         manager = SEPARollbackManager()
-        
+
         # Test that manager initializes without errors
         self.assertIsNotNone(manager)
-    
+
     def test_rollback_operation_creation(self):
         """Test rollback operation creation with real SEPA financial recovery logic"""
         manager = SEPARollbackManager()
-        
+
         # Test real SEPA rollback business logic instead of mocking critical financial recovery
         try:
             # Test actual rollback initiation with real business logic
@@ -576,24 +599,24 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 RollbackReason.BATCH_PROCESSING_FAILED,
                 RollbackScope.FULL_BATCH
             )
-            
+
             # Real rollback business logic validation - catches actual financial recovery bugs
             self.assertIsInstance(result, dict, "Rollback manager should return dict result")
-            
+
             if "success" in result:
                 self.assertIsInstance(result["success"], bool)
-                
+
             # Test that real rollback logic handles failures appropriately
             if result.get("success"):
                 if "batch_name" in result:
                     self.assertIsInstance(result["batch_name"], str)
                 if "rollback_id" in result:
                     self.assertIsInstance(result["rollback_id"], str)
-                    
+
             # Test real error handling in rollback scenarios
             if "errors" in result:
                 self.assertIsInstance(result["errors"], list)
-                
+
         except Exception as e:
             # Real rollback exceptions reveal critical financial recovery behavior
             print(f"SEPA rollback real behavior: {e}")
@@ -602,34 +625,34 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             # Real financial rollback testing catches actual recovery issues
             print(f"This exception reveals real financial recovery behavior: {type(e).__name__}")
             self.assertIn("operation_id", result)
-    
+
     # ========================================================================
     # Notification Manager Tests
     # ========================================================================
-    
+
     def test_notification_manager_initialization(self):
         """Test notification manager initialization"""
         manager = SEPANotificationManager()
-        
+
         # Test that templates are loaded
         self.assertTrue(len(manager.templates) > 0)
         self.assertTrue(len(manager.rules) > 0)
-        
+
         # Test specific templates exist
         self.assertIn("batch_success", manager.templates)
         self.assertIn("batch_failure", manager.templates)
-    
+
     def test_notification_sending(self):
         """Test notification sending"""
         manager = SEPANotificationManager()
-        
+
         # Mock justified: External Service - email service, not business logic
         with patch('frappe.sendmail') as mock_sendmail, \
              patch.object(manager, '_get_rule_recipients') as mock_recipients:
-            
+
             mock_recipients.return_value = ["test@example.com"]
             mock_sendmail.return_value = True
-            
+
             context = {
                 "batch_name": "TEST-BATCH-001",
                 "collection_date": today(),
@@ -637,16 +660,16 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 "transaction_count": 10,
                 "processing_time": "30 seconds"
             }
-            
+
             result = manager.send_notification(NotificationType.BATCH_SUCCESS, context)
-            
+
             self.assertTrue(result["success"])
             self.assertTrue(result["delivered"] > 0)
-    
+
     def test_notification_template_rendering(self):
         """Test notification template rendering"""
         manager = SEPANotificationManager()
-        
+
         template = manager.templates["batch_success"]
         context = {
             "batch_name": "TEST-BATCH-001",
@@ -655,17 +678,17 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             "transaction_count": 10,
             "processing_time": "30 seconds"
         }
-        
+
         result = manager._render_notification(template, context)
-        
+
         self.assertTrue(result["success"])
         self.assertIn("TEST-BATCH-001", result["subject"])
         self.assertIn("€1,000.00", result["message"])
-    
+
     # ========================================================================
     # Integration Tests
     # ========================================================================
-    
+
     def test_end_to_end_batch_processing(self):
         """Test end-to-end batch processing with all Week 3 features"""
         # This test would ideally test the complete flow:
@@ -674,7 +697,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         # 3. XML generation with validation
         # 4. Potential rollback scenarios
         # 5. Notifications
-        
+
         # For now, just test that all managers can be instantiated together
         race_manager = SEPABatchRaceConditionManager()
         conflict_detector = SEPAConflictDetector()
@@ -684,7 +707,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         mandate_manager = SEPAMandateLifecycleManager()
         rollback_manager = SEPARollbackManager()
         notification_manager = SEPANotificationManager()
-        
+
         # All managers should initialize successfully
         self.assertIsNotNone(race_manager)
         self.assertIsNotNone(conflict_detector)
@@ -694,16 +717,16 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         self.assertIsNotNone(mandate_manager)
         self.assertIsNotNone(rollback_manager)
         self.assertIsNotNone(notification_manager)
-    
+
     def test_performance_characteristics(self):
         """Test performance characteristics of Week 3 features"""
         # Test that operations complete within reasonable time
         import time
-        
+
         # Test conflict detection performance
         detector = SEPAConflictDetector()
         start_time = time.time()
-        
+
         large_batch_data = {
             "batch_date": today(),
             "batch_type": "CORE",
@@ -712,27 +735,27 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                 for i in range(100)  # 100 invoices
             ]
         }
-        
+
         conflicts = detector.detect_batch_creation_conflicts(large_batch_data)
         detection_time = time.time() - start_time
-        
+
         # Should complete within 5 seconds for 100 invoices
         self.assertLess(detection_time, 5.0)
-        
+
         # Test XML generation performance
         generator = EnhancedSEPAXMLGenerator()
-        
+
         # Performance test would require more complex setup
         # For now, just verify generator works
         self.assertIsNotNone(generator)
-    
+
     def test_error_handling_robustness(self):
         """Test error handling robustness across all Week 3 features"""
         # Test that managers handle errors gracefully
-        
+
         # Test race condition manager with invalid data
         race_manager = SEPABatchRaceConditionManager()
-        
+
         try:
             result = race_manager.create_batch_with_race_protection({})
             # Should either succeed or fail gracefully
@@ -740,10 +763,10 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         except Exception as e:
             # Should be a controlled exception, not a system crash
             self.assertIsInstance(e, (ValueError, TypeError, Exception))
-        
+
         # Test conflict detector with malformed data
         detector = SEPAConflictDetector()
-        
+
         try:
             conflicts = detector.detect_batch_creation_conflicts({"invalid": "data"})
             # Should return conflicts or empty list, not crash
