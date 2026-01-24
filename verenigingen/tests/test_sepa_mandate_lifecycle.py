@@ -88,7 +88,7 @@ class TestSEPAMandateLifecycle(VereningingenTestCase):
         # Instead verify member has an active SEPA mandate for direct debit
         sepa_links = frappe.get_all(
             "Member SEPA Mandate Link",
-            filters={"parent": member.name, "is_active": 1},
+            filters={"parent": member.name, "is_current": 1},
             fields=["mandate_reference"]
         )
         self.assertTrue(len(sepa_links) > 0,
