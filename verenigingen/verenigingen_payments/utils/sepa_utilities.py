@@ -17,7 +17,7 @@ See: docs/refactoring/PAYMENT_MODULE_DUPLICATION_AUDIT.md
 
 import re
 import warnings
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Optional, Union
 
 import frappe
@@ -313,29 +313,31 @@ class CalculationUtilities:
             if "currency" in invoice and currency == "EUR":
                 currency = invoice["currency"]
 
-        # Quantize to 2 decimal places for monetary precision
+        # Quantize to 2 decimal places for monetary precision (ROUND_HALF_UP for banking)
         return {
-            "total_amount": total_amount.quantize(Decimal("0.01")),
+            "total_amount": total_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             "count": count,
             "currency": currency,
         }
 
     @staticmethod
-    def format_currency_amount(amount: float, currency: str = "EUR") -> str:
+    def format_currency_amount(amount: Union[Decimal, float], currency: str = "EUR") -> str:
         """
         Format currency amount for display.
 
         Args:
-            amount: Amount to format
+            amount: Amount to format (Decimal or float)
             currency: Currency code
 
         Returns:
             Formatted currency string
         """
+        # Convert Decimal to float for formatting (safe for display purposes)
+        display_amount = float(amount) if isinstance(amount, Decimal) else amount
         if currency == "EUR":
-            return f"€ {amount:,.2f}"
+            return f"€ {display_amount:,.2f}"
         else:
-            return f"{currency} {amount:,.2f}"
+            return f"{currency} {display_amount:,.2f}"
 
     @staticmethod
     def calculate_document_totals_python(invoices_list) -> dict:
@@ -373,7 +375,10 @@ class CalculationUtilities:
                 # Skip invalid entries (equivalent to SQL ignoring invalid data)
                 continue
 
-        return {"entry_count": entry_count, "total_amount": total.quantize(Decimal("0.01"))}
+        return {
+            "entry_count": entry_count,
+            "total_amount": total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        }
 
 
 class FileManagementUtilities:

@@ -33,6 +33,7 @@ from verenigingen.verenigingen_payments.utils.sepa_constants import (
     MAX_TRANSACTION_AMOUNT,
     MIN_COLLECTION_DATE_OFFSET,
     MIN_TRANSACTION_AMOUNT,
+    SEPA_ALLOWED_CHARS_DESCRIPTION,
     SEPA_CHAR_PATTERN,
     VALID_BATCH_TYPES,
 )
@@ -583,7 +584,10 @@ class SEPAInputValidator:
 
         # Check for SEPA-allowed characters
         if not SEPAInputValidator.SEPA_TEXT_PATTERN.match(cleaned_text):
-            result["errors"].append(f"{field_name} contains invalid characters for SEPA")
+            result["errors"].append(
+                f"{field_name} contains invalid characters for SEPA. "
+                f"Allowed: {SEPA_ALLOWED_CHARS_DESCRIPTION}"
+            )
             result["valid"] = False
         else:
             result["cleaned_text"] = cleaned_text
