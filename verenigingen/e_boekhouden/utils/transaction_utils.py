@@ -472,12 +472,32 @@ def get_mapped_account_impl(migration_doc, eboekhouden_code):
         if mapping:
             return mapping
 
-        # Try to find account by E-Boekhouden code
+        # Try to find account by E-Boekhouden code - multiple lookup methods
+        # 1. First try eboekhouden_grootboek_nummer (custom field)
         account = frappe.db.get_value(
             "Account",
             {"company": migration_doc.company, "eboekhouden_grootboek_nummer": eboekhouden_code},
             "name",
         )
+
+        # 2. If not found, try account_number (standard field from CoA import)
+        if not account:
+            account = frappe.db.get_value(
+                "Account",
+                {"company": migration_doc.company, "account_number": eboekhouden_code},
+                "name",
+            )
+
+        # 3. If still not found, try by name pattern
+        if not account:
+            company_abbr = frappe.db.get_value("Company", migration_doc.company, "abbr")
+            if company_abbr:
+                name_pattern = f"{eboekhouden_code} - % - {company_abbr}"
+                account = frappe.db.get_value(
+                    "Account",
+                    {"company": migration_doc.company, "name": ("like", name_pattern)},
+                    "name",
+                )
 
         return account
 

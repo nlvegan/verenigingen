@@ -50,6 +50,15 @@ def auto_link_ledgers_to_accounts():
                     "name",
                 )
 
+            # If still not found, try by name pattern
+            if not account:
+                name_pattern = f"{mapping.ledger_code} - % - NVV"
+                account = frappe.db.get_value(
+                    "Account",
+                    {"company": "Ned Ver Vegan", "name": ("like", name_pattern)},
+                    "name",
+                )
+
             # If found, link it
             if account:
                 frappe.db.set_value("E-Boekhouden Ledger Mapping", mapping.name, "erpnext_account", account)

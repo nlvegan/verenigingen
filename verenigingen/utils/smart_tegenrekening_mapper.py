@@ -257,9 +257,20 @@ class SmartTegenrekeningMapper:
             )
 
         if not account:
+            # Try by name pattern (e.g., "1101 - Account Name - NVV")
+            company_abbr = frappe.db.get_value("Company", self.company, "abbr")
+            if company_abbr:
+                name_pattern = f"{account_code} - % - {company_abbr}"
+                account = frappe.db.get_value(
+                    "Account",
+                    {"company": self.company, "name": ("like", name_pattern)},
+                    "name",
+                )
+
+        if not account:
             # Log missing account code for debugging
             frappe.log_error(
-                "Account code {account_code} not found in company {self.company}",  # noqa: E713
+                f"Account code {account_code} not found in company {self.company}",
                 "Tegenrekening Mapping",
             )
 
