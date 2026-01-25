@@ -113,7 +113,14 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
 
 
 def resolve_customer(relation_id, debug_info=None):
-    """Resolve relation ID to proper customer using enhanced party resolver"""
+    """
+    Resolve relation ID to proper customer using enhanced party resolver.
+
+    .. deprecated::
+        This wrapper will be removed in a future version.
+        Import directly from party_resolver instead:
+        ``from .party_resolver import EBoekhoudenPartyResolver``
+    """
     from .party_resolver import EBoekhoudenPartyResolver
 
     resolver = EBoekhoudenPartyResolver()
@@ -121,7 +128,14 @@ def resolve_customer(relation_id, debug_info=None):
 
 
 def resolve_supplier(relation_id, debug_info=None):
-    """Resolve relation ID to proper supplier using enhanced party resolver"""
+    """
+    Resolve relation ID to proper supplier using enhanced party resolver.
+
+    .. deprecated::
+        This wrapper will be removed in a future version.
+        Import directly from party_resolver instead:
+        ``from .party_resolver import EBoekhoudenPartyResolver``
+    """
     from .party_resolver import EBoekhoudenPartyResolver
 
     resolver = EBoekhoudenPartyResolver()
@@ -131,6 +145,8 @@ def resolve_supplier(relation_id, debug_info=None):
 def resolve_ledger_code(ledger_id, debug_info=None):
     """
     Resolve E-Boekhouden ledger_id to actual ledger_code using Ledger Mapping.
+
+    Delegates to the canonical ledger mapping module for the actual lookup.
 
     E-Boekhouden REST API returns ledgerId (internal database ID like '13201916'),
     but ERPNext Accounts are indexed by ledger_code (actual account code like '42902').
@@ -146,10 +162,10 @@ def resolve_ledger_code(ledger_id, debug_info=None):
         return ledger_id
 
     try:
-        # Look up the ledger_code from Ledger Mapping
-        ledger_code = frappe.db.get_value(
-            "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code"
-        )
+        # Delegate to canonical ledger mapping module
+        from .eboekhouden_ledger_mapping import get_account_code_from_ledger_id
+
+        ledger_code = get_account_code_from_ledger_id(str(ledger_id))
 
         if ledger_code:
             if debug_info is not None:
@@ -196,36 +212,42 @@ def get_default_supplier():
 
 def create_provisional_customer(relation_id, debug_info):
     """
-    DEPRECATED: Use party_resolver.resolve_customer() instead.
+    .. deprecated::
+        Use ``party_resolver.EBoekhoudenPartyResolver().resolve_customer()`` instead.
+        Scheduled for removal - see docs/eboekhouden/consolidation-plan.md
 
     This function redirects to the proper party resolver which handles API calls correctly.
     """
     if debug_info is None:
         debug_info = []
 
-    debug_info.append(f"Redirecting to party resolver for relation {relation_id}")
+    debug_info.append(f"[DEPRECATED] Redirecting to party resolver for relation {relation_id}")
 
     # Use the proper party resolver instead of creating provisional customers
-    from .party_resolver import resolve_customer
+    from .party_resolver import EBoekhoudenPartyResolver
 
-    return resolve_customer(relation_id, debug_info)
+    resolver = EBoekhoudenPartyResolver()
+    return resolver.resolve_customer(relation_id, debug_info)
 
 
 def create_provisional_supplier(relation_id, debug_info):
     """
-    DEPRECATED: Use party_resolver.resolve_supplier() instead.
+    .. deprecated::
+        Use ``party_resolver.EBoekhoudenPartyResolver().resolve_supplier()`` instead.
+        Scheduled for removal - see docs/eboekhouden/consolidation-plan.md
 
     This function redirects to the proper party resolver which handles API calls correctly.
     """
     if debug_info is None:
         debug_info = []
 
-    debug_info.append(f"Redirecting to party resolver for relation {relation_id}")
+    debug_info.append(f"[DEPRECATED] Redirecting to party resolver for relation {relation_id}")
 
     # Use the proper party resolver instead of creating provisional suppliers
-    from .party_resolver import resolve_supplier
+    from .party_resolver import EBoekhoudenPartyResolver
 
-    return resolve_supplier(relation_id, debug_info)
+    resolver = EBoekhoudenPartyResolver()
+    return resolver.resolve_supplier(relation_id, debug_info)
 
 
 def get_or_create_payment_terms(days):
