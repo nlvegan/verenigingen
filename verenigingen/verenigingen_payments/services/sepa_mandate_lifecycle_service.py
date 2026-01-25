@@ -3,13 +3,200 @@ SEPA Mandate Lifecycle Service
 
 This service handles SEPA mandate lifecycle management and status transitions.
 Extracted from SEPA Mandate controller for better separation of concerns.
+
+Phase 3 enhancements:
+- Full member integration via sepa_mandate_member_integration_service
+- Cache invalidation for lifecycle manager
+- Operational metrics for monitoring mandate status changes
 """
 
-from typing import Dict, Optional
+import time
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime
+from threading import Lock
+from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
 from frappe.utils import getdate, today
+
+# =============================================================================
+# Operational Metrics
+# =============================================================================
+
+
+@dataclass
+class MandateMetrics:
+    """Operational metrics for SEPA mandate lifecycle operations"""
+
+    status_transitions: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    expired_use_count: int = 0
+    fnal_issued_count: int = 0
+    activation_count: int = 0
+    cancellation_count: int = 0
+    errors: List[Dict[str, Any]] = field(default_factory=list)
+    last_reset: float = field(default_factory=time.time)
+
+
+class SEPAMandateMetricsCollector:
+    """
+    Collects and reports operational metrics for SEPA mandate lifecycle.
+
+    Tracks:
+    - Status transition counts
+    - EXPIRED_USE occurrences (audit finding - high numbers indicate problems)
+    - FNAL issuance (audit finding - indicates mandate terminations)
+    - Error rates and types
+    """
+
+    _instance = None
+    _lock = Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialize()
+        return cls._instance
+
+    def _initialize(self):
+        """Initialize the metrics collector"""
+        self.metrics = MandateMetrics()
+        self._metrics_lock = Lock()
+
+    def record_status_transition(self, old_status: str, new_status: str) -> None:
+        """Record a status transition for monitoring"""
+        with self._metrics_lock:
+            transition_key = f"{old_status or 'None'}->{new_status}"
+            self.metrics.status_transitions[transition_key] += 1
+
+            # Track specific transitions of interest
+            if new_status == "Active":
+                self.metrics.activation_count += 1
+            elif new_status == "Cancelled":
+                self.metrics.cancellation_count += 1
+
+    def record_expired_use(self, mandate_id: str, reason: str) -> None:
+        """
+        Record an EXPIRED_USE occurrence.
+
+        High numbers indicate potential issues with mandate management:
+        - Too many mandates expiring due to non-use
+        - FNAL being sent incorrectly
+        - Renewal processes not working
+        """
+        with self._metrics_lock:
+            self.metrics.expired_use_count += 1
+
+            # Log for monitoring (will trigger alerts at threshold)
+            if self.metrics.expired_use_count % 10 == 0:
+                frappe.logger().warning(
+                    f"SEPA Mandate EXPIRED_USE threshold: {self.metrics.expired_use_count} "
+                    f"occurrences since {datetime.fromtimestamp(self.metrics.last_reset)}"
+                )
+
+    def record_fnal_issued(self, mandate_id: str) -> None:
+        """
+        Record when FNAL sequence type is issued.
+
+        FNAL terminates a mandate - tracking helps detect:
+        - Unexpected terminations
+        - Patterns requiring investigation
+        """
+        with self._metrics_lock:
+            self.metrics.fnal_issued_count += 1
+
+    def record_error(self, operation: str, error: str, mandate_id: str = None) -> None:
+        """Record an error for operational monitoring"""
+        with self._metrics_lock:
+            self.metrics.errors.append(
+                {
+                    "timestamp": time.time(),
+                    "operation": operation,
+                    "error": error[:200],  # Truncate for storage
+                    "mandate_id": mandate_id,
+                }
+            )
+            # Keep only last 100 errors
+            if len(self.metrics.errors) > 100:
+                self.metrics.errors = self.metrics.errors[-100:]
+
+    def get_metrics_summary(self) -> Dict[str, Any]:
+        """Get current metrics summary for monitoring/alerting"""
+        with self._metrics_lock:
+            return {
+                "status_transitions": dict(self.metrics.status_transitions),
+                "expired_use_count": self.metrics.expired_use_count,
+                "fnal_issued_count": self.metrics.fnal_issued_count,
+                "activation_count": self.metrics.activation_count,
+                "cancellation_count": self.metrics.cancellation_count,
+                "recent_errors": self.metrics.errors[-10:],
+                "error_count": len(self.metrics.errors),
+                "metrics_since": datetime.fromtimestamp(self.metrics.last_reset).isoformat(),
+            }
+
+    def reset_metrics(self) -> Dict[str, Any]:
+        """Reset metrics and return final summary"""
+        with self._metrics_lock:
+            summary = self.get_metrics_summary()
+            self.metrics = MandateMetrics()
+            return summary
+
+    def check_thresholds(self) -> List[Dict[str, Any]]:
+        """
+        Check metrics against alert thresholds.
+
+        Returns list of alerts that should be triggered.
+        """
+        alerts = []
+        with self._metrics_lock:
+            # Alert if too many EXPIRED_USE (indicates mandate management issues)
+            if self.metrics.expired_use_count > 50:
+                alerts.append(
+                    {
+                        "type": "high_expired_use",
+                        "severity": "warning",
+                        "count": self.metrics.expired_use_count,
+                        "message": f"High EXPIRED_USE count: {self.metrics.expired_use_count}. "
+                        "Check mandate renewal processes.",
+                    }
+                )
+
+            # Alert if too many errors
+            if len(self.metrics.errors) > 20:
+                alerts.append(
+                    {
+                        "type": "high_error_rate",
+                        "severity": "error",
+                        "count": len(self.metrics.errors),
+                        "message": f"High error rate in mandate lifecycle: {len(self.metrics.errors)} errors.",
+                    }
+                )
+
+            # Alert if cancellations > activations (unusual pattern)
+            if (
+                self.metrics.cancellation_count > self.metrics.activation_count
+                and self.metrics.cancellation_count > 10
+            ):
+                alerts.append(
+                    {
+                        "type": "high_cancellation_rate",
+                        "severity": "warning",
+                        "cancellations": self.metrics.cancellation_count,
+                        "activations": self.metrics.activation_count,
+                        "message": "More cancellations than activations - investigate trends.",
+                    }
+                )
+
+        return alerts
+
+
+# Singleton metrics collector
+def get_mandate_metrics_collector() -> SEPAMandateMetricsCollector:
+    """Get the singleton metrics collector instance"""
+    return SEPAMandateMetricsCollector()
 
 
 class SEPAMandateLifecycleService:
@@ -89,6 +276,7 @@ class SEPAMandateLifecycleService:
             Dictionary with transition results
         """
         transition_result = {"success": True, "warnings": [], "errors": [], "notifications_sent": []}
+        metrics = get_mandate_metrics_collector()
 
         try:
             new_status = mandate_doc.status
@@ -99,7 +287,15 @@ class SEPAMandateLifecycleService:
                     _("Invalid status transition from {0} to {1}").format(old_status, new_status)
                 )
                 transition_result["success"] = False
+                metrics.record_error(
+                    "status_transition",
+                    f"Invalid transition: {old_status} -> {new_status}",
+                    mandate_doc.mandate_id,
+                )
                 return transition_result
+
+            # Record the status transition for monitoring
+            metrics.record_status_transition(old_status, new_status)
 
             # Handle specific status transitions
             if new_status == "Active":
@@ -118,6 +314,7 @@ class SEPAMandateLifecycleService:
             frappe.log_error(f"Error in handle_status_transition: {str(e)}", "SEPA Mandate Lifecycle")
             transition_result["errors"].append(f"Status transition error: {str(e)}")
             transition_result["success"] = False
+            metrics.record_error("status_transition", str(e), mandate_doc.mandate_id)
             return transition_result
 
     def process_mandate_cancellation(self, mandate_doc, reason: str = None) -> Dict[str, any]:
@@ -250,24 +447,76 @@ class SEPAMandateLifecycleService:
 
     def _update_member_mandate_status(self, mandate_doc, status: str) -> None:
         """
-        Update mandate status in member's mandate table.
+        Update mandate status in member's mandate table and invalidate caches.
+
+        Phase 3 enhancement: Uses integration service for actual updates
+        and invalidates lifecycle manager cache for consistency.
 
         Args:
             mandate_doc: SEPA Mandate document
             status: New status to set
         """
+        metrics = get_mandate_metrics_collector()
+
         try:
             if not mandate_doc.member:
                 return
 
-            # This will be enhanced in Phase 2 with the member integration service
-            # For now, just log the status change
+            # Use the integration service for actual member updates
+            from verenigingen.verenigingen_payments.services.sepa_mandate_member_integration_service import (
+                sepa_mandate_member_integration_service,
+            )
+
+            result = sepa_mandate_member_integration_service.update_member_mandate_relationship(mandate_doc)
+
+            if not result["success"]:
+                for error in result.get("errors", []):
+                    metrics.record_error("member_mandate_update", error, mandate_doc.mandate_id)
+                frappe.logger().warning(
+                    f"Member mandate update had errors for {mandate_doc.name}: {result['errors']}"
+                )
+
+            # Invalidate lifecycle manager cache for this mandate
+            self._invalidate_lifecycle_manager_cache(mandate_doc.mandate_id)
+
+            # Log the status change
             frappe.logger().info(
                 f"Mandate {mandate_doc.name} status changed to {status} for member {mandate_doc.member}"
             )
 
         except Exception as e:
+            metrics.record_error("member_mandate_update", str(e), mandate_doc.mandate_id)
             frappe.log_error(f"Error updating member mandate status: {str(e)}", "SEPA Mandate Lifecycle")
+
+    def _invalidate_lifecycle_manager_cache(self, mandate_id: str) -> None:
+        """
+        Invalidate the lifecycle manager cache for a specific mandate.
+
+        This ensures sequence type determination uses fresh data after
+        status changes or usage record updates.
+
+        Args:
+            mandate_id: SEPA mandate ID to invalidate
+        """
+        try:
+            from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
+                SEPAMandateLifecycleManager,
+            )
+
+            # Create a manager instance and invalidate cache
+            # Note: In production with high volume, consider using a shared cache (Redis)
+            # For now, each request creates its own manager with fresh data
+            manager = SEPAMandateLifecycleManager()
+            manager.invalidate_cache(mandate_id)
+
+            frappe.logger().debug(f"Invalidated lifecycle cache for mandate {mandate_id}")
+
+        except ImportError:
+            # Lifecycle manager not available - skip cache invalidation
+            pass
+        except Exception as e:
+            # Don't fail the main operation if cache invalidation fails
+            frappe.logger().warning(f"Failed to invalidate lifecycle cache for {mandate_id}: {str(e)}")
 
     def handle_mandate_creation(self, mandate_doc) -> Dict[str, any]:
         """
@@ -382,3 +631,48 @@ class SEPAMandateLifecycleService:
 
 # Singleton instance for global use
 sepa_mandate_lifecycle_service = SEPAMandateLifecycleService()
+
+
+# =============================================================================
+# API Endpoints for Metrics
+# =============================================================================
+
+
+@frappe.whitelist()
+def get_mandate_lifecycle_metrics() -> Dict[str, Any]:
+    """
+    API endpoint to retrieve SEPA mandate lifecycle metrics.
+
+    Requires System Manager or Accounts Manager role.
+
+    Returns:
+        Dictionary with current metrics summary and any active alerts
+    """
+    frappe.only_for(["System Manager", "Accounts Manager"])
+
+    metrics = get_mandate_metrics_collector()
+
+    return {
+        "metrics": metrics.get_metrics_summary(),
+        "alerts": metrics.check_thresholds(),
+    }
+
+
+@frappe.whitelist()
+def reset_mandate_lifecycle_metrics() -> Dict[str, Any]:
+    """
+    API endpoint to reset SEPA mandate lifecycle metrics.
+
+    Requires System Manager role. Returns final metrics before reset.
+
+    Returns:
+        Dictionary with final metrics summary before reset
+    """
+    frappe.only_for(["System Manager"])
+
+    metrics = get_mandate_metrics_collector()
+
+    return {
+        "final_metrics": metrics.reset_metrics(),
+        "message": "Metrics have been reset",
+    }
