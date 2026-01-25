@@ -141,12 +141,37 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
     # Save the parent mandate to persist the child table record
     mandate.save()
 
+    # Invalidate lifecycle manager cache to ensure fresh sequence type determination
+    _invalidate_lifecycle_cache(mandate.mandate_id)
+
     return usage_row.name
+
+
+def _invalidate_lifecycle_cache(mandate_id: str) -> None:
+    """
+    Invalidate the lifecycle manager cache for a mandate after usage record creation.
+
+    This ensures subsequent sequence type determinations use fresh data including
+    the newly created usage record.
+    """
+    try:
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
+            SEPAMandateLifecycleManager,
+        )
+
+        manager = SEPAMandateLifecycleManager()
+        manager.invalidate_cache(mandate_id)
+    except ImportError:
+        # Lifecycle manager not available - skip cache invalidation
+        pass
+    except Exception as e:
+        # Log but don't fail the main operation
+        frappe.logger().warning(f"Failed to invalidate lifecycle cache for {mandate_id}: {str(e)}")
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
-def get_mandate_sequence_type(mandate_name, reference_name=None):
+def get_mandate_sequence_type(mandate_name: str, reference_name: str = None):
     """
     API to determine what sequence type should be used for a mandate
 
@@ -159,6 +184,7 @@ def get_mandate_sequence_type(mandate_name, reference_name=None):
     """
     try:
         mandate = frappe.get_doc("SEPA Mandate", mandate_name)
+        mandate.check_permission("read")
 
         # Check previous successful usage
         filters = {"parent": mandate_name, "status": "Collected"}

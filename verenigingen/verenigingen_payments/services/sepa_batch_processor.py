@@ -232,10 +232,17 @@ class SEPABatchProcessor:
             self._add_invoices_to_batch_fallback(batch, invoices)
 
     def add_processed_invoice_to_batch(self, batch, processed_invoice, sequence_type):
-        """Add invoice to batch using pre-processed optimized data"""
+        """Add invoice to batch using pre-processed optimized data.
+
+        Ensures atomicity: if usage record creation fails, the invoice row
+        is removed from the batch to prevent orphaned records.
+        """
         invoice_data = processed_invoice["invoice_data"]
         member_data = processed_invoice["member_data"]
         mandate_data = processed_invoice["mandate_data"]
+
+        # Track batch invoices count before append for rollback
+        invoices_before = len(batch.invoices)
 
         batch.append(
             "invoices",
@@ -257,12 +264,28 @@ class SEPABatchProcessor:
         )
 
         # Create mandate usage record for tracking
-        self._create_mandate_usage_record(
-            mandate_data["name"],
-            invoice_data["name"],
-            invoice_data["grand_total"],
-            sequence_type,
-        )
+        # If this fails, remove the invoice row to maintain consistency
+        try:
+            self._create_mandate_usage_record(
+                mandate_data["name"],
+                invoice_data["name"],
+                invoice_data["grand_total"],
+                sequence_type,
+            )
+        except Exception as e:
+            # Compensate: remove the appended invoice row
+            if len(batch.invoices) > invoices_before:
+                batch.invoices.pop()
+            frappe.log_error(
+                title="SEPA Batch - Invoice Addition Rolled Back",
+                message=(
+                    f"Usage record creation failed, invoice removed from batch.\n"
+                    f"Invoice: {invoice_data['name']}\n"
+                    f"Mandate: {mandate_data['name']}\n"
+                    f"Error: {str(e)}"
+                ),
+            )
+            raise
 
     def add_invoice_to_batch(self, batch, invoice, schedule):
         """Add invoice to SEPA batch with proper sequence type determination"""
@@ -420,7 +443,10 @@ class SEPABatchProcessor:
         )
 
     def _create_mandate_usage_record(self, mandate_name, invoice_name, amount, sequence_type):
-        """Create mandate usage record for tracking"""
+        """Create mandate usage record for tracking.
+
+        Raises exception on failure to allow caller to handle compensation.
+        """
         try:
             from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
                 create_mandate_usage_record,
@@ -446,6 +472,8 @@ class SEPABatchProcessor:
                     f"Sequence Type: {sequence_type}"
                 ),
             )
+            # Re-raise to allow caller to handle compensation
+            raise
 
     # =========================================================================
     # Return Processing (Bank Response Handling)
