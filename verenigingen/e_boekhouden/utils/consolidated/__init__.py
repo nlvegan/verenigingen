@@ -8,6 +8,7 @@ Modules:
 - party_manager: Consolidated party (customer/supplier) management (964 → 400 lines)
 - account_manager: Consolidated account creation and management (790 → 350 lines)
 - migration_coordinator: Consolidated migration coordination (823 → 400 lines)
+- date_utils: Shared date utilities (fiscal year management)
 
 Total reduction: 2,577 → 1,150 lines (55% reduction with improved functionality)
 """
@@ -17,6 +18,7 @@ from .account_manager import (
     create_account_with_smart_typing,
     get_smart_account_type,
 )
+from .date_utils import ensure_fiscal_year_exists
 from .migration_coordinator import (
     EBoekhoudenMigrationCoordinator,
     coordinate_migration,
@@ -38,4 +40,5 @@ __all__ = [
     "create_account_with_smart_typing",
     "coordinate_migration",
     "validate_migration_prerequisites",
+    "ensure_fiscal_year_exists",
 ]
