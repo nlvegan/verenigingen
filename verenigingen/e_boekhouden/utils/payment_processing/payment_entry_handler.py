@@ -454,11 +454,13 @@ class PaymentEntryHandler:
         1. Shared ledger mapping lookup with auto-create
         2. Payment configuration based on ledger code
         3. Pattern matching from description
-        4. Intelligent defaults
+
+        Raises ValidationError if no bank account can be determined.
         """
         if not ledger_id:
-            self._log("WARNING: No ledger ID provided, using defaults")
-            return self._get_default_bank_account(payment_type)
+            raise frappe.ValidationError(
+                "No ledger ID provided in mutation. Cannot determine bank account without ledger mapping."
+            )
 
         # Check cache first
         cache_key = f"{ledger_id}:{payment_type}"
@@ -515,11 +517,12 @@ class PaymentEntryHandler:
                 self._ledger_cache[cache_key] = bank_account
                 return bank_account
 
-        # Fallback to defaults
-        default_account = self._get_default_bank_account(payment_type)
-        self._log(f"Using default bank account: {default_account}")
-        self._ledger_cache[cache_key] = default_account
-        return default_account
+        # No fallback - fail hard with clear error message
+        ledger_code = mapping.get("ledger_code") if mapping else None
+        raise frappe.ValidationError(
+            f"No Bank/Cash account found for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
+            f"Please link the ledger mapping to a Bank or Cash account before importing."
+        )
 
     def _get_account_from_pattern(self, description: str, payment_type: str) -> Optional[str]:
         """Match bank account based on description patterns using configurable mapping."""
@@ -544,38 +547,6 @@ class PaymentEntryHandler:
                     return account
 
         return None
-
-    def _get_default_bank_account(self, payment_type: str) -> str:
-        """Get intelligent default account based on payment type using configurable mapping."""
-        from verenigingen.e_boekhouden.utils.configurable_account_mapper import get_account_mapper
-
-        mapper = get_account_mapper(self.company)
-
-        if payment_type == "Receive":
-            # Customer payments typically go to main bank account
-            main_bank = mapper.get_account_by_purpose("main_bank")
-            if main_bank:
-                return main_bank
-
-        # Fallback to any active bank account
-        bank_account = frappe.db.get_value(
-            "Account", {"account_type": "Bank", "company": self.company, "is_group": 0, "disabled": 0}, "name"
-        )
-
-        if bank_account:
-            return bank_account
-
-        # Last resort - cash account lookup or error
-        cash_account = mapper.get_account_by_purpose("cash")
-        if cash_account:
-            return cash_account
-
-        # If no cash account exists, this is a configuration error
-        frappe.throw(
-            f"No suitable payment account found for company {self.company}. "
-            "Please ensure bank accounts and cash account are properly configured.",
-            title="Payment Account Configuration Error",
-        )
 
     def _convert_to_bank_account_name(self, account: str) -> str:
         """
