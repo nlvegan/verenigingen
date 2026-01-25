@@ -4,7 +4,10 @@ Implements robust mechanisms to prevent double debiting and duplicate processing
 """
 
 import hashlib
+import os
+import threading
 import time
+import uuid
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -184,10 +187,27 @@ def check_return_file_processed(return_file_hash: str) -> None:
 # PROCESSING LOCKS
 # =============================================================================
 
-# In-memory locks with TTL support. Structure: {lock_key: (timestamp, ttl)}
-# NOTE: For production multi-worker deployments, replace with Redis-based locking
-# using frappe.cache() or a dedicated distributed lock implementation.
-_processing_locks: Dict[str, Tuple[float, int]] = {}
+# In-memory locks with TTL and owner tracking.
+# Structure: {lock_key: (timestamp, ttl, lock_token)}
+# NOTE: For production multi-worker deployments, set use_redis_locks_for_sepa=True
+# in site_config to use Redis-based distributed locking.
+_processing_locks: Dict[str, Tuple[float, int, str]] = {}
+
+# Thread-local storage for lock tokens (allows release to verify ownership)
+_lock_tokens: Dict[str, str] = {}
+
+# Lock for thread-safe access to in-memory structures
+_lock_mutex = threading.Lock()
+
+
+def _generate_lock_token() -> str:
+    """
+    Generate a unique lock token for ownership verification.
+
+    Uses UUID + PID + timestamp for uniqueness across processes and restarts.
+    Does NOT use frappe.session.sid as it may be unavailable in background jobs.
+    """
+    return f"{uuid.uuid4().hex}:{os.getpid()}:{time.time()}"
 
 
 def _get_redis_lock_key(resource_type: str, resource_id: str) -> str:
@@ -195,35 +215,100 @@ def _get_redis_lock_key(resource_type: str, resource_id: str) -> str:
     return f"sepa_lock:{resource_type}:{resource_id}"
 
 
-def _try_redis_lock(lock_key: str, timeout: int) -> Optional[bool]:
+def _try_redis_lock(lock_key: str, timeout: int) -> Tuple[Optional[bool], Optional[str]]:
     """
     Try to acquire lock via Redis if available.
-    Returns None if Redis is not available/configured for locking.
+
+    Returns:
+        (None, None) if Redis is not available/configured
+        (True, lock_token) if lock acquired
+        (False, None) if lock not acquired (held by another process)
     """
     try:
         # Check if Redis-based locking is enabled in site config
         if not frappe.conf.get("use_redis_locks_for_sepa", False):
-            return None
+            return (None, None)
 
         cache = frappe.cache()
+
+        # Verify cache.set supports nx parameter (Redis SETNX semantics)
+        # Some cache backends may not support this
+        if not hasattr(cache, "set"):
+            frappe.logger().warning(
+                "Redis cache does not support set() method. Falling back to in-memory locks."
+            )
+            return (None, None)
+
+        # Generate unique lock token for ownership verification
+        lock_token = _generate_lock_token()
+
         # Use Redis SETNX pattern for atomic lock acquisition
-        lock_value = f"{frappe.utils.now()}:{frappe.session.sid}"
-        if cache.set(lock_key, lock_value, ex=timeout, nx=True):
-            return True
-        return False
-    except Exception:
-        # Redis not available, fall back to in-memory
-        return None
+        # nx=True means "only set if key does not exist"
+        # ex=timeout sets expiration in seconds
+        result = cache.set(lock_key, lock_token, ex=timeout, nx=True)
+
+        if result:
+            # Store token for later release verification
+            _lock_tokens[lock_key] = lock_token
+            return (True, lock_token)
+        return (False, None)
+
+    except TypeError as e:
+        # cache.set doesn't support nx/ex parameters
+        frappe.logger().warning(
+            f"Redis cache.set() does not support nx/ex parameters: {e}. " "Falling back to in-memory locks."
+        )
+        return (None, None)
+    except Exception as e:
+        # Redis not available or other error
+        frappe.logger().debug(f"Redis lock acquisition failed: {e}. Using in-memory locks.")
+        return (None, None)
 
 
 def _release_redis_lock(lock_key: str) -> bool:
-    """Release Redis lock if Redis locking is enabled."""
+    """
+    Release Redis lock with ownership verification.
+
+    Only deletes the lock if the current process owns it (compare-and-delete).
+    This prevents accidentally releasing a lock held by another process.
+    """
     try:
         if not frappe.conf.get("use_redis_locks_for_sepa", False):
             return False
-        frappe.cache().delete(lock_key)
-        return True
-    except Exception:
+
+        # Get the token we used to acquire this lock
+        our_token = _lock_tokens.get(lock_key)
+        if not our_token:
+            # We don't have a token for this lock - we didn't acquire it
+            frappe.logger().debug(
+                f"No lock token found for {lock_key}. Lock may have been acquired by another process."
+            )
+            return False
+
+        cache = frappe.cache()
+
+        # Compare-and-delete: only delete if the lock value matches our token
+        # This is the safe pattern to avoid releasing another process's lock
+        current_value = cache.get(lock_key)
+
+        if current_value == our_token:
+            cache.delete(lock_key)
+            del _lock_tokens[lock_key]
+            return True
+        elif current_value is None:
+            # Lock already expired or was released
+            if lock_key in _lock_tokens:
+                del _lock_tokens[lock_key]
+            return True
+        else:
+            # Lock is held by another process (ours expired, they acquired it)
+            frappe.logger().warning(f"Lock {lock_key} is now held by another process. Not releasing.")
+            if lock_key in _lock_tokens:
+                del _lock_tokens[lock_key]
+            return False
+
+    except Exception as e:
+        frappe.logger().error(f"Error releasing Redis lock {lock_key}: {e}")
         return False
 
 
@@ -250,39 +335,55 @@ def acquire_processing_lock(resource_type: str, resource_id: str, timeout: int =
     redis_key = _get_redis_lock_key(resource_type, resource_id)
 
     # Try Redis first
-    redis_result = _try_redis_lock(redis_key, timeout)
+    redis_result, lock_token = _try_redis_lock(redis_key, timeout)
     if redis_result is not None:
         return redis_result
 
-    # Fall back to in-memory locking
-    current_time = time.time()
+    # Fall back to in-memory locking with thread safety
+    with _lock_mutex:
+        current_time = time.time()
 
-    # Check if lock exists and is still valid
-    if lock_key in _processing_locks:
-        lock_time, lock_ttl = _processing_locks[lock_key]
-        if current_time - lock_time < lock_ttl:
-            return False  # Lock still active
-        else:
-            # Lock expired, remove it
-            del _processing_locks[lock_key]
+        # Check if lock exists and is still valid
+        if lock_key in _processing_locks:
+            lock_time, lock_ttl, _ = _processing_locks[lock_key]
+            if current_time - lock_time < lock_ttl:
+                return False  # Lock still active
+            else:
+                # Lock expired, remove it
+                del _processing_locks[lock_key]
 
-    # Acquire new lock with TTL
-    _processing_locks[lock_key] = (current_time, timeout)
-    return True
+        # Acquire new lock with TTL and ownership token
+        lock_token = _generate_lock_token()
+        _processing_locks[lock_key] = (current_time, timeout, lock_token)
+        _lock_tokens[lock_key] = lock_token
+        return True
 
 
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def release_processing_lock(resource_type: str, resource_id: str) -> None:
-    """Release processing lock (both Redis and in-memory)"""
+    """
+    Release processing lock with ownership verification.
+
+    Only releases the lock if the current process/thread owns it.
+    This prevents accidentally releasing locks held by other processes.
+    """
     lock_key = f"{resource_type}:{resource_id}"
     redis_key = _get_redis_lock_key(resource_type, resource_id)
 
-    # Try to release Redis lock
+    # Try to release Redis lock (with ownership check)
     _release_redis_lock(redis_key)
 
-    # Also release in-memory lock
-    if lock_key in _processing_locks:
-        del _processing_locks[lock_key]
+    # Also release in-memory lock (with ownership check)
+    with _lock_mutex:
+        our_token = _lock_tokens.get(lock_key)
+        if lock_key in _processing_locks:
+            _, _, stored_token = _processing_locks[lock_key]
+            if our_token and stored_token == our_token:
+                del _processing_locks[lock_key]
+                if lock_key in _lock_tokens:
+                    del _lock_tokens[lock_key]
+            else:
+                frappe.logger().debug(f"Not releasing in-memory lock {lock_key}: ownership mismatch")
 
 
 # =============================================================================
@@ -294,12 +395,48 @@ def release_processing_lock(resource_type: str, resource_id: str) -> None:
 # in site_config to use Redis-based caching.
 _operation_cache: Dict[str, Tuple[Any, float, int]] = {}
 
+# Lock for thread-safe cache operations
+_cache_mutex = threading.Lock()
+
 # Maximum cache entries to prevent unbounded memory growth (in-memory only)
 _MAX_CACHE_ENTRIES = 10000
 
 
+def _extract_cacheable_result(result: Dict) -> Dict:
+    """
+    Extract minimal cacheable data from operation result.
+
+    Stores only essential fields to minimize serialization overhead and memory usage.
+    Full audit details should be written to database, not cached.
+    """
+    if not isinstance(result, dict):
+        return {"success": bool(result), "cached": True}
+
+    # Extract only essential fields for idempotency verification
+    cacheable = {
+        "success": result.get("success", True),
+        "cached": True,  # Mark as cached result
+    }
+
+    # Include key identifiers if present
+    if "payment_entry" in result:
+        cacheable["payment_entry"] = result["payment_entry"]
+    if "payment_entry_name" in result:
+        cacheable["payment_entry_name"] = result["payment_entry_name"]
+    if "batch" in result:
+        cacheable["batch"] = result["batch"]
+    if "error" in result:
+        cacheable["error"] = str(result["error"])[:200]  # Truncate long errors
+
+    return cacheable
+
+
 def _cleanup_expired_cache_entries() -> None:
-    """Remove expired entries from in-memory cache to prevent memory growth."""
+    """
+    Remove expired entries from in-memory cache.
+
+    Must be called with _cache_mutex held for thread safety.
+    """
     current_time = time.time()
     expired_keys = [
         key for key, (_, timestamp, ttl) in _operation_cache.items() if current_time - timestamp >= ttl
@@ -325,46 +462,57 @@ def _get_cached_result(idempotency_key: str, ttl: int = None) -> Tuple[bool, Opt
             if cached is not None:
                 return (True, cached)
             return (False, None)
-    except Exception:
-        pass  # Fall back to in-memory
+    except Exception as e:
+        frappe.logger().debug(f"Redis cache get failed for {idempotency_key}: {e}. Using in-memory cache.")
 
-    # Check in-memory cache
-    if idempotency_key in _operation_cache:
-        result, timestamp, entry_ttl = _operation_cache[idempotency_key]
-        current_time = time.time()
-        if current_time - timestamp < entry_ttl:
-            return (True, result)
-        else:
-            # Expired, remove it
-            del _operation_cache[idempotency_key]
+    # Check in-memory cache (thread-safe read)
+    with _cache_mutex:
+        if idempotency_key in _operation_cache:
+            result, timestamp, entry_ttl = _operation_cache[idempotency_key]
+            current_time = time.time()
+            if current_time - timestamp < entry_ttl:
+                return (True, result)
+            else:
+                # Expired, remove it
+                del _operation_cache[idempotency_key]
 
     return (False, None)
 
 
 def _set_cached_result(idempotency_key: str, result: Dict, ttl: int = None) -> None:
-    """Store result in cache with TTL."""
+    """
+    Store minimal result data in cache with TTL.
+
+    Only stores essential fields (success, key identifiers) to minimize
+    serialization overhead. Full results should be in database audit logs.
+    """
     if ttl is None:
         ttl = DEFAULT_CACHE_TTL
+
+    # Extract minimal cacheable data
+    cacheable_result = _extract_cacheable_result(result)
 
     # Try Redis first if configured
     try:
         if frappe.conf.get("use_redis_idempotency_cache", False):
             cache = frappe.cache()
             redis_key = f"sepa_idempotency:{idempotency_key}"
-            cache.set(redis_key, result, ex=ttl)
+            # Use frappe.as_json for consistent serialization
+            cache.set(redis_key, frappe.as_json(cacheable_result), ex=ttl)
             return
-    except Exception:
-        pass  # Fall back to in-memory
+    except Exception as e:
+        frappe.logger().warning(f"Redis cache set failed for {idempotency_key}: {e}. Using in-memory cache.")
 
-    # Store in in-memory cache
-    # Cleanup old entries if cache is getting too large
-    if len(_operation_cache) >= _MAX_CACHE_ENTRIES:
-        _cleanup_expired_cache_entries()
-        # If still too large after cleanup, remove oldest entries
+    # Store in in-memory cache with thread safety
+    with _cache_mutex:
+        # Cleanup old entries if cache is getting too large
         if len(_operation_cache) >= _MAX_CACHE_ENTRIES:
-            oldest_keys = sorted(_operation_cache.keys(), key=lambda k: _operation_cache[k][1])[
-                : _MAX_CACHE_ENTRIES // 10
-            ]
+            _cleanup_expired_cache_entries()
+            # If still too large after cleanup, remove oldest entries
+            if len(_operation_cache) >= _MAX_CACHE_ENTRIES:
+                oldest_keys = sorted(_operation_cache.keys(), key=lambda k: _operation_cache[k][1])[
+                    : _MAX_CACHE_ENTRIES // 10
+                ]
             for key in oldest_keys:
                 del _operation_cache[key]
 
@@ -463,7 +611,10 @@ def amounts_match_with_tolerance(expected: Any, actual: Any, tolerance: Any = "0
     Args:
         expected: Expected amount (float, int, str, or Decimal)
         actual: Actual amount received (float, int, str, or Decimal)
-        tolerance: Maximum difference allowed (default: 0.02 EUR/2 cents)
+        tolerance: Maximum difference allowed (default: "0.02" EUR/2 cents).
+            Note: Default is a string to avoid float precision issues when
+            converting to Decimal. Using 0.02 (float) could introduce subtle
+            rounding errors; "0.02" (string) converts exactly to Decimal.
 
     Returns:
         True if amounts match within tolerance
