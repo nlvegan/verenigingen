@@ -524,13 +524,17 @@ class APISecurityValidator:
         validations = []
         
         # Check for hardcoded secrets
+        # Use negative lookbehind to exclude compound words like notification_key, primary_key, etc.
         secret_patterns = [
-            r'password\s*=\s*["\'][^"\']+["\']',
-            r'token\s*=\s*["\'][^"\']+["\']',
-            r'key\s*=\s*["\'][^"\']+["\']',
-            r'secret\s*=\s*["\'][^"\']+["\']'
+            r'(?<![a-z_])password\s*=\s*["\'][^"\']+["\']',
+            r'(?<![a-z_])token\s*=\s*["\'][^"\']+["\']',
+            r'(?<![a-z_])key\s*=\s*["\'][^"\']+["\']',  # Excludes notification_key, cache_key, etc.
+            r'(?<![a-z_])secret\s*=\s*["\'][^"\']+["\']',
+            r'api_key\s*=\s*["\'][^"\']+["\']',  # api_key IS a secret
+            r'api_secret\s*=\s*["\'][^"\']+["\']',
+            r'auth_token\s*=\s*["\'][^"\']+["\']',
         ]
-        
+
         for pattern in secret_patterns:
             if re.search(pattern, function_source, re.IGNORECASE):
                 validations.append(SecurityValidation(
