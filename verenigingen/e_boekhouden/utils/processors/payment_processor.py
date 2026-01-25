@@ -187,14 +187,13 @@ class PaymentProcessor(BaseTransactionProcessor):
             f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}, Rows={len(rows)}"
         )
 
-        # Get bank account from main ledger
+        # Get bank account from main ledger - use shared function with auto-create
         ledger_id = mutation.get("ledgerId")
-        bank_account = None
+        from ..eboekhouden_rest_full_migration import get_erpnext_account_from_ledger_id
 
-        if ledger_id:
-            bank_account = frappe.db.get_value(
-                "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "erpnext_account"
-            )
+        bank_account = get_erpnext_account_from_ledger_id(
+            ledger_id, self.company, self.debug_info, auto_create=True
+        )
 
         if not bank_account:
             # Get ledger code for better error message

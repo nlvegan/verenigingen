@@ -3306,8 +3306,8 @@ def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info
         else:
             pe.payment_type = "Internal Transfer"
 
-        # Get bank account from main ledger - MUST be mapped, no fallbacks
-        bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=False)
+        # Get bank account from main ledger - auto-create mapping if needed
+        bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
 
         if not bank_account:
             # Get ledger code for better error message
@@ -3448,8 +3448,8 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
         f"Creating money transfer Payment Entry: ID={mutation_id}, Type={mutation_type}, Amount={amount}"
     )
 
-    # Get bank account from main ledgerId - MUST be mapped, no fallbacks
-    bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=False)
+    # Get bank account from main ledgerId - auto-create mapping if needed
+    bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
     if bank_account:
         debug_info.append(f"Mapped main ledger {ledger_id} to bank account: {bank_account}")
     else:
