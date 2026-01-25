@@ -280,7 +280,7 @@ describe('Member Form', () => {
 
 			const validateMandateCreation = async (member, iban, mandateId) => {
 				const result = await frappe.call({
-					method: 'validate_mandate_creation',
+					method: 'verenigingen.api.member.sepa_api.validate_mandate_creation',
 					args: { member, iban, mandate_id: mandateId }
 				});
 				return result.message;
@@ -415,19 +415,19 @@ describe('Member Form', () => {
 			frappe.confirm.mockImplementation((msg, callback) => callback());
 			frappe.call.mockResolvedValue({ message: { success: true } });
 
-			const approveApplication = async (applicationId) => {
+			const approveApplication = async (memberName) => {
 				await frappe.confirm('Approve this application?', async () => {
 					await frappe.call({
-						method: 'approve_membership_application',
-						args: { application_id: applicationId }
+						method: 'verenigingen.api.membership_application_review.approve_membership_application',
+						args: { member_name: memberName }
 					});
 				});
 			};
 
-			await approveApplication('APP-001');
+			await approveApplication('MEM-001');
 			expect(frappe.call).toHaveBeenCalledWith(
 				expect.objectContaining({
-					method: 'approve_membership_application'
+					method: 'verenigingen.api.membership_application_review.approve_membership_application'
 				})
 			);
 		});
@@ -439,14 +439,14 @@ describe('Member Form', () => {
 
 			frappe.call.mockResolvedValue({ message: { success: true } });
 
-			const rejectApplication = async (applicationId) => {
+			const rejectApplication = async (memberName) => {
 				await frappe.prompt(
 					[{ fieldname: 'rejection_reason', fieldtype: 'Text' }],
 					async (values) => {
 						await frappe.call({
-							method: 'reject_membership_application',
+							method: 'verenigingen.api.membership_application_review.reject_membership_application',
 							args: {
-								application_id: applicationId,
+								member_name: memberName,
 								reason: values.rejection_reason
 							}
 						});
@@ -454,10 +454,12 @@ describe('Member Form', () => {
 				);
 			};
 
-			await rejectApplication('APP-001');
+			await rejectApplication('MEM-001');
 			expect(frappe.call).toHaveBeenCalledWith(
 				expect.objectContaining({
+					method: 'verenigingen.api.membership_application_review.reject_membership_application',
 					args: expect.objectContaining({
+						member_name: 'MEM-001',
 						reason: 'Incomplete documentation'
 					})
 				})
