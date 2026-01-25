@@ -1,0 +1,76 @@
+{
+    "framework_methods": [
+        "frappe.client.get",
+        "frappe.client.get_list",
+        "frappe.client.get_count",
+        "frappe.client.get_value",
+        "frappe.client.get_single",
+        "frappe.client.get_single_value",
+        "frappe.client.set_value",
+        "frappe.client.insert",
+        "frappe.client.insert_many",
+        "frappe.client.save",
+        "frappe.client.submit",
+        "frappe.client.cancel",
+        "frappe.client.delete",
+        "frappe.client.get_api",
+        "frappe.client.get_js",
+        "frappe.client.reportview",
+        "frappe.client.run_doc_method",
+        "frappe.client.validate_link",
+        "frappe.desk.form.utils.get_linked_docs",
+        "frappe.desk.form.utils.get_sidebar_stats",
+        "frappe.desk.search.search_link",
+        "frappe.desk.search.search_widget",
+        "frappe.desk.notifications.get_notifications",
+        "frappe.desk.desktop.get_desk_sidebar_items",
+        "frappe.core.doctype.file.file.get_attached_files",
+        "frappe.handler.uploadfile",
+        "frappe.utils.print_format.download_pdf",
+        "run_doc_method"
+    ],
+    "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+        "HEAD"
+    ],
+    "payment_methods": [
+        "ideal",
+        "directdebit",
+        "bancontact",
+        "belfius",
+        "creditcard",
+        "paypal",
+        "sofort",
+        "kbc",
+        "eps",
+        "giropay",
+        "przelewy24",
+        "Bank Transfer",
+        "SEPA Direct Debit",
+        "Cash",
+        "Credit Card",
+        "Wire Transfer"
+    ],
+    "excluded_patterns": [
+        "node_modules",
+        ".git",
+        "dist",
+        "build",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache"
+    ],
+    "excluded_file_patterns": [
+        "*.min.js",
+        "*.bundle.js",
+        "*.map"
+    ],
+    "ignore_method_patterns": [
+        "^[A-Z]+$"
+    ]
+}

@@ -119,9 +119,29 @@ class EnhancedJSPythonParameterValidator:
         }
     
     def is_framework_method(self, method_name: str) -> bool:
-        """Check if method is a Frappe framework method"""
+        """Check if method is a Frappe framework method or should be ignored"""
+        # Check framework methods
         framework_methods = self.config.get('framework_methods', [])
-        return method_name in framework_methods
+        if method_name in framework_methods:
+            return True
+
+        # Check HTTP methods (GET, POST, etc.)
+        http_methods = self.config.get('http_methods', [])
+        if method_name.upper() in [m.upper() for m in http_methods]:
+            return True
+
+        # Check payment method strings (ideal, directdebit, Bank Transfer, etc.)
+        payment_methods = self.config.get('payment_methods', [])
+        if method_name in payment_methods:
+            return True
+
+        # Check ignore patterns (e.g., all uppercase = HTTP methods)
+        ignore_patterns = self.config.get('ignore_method_patterns', [])
+        for pattern in ignore_patterns:
+            if re.match(pattern, method_name):
+                return True
+
+        return False
     
     def is_excluded_path(self, file_path: Path) -> bool:
         """Check if file path should be excluded from validation"""
