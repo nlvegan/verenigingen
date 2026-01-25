@@ -190,7 +190,7 @@ def identify_sepa_transactions():
         for txn in unprocessed_transactions:
             # Look for SEPA-related keywords in description
             sepa_keywords = ["sepa", "dd", "direct debit", "incasso", "lastschrift", "batch"]
-            description_lower = txn.description.lower()
+            description_lower = (txn.description or "").lower()
 
             if any(keyword in description_lower for keyword in sepa_keywords):
                 # Try to find matching SEPA batch
@@ -266,7 +266,7 @@ def find_matching_sepa_batches(bank_transaction):
 @critical_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
-def process_sepa_transaction_conservative(bank_transaction_name, sepa_batch_name):
+def process_sepa_transaction_conservative(bank_transaction_name: str, sepa_batch_name: str):
     """Process SEPA transaction with conservative approach and duplicate prevention"""
 
     # Acquire processing lock to prevent concurrent processing
@@ -279,6 +279,7 @@ def process_sepa_transaction_conservative(bank_transaction_name, sepa_batch_name
 
         # Validate batch mandates before processing
         sepa_batch = frappe.get_doc("Direct Debit Batch", sepa_batch_name)
+        sepa_batch.check_permission("read")
         batch_validation = validate_batch_mandates({"invoices": sepa_batch.invoices})
 
         if not batch_validation["valid"]:
@@ -356,15 +357,44 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch):
             if not customer:
                 frappe.throw(f"No customer found for member {item.member}")
 
+            # Get company and accounts from the invoice
+            invoice_data = frappe.db.get_value(
+                "Sales Invoice",
+                item.invoice,
+                ["company", "debit_to"],
+                as_dict=True,
+            )
+            if not invoice_data:
+                frappe.throw(f"Invoice {item.invoice} not found")
+
+            company = invoice_data.company
+            receivable_account = invoice_data.debit_to
+
+            # Get default bank account for the company
+            from erpnext.accounts.doctype.journal_entry.journal_entry import (
+                get_default_bank_cash_account,
+            )
+
+            bank_account_data = get_default_bank_cash_account(company, "Bank")
+            bank_account = bank_account_data.get("account") if bank_account_data else None
+
+            if not bank_account:
+                frappe.throw(f"No default bank account configured for company {company}")
+
             # Create payment entry with duplicate prevention
             payment_data = {
                 "doctype": "Payment Entry",
                 "payment_type": "Receive",
+                "company": company,
                 "party_type": "Customer",
                 "party": customer,
                 "posting_date": bank_transaction.date,
                 "paid_amount": item.amount,
                 "received_amount": item.amount,
+                "paid_from": receivable_account,
+                "paid_to": bank_account,
+                "paid_from_account_currency": "EUR",
+                "paid_to_account_currency": "EUR",
                 "target_exchange_rate": 1,
                 "source_exchange_rate": 1,
                 "reference_no": bank_transaction.reference_number,
@@ -422,7 +452,7 @@ def handle_partial_sepa_batch(bank_transaction, sepa_batch):
     task = frappe.get_doc(
         {
             "doctype": "ToDo",
-            "description": """
+            "description": f"""
 SEPA Batch Partial Success - Manual Review Required
 
 Batch: {sepa_batch.name}
@@ -472,7 +502,7 @@ def handle_excess_sepa_payment(bank_transaction, sepa_batch):
     task = frappe.get_doc(
         {
             "doctype": "ToDo",
-            "description": """
+            "description": f"""
 SEPA Batch Excess Payment - Investigation Required
 
 Batch: {sepa_batch.name}
@@ -686,7 +716,7 @@ def create_failed_payment_record(member_name, invoice_name, return_item):
             "comment_type": "Info",
             "reference_doctype": "Member",
             "reference_name": member_name,
-            "content": """
+            "content": f"""
 SEPA Payment Failed
 Invoice: {invoice_name}
 Amount: €{return_item.get('amount', 0):,.2f}
@@ -707,7 +737,6 @@ def notify_member_of_failed_payment(member_name, invoice_name, return_item):
     """Send notification to member about failed payment"""
 
     member = frappe.get_doc("Member", member_name)
-    frappe.get_doc("Sales Invoice", invoice_name)
 
     # Create email notification (simplified) - unused
     # email_content = """
@@ -763,7 +792,7 @@ def correlate_return_transactions():
 
         for return_txn in recent_returns:
             # Look for SEPA-related keywords
-            description_lower = return_txn.description.lower()
+            description_lower = (return_txn.description or "").lower()
             sepa_keywords = ["return", "reject", "failed", "sepa", "dd", "direct debit"]
 
             if any(keyword in description_lower for keyword in sepa_keywords):
@@ -877,10 +906,11 @@ def get_sepa_reconciliation_dashboard():
 @critical_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
-def manual_sepa_reconciliation(bank_transaction_name, batch_items_json):
+def manual_sepa_reconciliation(bank_transaction_name: str, batch_items_json: str):
     """Manually reconcile specific items from a SEPA batch"""
     try:
         bank_transaction = frappe.get_doc("Bank Transaction", bank_transaction_name)
+        bank_transaction.check_permission("write")
         batch_items = json.loads(batch_items_json)
 
         reconciled_items = []
@@ -914,15 +944,46 @@ def create_manual_payment_entry(bank_transaction, batch_item):
     if not customer:
         frappe.throw(f"No customer found for member {batch_item['member']}")
 
+    # Get company and accounts from the invoice
+    invoice_data = frappe.db.get_value(
+        "Sales Invoice",
+        batch_item["invoice"],
+        ["company", "debit_to"],
+        as_dict=True,
+    )
+    if not invoice_data:
+        frappe.throw(f"Invoice {batch_item['invoice']} not found")
+
+    company = invoice_data.company
+    receivable_account = invoice_data.debit_to
+
+    # Get default bank account for the company
+    from erpnext.accounts.doctype.journal_entry.journal_entry import (
+        get_default_bank_cash_account,
+    )
+
+    bank_account_data = get_default_bank_cash_account(company, "Bank")
+    bank_account = bank_account_data.get("account") if bank_account_data else None
+
+    if not bank_account:
+        frappe.throw(f"No default bank account configured for company {company}")
+
     payment_entry = frappe.get_doc(
         {
             "doctype": "Payment Entry",
             "payment_type": "Receive",
+            "company": company,
             "party_type": "Customer",
             "party": customer,
             "posting_date": bank_transaction.date,
             "paid_amount": batch_item["amount"],
             "received_amount": batch_item["amount"],
+            "paid_from": receivable_account,
+            "paid_to": bank_account,
+            "paid_from_account_currency": "EUR",
+            "paid_to_account_currency": "EUR",
+            "target_exchange_rate": 1,
+            "source_exchange_rate": 1,
             "reference_no": bank_transaction.reference_number,
             "reference_date": bank_transaction.date,
             "mode_of_payment": "SEPA Direct Debit",

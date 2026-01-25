@@ -228,7 +228,7 @@ class PaymentReconciliationManager:
                     ddi.amount,
                     ddi.member_name,
                     si.customer
-                FROM `tabDirect Debit Invoice` ddi
+                FROM `tabDirect Debit Batch Invoice` ddi
                 JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
                 LEFT JOIN `tabSales Invoice` si ON si.name = ddi.invoice
                 WHERE
