@@ -292,6 +292,7 @@ class TestDonationPaymentProcessor(EnhancedTestCase):
                 payment_entry = self.create_test_payment_entry(
                     paid_amount=75.0,
                     reference_no="test_idempotency_123",
+                    submit=True,  # PE must be submitted for idempotency check to find it
                 )
                 mock_factory.return_value = payment_entry
 
