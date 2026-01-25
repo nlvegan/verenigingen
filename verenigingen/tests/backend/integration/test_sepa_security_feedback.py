@@ -29,20 +29,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests import IntegrationTestCase
 
 from verenigingen.api.sepa_duplicate_prevention import (
     _REDIS_RELEASE_LOCK_SCRIPT,
     ConcurrentOperationError,
     _extract_cacheable_result,
     _generate_lock_token,
-    acquire_processing_lock,
     check_redis_health,
     execute_idempotent_operation,
     generate_idempotency_key,
-    release_processing_lock,
     verify_redis_capabilities,
 )
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 def _create_thread_context(site: str):
@@ -73,7 +71,7 @@ def _cleanup_thread_context():
 # =============================================================================
 
 
-class TestAtomicLockRelease(IntegrationTestCase):
+class TestAtomicLockRelease(EnhancedTestCase):
     """Test atomic compare-and-delete for Redis lock releases (P1)."""
 
     def test_lua_script_only_deletes_owned_lock(self):
@@ -141,7 +139,7 @@ class TestAtomicLockRelease(IntegrationTestCase):
 # =============================================================================
 
 
-class TestRedisCapabilityVerification(IntegrationTestCase):
+class TestRedisCapabilityVerification(EnhancedTestCase):
     """Test Redis capability verification (P2)."""
 
     def test_verify_redis_capabilities_when_configured(self):
@@ -196,7 +194,7 @@ class TestRedisCapabilityVerification(IntegrationTestCase):
 # =============================================================================
 
 
-class TestCompactCacheValues(IntegrationTestCase):
+class TestCompactCacheValues(EnhancedTestCase):
     """Test idempotency cache stores compact values (P2)."""
 
     def test_extract_cacheable_result_minimal_data(self):
@@ -246,7 +244,7 @@ class TestCompactCacheValues(IntegrationTestCase):
 # =============================================================================
 
 
-class TestMandateSequenceTypeConcurrency(IntegrationTestCase):
+class TestMandateSequenceTypeConcurrency(EnhancedTestCase):
     """Test mandate-level locking prevents FRST race condition (P1)."""
 
     def setUp(self):
@@ -376,7 +374,7 @@ class TestMandateSequenceTypeConcurrency(IntegrationTestCase):
 # =============================================================================
 
 
-class TestForUpdateSemantics(IntegrationTestCase):
+class TestForUpdateSemantics(EnhancedTestCase):
     """Test FOR UPDATE correctly serializes batch processing (P2)."""
 
     def test_for_update_locks_batch_row(self):
@@ -435,7 +433,7 @@ class TestForUpdateSemantics(IntegrationTestCase):
 # =============================================================================
 
 
-class TestSecureXMLParsing(IntegrationTestCase):
+class TestSecureXMLParsing(EnhancedTestCase):
     """Test secure XML parsing with defusedxml (P2)."""
 
     def test_xxe_attack_blocked(self):
@@ -531,7 +529,7 @@ class TestSecureXMLParsing(IntegrationTestCase):
 # =============================================================================
 
 
-class TestRedisHealthCheck(IntegrationTestCase):
+class TestRedisHealthCheck(EnhancedTestCase):
     """Test Redis health check functionality (P2)."""
 
     def test_health_check_when_not_configured(self):
@@ -561,7 +559,7 @@ class TestRedisHealthCheck(IntegrationTestCase):
 # =============================================================================
 
 
-class TestIdempotencyConcurrency(IntegrationTestCase):
+class TestIdempotencyConcurrency(EnhancedTestCase):
     """Test idempotency under concurrent execution (Point 8)."""
 
     def setUp(self):
@@ -652,7 +650,7 @@ class TestIdempotencyConcurrency(IntegrationTestCase):
 # =============================================================================
 
 
-class TestSEPASecurityIntegration(IntegrationTestCase):
+class TestSEPASecurityIntegration(EnhancedTestCase):
     """Integration test combining multiple security features."""
 
     def test_lock_token_uniqueness(self):
