@@ -25,7 +25,85 @@ from verenigingen.utils.security.audit_logging import log_sensitive_operation
 
 # Default TTL values (in seconds)
 DEFAULT_LOCK_TTL = 300  # 5 minutes for processing locks
+DEFAULT_BATCH_LOCK_TTL = 1800  # 30 minutes for batch operations
 DEFAULT_CACHE_TTL = 3600  # 1 hour for idempotency cache
+DEFAULT_IDEMPOTENCY_LOCK_TIMEOUT = 30  # 30 seconds to acquire idempotency lock
+
+# Flag to track if Redis requirement has been checked this request
+_redis_requirement_checked = False
+
+
+# =============================================================================
+# PRODUCTION SAFETY CHECKS
+# =============================================================================
+
+
+def _check_redis_required() -> None:
+    """
+    Fail fast if Redis not configured but required for multi-worker safety.
+
+    In multi-worker deployments, in-memory locks are not safe because each
+    worker has its own memory space. Redis provides distributed locking.
+
+    Raises:
+        ValidationError: If Redis is required but not configured
+    """
+    global _redis_requirement_checked
+
+    # Only check once per request to avoid repeated overhead
+    if _redis_requirement_checked:
+        return
+    _redis_requirement_checked = True
+
+    # Allow in-memory for development mode
+    if frappe.conf.get("developer_mode"):
+        return
+
+    # Check if multi-worker environment
+    workers = frappe.conf.get("workers", {})
+    gunicorn_workers = frappe.conf.get("gunicorn_workers", 1)
+
+    # If more than 1 worker configured, require Redis
+    is_multi_worker = gunicorn_workers > 1 or any(
+        int(v) > 0 for v in workers.values() if isinstance(v, (int, str)) and str(v).isdigit()
+    )
+
+    if is_multi_worker:
+        if not frappe.conf.get("use_redis_locks_for_sepa"):
+            frappe.throw(
+                _(
+                    "SEPA processing requires Redis locks in multi-worker environment. "
+                    "Set use_redis_locks_for_sepa=True in site_config.json or reduce workers to 1."
+                )
+            )
+
+
+def _get_lock_ttl(operation_type: str = "default") -> int:
+    """
+    Get configurable lock TTL from site config.
+
+    Allows operators to tune lock timeouts for their specific workload.
+    Configuration keys: sepa_lock_ttl_default, sepa_lock_ttl_batch, etc.
+
+    Args:
+        operation_type: Type of operation (default, batch, reconciliation, mandate)
+
+    Returns:
+        TTL in seconds
+    """
+    config_key = f"sepa_lock_ttl_{operation_type}"
+    configured = frappe.conf.get(config_key)
+    if configured:
+        return int(configured)
+
+    defaults = {
+        "default": DEFAULT_LOCK_TTL,
+        "batch": DEFAULT_BATCH_LOCK_TTL,
+        "reconciliation": DEFAULT_BATCH_LOCK_TTL,
+        "mandate": DEFAULT_LOCK_TTL,
+    }
+    return defaults.get(operation_type, DEFAULT_LOCK_TTL)
+
 
 # =============================================================================
 # DUPLICATE PAYMENT PREVENTION
@@ -320,16 +398,25 @@ def acquire_processing_lock(resource_type: str, resource_id: str, timeout: int =
     Uses Redis if available and configured (set use_redis_locks_for_sepa=True in site_config),
     otherwise falls back to in-memory locks (suitable for single-worker deployments only).
 
+    In multi-worker production environments, Redis is REQUIRED. This function will
+    fail fast if Redis is not configured but multiple workers are detected.
+
     Args:
         resource_type: Type of resource (e.g., 'sepa_batch', 'bank_transaction')
         resource_id: Unique identifier for resource
-        timeout: Lock timeout in seconds (default: DEFAULT_LOCK_TTL)
+        timeout: Lock timeout in seconds (default: from _get_lock_ttl)
 
     Returns:
         True if lock acquired, False otherwise
+
+    Raises:
+        ValidationError: If Redis is required but not configured
     """
+    # Check Redis requirement for multi-worker safety
+    _check_redis_required()
+
     if timeout is None:
-        timeout = DEFAULT_LOCK_TTL
+        timeout = _get_lock_ttl(resource_type)
 
     lock_key = f"{resource_type}:{resource_id}"
     redis_key = _get_redis_lock_key(resource_type, resource_id)
@@ -394,6 +481,156 @@ def release_processing_lock(resource_type: str, resource_id: str) -> None:
 # NOTE: For production multi-worker deployments, set use_redis_idempotency_cache=True
 # in site_config to use Redis-based caching.
 _operation_cache: Dict[str, Tuple[Any, float, int]] = {}
+
+# Idempotency lock tokens for ownership verification
+_idempotency_lock_tokens: Dict[str, str] = {}
+
+# Lua script for atomic compare-and-delete (safe lock release)
+# Only deletes the lock if the stored value matches our token
+_REDIS_RELEASE_LOCK_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
+
+
+class ConcurrentOperationError(Exception):
+    """Raised when an operation is already in progress by another worker."""
+
+    pass
+
+
+def _acquire_idempotency_lock(lock_key: str, timeout: int = None) -> Optional[str]:
+    """
+    Acquire an idempotency lock using Redis SETNX for atomic acquisition.
+
+    This ensures only one worker can execute an idempotent operation at a time.
+    Uses exponential backoff for retries.
+
+    Args:
+        lock_key: The lock key (should include idempotency key)
+        timeout: Maximum time to wait for lock acquisition in seconds
+
+    Returns:
+        Lock token if acquired, None if lock could not be acquired
+    """
+    if timeout is None:
+        timeout = DEFAULT_IDEMPOTENCY_LOCK_TIMEOUT
+
+    # Check Redis requirement for multi-worker safety
+    _check_redis_required()
+
+    # Generate unique token for ownership verification
+    lock_token = f"{uuid.uuid4().hex}:{os.getpid()}:{time.time()}"
+    lock_ttl = timeout * 2  # Lock TTL is 2x the acquisition timeout
+
+    # Try Redis first if configured
+    if frappe.conf.get("use_redis_locks_for_sepa", False):
+        try:
+            cache = frappe.cache()
+            redis_key = f"sepa_idempotency_lock:{lock_key}"
+
+            start_time = time.time()
+            attempt = 0
+
+            while (time.time() - start_time) < timeout:
+                # Try to set the lock with our token (NX = only if not exists)
+                result = cache.set(redis_key, lock_token, ex=lock_ttl, nx=True)
+
+                if result:
+                    # Lock acquired - store token for release verification
+                    _idempotency_lock_tokens[lock_key] = lock_token
+                    return lock_token
+
+                # Lock not acquired, wait with exponential backoff
+                attempt += 1
+                wait_time = min(0.1 * (2**attempt), 2.0)  # Max 2 second wait
+                time.sleep(wait_time)
+
+            # Timeout - could not acquire lock
+            return None
+
+        except Exception as e:
+            frappe.logger().warning(f"Redis idempotency lock failed: {e}. Falling back to in-memory.")
+
+    # In-memory fallback (single-worker only)
+    with _lock_mutex:
+        current_time = time.time()
+
+        # Check if lock exists and is still valid
+        if lock_key in _idempotency_lock_tokens:
+            # Lock exists - check if expired (using processing_locks for TTL tracking)
+            if lock_key in _processing_locks:
+                lock_time, ttl, _ = _processing_locks[lock_key]
+                if current_time - lock_time < ttl:
+                    return None  # Lock still active
+
+        # Acquire lock
+        _idempotency_lock_tokens[lock_key] = lock_token
+        _processing_locks[lock_key] = (current_time, lock_ttl, lock_token)
+        return lock_token
+
+
+def _release_idempotency_lock(lock_key: str, lock_token: str) -> bool:
+    """
+    Release an idempotency lock with ownership verification.
+
+    Uses Lua script for atomic compare-and-delete to prevent accidentally
+    releasing a lock that was acquired by another process (after our lock
+    expired and they re-acquired it).
+
+    Args:
+        lock_key: The lock key
+        lock_token: Token returned by _acquire_idempotency_lock
+
+    Returns:
+        True if lock was released, False otherwise
+    """
+    # Try Redis first if configured
+    if frappe.conf.get("use_redis_locks_for_sepa", False):
+        try:
+            cache = frappe.cache()
+            redis_key = f"sepa_idempotency_lock:{lock_key}"
+
+            # Use Lua script for atomic compare-and-delete
+            # This is safer than get-then-delete as it's atomic
+            redis_client = cache.connection
+            if hasattr(redis_client, "eval"):
+                result = redis_client.eval(_REDIS_RELEASE_LOCK_SCRIPT, 1, redis_key, lock_token)
+            else:
+                # Fallback: check and delete (slightly less safe but functional)
+                current_value = cache.get(redis_key)
+                if current_value == lock_token:
+                    cache.delete(redis_key)
+                    result = 1
+                else:
+                    result = 0
+
+            # Clean up local token regardless of result
+            if lock_key in _idempotency_lock_tokens:
+                del _idempotency_lock_tokens[lock_key]
+
+            return bool(result)
+
+        except Exception as e:
+            frappe.logger().warning(f"Redis idempotency lock release failed: {e}")
+            # Clean up local token
+            if lock_key in _idempotency_lock_tokens:
+                del _idempotency_lock_tokens[lock_key]
+            return False
+
+    # In-memory fallback
+    with _lock_mutex:
+        stored_token = _idempotency_lock_tokens.get(lock_key)
+        if stored_token == lock_token:
+            del _idempotency_lock_tokens[lock_key]
+            if lock_key in _processing_locks:
+                del _processing_locks[lock_key]
+            return True
+        return False
+
 
 # Lock for thread-safe cache operations
 _cache_mutex = threading.Lock()
@@ -545,10 +782,17 @@ def generate_idempotency_key(bank_transaction: str, batch: str, operation: str) 
 @critical_api(operation_type=OperationType.FINANCIAL)
 def execute_idempotent_operation(idempotency_key: str, operation_func, ttl: int = None) -> Dict:
     """
-    Execute operation with idempotency protection.
+    Execute operation with atomic idempotency protection.
 
-    Uses Redis cache if configured (use_redis_idempotency_cache=True in site_config),
-    otherwise falls back to in-memory cache with TTL and size limits.
+    Uses lock-then-check pattern to ensure only one worker executes an operation:
+    1. Acquire exclusive lock on idempotency key
+    2. Check cache (double-check after acquiring lock)
+    3. Execute operation if not cached
+    4. Cache result
+    5. Release lock
+
+    This prevents race conditions where two workers both find nothing in cache
+    and both execute the operation.
 
     Args:
         idempotency_key: Unique key for operation
@@ -557,25 +801,59 @@ def execute_idempotent_operation(idempotency_key: str, operation_func, ttl: int 
 
     Returns:
         Operation result
+
+    Raises:
+        ConcurrentOperationError: If another worker is executing this operation
     """
     if ttl is None:
         ttl = DEFAULT_CACHE_TTL
 
-    # Check if operation already executed
+    # Step 1: Quick check before acquiring lock (optimization)
     found, cached_result = _get_cached_result(idempotency_key, ttl)
     if found:
-        frappe.logger().info(f"Returning cached result for idempotency key: {idempotency_key}")
+        frappe.logger().info(f"Returning cached result for idempotency key: {idempotency_key[:16]}...")
         return cached_result
 
-    # Execute operation and cache result with TTL
+    # Step 2: Acquire exclusive lock on this idempotency key
+    lock_token = _acquire_idempotency_lock(idempotency_key, timeout=DEFAULT_IDEMPOTENCY_LOCK_TIMEOUT)
+
+    if not lock_token:
+        # Another worker is processing this operation
+        # Wait briefly and check if result is now cached
+        time.sleep(0.5)
+        found, cached_result = _get_cached_result(idempotency_key, ttl)
+        if found:
+            frappe.logger().info(
+                f"Returning result from concurrent worker for idempotency key: {idempotency_key[:16]}..."
+            )
+            return cached_result
+
+        # Still no result - operation may be in progress or failed
+        raise ConcurrentOperationError(_("Operation in progress by another worker. Please wait and retry."))
+
     try:
-        result = operation_func()
-        _set_cached_result(idempotency_key, result, ttl)
-        return result
-    except Exception as e:
-        # Don't cache failures
-        frappe.logger().error(f"Operation failed for idempotency key {idempotency_key}: {str(e)}")
-        raise
+        # Step 3: Double-check cache after acquiring lock
+        # This handles the case where another worker completed just before we got the lock
+        found, cached_result = _get_cached_result(idempotency_key, ttl)
+        if found:
+            frappe.logger().info(
+                f"Returning cached result (post-lock) for idempotency key: {idempotency_key[:16]}..."
+            )
+            return cached_result
+
+        # Step 4: Execute operation (we have exclusive lock)
+        try:
+            result = operation_func()
+            _set_cached_result(idempotency_key, result, ttl)
+            return result
+        except Exception as e:
+            # Don't cache failures - allow retry
+            frappe.logger().error(f"Operation failed for idempotency key {idempotency_key[:16]}...: {str(e)}")
+            raise
+
+    finally:
+        # Step 5: Always release lock
+        _release_idempotency_lock(idempotency_key, lock_token)
 
 
 # =============================================================================

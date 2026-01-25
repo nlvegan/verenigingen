@@ -62,11 +62,14 @@ License: MIT
 """
 
 import json
+from typing import Any, Dict, List, Optional
 
 import frappe
+from frappe import _
 from frappe.utils import add_days, flt, getdate
 
 from verenigingen.api.sepa_duplicate_prevention import (
+    ConcurrentOperationError,
     acquire_processing_lock,
     check_batch_processing_status,
     create_payment_entry_with_duplicate_check,
@@ -338,8 +341,155 @@ def _process_sepa_transaction_conservative_internal(bank_transaction_name, sepa_
         return {"success": False, "error": str(e)}
 
 
-def reconcile_full_sepa_batch(bank_transaction, sepa_batch):
-    """Reconcile all items in SEPA batch when full amount received"""
+def _validate_batch_reconciliation(batch_items: List[Dict], bank_transaction) -> List[Dict]:
+    """
+    Phase 1: Validate all batch items before any writes.
+
+    This ensures all items can be reconciled before committing any changes.
+    Returns list of validation errors (empty if all valid).
+    """
+    from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
+
+    validation_errors = []
+
+    for item in batch_items:
+        try:
+            # Validate customer exists for member
+            customer = frappe.db.get_value("Member", item.member, "customer")
+            if not customer:
+                validation_errors.append(
+                    {
+                        "invoice": item.invoice,
+                        "error": f"No customer found for member {item.member}",
+                    }
+                )
+                continue
+
+            # Validate invoice exists and has required data
+            invoice_data = frappe.db.get_value(
+                "Sales Invoice",
+                item.invoice,
+                ["company", "debit_to", "status", "outstanding_amount"],
+                as_dict=True,
+            )
+            if not invoice_data:
+                validation_errors.append(
+                    {
+                        "invoice": item.invoice,
+                        "error": f"Invoice {item.invoice} not found",
+                    }
+                )
+                continue
+
+            if invoice_data.status == "Cancelled":
+                validation_errors.append(
+                    {
+                        "invoice": item.invoice,
+                        "error": f"Invoice {item.invoice} is cancelled",
+                    }
+                )
+                continue
+
+            # Validate bank account exists for company
+            bank_account_data = get_default_bank_cash_account(invoice_data.company, "Bank")
+            if not bank_account_data or not bank_account_data.get("account"):
+                validation_errors.append(
+                    {
+                        "invoice": item.invoice,
+                        "error": f"No default bank account for company {invoice_data.company}",
+                    }
+                )
+                continue
+
+        except Exception as e:
+            validation_errors.append(
+                {
+                    "invoice": item.invoice,
+                    "error": str(e),
+                }
+            )
+
+    return validation_errors
+
+
+def _create_payment_entry_atomic(
+    item: Dict,
+    bank_transaction,
+    sepa_batch,
+    company: str,
+    customer: str,
+    receivable_account: str,
+    bank_account: str,
+) -> Dict:
+    """
+    Create a single payment entry within an atomic transaction.
+
+    This function is called within a transaction context. On any error,
+    the caller should rollback the entire batch.
+    """
+    payment_data = {
+        "doctype": "Payment Entry",
+        "payment_type": "Receive",
+        "company": company,
+        "party_type": "Customer",
+        "party": customer,
+        "posting_date": bank_transaction.date,
+        "paid_amount": item.amount,
+        "received_amount": item.amount,
+        "paid_from": receivable_account,
+        "paid_to": bank_account,
+        "paid_from_account_currency": "EUR",
+        "paid_to_account_currency": "EUR",
+        "target_exchange_rate": 1,
+        "source_exchange_rate": 1,
+        "reference_no": bank_transaction.reference_number,
+        "reference_date": bank_transaction.date,
+        "mode_of_payment": "SEPA Direct Debit",
+        "custom_bank_transaction": bank_transaction.name,
+        "custom_sepa_batch": sepa_batch.name,
+        "custom_sepa_batch_item": item.name,
+        "references": [
+            {
+                "reference_doctype": "Sales Invoice",
+                "reference_name": item.invoice,
+                "total_amount": item.amount,
+                "outstanding_amount": item.amount,
+                "allocated_amount": item.amount,
+            }
+        ],
+    }
+
+    payment_result = create_payment_entry_with_duplicate_check(item.invoice, item.amount, payment_data)
+
+    return {
+        "invoice": item.invoice,
+        "amount": item.amount,
+        "payment_entry": payment_result.get("payment_entry"),
+        "status": "success",
+    }
+
+
+def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
+    """
+    Reconcile all items in SEPA batch atomically with transaction boundaries.
+
+    Implements a two-phase approach:
+    - Phase 1: Validate all items (read-only) - fail fast if any validation errors
+    - Phase 2: Create payment entries atomically with FOR UPDATE lock
+
+    If any item fails during Phase 2, the entire batch is rolled back to
+    prevent partial reconciliation state.
+
+    Args:
+        bank_transaction: Bank Transaction document
+        sepa_batch: Direct Debit Batch document
+
+    Returns:
+        Dict with reconciliation result:
+        - type: "full_reconciliation", "validation_failed", "atomic_failure", or "transaction_error"
+        - details: List of per-item results
+    """
+    from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
 
     # Get all batch items
     batch_items = frappe.get_all(
@@ -348,97 +498,132 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch):
         fields=["name", "invoice", "amount", "member", "member_name", "idx"],
     )
 
-    reconciled_items = []
+    if not batch_items:
+        return {
+            "type": "full_reconciliation",
+            "total_items": 0,
+            "reconciled_count": 0,
+            "failed_count": 0,
+            "details": [],
+        }
 
-    for item in batch_items:
-        try:
-            # Get customer from member
+    # =========================================================================
+    # PHASE 1: Validate all items (read-only, no writes)
+    # =========================================================================
+    validation_errors = _validate_batch_reconciliation(batch_items, bank_transaction)
+
+    if validation_errors:
+        return {
+            "type": "validation_failed",
+            "total_items": len(batch_items),
+            "reconciled_count": 0,
+            "failed_count": len(validation_errors),
+            "validation_errors": validation_errors,
+            "details": validation_errors,
+        }
+
+    # =========================================================================
+    # PHASE 2: Execute atomically with transaction boundaries
+    # =========================================================================
+    frappe.db.begin()
+    try:
+        # Lock the batch row to prevent concurrent processing (FOR UPDATE)
+        # This ensures only one process can reconcile this batch at a time
+        frappe.db.sql(
+            """
+            SELECT name FROM `tabDirect Debit Batch`
+            WHERE name = %s
+            FOR UPDATE
+            """,
+            sepa_batch.name,
+        )
+
+        reconciled_items = []
+
+        for item in batch_items:
+            # Get required data (already validated in Phase 1)
             customer = frappe.db.get_value("Member", item.member, "customer")
-            if not customer:
-                frappe.throw(f"No customer found for member {item.member}")
-
-            # Get company and accounts from the invoice
             invoice_data = frappe.db.get_value(
                 "Sales Invoice",
                 item.invoice,
                 ["company", "debit_to"],
                 as_dict=True,
             )
-            if not invoice_data:
-                frappe.throw(f"Invoice {item.invoice} not found")
-
             company = invoice_data.company
             receivable_account = invoice_data.debit_to
-
-            # Get default bank account for the company
-            from erpnext.accounts.doctype.journal_entry.journal_entry import (
-                get_default_bank_cash_account,
-            )
-
             bank_account_data = get_default_bank_cash_account(company, "Bank")
-            bank_account = bank_account_data.get("account") if bank_account_data else None
+            bank_account = bank_account_data.get("account")
 
-            if not bank_account:
-                frappe.throw(f"No default bank account configured for company {company}")
+            try:
+                result = _create_payment_entry_atomic(
+                    item, bank_transaction, sepa_batch, company, customer, receivable_account, bank_account
+                )
+                reconciled_items.append(result)
 
-            # Create payment entry with duplicate prevention
-            payment_data = {
-                "doctype": "Payment Entry",
-                "payment_type": "Receive",
-                "company": company,
-                "party_type": "Customer",
-                "party": customer,
-                "posting_date": bank_transaction.date,
-                "paid_amount": item.amount,
-                "received_amount": item.amount,
-                "paid_from": receivable_account,
-                "paid_to": bank_account,
-                "paid_from_account_currency": "EUR",
-                "paid_to_account_currency": "EUR",
-                "target_exchange_rate": 1,
-                "source_exchange_rate": 1,
-                "reference_no": bank_transaction.reference_number,
-                "reference_date": bank_transaction.date,
-                "mode_of_payment": "SEPA Direct Debit",
-                "custom_bank_transaction": bank_transaction.name,
-                "custom_sepa_batch": sepa_batch.name,
-                "custom_sepa_batch_item": item.name,
-                "references": [
-                    {
-                        "reference_doctype": "Sales Invoice",
-                        "reference_name": item.invoice,
-                        "total_amount": item.amount,
-                        "outstanding_amount": item.amount,
-                        "allocated_amount": item.amount,
-                    }
-                ],
-            }
-
-            payment_result = create_payment_entry_with_duplicate_check(
-                item.invoice, item.amount, payment_data
-            )
-
-            reconciled_items.append(
-                {
-                    "invoice": item.invoice,
-                    "amount": item.amount,
-                    "payment_entry": payment_result.get("payment_entry"),
-                    "status": "success",
+            except ConcurrentOperationError as e:
+                # Concurrent operation - rollback and inform caller
+                frappe.db.rollback()
+                frappe.log_error(
+                    f"Concurrent operation during batch reconciliation: {e}", "SEPA Batch Reconciliation"
+                )
+                return {
+                    "type": "concurrent_operation",
+                    "total_items": len(batch_items),
+                    "reconciled_count": 0,
+                    "failed_count": 1,
+                    "failed_at": item.invoice,
+                    "error": str(e),
+                    "details": reconciled_items,
                 }
-            )
 
-        except Exception as e:
-            reconciled_items.append(
-                {"invoice": item.invoice, "amount": item.amount, "status": "failed", "error": str(e)}
-            )
+            except Exception as e:
+                # Any failure during atomic phase - rollback entire batch
+                frappe.db.rollback()
+                frappe.log_error(
+                    f"Atomic batch reconciliation failed at {item.invoice}: {e}", "SEPA Batch Reconciliation"
+                )
+                return {
+                    "type": "atomic_failure",
+                    "total_items": len(batch_items),
+                    "reconciled_count": 0,  # All rolled back
+                    "failed_count": 1,
+                    "failed_at": item.invoice,
+                    "error": str(e),
+                    "completed_before_failure": reconciled_items,
+                    "details": reconciled_items
+                    + [
+                        {
+                            "invoice": item.invoice,
+                            "amount": item.amount,
+                            "status": "failed",
+                            "error": str(e),
+                        }
+                    ],
+                }
 
-    return {
-        "type": "full_reconciliation",
-        "total_items": len(batch_items),
-        "reconciled_count": len([item for item in reconciled_items if item["status"] == "success"]),
-        "failed_count": len([item for item in reconciled_items if item["status"] == "failed"]),
-        "details": reconciled_items,
-    }
+        # All items processed successfully - commit the transaction
+        frappe.db.commit()
+
+        return {
+            "type": "full_reconciliation",
+            "total_items": len(batch_items),
+            "reconciled_count": len(reconciled_items),
+            "failed_count": 0,
+            "details": reconciled_items,
+        }
+
+    except Exception as e:
+        # Unexpected error - ensure rollback
+        frappe.db.rollback()
+        frappe.log_error(f"Transaction error during batch reconciliation: {e}", "SEPA Batch Reconciliation")
+        return {
+            "type": "transaction_error",
+            "total_items": len(batch_items),
+            "reconciled_count": 0,
+            "failed_count": len(batch_items),
+            "error": str(e),
+            "details": [],
+        }
 
 
 def handle_partial_sepa_batch(bank_transaction, sepa_batch):
@@ -594,15 +779,46 @@ def parse_sepa_return_csv(csv_content):
     return returns
 
 
-def parse_sepa_return_xml(xml_content):
-    """Parse XML return file (SEPA PAIN format)"""
-    # Simplified XML parsing - would need proper SEPA PAIN parser in production
-    returns = []
+def parse_sepa_return_xml(xml_content: str) -> List[Dict]:
+    """
+    Parse XML return file (SEPA pain.002 format) securely.
 
-    # This is a simplified version - real implementation would use proper XML parsing
-    # for SEPA PAIN.002 return files
+    Uses defusedxml for XXE protection and enforces size limits.
+    Supports pain.002.001.03 and pain.002.001.10 formats.
 
-    return returns
+    Args:
+        xml_content: XML content as string
+
+    Returns:
+        List of return item dictionaries with keys:
+        - end_to_end_id: Original end-to-end reference
+        - status: Transaction status (RJCT, ACCP, etc.)
+        - reason_code: SEPA reason code (MD01, AC04, etc.)
+        - reason_description: Human-readable reason
+        - amount: Original transaction amount
+        - debtor_name: Debtor name from original transaction
+        - mandate_id: SEPA mandate reference
+
+    Raises:
+        XMLSecurityError: If malicious XML detected
+        ValueError: If XML is malformed
+    """
+    from verenigingen.utils.secure_xml import XMLSecurityError
+    from verenigingen.verenigingen_payments.utils.sepa_return_parser import (
+        parse_sepa_return_file,
+    )
+
+    try:
+        return parse_sepa_return_file(xml_content)
+    except XMLSecurityError as e:
+        frappe.log_error(f"Security violation in SEPA return file: {e}", "SEPA Return Processing")
+        raise
+    except ValueError as e:
+        frappe.log_error(f"Invalid SEPA return file: {e}", "SEPA Return Processing")
+        raise
+    except Exception as e:
+        frappe.log_error(f"Error parsing SEPA return file: {e}", "SEPA Return Processing")
+        raise ValueError(f"Failed to parse SEPA return file: {e}") from e
 
 
 def process_individual_return(return_item):

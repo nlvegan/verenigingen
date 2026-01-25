@@ -2,9 +2,14 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.api.sepa_duplicate_prevention import (
+    acquire_processing_lock,
+    release_processing_lock,
+)
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -111,7 +116,11 @@ class SEPAMandateUsage(Document):
 
 def create_mandate_usage_record(mandate_name, reference_doctype, reference_name, amount, sequence_type=None):
     """
-    Create a mandate usage record for tracking SEPA transactions
+    Create a mandate usage record for tracking SEPA transactions.
+
+    Uses a mandate-level lock to prevent race conditions in sequence type
+    determination. Two concurrent calls for the same mandate will be serialized,
+    ensuring correct FRST/RCUR assignment.
 
     Args:
         mandate_name: Name of the SEPA Mandate
@@ -122,29 +131,48 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
 
     Returns:
         Name of created SEPA Mandate Usage record (as child table row)
+
+    Raises:
+        ValidationError: If lock cannot be acquired (another operation in progress)
     """
-    mandate = frappe.get_doc("SEPA Mandate", mandate_name)
+    # Acquire mandate-level lock to prevent sequence type race conditions
+    # This ensures only one usage record is created at a time per mandate
+    lock_timeout = 30  # 30 seconds should be enough for a single save operation
 
-    # Add usage record to the mandate's usage_history child table
-    usage_row = mandate.append(
-        "usage_history",
-        {
-            "usage_date": today(),
-            "reference_doctype": reference_doctype,
-            "reference_name": reference_name,
-            "amount": amount,
-            "status": "Pending",
-            "sequence_type": sequence_type,  # Will be auto-determined in validate() if None
-        },
-    )
+    if not acquire_processing_lock("mandate_usage", mandate_name, timeout=lock_timeout):
+        frappe.throw(_("Another operation is modifying mandate {0}. Please try again.").format(mandate_name))
 
-    # Save the parent mandate to persist the child table record
-    mandate.save()
+    try:
+        mandate = frappe.get_doc("SEPA Mandate", mandate_name)
 
-    # Invalidate lifecycle manager cache to ensure fresh sequence type determination
-    _invalidate_lifecycle_cache(mandate.mandate_id)
+        # Add usage record to the mandate's usage_history child table
+        # The sequence_type will be auto-determined in validate() if None
+        usage_row = mandate.append(
+            "usage_history",
+            {
+                "usage_date": today(),
+                "reference_doctype": reference_doctype,
+                "reference_name": reference_name,
+                "amount": amount,
+                "status": "Pending",
+                "sequence_type": sequence_type,
+            },
+        )
 
-    return usage_row.name
+        # Save the parent mandate to persist the child table record
+        # The SEPAMandateUsage.validate() will be called here, which calls
+        # determine_sequence_type() if sequence_type is None
+        mandate.save()
+
+        # Invalidate lifecycle manager cache to ensure fresh sequence type determination
+        # for any subsequent calls
+        _invalidate_lifecycle_cache(mandate.mandate_id)
+
+        return usage_row.name
+
+    finally:
+        # Always release the lock, even if an error occurred
+        release_processing_lock("mandate_usage", mandate_name)
 
 
 def _invalidate_lifecycle_cache(mandate_id: str) -> None:
