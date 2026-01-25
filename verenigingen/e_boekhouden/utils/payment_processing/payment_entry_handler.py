@@ -632,18 +632,16 @@ class PaymentEntryHandler:
 
                 return _get_or_create_supplier(relation_id, description, self.debug_log)
         except Exception as e:
-            self._log(f"Error with standard party creation: {str(e)}, using simple handler")
+            self._log(f"Error with standard party creation: {str(e)}, using party resolver")
 
-            # Fall back to simple handler
-            from verenigingen.e_boekhouden.utils.simple_party_handler import (
-                get_or_create_customer_simple,
-                get_or_create_supplier_simple,
-            )
+            # Fall back to canonical party resolver
+            from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
 
+            resolver = EBoekhoudenPartyResolver()
             if party_type == "Customer":
-                return get_or_create_customer_simple(relation_id, self.debug_log)
+                return resolver.resolve_customer(relation_id, self.debug_log)
             else:
-                return get_or_create_supplier_simple(relation_id, description, self.debug_log)
+                return resolver.resolve_supplier(relation_id, self.debug_log)
 
     def _create_payment_entry(
         self, mutation: Dict, payment_type: str, party_type: str, party: str, bank_account: str

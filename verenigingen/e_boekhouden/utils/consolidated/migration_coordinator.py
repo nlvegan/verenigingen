@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 
 from verenigingen.e_boekhouden.utils.consolidated.account_manager import EBoekhoudenAccountManager
-from verenigingen.e_boekhouden.utils.consolidated.party_manager import EBoekhoudenPartyManager
+from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, migration_transaction
 
 
@@ -37,8 +37,10 @@ class EBoekhoudenMigrationCoordinator:
         self.cost_center = cost_center or frappe.db.get_value("Company", company, "cost_center")
 
         # Initialize component managers
-        self.party_manager = EBoekhoudenPartyManager()
+        self.party_resolver = EBoekhoudenPartyResolver()
         self.account_manager = EBoekhoudenAccountManager(company)
+        # Track party resolver debug info internally
+        self._party_debug_log = []
 
         # Migration state
         self.migration_log = []
@@ -204,7 +206,7 @@ class EBoekhoudenMigrationCoordinator:
             "progress": self.track_progress(),
             "migration_log": self.migration_log[-50:],  # Last 50 entries
             "component_logs": {
-                "party_manager": self.party_manager.get_debug_log()[-20:],
+                "party_resolver": self._party_debug_log[-20:],
                 "account_manager": self.account_manager.get_debug_log()[-20:],
             },
         }
@@ -253,8 +255,8 @@ class EBoekhoudenMigrationCoordinator:
                 try:
                     customers = client.get_relations("Customer")
                     for customer_data in customers:
-                        customer_name = self.party_manager.resolve_customer(
-                            customer_data.get("id"), self.migration_log
+                        customer_name = self.party_resolver.resolve_customer(
+                            customer_data.get("id"), self._party_debug_log
                         )
                         if customer_name:
                             results["customers"] += 1
@@ -268,8 +270,9 @@ class EBoekhoudenMigrationCoordinator:
                 try:
                     suppliers = client.get_relations("Supplier")
                     for supplier_data in suppliers:
-                        supplier_name = self.party_manager.resolve_supplier(
-                            supplier_data.get("id"), supplier_data.get("name", ""), self.migration_log
+                        # party_resolver uses API data directly, description not needed
+                        supplier_name = self.party_resolver.resolve_supplier(
+                            supplier_data.get("id"), self._party_debug_log
                         )
                         if supplier_name:
                             results["suppliers"] += 1
@@ -278,10 +281,10 @@ class EBoekhoudenMigrationCoordinator:
                 except Exception as e:
                     results["errors"].append(f"Supplier migration failed: {str(e)}")
 
-            # Process enrichment queue
-            enrichment_results = self.party_manager.process_enrichment_queue()
-            results["enriched"] = enrichment_results["processed"]
-            results["errors"].extend(enrichment_results["errors"])
+            # Process enrichment queue for provisional parties
+            enrichment_results = self.party_resolver.enrich_provisional_parties()
+            results["enriched"] = enrichment_results.get("enriched", 0)
+            results["errors"].extend(enrichment_results.get("errors", []))
 
             return results
 
