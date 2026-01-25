@@ -3,6 +3,20 @@ Payment Entry Factory
 
 Centralized factory for creating Payment Entries for all Mollie payment types.
 Part of the shared services layer used by all event handlers.
+
+Monetary Rounding Policy
+------------------------
+This module uses ROUND_HALF_UP (banker's rounding alternative) for all monetary
+calculations. This policy is consistent across the payments stack:
+- SEPA processing
+- Mollie payment handling
+- Reconciliation
+
+ROUND_HALF_UP rounds 0.5 away from zero (e.g., 2.5 -> 3, -2.5 -> -3).
+This is the most intuitive rounding for end users and matches common
+accounting practice in the Netherlands.
+
+All amounts are quantized to 2 decimal places (EUR cents).
 """
 
 from decimal import ROUND_HALF_UP, Decimal
@@ -25,6 +39,9 @@ if TYPE_CHECKING:
 # Field length limits for Payment Entry
 PAYMENT_ENTRY_TITLE_MAX_LENGTH = 140
 PAYMENT_ENTRY_REMARKS_MAX_LENGTH = 500
+
+# Idempotency lock timeout in seconds
+IDEMPOTENCY_LOCK_TIMEOUT = 30
 
 
 class MollieDataValidationError(Exception):
@@ -70,12 +87,33 @@ class PaymentEntryFactory:
             on callers for primary idempotency management.
         """
         pe = None  # Track PE for cleanup on submit failure
+        idempotency_lock_acquired = False
 
         try:
             # Validate mollie_data shape and extract required fields
             payment_id, amount = self._validate_and_extract_mollie_data(mollie_data)
 
+            # Acquire distributed idempotency lock to prevent race conditions
+            # This ensures check+insert is atomic across multiple workers
+            idempotency_lock_acquired = self._acquire_idempotency_lock(payment_id)
+            if not idempotency_lock_acquired:
+                # Another worker is processing this payment - wait and check if PE exists
+                self.logger.info(
+                    f"Could not acquire idempotency lock for payment_id {payment_id}, "
+                    "checking if Payment Entry was created by another worker"
+                )
+                import time
+
+                time.sleep(1)
+                if self._payment_entry_exists(payment_id):
+                    self.logger.info(f"Payment Entry created by another worker for payment_id {payment_id}")
+                    return None
+                # Still no PE after wait - log warning and return
+                self.logger.warning(f"Could not acquire lock and no Payment Entry found for {payment_id}")
+                return None
+
             # Defense-in-depth: Check for duplicate Payment Entry by reference_no
+            # (inside lock to prevent TOCTOU race)
             if self._payment_entry_exists(payment_id):
                 self.logger.warning(
                     f"Payment Entry already exists for payment_id {payment_id} - "
@@ -144,22 +182,7 @@ class PaymentEntryFactory:
                 pe.submit()
             except Exception as submit_error:
                 # Submit failed - clean up the inserted but unsubmitted PE
-                self.logger.error(
-                    f"Payment Entry {pe.name} insert succeeded but submit failed: {submit_error}. "
-                    "Deleting orphaned document."
-                )
-                try:
-                    frappe.delete_doc("Payment Entry", pe.name, force=True)
-                    self.logger.info(f"Cleaned up orphaned Payment Entry {pe.name}")
-                except Exception as cleanup_error:
-                    self.logger.error(f"Failed to clean up orphaned Payment Entry {pe.name}: {cleanup_error}")
-                    frappe.log_error(
-                        f"Orphaned Payment Entry cleanup failed\n"
-                        f"PE: {pe.name}\n"
-                        f"Original error: {submit_error}\n"
-                        f"Cleanup error: {cleanup_error}",
-                        "Payment Entry Factory - Orphaned Document",
-                    )
+                self._handle_orphan_cleanup(pe, submit_error, context, mollie_data)
                 raise submit_error
 
             self.logger.info(f"Created Payment Entry: {pe.name} for {context.payment_type}")
@@ -180,6 +203,10 @@ class PaymentEntryFactory:
                 f"Payment Entry creation failed for {context}: {str(e)}", "Payment Entry Factory"
             )
             return None
+        finally:
+            # Always release the idempotency lock
+            if idempotency_lock_acquired:
+                self._release_idempotency_lock(mollie_data.get("payment_id", ""))
 
     def _validate_and_extract_mollie_data(self, mollie_data: Dict[str, Any]) -> tuple:
         """
@@ -233,6 +260,138 @@ class PaymentEntryFactory:
             True if a Payment Entry exists with this reference_no
         """
         return bool(frappe.db.exists("Payment Entry", {"reference_no": payment_id, "docstatus": ["!=", 2]}))
+
+    def _acquire_idempotency_lock(self, payment_id: str) -> bool:
+        """
+        Acquire a distributed lock to prevent concurrent Payment Entry creation.
+
+        Uses Redis-backed advisory lock to ensure check+insert is atomic across
+        multiple workers processing webhooks.
+
+        Args:
+            payment_id: The Mollie payment ID to lock
+
+        Returns:
+            True if lock was acquired, False otherwise
+        """
+        try:
+            from verenigingen.api.sepa_duplicate_prevention import acquire_processing_lock
+
+            return acquire_processing_lock("payment_entry", payment_id, timeout=IDEMPOTENCY_LOCK_TIMEOUT)
+        except ImportError:
+            # Fallback if sepa_duplicate_prevention not available
+            self.logger.warning(
+                "sepa_duplicate_prevention not available, proceeding without distributed lock"
+            )
+            return True
+        except Exception as e:
+            self.logger.warning(f"Failed to acquire idempotency lock for {payment_id}: {e}")
+            return True  # Proceed without lock rather than blocking
+
+    def _release_idempotency_lock(self, payment_id: str) -> None:
+        """
+        Release the distributed idempotency lock.
+
+        Args:
+            payment_id: The Mollie payment ID to unlock
+        """
+        if not payment_id:
+            return
+
+        try:
+            from verenigingen.api.sepa_duplicate_prevention import release_processing_lock
+
+            release_processing_lock("payment_entry", payment_id)
+        except ImportError:
+            pass  # No lock was acquired if module not available
+        except Exception as e:
+            self.logger.warning(f"Failed to release idempotency lock for {payment_id}: {e}")
+
+    def _handle_orphan_cleanup(
+        self,
+        pe: "Document",
+        submit_error: Exception,
+        context: "PaymentContext",
+        mollie_data: Dict[str, Any],
+    ) -> None:
+        """
+        Handle cleanup of an orphaned Payment Entry after submit failure.
+
+        Creates structured audit trail for operator visibility and attempts
+        to delete the unsubmitted document.
+
+        Args:
+            pe: The Payment Entry document that failed to submit
+            submit_error: The exception raised by submit()
+            context: Payment context information
+            mollie_data: Original Mollie payment data
+        """
+        self.logger.error(
+            f"Payment Entry {pe.name} insert succeeded but submit failed: {submit_error}. "
+            "Deleting orphaned document."
+        )
+
+        cleanup_success = False
+        cleanup_error_msg = None
+
+        try:
+            frappe.delete_doc("Payment Entry", pe.name, force=True)
+            cleanup_success = True
+            self.logger.info(f"Cleaned up orphaned Payment Entry {pe.name}")
+        except Exception as cleanup_error:
+            cleanup_error_msg = str(cleanup_error)
+            self.logger.error(f"Failed to clean up orphaned Payment Entry {pe.name}: {cleanup_error}")
+
+        # Create structured audit log entry for operator visibility
+        audit_data = {
+            "event_type": "payment_entry_orphan_cleanup",
+            "payment_entry_name": pe.name,
+            "payment_id": mollie_data.get("payment_id"),
+            "context_type": context.payment_type,
+            "context_target": context.target_name,
+            "submit_error": str(submit_error),
+            "cleanup_success": cleanup_success,
+            "cleanup_error": cleanup_error_msg,
+            "amount": str(mollie_data.get("amount")),
+            "timestamp": frappe.utils.now_datetime(),
+        }
+
+        # Log to Error Log with structured data for searchability
+        frappe.log_error(
+            title="Payment Entry Orphan Cleanup" + (" - FAILED" if not cleanup_success else ""),
+            message=(
+                f"Orphaned Payment Entry Cleanup Event\n"
+                f"{'=' * 40}\n"
+                f"Payment Entry: {pe.name}\n"
+                f"Mollie Payment ID: {mollie_data.get('payment_id')}\n"
+                f"Context: {context.payment_type} / {context.target_name}\n"
+                f"Amount: {mollie_data.get('amount')}\n"
+                f"\nSubmit Error:\n{submit_error}\n"
+                f"\nCleanup Status: {'SUCCESS' if cleanup_success else 'FAILED'}\n"
+                + (f"Cleanup Error: {cleanup_error_msg}\n" if cleanup_error_msg else "")
+                + f"\nStructured Data:\n{frappe.as_json(audit_data)}"
+            ),
+        )
+
+        # Also try to create a Comment on the target document for visibility
+        try:
+            if context.target_name and frappe.db.exists(context.target_doctype, context.target_name):
+                frappe.get_doc(
+                    {
+                        "doctype": "Comment",
+                        "comment_type": "Info",
+                        "reference_doctype": context.target_doctype,
+                        "reference_name": context.target_name,
+                        "content": (
+                            f"<b>Payment Entry Creation Issue</b><br>"
+                            f"Payment Entry {pe.name} was created but failed to submit.<br>"
+                            f"Error: {submit_error}<br>"
+                            f"Cleanup: {'Successful' if cleanup_success else 'Failed - manual intervention required'}"
+                        ),
+                    }
+                ).insert(ignore_permissions=True)
+        except Exception as comment_error:
+            self.logger.warning(f"Could not add comment to {context.target_name}: {comment_error}")
 
     def _get_reference_date(self, mollie_data: Dict[str, Any]) -> "frappe.utils.datetime.date":
         """
