@@ -32,10 +32,175 @@ DEFAULT_IDEMPOTENCY_LOCK_TIMEOUT = 30  # 30 seconds to acquire idempotency lock
 # Flag to track if Redis requirement has been checked this request
 _redis_requirement_checked = False
 
+# Flag to track if Redis capabilities have been verified
+_redis_capabilities_verified = False
+
 
 # =============================================================================
 # PRODUCTION SAFETY CHECKS
 # =============================================================================
+
+
+def verify_redis_capabilities() -> Dict[str, Any]:
+    """
+    Verify Redis client supports required operations for SEPA processing.
+
+    Tests:
+    1. cache.set() with nx (SETNX) and ex (expiration) parameters
+    2. cache.connection.eval() for Lua scripts (atomic operations)
+    3. cache.get() and cache.delete() basic operations
+
+    Returns:
+        Dict with capability status and any issues found
+
+    Call this at startup or as a health check endpoint when
+    use_redis_locks_for_sepa is enabled.
+    """
+    global _redis_capabilities_verified
+
+    result = {
+        "redis_available": False,
+        "set_nx_ex_supported": False,
+        "eval_supported": False,
+        "basic_ops_supported": False,
+        "issues": [],
+        "verified": False,
+    }
+
+    if not frappe.conf.get("use_redis_locks_for_sepa", False):
+        result["issues"].append("use_redis_locks_for_sepa not enabled - verification skipped")
+        return result
+
+    try:
+        cache = frappe.cache()
+        test_key = "sepa_capability_test:" + uuid.uuid4().hex[:8]
+        test_value = "test_" + str(time.time())
+
+        # Test 1: Basic set/get/delete
+        try:
+            cache.set(test_key, test_value)
+            retrieved = cache.get(test_key)
+            cache.delete(test_key)
+            if retrieved == test_value:
+                result["basic_ops_supported"] = True
+                result["redis_available"] = True
+            else:
+                result["issues"].append("Redis get() returned unexpected value")
+        except Exception as e:
+            result["issues"].append(f"Basic Redis operations failed: {e}")
+
+        # Test 2: set() with nx and ex parameters (SETNX + expiration)
+        try:
+            test_key_nx = test_key + "_nx"
+            # First set should succeed (key doesn't exist)
+            set_result = cache.set(test_key_nx, test_value, ex=10, nx=True)
+            if set_result:
+                # Second set should fail (key exists)
+                set_result_2 = cache.set(test_key_nx, "other_value", ex=10, nx=True)
+                if not set_result_2:
+                    result["set_nx_ex_supported"] = True
+                else:
+                    result["issues"].append("Redis SETNX semantics not working (second set succeeded)")
+                cache.delete(test_key_nx)
+            else:
+                result["issues"].append("Redis set() with nx=True returned falsy on first call")
+        except TypeError as e:
+            result["issues"].append(f"Redis set() does not support nx/ex parameters: {e}")
+        except Exception as e:
+            result["issues"].append(f"Redis SETNX test failed: {e}")
+
+        # Test 3: eval() for Lua scripts
+        try:
+            redis_client = cache.connection
+            if hasattr(redis_client, "eval"):
+                test_key_lua = test_key + "_lua"
+                cache.set(test_key_lua, test_value)
+                # Test the actual release script we use
+                lua_result = redis_client.eval(_REDIS_RELEASE_LOCK_SCRIPT, 1, test_key_lua, test_value)
+                if lua_result == 1:
+                    result["eval_supported"] = True
+                else:
+                    result["issues"].append(f"Lua script returned unexpected result: {lua_result}")
+            else:
+                result["issues"].append("Redis client does not have eval() method")
+        except Exception as e:
+            result["issues"].append(f"Redis Lua eval test failed: {e}")
+
+        # Summary
+        result["verified"] = (
+            result["basic_ops_supported"] and result["set_nx_ex_supported"] and result["eval_supported"]
+        )
+
+        if result["verified"]:
+            _redis_capabilities_verified = True
+            frappe.logger().info("Redis capabilities verified for SEPA processing")
+        else:
+            frappe.logger().warning(f"Redis capability issues: {result['issues']}")
+
+    except Exception as e:
+        result["issues"].append(f"Redis verification failed: {e}")
+        frappe.logger().error(f"Redis capability verification failed: {e}")
+
+    return result
+
+
+def check_redis_health() -> Dict[str, Any]:
+    """
+    Health check for Redis availability when SEPA Redis locks are configured.
+
+    Returns:
+        Dict with health status - use for health endpoints and monitoring.
+
+    Example response:
+        {
+            "healthy": True,
+            "redis_configured": True,
+            "redis_reachable": True,
+            "capabilities_verified": True,
+            "message": "Redis healthy for SEPA processing"
+        }
+    """
+    result = {
+        "healthy": True,
+        "redis_configured": frappe.conf.get("use_redis_locks_for_sepa", False),
+        "redis_reachable": False,
+        "capabilities_verified": _redis_capabilities_verified,
+        "message": "",
+    }
+
+    if not result["redis_configured"]:
+        result["message"] = "Redis locks not configured (use_redis_locks_for_sepa=False)"
+        return result
+
+    # Check Redis reachability
+    try:
+        cache = frappe.cache()
+        ping_key = "sepa_health_ping"
+        cache.set(ping_key, "ping", ex=5)
+        if cache.get(ping_key) == "ping":
+            result["redis_reachable"] = True
+        else:
+            result["healthy"] = False
+            result["message"] = "Redis ping failed - unexpected response"
+    except Exception as e:
+        result["healthy"] = False
+        result["redis_reachable"] = False
+        result["message"] = f"Redis unreachable: {e}"
+        frappe.logger().error(f"SEPA Redis health check failed: {e}")
+        return result
+
+    # Check if capabilities were verified
+    if not _redis_capabilities_verified:
+        # Try to verify now
+        cap_result = verify_redis_capabilities()
+        result["capabilities_verified"] = cap_result["verified"]
+        if not cap_result["verified"]:
+            result["healthy"] = False
+            result["message"] = f"Redis capability issues: {', '.join(cap_result['issues'])}"
+            return result
+
+    result["message"] = "Redis healthy for SEPA processing"
+    return result
 
 
 def _check_redis_required() -> None:
@@ -345,10 +510,15 @@ def _try_redis_lock(lock_key: str, timeout: int) -> Tuple[Optional[bool], Option
 
 def _release_redis_lock(lock_key: str) -> bool:
     """
-    Release Redis lock with ownership verification.
+    Release Redis lock with atomic ownership verification using Lua script.
 
-    Only deletes the lock if the current process owns it (compare-and-delete).
-    This prevents accidentally releasing a lock held by another process.
+    Uses the same Lua compare-and-delete pattern as idempotency locks to ensure
+    atomicity. This prevents the race condition where:
+    1. Our lock expires
+    2. Another process acquires the lock
+    3. We (delayed) try to release and accidentally delete their lock
+
+    The Lua script atomically checks ownership and deletes in one operation.
     """
     try:
         if not frappe.conf.get("use_redis_locks_for_sepa", False):
@@ -365,28 +535,45 @@ def _release_redis_lock(lock_key: str) -> bool:
 
         cache = frappe.cache()
 
-        # Compare-and-delete: only delete if the lock value matches our token
-        # This is the safe pattern to avoid releasing another process's lock
-        current_value = cache.get(lock_key)
+        # Use Lua script for atomic compare-and-delete (same as idempotency locks)
+        # This is the ONLY safe way to release locks in distributed systems
+        try:
+            redis_client = cache.connection
+            if hasattr(redis_client, "eval"):
+                result = redis_client.eval(_REDIS_RELEASE_LOCK_SCRIPT, 1, lock_key, our_token)
+                released = result == 1
+            else:
+                # Fallback for Redis clients without eval - less safe but functional
+                # Log warning as this path has a small race window
+                frappe.logger().warning(
+                    f"Redis client does not support eval(). Using non-atomic release for {lock_key}."
+                )
+                current_value = cache.get(lock_key)
+                if current_value == our_token:
+                    cache.delete(lock_key)
+                    released = True
+                elif current_value is None:
+                    # Lock already expired
+                    released = True
+                else:
+                    # Lock held by another process
+                    frappe.logger().warning(f"Lock {lock_key} is now held by another process. Not releasing.")
+                    released = False
+        except Exception as lua_error:
+            frappe.logger().warning(f"Lua script execution failed for {lock_key}: {lua_error}")
+            released = False
 
-        if current_value == our_token:
-            cache.delete(lock_key)
+        # Clean up local token regardless of result
+        if lock_key in _lock_tokens:
             del _lock_tokens[lock_key]
-            return True
-        elif current_value is None:
-            # Lock already expired or was released
-            if lock_key in _lock_tokens:
-                del _lock_tokens[lock_key]
-            return True
-        else:
-            # Lock is held by another process (ours expired, they acquired it)
-            frappe.logger().warning(f"Lock {lock_key} is now held by another process. Not releasing.")
-            if lock_key in _lock_tokens:
-                del _lock_tokens[lock_key]
-            return False
+
+        return released
 
     except Exception as e:
         frappe.logger().error(f"Error releasing Redis lock {lock_key}: {e}")
+        # Clean up local token on error
+        if lock_key in _lock_tokens:
+            del _lock_tokens[lock_key]
         return False
 
 

@@ -69,6 +69,18 @@ Practical day-to-day workflows for implementing security in development. Feature
 - Deployment and migration procedures
 - Performance optimization techniques
 
+### 💳 [SEPA Redis Configuration](SEPA_REDIS_CONFIGURATION.md)
+
+**Audience**: System Administrators, DevOps
+
+Configuration guide for SEPA payment processing with Redis:
+
+- Redis lock configuration for multi-worker safety
+- Idempotency cache setup
+- TTL tuning for different operation types
+- Health check endpoints
+- Troubleshooting guide
+
 ### 📚 [API Reference](API_REFERENCE.md)
 
 **Audience**: Developers, Technical Reference
