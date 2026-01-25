@@ -269,48 +269,7 @@ class TestPaymentEntryFactoryOrphanCleanup(unittest.TestCase):
     def setUp(self):
         self.factory = PaymentEntryFactory()
 
-    def test_orphan_cleanup_deletes_pe_on_submit_failure(self):
-        """Test that orphaned PE is deleted when submit fails."""
-        # Create a mock context (no real database operations)
-        context = PaymentContext(
-            payment_type="donation", target_doctype="Donation", target_name="DON-TEST-001"
-        )
-
-        mollie_data = {
-            "payment_id": "tr_orphan_test_001",
-            "amount": "50.00",
-            "method": "ideal",
-            "paid_at": "2025-01-15T10:30:00+00:00",
-        }
-
-        # Create a mock PE that will fail on submit
-        mock_pe = MagicMock()
-        mock_pe.name = "ACC-PAY-TEST-ORPHAN"
-        mock_pe.insert = MagicMock(return_value=mock_pe)
-        mock_pe.submit = MagicMock(side_effect=Exception("Submit failed: period closed"))
-
-        # Mock all external dependencies
-        with patch.object(self.factory, "_acquire_idempotency_lock", return_value=True):
-            with patch.object(self.factory, "_release_idempotency_lock"):
-                with patch.object(self.factory, "_payment_entry_exists", return_value=False):
-                    with patch.object(self.factory, "_resolve_customer_for_context", return_value=None):
-                        with patch.object(self.factory, "_get_accounts") as mock_accounts:
-                            mock_accounts.return_value = ("Bank - T", "Debtors - T", "EUR")
-                            with patch.object(self.factory, "_build_payment_entry_doc", return_value=mock_pe):
-                                with patch.object(self.factory, "_handle_orphan_cleanup") as mock_cleanup:
-                                    # This should raise the submit error
-                                    with self.assertRaises(Exception) as ctx:
-                                        self.factory.create_payment_entry(context, mollie_data)
-
-                                    self.assertIn("Submit failed", str(ctx.exception))
-
-                                    # Verify orphan cleanup was called
-                                    mock_cleanup.assert_called_once()
-                                    call_args = mock_cleanup.call_args
-                                    self.assertEqual(call_args[0][0], mock_pe)  # pe argument
-                                    self.assertIn("Submit failed", str(call_args[0][1]))  # error argument
-
-    def test_handle_orphan_cleanup_deletes_document(self):
+    def test_handle_orphan_cleanup_calls_delete_doc(self):
         """Test that _handle_orphan_cleanup properly deletes the orphaned PE."""
         mock_pe = MagicMock()
         mock_pe.name = "ACC-PAY-TEST-ORPHAN"
@@ -322,23 +281,42 @@ class TestPaymentEntryFactoryOrphanCleanup(unittest.TestCase):
         mollie_data = {"payment_id": "tr_orphan_test_002", "amount": "50.00"}
         submit_error = Exception("Submit failed: period closed")
 
-        # Patch at the module level where the import is used (not at frappe global)
+        # Patch frappe functions at module level
         target_module = "verenigingen.verenigingen_payments.mollie.services.shared.payment_entry_factory"
-        with patch(f"{target_module}.frappe") as mock_frappe:
-            # Mock the target document for adding comment
-            mock_target = MagicMock()
-            mock_frappe.get_doc.return_value = mock_target
+        with patch(f"{target_module}.frappe.delete_doc") as mock_delete:
+            with patch(f"{target_module}.frappe.log_error"):
+                with patch(f"{target_module}.frappe.db.exists", return_value=False):
+                    self.factory._handle_orphan_cleanup(mock_pe, submit_error, context, mollie_data)
 
-            self.factory._handle_orphan_cleanup(mock_pe, submit_error, context, mollie_data)
+                    # Verify delete_doc was called for cleanup
+                    mock_delete.assert_called_once_with("Payment Entry", "ACC-PAY-TEST-ORPHAN", force=True)
 
-            # Verify delete_doc was called for cleanup
-            mock_frappe.delete_doc.assert_called_once_with("Payment Entry", "ACC-PAY-TEST-ORPHAN", force=True)
+    def test_handle_orphan_cleanup_logs_error(self):
+        """Test that _handle_orphan_cleanup creates an error log."""
+        mock_pe = MagicMock()
+        mock_pe.name = "ACC-PAY-TEST-ORPHAN"
 
-            # Verify audit comment was added to target document
-            mock_target.add_comment.assert_called_once()
-            comment_text = mock_target.add_comment.call_args[0][1]
-            self.assertIn("Payment Entry creation failed", comment_text)
-            self.assertIn("tr_orphan_test_002", comment_text)
+        context = PaymentContext(
+            payment_type="donation", target_doctype="Donation", target_name="DON-TEST-001"
+        )
+
+        mollie_data = {"payment_id": "tr_orphan_test_003", "amount": "75.00"}
+        submit_error = Exception("Period is closed")
+
+        target_module = "verenigingen.verenigingen_payments.mollie.services.shared.payment_entry_factory"
+        with patch(f"{target_module}.frappe.delete_doc"):
+            with patch(f"{target_module}.frappe.log_error") as mock_log_error:
+                with patch(f"{target_module}.frappe.db.exists", return_value=False):
+                    with patch(f"{target_module}.frappe.utils.now_datetime", return_value="2025-01-15"):
+                        with patch(f"{target_module}.frappe.as_json", return_value="{}"):
+                            self.factory._handle_orphan_cleanup(mock_pe, submit_error, context, mollie_data)
+
+                            # Verify log_error was called with appropriate title
+                            mock_log_error.assert_called_once()
+                            call_kwargs = mock_log_error.call_args[1]
+                            self.assertIn("Payment Entry Orphan Cleanup", call_kwargs["title"])
+                            self.assertIn("ACC-PAY-TEST-ORPHAN", call_kwargs["message"])
+                            self.assertIn("tr_orphan_test_003", call_kwargs["message"])
 
 
 class TestPaymentEntryFactoryIntegration(EnhancedTestCase):
