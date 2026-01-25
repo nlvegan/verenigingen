@@ -19,36 +19,6 @@ from .field_mapping import (
 )
 
 
-def resolve_customer(relation_id, debug_info=None):
-    """
-    Resolve relation ID to proper customer using enhanced party resolver.
-
-    .. deprecated::
-        This wrapper will be removed in a future version.
-        Import directly from party_resolver instead:
-        ``from .party_resolver import EBoekhoudenPartyResolver``
-    """
-    from .party_resolver import EBoekhoudenPartyResolver
-
-    resolver = EBoekhoudenPartyResolver()
-    return resolver.resolve_customer(relation_id, debug_info)
-
-
-def resolve_supplier(relation_id, debug_info=None):
-    """
-    Resolve relation ID to proper supplier using enhanced party resolver.
-
-    .. deprecated::
-        This wrapper will be removed in a future version.
-        Import directly from party_resolver instead:
-        ``from .party_resolver import EBoekhoudenPartyResolver``
-    """
-    from .party_resolver import EBoekhoudenPartyResolver
-
-    resolver = EBoekhoudenPartyResolver()
-    return resolver.resolve_supplier(relation_id, debug_info)
-
-
 def resolve_ledger_code(ledger_id, debug_info=None):
     """
     Resolve E-Boekhouden ledger_id to actual ledger_code using Ledger Mapping.
@@ -115,46 +85,6 @@ def get_default_supplier():
         title="Supplier Resolution Required",
         exc=frappe.ValidationError,
     )
-
-
-def create_provisional_customer(relation_id, debug_info):
-    """
-    .. deprecated::
-        Use ``party_resolver.EBoekhoudenPartyResolver().resolve_customer()`` instead.
-        Scheduled for removal - see docs/eboekhouden/consolidation-plan.md
-
-    This function redirects to the proper party resolver which handles API calls correctly.
-    """
-    if debug_info is None:
-        debug_info = []
-
-    debug_info.append(f"[DEPRECATED] Redirecting to party resolver for relation {relation_id}")
-
-    # Use the proper party resolver instead of creating provisional customers
-    from .party_resolver import EBoekhoudenPartyResolver
-
-    resolver = EBoekhoudenPartyResolver()
-    return resolver.resolve_customer(relation_id, debug_info)
-
-
-def create_provisional_supplier(relation_id, debug_info):
-    """
-    .. deprecated::
-        Use ``party_resolver.EBoekhoudenPartyResolver().resolve_supplier()`` instead.
-        Scheduled for removal - see docs/eboekhouden/consolidation-plan.md
-
-    This function redirects to the proper party resolver which handles API calls correctly.
-    """
-    if debug_info is None:
-        debug_info = []
-
-    debug_info.append(f"[DEPRECATED] Redirecting to party resolver for relation {relation_id}")
-
-    # Use the proper party resolver instead of creating provisional suppliers
-    from .party_resolver import EBoekhoudenPartyResolver
-
-    resolver = EBoekhoudenPartyResolver()
-    return resolver.resolve_supplier(relation_id, debug_info)
 
 
 def get_or_create_payment_terms(days):

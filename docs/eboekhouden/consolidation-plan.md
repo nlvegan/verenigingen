@@ -1,5 +1,22 @@
 # E-Boekhouden Code Consolidation Plan
 
+## Implementation Status
+
+| Phase | Status | Commit | Lines Changed |
+|-------|--------|--------|---------------|
+| Phase 1 | ✅ Complete | c5f79c96 | Deprecation notices, ledger delegation |
+| Phase 2 | ✅ Complete | 3ade8bd8 | +108 (date_utils.py), -97 (invoice_helpers) |
+| Phase 3 | ✅ Complete | e8f3ca17 | -136 (simple_party_handler.py deleted) |
+| Phase 4 | ✅ Complete | (pending) | -70 (wrapper functions removed) |
+
+**Total lines removed**: ~303 lines of duplicated code
+**Canonical implementations established**:
+- Party resolution: `party_resolver.py` (EBoekhoudenPartyResolver)
+- Date utilities: `consolidated/date_utils.py`
+- Ledger mapping: `eboekhouden_ledger_mapping.py`
+
+---
+
 ## Executive Summary
 
 An external audit identified code duplication in the e-boekhouden module. After detailed analysis, we found **~1,425 lines of duplicated code** across party resolution, ledger mapping, and utility functions.
