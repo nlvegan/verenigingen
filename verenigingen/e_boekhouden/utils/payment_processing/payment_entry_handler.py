@@ -451,7 +451,7 @@ class PaymentEntryHandler:
         Determine bank account from ledger mapping.
 
         Priority:
-        1. Direct ledger mapping to bank/cash account
+        1. Shared ledger mapping lookup with auto-create
         2. Payment configuration based on ledger code
         3. Pattern matching from description
         4. Intelligent defaults
@@ -465,28 +465,39 @@ class PaymentEntryHandler:
         if cache_key in self._ledger_cache:
             return self._ledger_cache[cache_key]
 
-        # Try direct mapping
-        mapping = frappe.db.get_value(
-            "E-Boekhouden Ledger Mapping",
-            {"ledger_id": ledger_id},
-            ["erpnext_account", "ledger_code", "ledger_name"],
-            as_dict=True,
+        # Use shared function with auto-create to get/create ledger mapping
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            get_erpnext_account_from_ledger_id,
         )
 
-        if mapping and mapping.get("erpnext_account"):
+        debug_info = []
+        erpnext_account = get_erpnext_account_from_ledger_id(
+            ledger_id, self.company, debug_info, auto_create=True
+        )
+
+        # Log debug info from shared function
+        for info in debug_info:
+            self._log(info)
+
+        if erpnext_account:
             # Verify it's a bank/cash account
-            account_type = frappe.db.get_value("Account", mapping["erpnext_account"], "account_type")
+            account_type = frappe.db.get_value("Account", erpnext_account, "account_type")
 
             if account_type in ["Bank", "Cash"]:
-                self._log(
-                    f"Mapped ledger {ledger_id} ({mapping.get('ledger_name')}) to {mapping['erpnext_account']}"
-                )
-                self._ledger_cache[cache_key] = mapping["erpnext_account"]
-                return mapping["erpnext_account"]
+                self._log(f"Mapped ledger {ledger_id} to bank account: {erpnext_account}")
+                self._ledger_cache[cache_key] = erpnext_account
+                return erpnext_account
             else:
                 self._log(f"WARNING: Ledger {ledger_id} maps to {account_type} account, not Bank/Cash")
 
         # Try payment configuration based on ledger code
+        mapping = frappe.db.get_value(
+            "E-Boekhouden Ledger Mapping",
+            {"ledger_id": ledger_id},
+            ["ledger_code"],
+            as_dict=True,
+        )
+
         if mapping and mapping.get("ledger_code"):
             from verenigingen.e_boekhouden.utils.eboekhouden_migration_config import get_payment_account_info
 
