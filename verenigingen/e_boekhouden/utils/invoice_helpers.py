@@ -4,7 +4,7 @@ from frappe.utils import add_days, flt, getdate, now
 
 # Re-export from canonical location for backward compatibility
 # New code should import directly from:
-#   from vereinigingen.e_boekhouden.utils.consolidated.date_utils import ensure_fiscal_year_exists
+#   from verenigingen.e_boekhouden.utils.consolidated.date_utils import ensure_fiscal_year_exists
 from .consolidated.date_utils import ensure_fiscal_year_exists  # noqa: F401
 from .field_mapping import (
     ACCOUNT_TYPE_MAP,

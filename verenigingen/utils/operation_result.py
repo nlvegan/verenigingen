@@ -650,7 +650,7 @@ def wrap_operation(func: callable) -> callable:
             trace_id = log_error(
                 e,
                 context={"function": getattr(func, "__name__", "<unknown>")},
-                module=getattr(func, "__module__", "vereinigingen.utils.operation_result"),
+                module=getattr(func, "__module__", "verenigingen.utils.operation_result"),
             )
             # Return structured result with trace_id for correlation
             return OperationResult.from_exception(

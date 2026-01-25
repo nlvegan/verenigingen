@@ -1,7 +1,20 @@
 """
 Consolidated Party Manager for E-Boekhouden Integration
 
-This module consolidates all party (customer/supplier) creation and management
+.. deprecated:: 2026.01
+   This module is deprecated in favor of ``party_resolver.py``.
+   Use ``EBoekhoudenPartyResolver`` from
+   ``verenigingen.e_boekhouden.utils.party_resolver`` instead.
+
+   Migration guide:
+   - resolve_customer() -> EBoekhoudenPartyResolver().resolve_customer()
+   - resolve_supplier() -> EBoekhoudenPartyResolver().resolve_supplier()
+   - process_enrichment_queue() -> EBoekhoudenPartyResolver().enrich_provisional_parties()
+
+   This module will be removed in a future release.
+
+Original documentation:
+This module consolidated all party (customer/supplier) creation and management
 functionality from the previous scattered implementations:
 - party_extractor.py (344 lines)
 - party_resolver.py (552 lines)
@@ -11,6 +24,7 @@ Total consolidated: 964 lines → ~400 lines of focused functionality
 """
 
 import json
+import warnings
 from typing import Dict, List, Optional, Tuple
 
 import frappe
@@ -32,6 +46,12 @@ class EBoekhoudenPartyManager:
     """
 
     def __init__(self):
+        warnings.warn(
+            "EBoekhoudenPartyManager is deprecated. "
+            "Use EBoekhoudenPartyResolver from verenigingen.e_boekhouden.utils.party_resolver instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.settings = frappe.get_single("E-Boekhouden Settings")
         self.enrichment_queue = []
         self.debug_log = []

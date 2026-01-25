@@ -46,7 +46,7 @@ class MemberLifecycleService(StatelessService):
 
         For race condition prevention, use:
         - Row-level locking: SELECT ... FOR UPDATE (within current transaction)
-        - Advisory locks: vereinigen.utils.db_advisory_lock.advisory_lock()
+        - Advisory locks: verenigingen.utils.db_advisory_lock.advisory_lock()
 
         See: docs/patterns/TRANSACTION_PATTERNS.md
     """

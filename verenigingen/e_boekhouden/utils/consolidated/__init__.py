@@ -5,10 +5,13 @@ This package contains consolidated implementations that replace scattered
 functionality throughout the E-Boekhouden module.
 
 Modules:
-- party_manager: Consolidated party (customer/supplier) management (964 → 400 lines)
 - account_manager: Consolidated account creation and management (790 → 350 lines)
 - migration_coordinator: Consolidated migration coordination (823 → 400 lines)
 - date_utils: Shared date utilities (fiscal year management)
+
+Deprecated modules (use alternatives instead):
+- party_manager: DEPRECATED - Use EBoekhoudenPartyResolver from
+  verenigingen.e_boekhouden.utils.party_resolver instead
 
 Total reduction: 2,577 → 1,150 lines (55% reduction with improved functionality)
 """

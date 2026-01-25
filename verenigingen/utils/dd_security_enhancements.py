@@ -392,7 +392,7 @@ class DDSecurityAuditLogger:
     event types and batch references stored in the details field.
 
     IMPORTANT: This logger depends on the API Audit Log DocType which is defined
-    in vereiningen/vereiningen/doctype/api_audit_log/. If the DocType does not
+    in verenigingen/verenigingen/doctype/api_audit_log/. If the DocType does not
     exist, logging falls back to standard frappe.logger() output.
 
     Required fields in API Audit Log:

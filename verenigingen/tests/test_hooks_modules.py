@@ -561,7 +561,7 @@ class TestHooksDataIntegrity(unittest.TestCase):
 
 
 class TestHooksPackageImport(unittest.TestCase):
-    """Phase 3 tests: verify vereiningen.hooks package imports correctly."""
+    """Phase 3 tests: verify verenigingen.hooks package imports correctly."""
 
     def test_hooks_package_import_works(self):
         """import verenigingen.hooks should work without errors."""

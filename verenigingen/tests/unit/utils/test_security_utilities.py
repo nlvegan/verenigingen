@@ -734,11 +734,11 @@ class TestBypassValidationAllowedRolesConfiguration(unittest.TestCase):
         """Test that Website User is NOT in bypass allowed roles"""
         self.assertNotIn("Website User", BYPASS_VALIDATION_ALLOWED_ROLES)
 
-    def test_vereinigingen_staff_not_in_bypass_roles(self):
+    def test_verenigingen_staff_not_in_bypass_roles(self):
         """Test that Verenigingen Staff is NOT in bypass allowed roles (more restrictive)"""
         self.assertNotIn("Verenigingen Staff", BYPASS_VALIDATION_ALLOWED_ROLES)
 
-    def test_vereinigingen_treasurer_not_in_bypass_roles(self):
+    def test_verenigingen_treasurer_not_in_bypass_roles(self):
         """Test that Verenigingen Treasurer is NOT in bypass allowed roles"""
         self.assertNotIn("Verenigingen Treasurer", BYPASS_VALIDATION_ALLOWED_ROLES)
 
