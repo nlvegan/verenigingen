@@ -831,7 +831,7 @@ class TestEnsureAccountTypeIsCorrect(unittest.TestCase):
 
     @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.frappe")
     def test_auto_fix_true_modifies_and_logs(self, mock_frappe):
-        """Test that auto_fix=True modifies account type and creates audit log"""
+        """Test that auto_fix=True modifies account type and creates audit log (but does NOT commit)"""
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
             ensure_account_type_is_correct,
         )
@@ -849,7 +849,8 @@ class TestEnsureAccountTypeIsCorrect(unittest.TestCase):
         mock_frappe.db.set_value.assert_called_once_with(
             "Account", "1100 - Bank - NVV", "account_type", "Receivable"
         )
-        mock_frappe.db.commit.assert_called_once()
+        # Verify commit is NOT called - callers control transaction boundaries
+        mock_frappe.db.commit.assert_not_called()
         mock_frappe.log_error.assert_called_once()  # Audit log created
 
     @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.frappe")

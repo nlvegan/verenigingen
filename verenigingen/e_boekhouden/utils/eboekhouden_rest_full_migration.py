@@ -14,6 +14,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
     enhance_journal_entry_fields,
     get_journal_entry_title,
 )
+from verenigingen.utils.deprecation import deprecated
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -23,6 +24,10 @@ def ensure_account_type_is_correct(account_name, expected_type, debug_info=None,
 
     By default (auto_fix=False), this function only reports mismatches without modifying data.
     Set auto_fix=True explicitly when you want to correct account types (e.g., during migration).
+
+    IMPORTANT: This function does NOT commit the transaction. Callers are responsible for
+    committing when appropriate. This preserves atomicity when called within atomic migration
+    operations or other transactional contexts.
 
     Args:
         account_name: Full account name (e.g., "1350 - Te ontvangen bedragen - NVV")
@@ -62,10 +67,12 @@ def ensure_account_type_is_correct(account_name, expected_type, debug_info=None,
             return False
 
         # Auto-correct the account type (only when explicitly requested)
+        # NOTE: No commit here - caller controls transaction boundaries
         frappe.db.set_value("Account", account_name, "account_type", expected_type)
-        frappe.db.commit()
 
         # Create visible audit trail in Error Log (shows in Desk)
+        # Use defensive access to session.user for background jobs/CLI contexts
+        current_user = getattr(frappe.session, "user", None) if getattr(frappe, "session", None) else None
         frappe.log_error(
             title=_("E-Boekhouden Migration - Account Type Auto-Corrected"),
             message=(
@@ -73,7 +80,7 @@ def ensure_account_type_is_correct(account_name, expected_type, debug_info=None,
                 f"Account: {account_name}\n"
                 f"Previous type: {current_type}\n"
                 f"New type: {expected_type}\n"
-                f"User: {frappe.session.user}"
+                f"User: {current_user or 'unknown (background/CLI)'}"
             ),
         )
 
@@ -92,13 +99,14 @@ def ensure_account_type_is_correct(account_name, expected_type, debug_info=None,
         return False
 
 
+@deprecated("Import directly from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils")
 def get_default_cost_center(company, debug_info=None):
     """
     Get the most appropriate default cost center for the company.
 
-    This is a thin wrapper around the consolidated utility for backward compatibility.
-    New code should import directly from:
-        verenigingen.e_boekhouden.utils.consolidated.cost_center_utils
+    .. deprecated::
+        This wrapper is deprecated. Import directly from:
+        ``verenigingen.e_boekhouden.utils.consolidated.cost_center_utils``
 
     Args:
         company: Company name
@@ -114,14 +122,15 @@ def get_default_cost_center(company, debug_info=None):
     return _get_default_cost_center(company, debug_info)
 
 
+@deprecated("Import directly from verenigingen.e_boekhouden.utils.consolidated.party_utils")
 def get_party_account(party, party_type, company, debug_info=None):
     """
     Get the correct party account, preferring party-specific accounts over company defaults.
     NEVER uses random accounts like Vraagposten as fallback.
 
-    This is a thin wrapper around the consolidated utility for backward compatibility.
-    New code should import directly from:
-        verenigingen.e_boekhouden.utils.consolidated.party_utils
+    .. deprecated::
+        This wrapper is deprecated. Import directly from:
+        ``verenigingen.e_boekhouden.utils.consolidated.party_utils``
 
     Args:
         party: Party name (Customer or Supplier document name)
