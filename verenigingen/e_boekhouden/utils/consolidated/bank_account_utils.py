@@ -189,8 +189,8 @@ def _get_account_from_pattern(
             )
 
             for acc in accounts:
-                if bank_key in acc.name.lower():
-                    debug_info.append(f"Found bank account via pattern ({bank_key}): {acc.name}")
-                    return acc.name
+                if bank_key in acc["name"].lower():
+                    debug_info.append(f"Found bank account via pattern ({bank_key}): {acc['name']}")
+                    return acc["name"]
 
     return None
