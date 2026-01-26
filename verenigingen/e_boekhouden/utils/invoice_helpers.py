@@ -1094,14 +1094,14 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
     # Determine if this is sales or purchase based on document type
     transaction_type = "sales" if invoice.doctype == "Sales Invoice" else "purchase"
 
-    # Use existing function to create line
-    from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-        _get_ledger_code_from_id,
+    # Use consolidated modules for line creation
+    from verenigingen.e_boekhouden.utils.consolidated.invoice_line_utils import (
         create_invoice_line_for_tegenrekening,
     )
+    from verenigingen.e_boekhouden.utils.consolidated.ledger_utils import get_ledger_code_from_id
 
     # Convert ledger_id to ledger_code for proper account mapping
-    ledger_code = _get_ledger_code_from_id(ledger_id, debug_info)
+    ledger_code = get_ledger_code_from_id(ledger_id, debug_info)
 
     line_dict = create_invoice_line_for_tegenrekening(
         tegenrekening_code=ledger_code,

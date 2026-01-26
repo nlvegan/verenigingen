@@ -451,9 +451,8 @@ class PaymentEntryHandler:
         Determine bank account from ledger mapping.
 
         Priority:
-        1. Shared ledger mapping lookup with auto-create
-        2. Payment configuration based on ledger code
-        3. Pattern matching from description
+        1. Consolidated bank account resolution (ledger mapping + payment config + patterns)
+        2. Configurable account mapper pattern matching (handler-specific fallback)
 
         Raises ValidationError if no bank account can be determined.
         """
@@ -467,58 +466,41 @@ class PaymentEntryHandler:
         if cache_key in self._ledger_cache:
             return self._ledger_cache[cache_key]
 
-        # Use shared function with auto-create to get/create ledger mapping
-        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-            get_erpnext_account_from_ledger_id,
+        # Use consolidated bank account resolution
+        from verenigingen.e_boekhouden.utils.consolidated.bank_account_utils import (
+            resolve_bank_account_for_ledger,
         )
+        from verenigingen.e_boekhouden.utils.consolidated.ledger_utils import get_ledger_mapping
 
         debug_info = []
-        erpnext_account = get_erpnext_account_from_ledger_id(
-            ledger_id, self.company, debug_info, auto_create=True
+        bank_account = resolve_bank_account_for_ledger(
+            ledger_id=str(ledger_id),
+            company=self.company,
+            payment_type=payment_type,
+            description=description,
+            debug_info=debug_info,
+            auto_create_mapping=True,
         )
 
-        # Log debug info from shared function
+        # Log debug info from consolidated function
         for info in debug_info:
             self._log(info)
 
-        if erpnext_account:
-            # Verify it's a bank/cash account
-            account_type = frappe.db.get_value("Account", erpnext_account, "account_type")
+        if bank_account:
+            self._log(f"Mapped ledger {ledger_id} to bank account: {bank_account}")
+            self._ledger_cache[cache_key] = bank_account
+            return bank_account
 
-            if account_type in ["Bank", "Cash"]:
-                self._log(f"Mapped ledger {ledger_id} to bank account: {erpnext_account}")
-                self._ledger_cache[cache_key] = erpnext_account
-                return erpnext_account
-            else:
-                self._log(f"WARNING: Ledger {ledger_id} maps to {account_type} account, not Bank/Cash")
-
-        # Try payment configuration based on ledger code
-        mapping = frappe.db.get_value(
-            "E-Boekhouden Ledger Mapping",
-            {"ledger_id": ledger_id},
-            ["ledger_code"],
-            as_dict=True,
-        )
-
-        if mapping and mapping.get("ledger_code"):
-            from verenigingen.e_boekhouden.utils.eboekhouden_migration_config import get_payment_account_info
-
-            account_info = get_payment_account_info(mapping["ledger_code"], self.company)
-            if account_info and account_info.get("erpnext_account"):
-                self._log(f"Found bank account via payment config: {account_info['erpnext_account']}")
-                self._ledger_cache[cache_key] = account_info["erpnext_account"]
-                return account_info["erpnext_account"]
-
-        # Try pattern matching on description
+        # Handler-specific fallback: try configurable account mapper pattern matching
         if description:
             bank_account = self._get_account_from_pattern(description, payment_type)
             if bank_account:
-                self._log(f"Found bank account via pattern matching: {bank_account}")
+                self._log(f"Found bank account via configurable pattern matching: {bank_account}")
                 self._ledger_cache[cache_key] = bank_account
                 return bank_account
 
         # No fallback - fail hard with clear error message
-        ledger_code = mapping.get("ledger_code") if mapping else None
+        ledger_code, _ = get_ledger_mapping(str(ledger_id), self.company, auto_create=False)
         raise frappe.ValidationError(
             f"No Bank/Cash account found for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
             f"Please link the ledger mapping to a Bank or Cash account before importing."
@@ -552,11 +534,7 @@ class PaymentEntryHandler:
         """
         Convert GL Account to Bank Account name for Bank Transaction creation.
 
-        Bank Transaction DocType requires a Bank Account (DocType) name, not a GL Account.
-        E-Boekhouden ledger mappings return GL Accounts like "1120 - ASN - 97.88.80.455 - NVV",
-        but we need the Bank Account DocType name like "ASN Main Account".
-
-        This conversion is needed for both Frappe v15 and v16 due to ERPNext data model.
+        Delegates to consolidated bank_account_utils while preserving handler logging.
 
         Args:
             account: Could be either a Bank Account name or GL Account name
@@ -567,81 +545,35 @@ class PaymentEntryHandler:
         Raises:
             frappe.ValidationError if no Bank Account found for the GL Account
         """
-        # Check if it's already a Bank Account (not a GL Account)
-        # Bank Account names typically don't have " - " pattern like GL Accounts
-        if frappe.db.exists("Bank Account", account):
-            self._log(f"Using Bank Account directly: {account}")
-            return account
-
-        # It's a GL Account, convert to Bank Account
-        self._log(f"Converting GL Account to Bank Account: {account}")
-
-        # Look up Bank Account that uses this GL Account
-        bank_account_name = frappe.db.get_value(
-            "Bank Account", {"account": account, "company": self.company}, "name"
+        from verenigingen.e_boekhouden.utils.consolidated.bank_account_utils import (
+            convert_gl_account_to_bank_account_or_raise,
         )
 
-        if bank_account_name:
-            self._log(f"✓ Resolved Bank Account: {bank_account_name} (GL Account: {account})")
-            return bank_account_name
-
-        # Bank Account not found - provide helpful error
-        available_accounts = frappe.get_all(
-            "Bank Account",
-            filters={"company": self.company, "is_company_account": 1},
-            fields=["name", "account", "bank"],
-            limit=10,
+        debug_info = []
+        bank_account = convert_gl_account_to_bank_account_or_raise(
+            gl_account=account,
+            company=self.company,
+            debug_info=debug_info,
         )
 
-        error_msg = (
-            f"No Bank Account found for GL Account '{account}' in company {self.company}.\n\n"
-            f"Available Bank Accounts:\n"
-        )
+        # Log debug info from consolidated function
+        for info in debug_info:
+            self._log(info)
 
-        for ba in available_accounts:
-            error_msg += f"  - {ba.name} (GL Account: {ba.account}, Bank: {ba.bank})\n"
-
-        if not available_accounts:
-            error_msg += "  (No Bank Accounts configured for this company)\n"
-
-        error_msg += (
-            f"\nPlease create a Bank Account that links to GL Account '{account}', "
-            f"or update your E-Boekhouden Ledger Mapping to use an existing Bank Account."
-        )
-
-        self._log(f"ERROR: {error_msg}")
-        frappe.throw(error_msg, title="Bank Account Configuration Error")
+        return bank_account
 
     def _get_or_create_party(self, relation_id: str, party_type: str, description: str) -> Optional[str]:
-        """Get existing party or create new one."""
+        """Get existing party or create new one using canonical party resolver."""
         if not relation_id:
             return None
 
-        # Try to use existing system first, fall back to simple handler if it fails
-        try:
-            if party_type == "Customer":
-                from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-                    _get_or_create_customer,
-                )
+        from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
 
-                return _get_or_create_customer(relation_id, self.debug_log)
-            else:
-                from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-                    _get_or_create_supplier,
-                )
-
-                return _get_or_create_supplier(relation_id, description, self.debug_log)
-        except Exception as e:
-            self._log(f"Error with standard party creation: {str(e)}, using party resolver")
-
-            # Fall back to canonical party resolver
-            from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
-
-            resolver = EBoekhoudenPartyResolver()
-            if party_type == "Customer":
-                return resolver.resolve_customer(relation_id, self.debug_log)
-            else:
-                return resolver.resolve_supplier(relation_id, self.debug_log)
+        resolver = EBoekhoudenPartyResolver()
+        if party_type == "Customer":
+            return resolver.resolve_customer(relation_id, self.debug_log)
+        else:
+            return resolver.resolve_supplier(relation_id, self.debug_log)
 
     def _create_payment_entry(
         self, mutation: Dict, payment_type: str, party_type: str, party: str, bank_account: str
@@ -1236,6 +1168,7 @@ class PaymentEntryHandler:
     def _get_party_account_fallback(self, party: str, party_type: str) -> str:
         """Get the correct party account, checking invoices first for specific accounts."""
         # First check if there are invoices that specify a particular account
+        # This is E-Boekhouden-specific: invoices imported may have specific accounts
         invoice_numbers = self._current_invoice_numbers if hasattr(self, "_current_invoice_numbers") else []
 
         if invoice_numbers and party_type == "Customer":
@@ -1261,39 +1194,16 @@ class PaymentEntryHandler:
                     self._log(f"Using creditors account from invoice: {creditors_account}")
                     return creditors_account
 
-        # Fall back to party's default account
-        if party_type == "Customer":
-            # Get default receivable account from customer's accounts child table
-            accounts = frappe.db.sql(
-                """
-                SELECT pa.account
-                FROM `tabParty Account` pa
-                WHERE pa.parent = %s AND pa.parenttype = 'Customer' AND pa.company = %s
-                LIMIT 1
-            """,
-                (party, self.company),
-                as_dict=True,
-            )
-            if accounts:
-                return accounts[0].account
-        else:
-            # Get default payable account from supplier's accounts child table
-            accounts = frappe.db.sql(
-                """
-                SELECT pa.account
-                FROM `tabParty Account` pa
-                WHERE pa.parent = %s AND pa.parenttype = 'Supplier' AND pa.company = %s
-                LIMIT 1
-            """,
-                (party, self.company),
-                as_dict=True,
-            )
-            if accounts:
-                return accounts[0].account
+        # Fall back to consolidated party account resolution
+        from verenigingen.e_boekhouden.utils.consolidated.party_utils import get_party_account
 
-        # Final fallback to default receivable/payable account
-        account_type = "Receivable" if party_type == "Customer" else "Payable"
-        return frappe.db.get_value("Account", {"account_type": account_type, "company": self.company}, "name")
+        debug_info = []
+        account = get_party_account(party, party_type, self.company, debug_info)
+
+        for msg in debug_info:
+            self._log(msg)
+
+        return account
 
     def _log(self, message: str):
         """Add to debug log."""
