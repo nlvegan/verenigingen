@@ -107,7 +107,7 @@ class TransactionCoordinator:
             allowed_classes = self.processor_type_map.get(self.mutation_type, [])
 
             # Filter processors based on allowed classes
-            filtered = [p for p in all_processors if type(p) in allowed_classes]
+            filtered = [p for p in all_processors if isinstance(p, tuple(allowed_classes))]
 
             # If we have a mapping but no processors matched, log a warning
             if self.mutation_type in self.processor_type_map and not filtered:
