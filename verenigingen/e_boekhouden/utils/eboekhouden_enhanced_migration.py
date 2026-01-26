@@ -1,42 +1,26 @@
 """
-Enhanced eBoekhouden Migration Framework with Enterprise-Grade Capabilities
+eBoekhouden Migration Framework
 
-This module provides a comprehensive, production-ready migration framework for importing
-eBoekhouden accounting data into ERPNext. It incorporates advanced enterprise features
-including transaction safety, performance optimization, comprehensive audit trails,
-and intelligent error recovery mechanisms.
+Imports accounting data from eBoekhouden into ERPNext via REST API.
 
-Enterprise Features:
-    * Configurable payment account mapping with fallback mechanisms
-    * Intelligent error recovery with automatic retry logic
-    * Performance optimization through batch processing and parallel execution
-    * Advanced duplicate detection with sophisticated matching algorithms
-    * Transaction safety with atomic operations and rollback capabilities
-    * Comprehensive dry-run simulation for migration planning
-    * Date range chunking to handle API limitations gracefully
-    * Complete audit trail with detailed logging and reporting
-    * Pre-import validation to prevent data quality issues
-    * Progress tracking with real-time updates
-
-Architecture Highlights:
-    The framework follows a modular architecture where each enhancement component
-    is independently testable and configurable. It uses REST API exclusively
-    for comprehensive transaction processing and provides intelligent fallback
-    mechanisms for various failure scenarios.
-
-Migration Safety:
-    All operations are wrapped in atomic transactions with automatic rollback
-    on failure. The system maintains comprehensive audit trails for compliance
-    and troubleshooting. Dry-run mode allows complete migration simulation
-    without data modification.
+Features:
+    * Pre-migration backup and post-migration integrity verification
+    * Error recovery with retry logic
+    * Batch processing for large datasets
+    * Dry-run simulation mode
+    * Date range chunking for API pagination
+    * Audit trail logging
+    * Progress tracking
 
 Usage:
     migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
     result = migration.execute_migration()
 
-Performance:
-    Designed to handle large datasets (>10,000 transactions) efficiently
-    through intelligent batching, parallel processing, and memory optimization.
+Note:
+    Duplicate detection during import uses eboekhouden_mutation_nr as the
+    authoritative key (see _check_if_already_imported in eboekhouden_rest_full_migration.py).
+    The DuplicateDetector class in migration_duplicate_detection.py provides
+    fuzzy matching utilities that could be used for post-import analysis tools.
 """
 
 from collections import defaultdict
@@ -48,13 +32,15 @@ from frappe.utils import getdate, now_datetime
 from verenigingen.utils.migration.migration_audit_trail import AuditedMigrationOperation, MigrationAuditTrail
 from verenigingen.utils.migration.migration_date_chunking import DateRangeChunker, process_with_date_chunks
 from verenigingen.utils.migration.migration_dry_run import DryRunSimulator
-from verenigingen.utils.migration.migration_duplicate_detection import DuplicateDetector
 
-# Import all enhancement modules
+# Note: DuplicateDetector (in migration_duplicate_detection.py) provides fuzzy matching
+# for post-import duplicate analysis. Not used during import - we rely on
+# eboekhouden_mutation_nr as the authoritative deduplication key.
+# Import enhancement modules
 from verenigingen.utils.migration.migration_error_recovery import MigrationErrorRecovery, with_retry
 from verenigingen.utils.migration.migration_performance import BatchProcessor, PerformanceOptimizer
 from verenigingen.utils.migration.migration_pre_validation import PreImportValidator
-from verenigingen.utils.migration.migration_transaction_safety import MigrationTransaction
+from verenigingen.utils.migration.migration_transaction_safety import MigrationSafetyChecks
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 from .eboekhouden_payment_mapping import get_payment_account_mappings
@@ -66,28 +52,22 @@ from .party_extractor import EBoekhoudenPartyExtractor
 
 class EnhancedEBoekhoudenMigration:
     """
-    Enterprise-grade eBoekhouden migration orchestrator with comprehensive safety features.
+    eBoekhouden migration orchestrator.
 
-    This class coordinates all aspects of the migration process, from initial validation
-    through final audit reporting. It implements sophisticated error handling, performance
-    optimization, and data integrity validation while maintaining complete audit trails
-    for compliance and troubleshooting.
+    Coordinates the migration process: validation, backup, import, and verification.
 
-    Key Components:
+    Components:
         - Error recovery with exponential backoff
-        - Performance optimization through intelligent batching
-        - Duplicate detection using multiple matching strategies
-        - Transaction safety with atomic operations and rollback
-        - Comprehensive audit trail with severity levels
-        - Pre-import validation to prevent data quality issues
-        - Dry-run simulation for migration planning
+        - Batch processing for performance
+        - Pre-migration backup and post-migration integrity checks
+        - Audit trail logging
+        - Dry-run simulation mode
 
     Migration Phases:
-        1. Pre-migration validation and backup creation
-        2. Account structure validation and setup
-        3. Data import with batch processing and error recovery
-        4. Data integrity verification and audit trail generation
-        5. Progress reporting and completion notification
+        1. Pre-migration validation and backup
+        2. REST API data import (delegated to start_full_rest_import)
+        3. Data integrity verification
+        4. Audit summary generation
     """
 
     def __init__(self, migration_doc, settings):
@@ -104,11 +84,10 @@ class EnhancedEBoekhoudenMigration:
                 )
             )
 
-        # Initialize all enhancement components
+        # Initialize components
         self.error_recovery = MigrationErrorRecovery(migration_doc)
         self.performance_optimizer = PerformanceOptimizer()
-        self.duplicate_detector = DuplicateDetector()
-        self.transaction_manager = MigrationTransaction(migration_doc)
+        self.safety_checks = MigrationSafetyChecks(migration_doc)
         self.audit_trail = MigrationAuditTrail(migration_doc)
         self.pre_validator = PreImportValidator()
 
@@ -259,36 +238,27 @@ class EnhancedEBoekhoudenMigration:
 
     def execute_migration(self):
         """
-        Execute comprehensive migration with enterprise-grade safety and monitoring.
+        Execute the migration.
 
-        This method orchestrates the complete migration process through multiple phases,
-        each with its own error handling and rollback capabilities. It provides real-time
-        progress updates and maintains detailed audit trails throughout the operation.
-
-        Migration Phases:
-            1. Pre-migration validation and system readiness check
-            2. Backup creation for rollback capabilities
-            3. Account structure validation and setup
-            4. Data import using REST API with batch processing
-            5. Data integrity verification and validation
-            6. Audit trail generation and reporting
-            7. Dry-run simulation and reporting (if applicable)
+        Phases:
+            1. Pre-migration validation
+            2. Backup creation
+            3. REST API data import (delegated to start_full_rest_import)
+            4. Data integrity verification
+            5. Audit summary generation
 
         Returns:
-            dict: Comprehensive migration result containing:
-                - success (bool): Overall operation success
+            dict containing:
+                - success (bool): Overall success
                 - validation_report (dict): Pre-migration validation results
-                - integrity_report (dict): Post-migration data integrity check
-                - audit_summary (dict): Complete audit trail summary
-                - dry_run_report (dict, optional): Simulation results
+                - integrity_report (dict): Post-migration integrity check
+                - audit_summary (dict): Audit trail summary
+                - dry_run_report (dict, optional): If dry_run mode
                 - error (str, optional): Error message if failed
 
-        Raises:
-            Exception: For critical failures that cannot be recovered
-
         Note:
-            All operations are atomic with automatic rollback on failure.
-            Progress updates are published in real-time for UI feedback.
+            Progress updates are published for UI feedback.
+            For cleanup after failed imports, use cleanup_utils.py.
         """
         self.audit_trail.log_event(
             "migration_started",
@@ -317,7 +287,7 @@ class EnhancedEBoekhoudenMigration:
             if not self.dry_run:
                 self._update_progress("Creating pre-migration backup...", 10)
                 with AuditedMigrationOperation(self.audit_trail, "create_backup"):
-                    backup_path = self.transaction_manager.create_pre_migration_backup()
+                    backup_path = self.safety_checks.create_pre_migration_backup()
                     if not backup_path:
                         frappe.throw(_("Pre-migration backup failed to produce a backup path"))
                     self.audit_trail.log_event("backup_created", {"path": backup_path})
@@ -329,7 +299,6 @@ class EnhancedEBoekhoudenMigration:
             # Step 4: Process data using REST API (unlimited transactions, not SOAP's 500 limit)
             # CONTRACT: start_full_rest_import is expected to:
             # - Handle its own batching and incremental commits
-            # - Create checkpoints in transaction_manager for rollback support
             # - Return a dict with at minimum: {"success": bool, "imported": int, "errors": list}
             # - Not raise exceptions for recoverable errors (return them in errors list)
             # - Respect dry_run flag from migration_doc if present
@@ -354,7 +323,7 @@ class EnhancedEBoekhoudenMigration:
             if not self.dry_run:
                 self._update_progress("Verifying data integrity...", 90)
                 with AuditedMigrationOperation(self.audit_trail, "verify_integrity"):
-                    integrity_report = self.transaction_manager.verify_data_integrity()
+                    integrity_report = self.safety_checks.verify_data_integrity()
                     result["integrity_report"] = integrity_report
 
             # Step 6: Generate audit summary
@@ -381,9 +350,8 @@ class EnhancedEBoekhoudenMigration:
             # Update progress to show failure
             self._update_progress(f"Migration failed: {str(e)}", 0)
 
-            # Attempt rollback on failure
-            if not self.dry_run:
-                self._attempt_rollback()
+            # Note: Automatic rollback was removed as it was never functional.
+            # For cleanup after failed imports, use e_boekhouden/utils/cleanup_utils.py
 
             raise
 
@@ -422,93 +390,28 @@ class EnhancedEBoekhoudenMigration:
             "Implicit item fallbacks have been disabled for data safety."
         )
 
-    def _attempt_rollback(self):
-        """
-        Attempt to rollback on failure using the last available checkpoint.
-
-        Safely accesses checkpoint_data with type guards to prevent unexpected
-        failures if the transaction manager is in an unexpected state.
-
-        Returns:
-            dict: Rollback result if successful, None if no checkpoints available
-        """
-        try:
-            # Safely access checkpoint_data with type guards
-            checkpoint_data = getattr(self.transaction_manager, "checkpoint_data", None)
-
-            if not checkpoint_data:
-                self.audit_trail.log_event(
-                    "rollback_skipped",
-                    {"reason": "No checkpoint data available"},
-                    severity="warning",
-                )
-                return None
-
-            if not isinstance(checkpoint_data, dict):
-                self.audit_trail.log_event(
-                    "rollback_skipped",
-                    {"reason": f"checkpoint_data is not a dict: {type(checkpoint_data).__name__}"},
-                    severity="warning",
-                )
-                return None
-
-            if not checkpoint_data:  # Empty dict
-                self.audit_trail.log_event(
-                    "rollback_skipped",
-                    {"reason": "checkpoint_data is empty"},
-                    severity="warning",
-                )
-                return None
-
-            # Get the last checkpoint
-            last_checkpoint = list(checkpoint_data.values())[-1]
-            rollback_result = self.transaction_manager.rollback_to_checkpoint(last_checkpoint)
-
-            # Use .get() for safe access in case checkpoint lacks "id" key
-            checkpoint_id = last_checkpoint.get("id", "unknown")
-            self.audit_trail.log_rollback(checkpoint_id, rollback_result)
-
-            return rollback_result
-
-        except Exception as e:
-            self.audit_trail.log_event(
-                "rollback_failed", {"error": str(e), "traceback": frappe.get_traceback()}, severity="critical"
-            )
-            raise
-
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def execute_enhanced_migration(migration_name: str) -> dict:
     """
-    Execute eBoekhouden migration with comprehensive enterprise features.
-
-    This is the single entry point for all eBoekhouden migration operations,
-    providing enterprise-grade features including audit trails, error recovery,
-    progress tracking, and data integrity verification.
+    Execute eBoekhouden migration.
 
     Args:
         migration_name: Name of the E-Boekhouden Migration document
 
     Returns:
-        dict: Always returns a structured response with:
-            - success (bool): Whether migration completed successfully
+        dict with:
+            - success (bool): Whether migration completed
             - error (str, optional): Error message if failed
-            - error_id (str, optional): Frappe error log ID for debugging
+            - error_id (str, optional): Error log ID for debugging
             - validation_report (dict, optional): Pre-validation results
             - integrity_report (dict, optional): Post-migration integrity check
-            - audit_summary (dict, optional): Complete audit trail
-
-    Enterprise Features:
-        - Pre-migration validation and backup creation
-        - Real-time progress tracking and audit trails
-        - Automatic error recovery and rollback capabilities
-        - Post-migration data integrity verification
-        - Comprehensive reporting and dry-run simulation
+            - audit_summary (dict, optional): Audit trail
 
     Note:
-        This function always returns a dict, never raises exceptions.
-        Critical errors are logged and returned with an error_id for debugging.
+        Always returns a dict, never raises exceptions.
+        Critical errors are logged and returned with error_id.
     """
     try:
         migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)

@@ -39617,22 +39617,6 @@
   },
   {
     "doctype": "Critical Operation Rule",
-    "name": "rollback_migration_checkpoint",
-    "operation_name": "rollback_migration_checkpoint",
-    "operation_type": "reporting",
-    "description": "Execute rollback migration checkpoint operation",
-    "enabled": 1,
-    "security_level": "low",
-    "business_context": "Data validation and integrity checking",
-    "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-    "rate_limit_calls": 180,
-    "rate_limit_period_seconds": 3600,
-    "rate_limit_scope": "per_user",
-    "audit_level": "minimal",
-    "alert_on_execution": 0
-  },
-  {
-    "doctype": "Critical Operation Rule",
     "name": "test_eboekhouden_product_data",
     "operation_name": "test_eboekhouden_product_data",
     "operation_type": "reporting",

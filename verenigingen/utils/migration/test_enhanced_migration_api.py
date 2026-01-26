@@ -35,7 +35,9 @@ def run_migration_test():
 
         # Test 2: Check payment mappings
         try:
-            from verenigingen.e_boekhouden.utils_payment_mapping import get_payment_account_mappings
+            from verenigingen.e_boekhouden.utils.eboekhouden_payment_mapping import (
+                get_payment_account_mappings,
+            )
 
             mappings = get_payment_account_mappings(settings.default_company)
             add_test_result("Payment Mappings", "passed", f"Found {len(mappings)} mappings", mappings)
@@ -153,16 +155,17 @@ def run_migration_test():
         except Exception as e:
             add_test_result("Date Chunking", "failed", str(e))
 
-        # Test 10: Test transaction safety
+        # Test 10: Test migration safety checks
         try:
-            from verenigingen.utils.migration.migration_transaction_safety import MigrationTransaction
+            from verenigingen.utils.migration.migration_transaction_safety import MigrationSafetyChecks
 
-            trans = MigrationTransaction(migration_doc)
-            checkpoint = trans.create_checkpoint("test_operation")
-            trans.commit_checkpoint(checkpoint)
-            add_test_result("Transaction Safety", "passed", "Transaction management operational")
+            safety_checks = MigrationSafetyChecks(migration_doc)
+            # Verify the integrity check methods exist and are callable
+            assert hasattr(safety_checks, "create_pre_migration_backup")
+            assert hasattr(safety_checks, "verify_data_integrity")
+            add_test_result("Migration Safety Checks", "passed", "Safety check utilities operational")
         except Exception as e:
-            add_test_result("Transaction Safety", "failed", str(e))
+            add_test_result("Migration Safety Checks", "failed", str(e))
 
         # Cleanup
         frappe.delete_doc("E-Boekhouden Migration", migration_doc.name, force=True)
@@ -182,33 +185,8 @@ def run_migration_test():
     return results
 
 
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def test_soap_api_connection():
-    """Test the SOAP API connection"""
-    try:
-        from verenigingen.e_boekhouden.utils_soap_api import EBoekhoudenSOAPAPI
-
-        settings = frappe.get_single("E-Boekhouden Settings")
-
-        api = EBoekhoudenSOAPAPI(settings)
-
-        # Test getting mutations (will be limited to 500)
-        result = api.get_mutations()
-
-        if result["success"]:
-            mutations = result.get("mutations", [])
-            return {
-                "success": True,
-                "message": "Successfully connected to SOAP API",
-                "mutations_count": len(mutations),
-                "sample": mutations[0] if mutations else None,
-            }
-        else:
-            return {"success": False, "error": result.get("error", "Unknown error")}
-
-    except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+# Note: test_soap_api_connection() was removed - SOAP API no longer exists.
+# Migration now uses REST API exclusively (see eboekhouden_rest_full_migration.py).
 
 
 @frappe.whitelist()

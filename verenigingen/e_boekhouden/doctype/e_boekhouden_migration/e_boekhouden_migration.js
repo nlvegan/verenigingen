@@ -1,7 +1,8 @@
 /**
- * @fileoverview E-Boekhouden Migration Interface - Enterprise Financial Data Integration
+ * @fileoverview E-Boekhouden Migration Interface
  *
- * This module provides a comprehensive financial data migration interface for importing
+ * Client-side interface for importing financial data from E-Boekhouden into ERPNext.
+ * This module provides a migration interface for importing
  * Chart of Accounts, transactions, and financial data from E-Boekhouden (Dutch accounting
  * software) into ERPNext. The system supports both SOAP and REST API endpoints with
  * intelligent fallback mechanisms and robust data validation.

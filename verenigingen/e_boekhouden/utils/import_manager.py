@@ -1,31 +1,20 @@
 """
-eBoekhouden Import Management System with Advanced Data Synchronization
+eBoekhouden Import Management
 
-This module provides enterprise-grade import management capabilities for eBoekhouden
-accounting data integration. It implements sophisticated data synchronization strategies
-including clean slate imports, incremental updates, and intelligent change detection
-to maintain data consistency between eBoekhouden and ERPNext systems.
+Import management utilities for eBoekhouden accounting data integration.
 
-Key Features:
-    * Clean slate import with comprehensive data cleanup
-    * Incremental update capabilities with change detection
-    * Import status monitoring and reporting
-    * Comprehensive error handling and rollback capabilities
-    * Type-specific mutation import with filtering support
-    * Intelligent duplicate detection and resolution
+Features:
+    * Clean slate import with data cleanup
+    * Incremental update with change detection
+    * Import status monitoring
+    * Type-specific mutation import with filtering
+    * Duplicate detection via eboekhouden_mutation_nr
 
 Import Strategies:
-    1. Clean Import: Complete removal of existing data followed by fresh import
-    2. Update Import: Intelligent detection and update of changed records
-    3. Selective Import: Type-specific and date-range filtered imports
-    4. Status Monitoring: Real-time tracking of import progress and statistics
-
-Data Integrity Features:
-    * Atomic operations with transaction safety
-    * Comprehensive validation before data modification
-    * Detailed audit trails and logging for all operations
-    * Rollback capabilities for failed operations
-    * Change detection to prevent unnecessary updates
+    1. Clean Import: Remove existing data, then fresh import
+    2. Update Import: Detect and update changed records
+    3. Selective Import: Filter by type or date range
+    4. Status Monitoring: Track import progress
 
 Business Context:
     This import manager handles the complex business logic of synchronizing

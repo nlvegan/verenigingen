@@ -1,16 +1,17 @@
 """
-Transaction safety and rollback mechanisms for eBoekhouden migration
+Safety checks and backup utilities for eBoekhouden migration.
 
-Provides atomic operations, rollback capabilities, and data integrity
-checks for safe migration processing.
+Provides pre-migration backup and post-migration data integrity verification.
+
+Note: Checkpoint-based rollback functionality was removed as it was not wired
+into the import process. For cleaning up failed imports, use the dedicated
+cleanup utilities in e_boekhouden/utils/cleanup_utils.py.
 """
 
 import hashlib
 import json
 import os
 import tempfile
-from contextlib import contextmanager
-from datetime import datetime
 
 import frappe
 from frappe.utils import now_datetime
@@ -57,199 +58,22 @@ def _write_atomic_json(path: str, data: dict) -> str:
     return checksum
 
 
-class MigrationTransaction:
-    """Manages transactional safety for migration operations"""
+class MigrationSafetyChecks:
+    """
+    Pre-migration backup and post-migration integrity verification.
+
+    This class provides two main capabilities:
+    1. create_pre_migration_backup() - Backs up affected doctypes before import
+    2. verify_data_integrity() - Validates data consistency after import
+
+    For cleaning up failed or unwanted imports, use the cleanup utilities
+    in e_boekhouden/utils/cleanup_utils.py instead.
+    """
 
     def __init__(self, migration_doc):
         self.migration_doc = migration_doc
         self.transaction_log = []
-        self.rollback_queue = []
-        self.checkpoint_data = {}
         self.backup_created = False
-
-    @contextmanager
-    def atomic_operation(self, operation_name):
-        """
-        Context manager for atomic operations with automatic rollback
-
-        Usage:
-            with transaction.atomic_operation("create_invoices"):
-                # Do operations
-                # Automatic rollback on exception
-        """
-        checkpoint = self.create_checkpoint(operation_name)
-
-        try:
-            yield checkpoint
-            self.commit_checkpoint(checkpoint)
-        except Exception:
-            self.rollback_to_checkpoint(checkpoint)
-            raise
-
-    def create_checkpoint(self, operation_name):
-        """Create a checkpoint for potential rollback"""
-        checkpoint = {
-            "id": f"{operation_name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}",
-            "operation": operation_name,
-            "timestamp": now_datetime(),
-            "created_records": [],
-            "modified_records": [],
-            "deleted_records": [],
-        }
-
-        self.checkpoint_data[checkpoint["id"]] = checkpoint
-
-        # Log checkpoint creation
-        self.log_transaction(
-            {"type": "checkpoint_created", "checkpoint_id": checkpoint["id"], "operation": operation_name}
-        )
-
-        return checkpoint
-
-    def track_record_creation(self, checkpoint_id, doctype, name, data=None):
-        """Track a newly created record for potential rollback"""
-        if checkpoint_id in self.checkpoint_data:
-            self.checkpoint_data[checkpoint_id]["created_records"].append(
-                {"doctype": doctype, "name": name, "data": data or {}, "timestamp": now_datetime()}
-            )
-
-    def track_record_modification(self, checkpoint_id, doctype, name, old_data, new_data):
-        """Track a modified record with before state for rollback"""
-        if checkpoint_id in self.checkpoint_data:
-            self.checkpoint_data[checkpoint_id]["modified_records"].append(
-                {
-                    "doctype": doctype,
-                    "name": name,
-                    "old_data": old_data,
-                    "new_data": new_data,
-                    "timestamp": now_datetime(),
-                }
-            )
-
-    def track_record_deletion(self, checkpoint_id, doctype, name, data):
-        """Track a deleted record for potential restoration"""
-        if checkpoint_id in self.checkpoint_data:
-            self.checkpoint_data[checkpoint_id]["deleted_records"].append(
-                {"doctype": doctype, "name": name, "data": data, "timestamp": now_datetime()}
-            )
-
-    def commit_checkpoint(self, checkpoint):
-        """Commit a checkpoint (mark as successful)"""
-        checkpoint["status"] = "committed"
-        checkpoint["committed_at"] = now_datetime()
-
-        self.log_transaction(
-            {
-                "type": "checkpoint_committed",
-                "checkpoint_id": checkpoint["id"],
-                "records_created": len(checkpoint["created_records"]),
-                "records_modified": len(checkpoint["modified_records"]),
-                "records_deleted": len(checkpoint["deleted_records"]),
-            }
-        )
-
-        # Save checkpoint data for audit
-        self._save_checkpoint_data(checkpoint)
-
-    def rollback_to_checkpoint(self, checkpoint):
-        """Rollback all operations to a checkpoint"""
-        rollback_log = {"checkpoint_id": checkpoint["id"], "started_at": now_datetime(), "actions": []}
-
-        try:
-            # Rollback in reverse order
-
-            # 1. Delete created records
-            for record in reversed(checkpoint["created_records"]):
-                try:
-                    if frappe.db.exists(record["doctype"], record["name"]):
-                        # Handle submitted documents
-                        doc = frappe.get_doc(record["doctype"], record["name"])
-                        if hasattr(doc, "docstatus") and doc.docstatus == 1:
-                            doc.cancel()
-
-                        frappe.delete_doc(record["doctype"], record["name"], force=True)
-                        rollback_log["actions"].append(
-                            {"action": "deleted", "doctype": record["doctype"], "name": record["name"]}
-                        )
-                except Exception as e:
-                    rollback_log["actions"].append(
-                        {
-                            "action": "delete_failed",
-                            "doctype": record["doctype"],
-                            "name": record["name"],
-                            "error": str(e),
-                        }
-                    )
-
-            # 2. Restore modified records
-            for record in reversed(checkpoint["modified_records"]):
-                try:
-                    if frappe.db.exists(record["doctype"], record["name"]):
-                        doc = frappe.get_doc(record["doctype"], record["name"])
-
-                        # Restore old data
-                        for field, value in record["old_data"].items():
-                            if hasattr(doc, field):
-                                setattr(doc, field, value)
-
-                        doc.save(ignore_permissions=True)
-                        rollback_log["actions"].append(
-                            {"action": "restored", "doctype": record["doctype"], "name": record["name"]}
-                        )
-                except Exception as e:
-                    rollback_log["actions"].append(
-                        {
-                            "action": "restore_failed",
-                            "doctype": record["doctype"],
-                            "name": record["name"],
-                            "error": str(e),
-                        }
-                    )
-
-            # 3. Recreate deleted records
-            for record in reversed(checkpoint["deleted_records"]):
-                try:
-                    doc = frappe.get_doc(record["data"])
-                    doc.insert(ignore_permissions=True)
-
-                    # Restore to original state if it was submitted
-                    if record["data"].get("docstatus") == 1:
-                        doc.submit()
-
-                    rollback_log["actions"].append(
-                        {"action": "recreated", "doctype": record["doctype"], "name": record["name"]}
-                    )
-                except Exception as e:
-                    rollback_log["actions"].append(
-                        {
-                            "action": "recreate_failed",
-                            "doctype": record["doctype"],
-                            "name": record["name"],
-                            "error": str(e),
-                        }
-                    )
-
-            # Mark checkpoint as rolled back
-            checkpoint["status"] = "rolled_back"
-            checkpoint["rolled_back_at"] = now_datetime()
-
-            rollback_log["completed_at"] = now_datetime()
-            rollback_log["success"] = True
-
-        except Exception as e:
-            rollback_log["success"] = False
-            rollback_log["error"] = str(e)
-
-        # Log rollback
-        self.log_transaction(
-            {
-                "type": "checkpoint_rolled_back",
-                "checkpoint_id": checkpoint["id"],
-                "rollback_log": rollback_log,
-            }
-        )
-
-        return rollback_log
 
     def create_pre_migration_backup(self):
         """Create a backup of affected data before migration"""
@@ -549,15 +373,6 @@ class MigrationTransaction:
         if len(self.transaction_log) % 100 == 0:
             self._save_transaction_log()
 
-    def _save_checkpoint_data(self, checkpoint):
-        """Save checkpoint data to file atomically"""
-        file_path = frappe.get_site_path(
-            "private", "files", "migration_checkpoints", f"checkpoint_{checkpoint['id']}.json"
-        )
-
-        checksum = _write_atomic_json(file_path, checkpoint)
-        checkpoint["checksum"] = checksum
-
     def _save_backup_data(self, backup_data):
         """Save backup data to file atomically with checksum"""
         file_path = frappe.get_site_path(
@@ -605,6 +420,10 @@ class MigrationTransaction:
         ]
 
 
+# Backwards-compatible alias for external code that may import the old name
+MigrationTransaction = MigrationSafetyChecks
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_migration_backup(migration_name: str) -> dict:
@@ -631,8 +450,8 @@ def create_migration_backup(migration_name: str) -> dict:
         f"Migration backup initiated | user={user} | migration={migration_name}"
     )
 
-    transaction = MigrationTransaction(migration_doc)
-    transaction.log_transaction(
+    safety_checks = MigrationSafetyChecks(migration_doc)
+    safety_checks.log_transaction(
         {
             "type": "admin_action",
             "action": "create_backup",
@@ -641,7 +460,7 @@ def create_migration_backup(migration_name: str) -> dict:
         }
     )
 
-    backup_path = transaction.create_pre_migration_backup()
+    backup_path = safety_checks.create_pre_migration_backup()
 
     return {
         "success": True,
@@ -677,8 +496,8 @@ def verify_migration_integrity(migration_name: str) -> dict:
         f"Migration integrity check initiated | user={user} | migration={migration_name}"
     )
 
-    transaction = MigrationTransaction(migration_doc)
-    transaction.log_transaction(
+    safety_checks = MigrationSafetyChecks(migration_doc)
+    safety_checks.log_transaction(
         {
             "type": "admin_action",
             "action": "verify_integrity",
@@ -687,62 +506,6 @@ def verify_migration_integrity(migration_name: str) -> dict:
         }
     )
 
-    result = transaction.verify_data_integrity()
+    result = safety_checks.verify_data_integrity()
     result["verified_by"] = user
-    return result
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def rollback_migration_checkpoint(migration_name: str, checkpoint_id: str) -> dict:
-    """
-    Rollback to a specific checkpoint.
-
-    Requires System Manager role and write permission on the migration document.
-    This is a destructive operation that will undo changes made after the checkpoint.
-
-    Args:
-        migration_name: Name of the E-Boekhouden Migration document
-        checkpoint_id: ID of the checkpoint to rollback to
-
-    Returns:
-        dict: Rollback result with actions taken
-    """
-    user = frappe.session.user
-    if not frappe.has_role(user, "System Manager"):
-        frappe.throw("Only System Manager can rollback migration checkpoints")
-
-    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-    migration_doc.check_permission("write")
-
-    # Audit log: record who initiated the rollback (critical operation)
-    frappe.logger("migration_audit").warning(
-        f"Migration rollback initiated | user={user} | migration={migration_name} | checkpoint={checkpoint_id}"
-    )
-
-    transaction = MigrationTransaction(migration_doc)
-    transaction.log_transaction(
-        {
-            "type": "admin_action",
-            "action": "rollback_checkpoint",
-            "user": user,
-            "migration": migration_name,
-            "checkpoint_id": checkpoint_id,
-        }
-    )
-
-    # Load checkpoint data with path traversal protection
-    safe_checkpoint_id = checkpoint_id.replace("/", "").replace("\\", "").replace("..", "")
-    checkpoint_file = frappe.get_site_path(
-        "private", "files", "migration_checkpoints", f"checkpoint_{safe_checkpoint_id}.json"
-    )
-
-    if not os.path.exists(checkpoint_file):
-        frappe.throw(f"Checkpoint {checkpoint_id} not found")
-
-    with open(checkpoint_file, "r") as f:
-        checkpoint = json.load(f)
-
-    result = transaction.rollback_to_checkpoint(checkpoint)
-    result["rolled_back_by"] = user
     return result
