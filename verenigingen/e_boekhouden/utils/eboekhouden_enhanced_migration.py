@@ -95,6 +95,15 @@ class EnhancedEBoekhoudenMigration:
         self.settings = settings
         self.company = settings.default_company
 
+        # Fail early if company not configured
+        if not self.company:
+            frappe.throw(
+                _(
+                    "E-Boekhouden Settings: default_company is not configured. "
+                    "Please set the default company before running migration."
+                )
+            )
+
         # Initialize all enhancement components
         self.error_recovery = MigrationErrorRecovery(migration_doc)
         self.performance_optimizer = PerformanceOptimizer()
@@ -144,10 +153,13 @@ class EnhancedEBoekhoudenMigration:
             if frappe.db.exists("Cost Center", self.settings.default_cost_center):
                 return self.settings.default_cost_center
             else:
-                frappe.log_error(
-                    f"E-Boekhouden Settings.default_cost_center '{self.settings.default_cost_center}' "
-                    "does not exist - falling back to other methods",
-                    "Migration Cost Center",
+                self.audit_trail.log_event(
+                    "cost_center_config_invalid",
+                    {
+                        "configured": self.settings.default_cost_center,
+                        "reason": "Cost center does not exist - falling back to other methods",
+                    },
+                    severity="warning",
                 )
 
         # Priority 2: Company default cost center
@@ -163,10 +175,14 @@ class EnhancedEBoekhoudenMigration:
             "Cost Center", {"company": self.company, "cost_center_name": "Main", "is_group": 0}, "name"
         )
         if main_cc:
-            frappe.log_error(
-                f"Using heuristic cost center 'Main': {main_cc}. "
-                "Consider setting E-Boekhouden Settings.default_cost_center explicitly.",
-                "Migration Cost Center Heuristic",
+            self.audit_trail.log_event(
+                "cost_center_heuristic",
+                {
+                    "selected": main_cc,
+                    "method": "company-main",
+                    "recommendation": "Consider setting E-Boekhouden Settings.default_cost_center explicitly",
+                },
+                severity="info",
             )
             return main_cc
         heuristic_candidates.append("Main")
@@ -176,10 +192,14 @@ class EnhancedEBoekhoudenMigration:
         if abbr:
             abbr_cc = f"{self.company} - {abbr}"
             if frappe.db.exists("Cost Center", abbr_cc):
-                frappe.log_error(
-                    f"Using heuristic cost center '{abbr_cc}'. "
-                    "Consider setting E-Boekhouden Settings.default_cost_center explicitly.",
-                    "Migration Cost Center Heuristic",
+                self.audit_trail.log_event(
+                    "cost_center_heuristic",
+                    {
+                        "selected": abbr_cc,
+                        "method": "company-abbreviation",
+                        "recommendation": "Consider setting E-Boekhouden Settings.default_cost_center explicitly",
+                    },
+                    severity="info",
                 )
                 return abbr_cc
             heuristic_candidates.append(abbr_cc)
@@ -187,10 +207,14 @@ class EnhancedEBoekhoudenMigration:
         # Try any non-group cost center
         any_cc = frappe.db.get_value("Cost Center", {"company": self.company, "is_group": 0}, "name")
         if any_cc:
-            frappe.log_error(
-                f"Using fallback cost center '{any_cc}'. "
-                "Consider setting E-Boekhouden Settings.default_cost_center explicitly.",
-                "Migration Cost Center Heuristic",
+            self.audit_trail.log_event(
+                "cost_center_heuristic",
+                {
+                    "selected": any_cc,
+                    "method": "any-non-group-fallback",
+                    "recommendation": "Consider setting E-Boekhouden Settings.default_cost_center explicitly",
+                },
+                severity="info",
             )
             return any_cc
 
@@ -294,6 +318,8 @@ class EnhancedEBoekhoudenMigration:
                 self._update_progress("Creating pre-migration backup...", 10)
                 with AuditedMigrationOperation(self.audit_trail, "create_backup"):
                     backup_path = self.transaction_manager.create_pre_migration_backup()
+                    if not backup_path:
+                        frappe.throw(_("Pre-migration backup failed to produce a backup path"))
                     self.audit_trail.log_event("backup_created", {"path": backup_path})
 
             # Step 3: Account types are handled automatically by REST API migration
@@ -318,6 +344,11 @@ class EnhancedEBoekhoudenMigration:
                         "REST Import Contract Violation",
                     )
                     result = {"success": False, "error": "REST import returned invalid response type"}
+
+                # Normalize expected keys to prevent KeyError in downstream code
+                result.setdefault("success", False)
+                result.setdefault("imported", 0)
+                result.setdefault("errors", [])
 
             # Step 5: Verify data integrity
             if not self.dry_run:
@@ -433,7 +464,9 @@ class EnhancedEBoekhoudenMigration:
             last_checkpoint = list(checkpoint_data.values())[-1]
             rollback_result = self.transaction_manager.rollback_to_checkpoint(last_checkpoint)
 
-            self.audit_trail.log_rollback(last_checkpoint["id"], rollback_result)
+            # Use .get() for safe access in case checkpoint lacks "id" key
+            checkpoint_id = last_checkpoint.get("id", "unknown")
+            self.audit_trail.log_rollback(checkpoint_id, rollback_result)
 
             return rollback_result
 
