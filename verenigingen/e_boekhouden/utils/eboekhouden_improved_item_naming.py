@@ -142,6 +142,13 @@ def get_or_create_item_improved(
     Returns:
         Item code (name) to use in invoice
     """
+    # Warn if creating items outside migration context (potential audit gap)
+    if not getattr(frappe.flags, "in_migration", False):
+        frappe.logger().warning(
+            f"get_or_create_item_improved called outside migration context for account {account_code}. "
+            f"Consider using migration_transaction for proper audit trail."
+        )
+
     # Log missing account code - this is a data quality issue
     if not account_code:
         frappe.log_error(
