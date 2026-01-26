@@ -294,6 +294,72 @@ class TestMigrationTransactionSavepoints(unittest.TestCase):
         )
 
 
+class TestMigrationTransactionSavepointFallback(unittest.TestCase):
+    """Tests for savepoint fallback when database doesn't support savepoints"""
+
+    def setUp(self):
+        """Set up test mocks - permission bypass allowed in setUp per testing standards"""
+        self.frappe_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.frappe")
+        self.time_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.time")
+        self.perm_patcher = patch("verenigingen.e_boekhouden.utils.security_helper.has_migration_permission")
+
+        self.mock_frappe = self.frappe_patcher.start()
+        self.mock_time = self.time_patcher.start()
+        self.mock_has_perm = self.perm_patcher.start()
+
+        # Default configuration - permission bypass in setUp is allowed
+        self.mock_frappe.session.user = "Administrator"
+        self.mock_has_perm.return_value = True
+        self.mock_time.time.return_value = 1000.0
+
+    def tearDown(self):
+        """Clean up patches"""
+        self.perm_patcher.stop()
+        self.time_patcher.stop()
+        self.frappe_patcher.stop()
+
+    def test_fallback_when_savepoint_not_supported(self):
+        """Test that migration continues when savepoints are not supported"""
+        from verenigingen.e_boekhouden.utils.security_helper import migration_transaction
+
+        # Make SAVEPOINT SQL command fail to simulate unsupported savepoints
+        def mock_sql(query, *args, **kwargs):
+            if "SAVEPOINT" in str(query):
+                raise Exception("Savepoints not supported by this database")
+            return []
+
+        self.mock_frappe.db.sql.side_effect = mock_sql
+
+        # Should still work without savepoints
+        with migration_transaction(operation_type="account_creation") as tx:
+            # Verify savepoint is None (fallback mode)
+            self.assertIsNone(tx.state["rollback_savepoint"])
+
+            # Track an operation to ensure normal flow continues
+            tx.track_operation("test", "doc1")
+            self.assertEqual(tx.state["operations_count"], 1)
+
+    def test_fallback_uses_full_rollback_on_error(self):
+        """Test that full rollback is used when savepoints aren't available"""
+        from verenigingen.e_boekhouden.utils.security_helper import migration_transaction
+
+        # Make SAVEPOINT fail but allow other SQL
+        def mock_sql(query, *args, **kwargs):
+            if "SAVEPOINT" in str(query):
+                raise Exception("Savepoints not supported")
+            return []
+
+        self.mock_frappe.db.sql.side_effect = mock_sql
+
+        with self.assertRaises(ValueError):
+            with migration_transaction(operation_type="account_creation") as tx:
+                tx.track_operation("test", "doc1")
+                raise ValueError("Simulated error")
+
+        # Verify full rollback was called (not savepoint rollback)
+        self.mock_frappe.db.rollback.assert_called()
+
+
 class TestMigrationTransactionRollback(unittest.TestCase):
     """Tests for rollback behavior in migration_transaction"""
 

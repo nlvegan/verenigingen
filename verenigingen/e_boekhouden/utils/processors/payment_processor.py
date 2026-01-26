@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 import frappe
 
 from verenigingen.e_boekhouden.utils.consolidated.bank_account_utils import (
-    convert_gl_account_to_bank_account,
+    convert_gl_account_to_bank_account_or_raise,
 )
 from verenigingen.e_boekhouden.utils.consolidated.invoice_line_utils import (
     create_invoice_line_for_tegenrekening,
@@ -148,10 +148,11 @@ class PaymentProcessor(BaseTransactionProcessor):
             # Check if this is a gateway payment that needs amount adjustment
             adjusted_mutation = self._adjust_payment_gateway_amount(mutation)
 
-            # Type 3/4 (Customer/Supplier Payments) use the enhanced payment handler
-            from ..eboekhouden_rest_full_migration import _create_payment_entry
+            # Type 3/4 (Customer/Supplier Payments) use the consolidated payment handler
+            # This decouples PaymentProcessor from the monolith migration file
+            from verenigingen.e_boekhouden.utils.consolidated.payment_utils import create_payment_entry
 
-            return _create_payment_entry(adjusted_mutation, self.company, self.cost_center, self.debug_info)
+            return create_payment_entry(adjusted_mutation, self.company, self.cost_center, self.debug_info)
 
     def get_payment_type(self, mutation: Dict[str, Any]) -> str:
         """Determine payment type from mutation"""
@@ -220,7 +221,10 @@ class PaymentProcessor(BaseTransactionProcessor):
 
         # Convert GL Account to Bank Account name for Bank Transaction creation
         # Uses consolidated utility for consistency across all processors
-        bank_account_name = convert_gl_account_to_bank_account(bank_account, self.company, self.debug_info)
+        # Use _or_raise variant since Bank Transaction creation requires a valid Bank Account
+        bank_account_name = convert_gl_account_to_bank_account_or_raise(
+            bank_account, self.company, self.debug_info
+        )
 
         # Process all rows to get target accounts with amounts
         # For multi-line mutations, we need to create one JE line per row

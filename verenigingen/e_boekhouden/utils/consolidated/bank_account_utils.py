@@ -200,7 +200,7 @@ def convert_gl_account_to_bank_account(
     gl_account: str,
     company: str,
     debug_info: Optional[list] = None,
-) -> str:
+) -> Optional[str]:
     """
     Convert a GL Account (Account DocType) to a Bank Account (Bank Account DocType) name.
 
@@ -214,13 +214,18 @@ def convert_gl_account_to_bank_account(
         debug_info: Optional list to append debug messages
 
     Returns:
-        Bank Account name (guaranteed to be Bank Account DocType)
+        Bank Account name if found, None if no Bank Account exists for the GL Account
 
-    Raises:
-        frappe.ValidationError if no Bank Account found for the GL Account
+    Note:
+        Use convert_gl_account_to_bank_account_or_raise() when a Bank Account is required
+        and the caller cannot proceed without one.
     """
     if debug_info is None:
         debug_info = []
+
+    if not gl_account:
+        debug_info.append("No GL Account provided for conversion")
+        return None
 
     # Check if it's already a Bank Account (not a GL Account)
     if frappe.db.exists("Bank Account", gl_account):
@@ -238,6 +243,43 @@ def convert_gl_account_to_bank_account(
     if bank_account_name:
         debug_info.append(f"Resolved Bank Account: {bank_account_name} (GL Account: {gl_account})")
         return bank_account_name
+
+    debug_info.append(f"No Bank Account found for GL Account '{gl_account}'")
+    return None
+
+
+def convert_gl_account_to_bank_account_or_raise(
+    gl_account: str,
+    company: str,
+    debug_info: Optional[list] = None,
+) -> str:
+    """
+    Convert GL Account to Bank Account, raising if not found.
+
+    Same as convert_gl_account_to_bank_account() but raises ValidationError
+    when no Bank Account can be found for the GL Account.
+
+    Use this when a Bank Account is required and the operation cannot proceed
+    without one (e.g., creating Bank Transactions).
+
+    Args:
+        gl_account: GL Account name to convert
+        company: Company for filtering
+        debug_info: Optional list to append debug messages
+
+    Returns:
+        Bank Account name (guaranteed non-None)
+
+    Raises:
+        frappe.ValidationError if no Bank Account found for the GL Account
+    """
+    if debug_info is None:
+        debug_info = []
+
+    bank_account = convert_gl_account_to_bank_account(gl_account, company, debug_info)
+
+    if bank_account:
+        return bank_account
 
     # Bank Account not found - provide helpful error
     available_accounts = frappe.get_all(
