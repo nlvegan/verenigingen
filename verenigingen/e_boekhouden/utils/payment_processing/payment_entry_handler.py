@@ -1135,7 +1135,7 @@ class PaymentEntryHandler:
                     )
 
                     debug_info = []
-                    ensure_account_type_is_correct(account, "Receivable", debug_info)
+                    ensure_account_type_is_correct(account, "Receivable", debug_info, auto_fix=True)
                     for msg in debug_info:
                         self._log(msg)
                     return account
@@ -1153,7 +1153,7 @@ class PaymentEntryHandler:
                     )
 
                     debug_info = []
-                    ensure_account_type_is_correct(account, "Payable", debug_info)
+                    ensure_account_type_is_correct(account, "Payable", debug_info, auto_fix=True)
                     for msg in debug_info:
                         self._log(msg)
                     return account
@@ -1194,7 +1194,7 @@ class PaymentEntryHandler:
 
                     expected_type = "Receivable" if party_type == "Customer" else "Payable"
                     debug_info = []
-                    ensure_account_type_is_correct(mapping_result, expected_type, debug_info)
+                    ensure_account_type_is_correct(mapping_result, expected_type, debug_info, auto_fix=True)
                     for msg in debug_info:
                         self._log(msg)
                     return mapping_result
@@ -1227,7 +1227,7 @@ class PaymentEntryHandler:
 
         expected_type = "Receivable" if party_type == "Customer" else "Payable"
         debug_info = []
-        ensure_account_type_is_correct(fallback_account, expected_type, debug_info)
+        ensure_account_type_is_correct(fallback_account, expected_type, debug_info, auto_fix=True)
         for msg in debug_info:
             self._log(msg)
 

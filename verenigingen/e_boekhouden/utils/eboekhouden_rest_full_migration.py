@@ -17,17 +17,22 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
-def ensure_account_type_is_correct(account_name, expected_type, debug_info=None):
+def ensure_account_type_is_correct(account_name, expected_type, debug_info=None, auto_fix=False):
     """
-    Ensure an account has the correct account_type, auto-correcting if needed.
+    Check if an account has the correct account_type, optionally auto-correcting.
+
+    By default (auto_fix=False), this function only reports mismatches without modifying data.
+    Set auto_fix=True explicitly when you want to correct account types (e.g., during migration).
 
     Args:
         account_name: Full account name (e.g., "1350 - Te ontvangen bedragen - NVV")
         expected_type: Expected account type ("Receivable" or "Payable")
         debug_info: Optional list to append debug messages
+        auto_fix: If True, automatically correct mismatched account types (default: False)
 
     Returns:
-        bool: True if account type is correct or was corrected, False if account doesn't exist
+        bool: True if account type is correct (or was corrected when auto_fix=True),
+              False if account doesn't exist or type is wrong (and auto_fix=False)
     """
     if debug_info is None:
         debug_info = []
@@ -46,12 +51,34 @@ def ensure_account_type_is_correct(account_name, expected_type, debug_info=None)
             debug_info.append(f"Account {account_name} already has correct type: {expected_type}")
             return True
 
-        # Auto-correct the account type
+        # Type mismatch - report it
+        debug_info.append(
+            f"Account {account_name} has type '{current_type}' but expected '{expected_type}'. "
+            f"auto_fix={auto_fix}"
+        )
+
+        if not auto_fix:
+            # Report only, do not modify
+            return False
+
+        # Auto-correct the account type (only when explicitly requested)
         frappe.db.set_value("Account", account_name, "account_type", expected_type)
         frappe.db.commit()
 
+        # Create visible audit trail in Error Log (shows in Desk)
+        frappe.log_error(
+            title=_("E-Boekhouden Migration - Account Type Auto-Corrected"),
+            message=(
+                f"Account type automatically corrected during migration:\n\n"
+                f"Account: {account_name}\n"
+                f"Previous type: {current_type}\n"
+                f"New type: {expected_type}\n"
+                f"User: {frappe.session.user}"
+            ),
+        )
+
         debug_info.append(
-            f"✅ Auto-corrected account type: {account_name} from '{current_type}' to '{expected_type}'"
+            f"Auto-corrected account type: {account_name} from '{current_type}' to '{expected_type}'"
         )
         frappe.logger().info(
             f"E-Boekhouden: Auto-corrected account {account_name} type from '{current_type}' to '{expected_type}'"
@@ -65,148 +92,51 @@ def ensure_account_type_is_correct(account_name, expected_type, debug_info=None)
         return False
 
 
-def get_default_cost_center(company):
-    """Get the most appropriate default cost center for the company"""
-    # Try multiple approaches to find the best cost center
+def get_default_cost_center(company, debug_info=None):
+    """
+    Get the most appropriate default cost center for the company.
 
-    # 1. Try to get company's default cost center from Company doctype
-    company_doc = frappe.get_doc("Company", company)
-    if hasattr(company_doc, "cost_center") and company_doc.cost_center:
-        return company_doc.cost_center
+    This is a thin wrapper around the consolidated utility for backward compatibility.
+    New code should import directly from:
+        verenigingen.e_boekhouden.utils.consolidated.cost_center_utils
 
-    # 2. Try to find "Main" cost center (common default name)
-    main_cost_center = frappe.db.get_value(
-        "Cost Center", {"company": company, "cost_center_name": "Main", "is_group": 0}, "name"
-    )
-    if main_cost_center:
-        return main_cost_center
+    Args:
+        company: Company name
+        debug_info: Optional list to append debug messages
 
-    # 3. Try to find cost center with company name
-    company_cost_center = frappe.db.get_value(
-        "Cost Center", {"company": company, "cost_center_name": company, "is_group": 0}, "name"
-    )
-    if company_cost_center:
-        return company_cost_center
-
-    # 4. Get the first non-group cost center (excluding specific ones we want to avoid)
-    exclude_patterns = ["magazine", "Magazine", "MAGAZINE"]
-
-    all_cost_centers = frappe.get_all(
-        "Cost Center",
-        filters={"company": company, "is_group": 0},
-        fields=["name", "cost_center_name"],
-        order_by="creation",
+    Returns:
+        Cost center name if found, None if no suitable cost center exists
+    """
+    from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
+        get_default_cost_center as _get_default_cost_center,
     )
 
-    for cc in all_cost_centers:
-        # Skip cost centers with unwanted names
-        if not any(pattern.lower() in cc.cost_center_name.lower() for pattern in exclude_patterns):
-            return cc.name
-
-    # 5. Last resort: get any non-group cost center
-    fallback_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
-
-    return fallback_cost_center
+    return _get_default_cost_center(company, debug_info)
 
 
-def get_party_account(party, party_type, company):
+def get_party_account(party, party_type, company, debug_info=None):
     """
     Get the correct party account, preferring party-specific accounts over company defaults.
     NEVER uses random accounts like Vraagposten as fallback.
+
+    This is a thin wrapper around the consolidated utility for backward compatibility.
+    New code should import directly from:
+        verenigingen.e_boekhouden.utils.consolidated.party_utils
+
+    Args:
+        party: Party name (Customer or Supplier document name)
+        party_type: Either "Customer" or "Supplier"
+        company: Company name for account filtering
+        debug_info: Optional list to append debug messages
+
+    Returns:
+        Account name if found, None if no suitable account exists
     """
-    # Try to get party's default account first
-    if party_type == "Customer":
-        party_account = frappe.db.sql(
-            """
-            SELECT pa.account
-            FROM `tabParty Account` pa
-            WHERE pa.parent = %s AND pa.parenttype = 'Customer'
-            AND pa.company = %s
-            LIMIT 1
-        """,
-            (party, company),
-        )
-        if party_account:
-            return party_account[0][0]
-    else:
-        party_account = frappe.db.sql(
-            """
-            SELECT pa.account
-            FROM `tabParty Account` pa
-            WHERE pa.parent = %s AND pa.parenttype = 'Supplier'
-            AND pa.company = %s
-            LIMIT 1
-        """,
-            (party, company),
-        )
-        if party_account:
-            return party_account[0][0]
-
-    # PRIORITY 2: Get company's default receivable/payable account from Company settings
-    account_type = "Receivable" if party_type == "Customer" else "Payable"
-
-    # Try to get default from Company doctype first
-    if party_type == "Customer":
-        company_default = frappe.db.get_value("Company", company, "default_receivable_account")
-        if company_default:
-            return company_default
-    else:
-        company_default = frappe.db.get_value("Company", company, "default_payable_account")
-        if company_default:
-            return company_default
-
-    # PRIORITY 3: Look for DEFAULT account of the correct type
-    # Use account that has 'default' in name or is most generic
-    default_account = frappe.db.sql(
-        """
-        SELECT name FROM `tabAccount`
-        WHERE account_type = %s
-        AND company = %s
-        AND is_group = 0
-        ORDER BY
-            CASE
-                WHEN account_name LIKE '%%Default%%' OR account_name LIKE '%%General%%' THEN 1
-                WHEN account_name LIKE '%%Algemeen%%' THEN 2
-                WHEN account_name NOT LIKE '%%Vraagposten%%' AND account_name NOT LIKE '%%Specific%%' THEN 3
-                ELSE 4
-            END,
-            account_name
-        LIMIT 1
-    """,
-        (account_type, company),
-        as_dict=True,
+    from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
+        get_party_account as _get_party_account,
     )
 
-    if default_account:
-        return default_account[0].name
-
-    # PRIORITY 4: If still no account found, get ANY account but avoid known specific accounts
-    any_account = frappe.db.sql(
-        """
-        SELECT name FROM `tabAccount`
-        WHERE account_type = %s
-        AND company = %s
-        AND is_group = 0
-        AND account_name NOT LIKE '%%Vraagposten%%'
-        AND account_name NOT LIKE '%%Specific%%'
-        ORDER BY account_name
-        LIMIT 1
-    """,
-        (account_type, company),
-        as_dict=True,
-    )
-
-    if any_account:
-        return any_account[0].name
-
-    # ABSOLUTE LAST RESORT: Return any account of the correct type (this should never happen)
-    fallback = frappe.db.get_value("Account", {"account_type": account_type, "company": company}, "name")
-    if fallback:
-        frappe.logger().warning(
-            f"Using fallback account {fallback} for {party_type} {party} - consider setting up proper defaults"
-        )
-
-    return fallback
+    return _get_party_account(party, party_type, company, debug_info)
 
 
 # Removed unused get_appropriate_cash_account() and create_basic_cash_account() functions
@@ -214,7 +144,27 @@ def get_party_account(party, party_type, company):
 
 
 def should_skip_mutation(mutation, debug_info=None):
-    """Check if a mutation should be skipped (e.g., system notifications, zero-amount automations)"""
+    """
+    Check if a mutation should be skipped (e.g., system notifications, zero-amount automations).
+
+    NOTE: This function is intentionally kept in the migration module rather than centralized,
+    because:
+    1. It's only used within the REST full migration flow
+    2. Other processors have domain-specific skip logic (e.g., payment_processor has
+       _is_payment_gateway_adjustment() for Mollie fee corrections)
+    3. Centralizing would add unnecessary abstraction for a simple function
+
+    Skip rules:
+    - Invoice mutations (types 1, 2) with "system notification" or "status update" in description
+    - Does NOT skip zero-amount invoices (they're valid in ERPNext)
+
+    Args:
+        mutation: E-Boekhouden mutation dict with 'id', 'type', 'amount', 'description'
+        debug_info: Optional list to append debug messages
+
+    Returns:
+        bool: True if mutation should be skipped
+    """
     if debug_info is None:
         debug_info = []
 
@@ -2443,7 +2393,9 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
             )
             if te_ontvangen_bedragen_account:
                 # Ensure the account is configured as Receivable type
-                ensure_account_type_is_correct(te_ontvangen_bedragen_account, "Receivable", debug_info)
+                ensure_account_type_is_correct(
+                    te_ontvangen_bedragen_account, "Receivable", debug_info, auto_fix=True
+                )
                 si.debit_to = te_ontvangen_bedragen_account
                 debug_info.append(f"Set receivable account to: {te_ontvangen_bedragen_account}")
             else:
@@ -2465,7 +2417,9 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                         )
                     else:
                         # Ensure the account is configured as Receivable type
-                        ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
+                        ensure_account_type_is_correct(
+                            receivable_account, "Receivable", debug_info, auto_fix=True
+                        )
                         si.debit_to = receivable_account
                         debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
         else:
@@ -2484,7 +2438,9 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
                     )
                 else:
                     # Ensure the account is configured as Receivable type
-                    ensure_account_type_is_correct(receivable_account, "Receivable", debug_info)
+                    ensure_account_type_is_correct(
+                        receivable_account, "Receivable", debug_info, auto_fix=True
+                    )
                     si.debit_to = receivable_account
                     debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
             else:
@@ -3127,7 +3083,7 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
                 )
             else:
                 # Ensure the account is configured as Payable type
-                ensure_account_type_is_correct(payable_account, "Payable", debug_info)
+                ensure_account_type_is_correct(payable_account, "Payable", debug_info, auto_fix=True)
                 pi.credit_to = payable_account
                 debug_info.append(f"Set payable account from ledger mapping: {payable_account}")
         else:

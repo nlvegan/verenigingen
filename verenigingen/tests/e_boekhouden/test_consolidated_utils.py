@@ -5,6 +5,11 @@ Tests the consolidated utility modules:
 - ledger_utils: Canonical ledger resolution with auto-create
 - bank_account_utils: Bank account resolution from ledger IDs
 - date_utils: Fiscal year creation with race condition handling
+- party_utils: Party account resolution with Vraagposten avoidance
+- cost_center_utils: Cost center resolution with Magazine exclusion
+
+Also tests:
+- ensure_account_type_is_correct: Account type validation with auto_fix safety
 
 Run with:
     bench --site veg11.veganisme.org run-tests --app verenigingen \
@@ -604,6 +609,300 @@ class TestLedgerUtilsAutoCreate(unittest.TestCase):
                     any("failed after" in msg.lower() for msg in self.debug_info),
                     f"Expected failure message in debug_info: {self.debug_info}",
                 )
+
+
+class TestPartyUtils(unittest.TestCase):
+    """Tests for party_utils.py - canonical party account resolution"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.debug_info = []
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils.frappe")
+    def test_get_party_account_priority_1_party_specific(self, mock_frappe):
+        """Test that party-specific account from Party Account table is returned first"""
+        from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
+            get_party_account,
+        )
+
+        # Party-specific account exists
+        mock_frappe.db.sql.return_value = [("1300 - Debiteuren Specifiek - NVV",)]
+
+        result = get_party_account("CUST-001", "Customer", "NVV", self.debug_info)
+
+        self.assertEqual(result, "1300 - Debiteuren Specifiek - NVV")
+        self.assertTrue(any("party-specific" in msg.lower() for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils._get_party_specific_account")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils.frappe")
+    def test_get_party_account_priority_2_company_default(self, mock_frappe, mock_party_specific):
+        """Test that company default is used when no party-specific account exists"""
+        from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
+            get_party_account,
+        )
+
+        mock_party_specific.return_value = None
+        mock_frappe.db.get_value.return_value = "1300 - Debiteuren - NVV"
+
+        result = get_party_account("CUST-001", "Customer", "NVV", self.debug_info)
+
+        self.assertEqual(result, "1300 - Debiteuren - NVV")
+        self.assertTrue(any("company default" in msg.lower() for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils._get_safe_account")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils._get_generic_account")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils._get_company_default_account")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils._get_party_specific_account")
+    def test_get_party_account_priority_3_generic(
+        self, mock_party, mock_company, mock_generic, mock_safe
+    ):
+        """Test that generic account (Default/General/Algemeen) is used as fallback"""
+        from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
+            get_party_account,
+        )
+
+        mock_party.return_value = None
+        mock_company.return_value = None
+        mock_generic.return_value = "1300 - Algemeen Debiteuren - NVV"
+
+        result = get_party_account("CUST-001", "Customer", "NVV", self.debug_info)
+
+        self.assertEqual(result, "1300 - Algemeen Debiteuren - NVV")
+        self.assertTrue(any("generic" in msg.lower() for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils.frappe")
+    def test_get_party_account_avoids_vraagposten(self, mock_frappe):
+        """Test that Vraagposten accounts are avoided in fallback"""
+        from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
+            _get_safe_account,
+        )
+
+        mock_frappe.db.sql.return_value = [{"name": "1300 - Safe Account - NVV"}]
+
+        result = _get_safe_account("Receivable", "NVV")
+
+        # Verify SQL excludes Vraagposten
+        call_args = mock_frappe.db.sql.call_args[0][0]
+        self.assertIn("NOT LIKE", call_args)
+        self.assertIn("Vraagposten", call_args)
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils.frappe")
+    def test_get_party_account_supplier_type(self, mock_frappe):
+        """Test that Supplier party type correctly uses Payable accounts"""
+        from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
+            _get_company_default_account,
+        )
+
+        mock_frappe.db.get_value.return_value = "2000 - Crediteuren - NVV"
+
+        result = _get_company_default_account("Supplier", "NVV")
+
+        mock_frappe.db.get_value.assert_called_once_with("Company", "NVV", "default_payable_account")
+        self.assertEqual(result, "2000 - Crediteuren - NVV")
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.party_utils.frappe")
+    def test_get_party_account_customer_type(self, mock_frappe):
+        """Test that Customer party type correctly uses Receivable accounts"""
+        from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
+            _get_company_default_account,
+        )
+
+        mock_frappe.db.get_value.return_value = "1300 - Debiteuren - NVV"
+
+        result = _get_company_default_account("Customer", "NVV")
+
+        mock_frappe.db.get_value.assert_called_once_with("Company", "NVV", "default_receivable_account")
+        self.assertEqual(result, "1300 - Debiteuren - NVV")
+
+
+class TestCostCenterUtils(unittest.TestCase):
+    """Tests for cost_center_utils.py - canonical cost center resolution"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.debug_info = []
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.cost_center_utils.frappe")
+    def test_get_default_cost_center_priority_1_company_default(self, mock_frappe):
+        """Test that company's default cost center is returned first"""
+        from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
+            get_default_cost_center,
+        )
+
+        mock_company_doc = MagicMock()
+        mock_company_doc.cost_center = "Main - NVV"
+        mock_frappe.get_doc.return_value = mock_company_doc
+
+        result = get_default_cost_center("NVV", self.debug_info)
+
+        self.assertEqual(result, "Main - NVV")
+        self.assertTrue(any("company default" in msg.lower() for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.cost_center_utils._get_company_default_cost_center")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.cost_center_utils.frappe")
+    def test_get_default_cost_center_priority_2_main(self, mock_frappe, mock_company_default):
+        """Test that 'Main' cost center is used when no company default"""
+        from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
+            get_default_cost_center,
+        )
+
+        mock_company_default.return_value = None
+        mock_frappe.db.get_value.return_value = "Main - NVV"
+
+        result = get_default_cost_center("NVV", self.debug_info)
+
+        self.assertEqual(result, "Main - NVV")
+        self.assertTrue(any("main" in msg.lower() for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.cost_center_utils._get_company_default_cost_center")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.cost_center_utils.frappe")
+    def test_get_default_cost_center_excludes_magazine(self, mock_frappe, mock_company_default):
+        """Test that Magazine cost centers are excluded from selection"""
+        from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
+            get_default_cost_center,
+        )
+
+        mock_company_default.return_value = None
+        mock_frappe.db.get_value.side_effect = [None, None, None]  # No Main, no company-named, no fallback
+        mock_frappe.get_all.return_value = [
+            {"name": "Magazine - NVV", "cost_center_name": "Magazine"},
+            {"name": "General - NVV", "cost_center_name": "General"},
+        ]
+
+        result = get_default_cost_center("NVV", self.debug_info)
+
+        # Should skip Magazine and return General
+        self.assertEqual(result, "General - NVV")
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.cost_center_utils.frappe")
+    def test_get_general_cost_center_finds_general(self, mock_frappe):
+        """Test that general cost center names are found"""
+        from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
+            get_general_cost_center,
+        )
+
+        mock_frappe.db.get_value.return_value = "General Fund - NVV"
+
+        result = get_general_cost_center("NVV", self.debug_info)
+
+        self.assertEqual(result, "General Fund - NVV")
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.cost_center_utils.frappe")
+    def test_get_chapter_cost_center_finds_by_reference(self, mock_frappe):
+        """Test that chapter cost center is found by reference"""
+        from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
+            get_chapter_cost_center,
+        )
+
+        mock_frappe.db.get_value.return_value = "Amsterdam Chapter - NVV"
+
+        result = get_chapter_cost_center("NVV", "Amsterdam", self.debug_info)
+
+        self.assertEqual(result, "Amsterdam Chapter - NVV")
+        # Verify LIKE query was used
+        call_args = mock_frappe.db.get_value.call_args
+        self.assertIn("like", str(call_args).lower())
+
+
+class TestEnsureAccountTypeIsCorrect(unittest.TestCase):
+    """Tests for ensure_account_type_is_correct with auto_fix parameter"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.debug_info = []
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.frappe")
+    def test_auto_fix_false_does_not_modify(self, mock_frappe):
+        """Test that auto_fix=False (default) does not modify account type"""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            ensure_account_type_is_correct,
+        )
+
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.db.get_value.return_value = "Bank"  # Wrong type
+
+        result = ensure_account_type_is_correct(
+            "1100 - Bank - NVV", "Receivable", self.debug_info, auto_fix=False
+        )
+
+        self.assertFalse(result)
+        mock_frappe.db.set_value.assert_not_called()
+        self.assertTrue(any("auto_fix=False" in msg for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.frappe")
+    def test_auto_fix_true_modifies_and_logs(self, mock_frappe):
+        """Test that auto_fix=True modifies account type and creates audit log"""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            ensure_account_type_is_correct,
+        )
+
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.db.get_value.return_value = "Bank"  # Wrong type
+        mock_frappe.session.user = "test@example.com"
+        mock_frappe._.side_effect = lambda x: x  # Pass through translation
+
+        result = ensure_account_type_is_correct(
+            "1100 - Bank - NVV", "Receivable", self.debug_info, auto_fix=True
+        )
+
+        self.assertTrue(result)
+        mock_frappe.db.set_value.assert_called_once_with(
+            "Account", "1100 - Bank - NVV", "account_type", "Receivable"
+        )
+        mock_frappe.db.commit.assert_called_once()
+        mock_frappe.log_error.assert_called_once()  # Audit log created
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.frappe")
+    def test_correct_type_returns_true_no_modification(self, mock_frappe):
+        """Test that correct account type returns True without modification"""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            ensure_account_type_is_correct,
+        )
+
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.db.get_value.return_value = "Receivable"  # Already correct
+
+        result = ensure_account_type_is_correct(
+            "1300 - Debiteuren - NVV", "Receivable", self.debug_info, auto_fix=True
+        )
+
+        self.assertTrue(result)
+        mock_frappe.db.set_value.assert_not_called()
+        self.assertTrue(any("already has correct type" in msg for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.frappe")
+    def test_nonexistent_account_returns_false(self, mock_frappe):
+        """Test that nonexistent account returns False"""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            ensure_account_type_is_correct,
+        )
+
+        mock_frappe.db.exists.return_value = False
+
+        result = ensure_account_type_is_correct(
+            "9999 - Missing - NVV", "Receivable", self.debug_info
+        )
+
+        self.assertFalse(result)
+        self.assertTrue(any("does not exist" in msg for msg in self.debug_info))
+
+    @patch("verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.frappe")
+    def test_default_auto_fix_is_false(self, mock_frappe):
+        """Test that auto_fix defaults to False for safety"""
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            ensure_account_type_is_correct,
+        )
+
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.db.get_value.return_value = "Bank"  # Wrong type
+
+        # Call without auto_fix parameter (should default to False)
+        result = ensure_account_type_is_correct(
+            "1100 - Bank - NVV", "Receivable", self.debug_info
+        )
+
+        self.assertFalse(result)
+        mock_frappe.db.set_value.assert_not_called()  # Should NOT modify
 
 
 if __name__ == "__main__":
