@@ -1,13 +1,10 @@
 """
-Consolidated payment utilities for E-Boekhouden integration.
+Payment Entry creation utilities.
 
-This module provides the canonical interface for payment entry creation,
-decoupling processors from the monolith migration file.
+Provides functions for creating Payment Entry documents from mutation data,
+with proper bank account mapping, multi-invoice support, and reconciliation.
 
-Uses PaymentEntryHandler for:
-- Proper bank account mapping from ledger IDs
-- Multi-invoice payment support
-- Automatic payment reconciliation
+Uses PaymentEntryHandler internally for the heavy lifting.
 """
 
 from typing import Any, Dict, List, Optional
@@ -58,7 +55,7 @@ def create_payment_entry(
     )
 
     mutation_id = mutation.get("id")
-    debug_info.append(f"Creating Payment Entry for mutation {mutation_id} via consolidated payment_utils")
+    debug_info.append(f"Creating Payment Entry for mutation {mutation_id}")
 
     try:
         payment_name = _create_payment_entry_impl(mutation, company, cost_center, debug_info)
@@ -79,7 +76,7 @@ def create_payment_entry(
     except Exception as e:
         error_msg = f"Payment creation failed for mutation {mutation_id}: {str(e)}"
         debug_info.append(f"ERROR: {error_msg}")
-        frappe.log_error(error_msg, "Consolidated Payment Utils")
+        frappe.log_error(error_msg, "Payment Entry Creation")
         raise frappe.ValidationError(error_msg)
 
 

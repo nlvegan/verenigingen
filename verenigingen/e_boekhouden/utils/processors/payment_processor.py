@@ -150,7 +150,9 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             # Type 3/4 (Customer/Supplier Payments) use the consolidated payment handler
             # This decouples PaymentProcessor from the monolith migration file
-            from verenigingen.e_boekhouden.utils.consolidated.payment_utils import create_payment_entry
+            from verenigingen.e_boekhouden.utils.consolidated.payment_entry_creation import (
+                create_payment_entry,
+            )
 
             return create_payment_entry(adjusted_mutation, self.company, self.cost_center, self.debug_info)
 
