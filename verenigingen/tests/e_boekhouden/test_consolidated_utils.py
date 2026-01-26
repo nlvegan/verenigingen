@@ -579,8 +579,8 @@ class TestLedgerUtilsAutoCreate(unittest.TestCase):
     def test_fetch_and_create_fails_after_max_retries(self, mock_frappe, mock_time):
         """Test that API calls fail gracefully after max retries exhausted"""
         from verenigingen.e_boekhouden.utils.consolidated.ledger_utils import (
-            _fetch_and_create_single_mapping,
             API_MAX_RETRIES,
+            _fetch_and_create_single_mapping,
         )
 
         # Mock justified: External Service - E-Boekhouden API
@@ -906,6 +906,80 @@ class TestEnsureAccountTypeIsCorrect(unittest.TestCase):
 
         self.assertFalse(result)
         mock_frappe.db.set_value.assert_not_called()  # Should NOT modify
+
+
+class TestPaymentEntryHandlerErrorPath(unittest.TestCase):
+    """Tests for PaymentEntryHandler._determine_bank_account error path logging"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.debug_log = []
+
+    @patch("verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler.nowdate")
+    @patch("verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler.frappe")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.bank_account_utils.resolve_bank_account_for_ledger")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.get_ledger_mapping")
+    def test_error_path_logs_debug_info_and_includes_in_exception(
+        self, mock_get_mapping, mock_resolve, mock_frappe, mock_nowdate
+    ):
+        """Test that debug info from get_ledger_mapping is logged and included in exception"""
+        from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import (
+            PaymentEntryHandler,
+        )
+
+        # Set up frappe mock
+        mock_frappe.ValidationError = frappe.ValidationError
+        mock_frappe.logger.return_value = MagicMock()
+        mock_nowdate.return_value = "2024-01-01"
+
+        # resolve_bank_account_for_ledger returns None (no bank account found)
+        mock_resolve.return_value = None
+
+        # get_ledger_mapping returns code but populates debug_info
+        def mapping_side_effect(ledger_id, company=None, debug_info=None, auto_create=False):
+            if debug_info is not None:
+                debug_info.append(f"No mapping found for ledger_id {ledger_id}")
+                debug_info.append("Tried account_number lookup: not found")
+                debug_info.append("Tried eboekhouden_grootboek_nummer: not found")
+            return ("12345", None)
+
+        mock_get_mapping.side_effect = mapping_side_effect
+
+        # Create handler
+        handler = PaymentEntryHandler(company="NVV", cost_center="Main - NVV")
+
+        # Call _determine_bank_account - should raise ValidationError
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            handler._determine_bank_account(ledger_id=99999, payment_type="Receive")
+
+        # Verify debug messages were logged
+        logged_messages = [msg for msg in handler.debug_log if "mapping" in msg.lower()]
+        self.assertTrue(len(logged_messages) >= 1, "Debug messages should be logged")
+
+        # Verify exception includes debug snippet
+        error_message = str(ctx.exception)
+        self.assertIn("Debug info:", error_message)
+        self.assertIn("not found", error_message.lower())
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.bank_account_utils.resolve_bank_account_for_ledger")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.get_ledger_mapping")
+    def test_error_path_without_debug_info_still_raises(self, mock_get_mapping, mock_resolve):
+        """Test that error is raised even when get_ledger_mapping returns no debug info"""
+        from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import (
+            PaymentEntryHandler,
+        )
+
+        mock_resolve.return_value = None
+        mock_get_mapping.return_value = (None, None)  # No code, no account, no debug
+
+        handler = PaymentEntryHandler(company="NVV", cost_center="Main - NVV")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            handler._determine_bank_account(ledger_id=99999, payment_type="Receive")
+
+        # Should still raise with basic message (no Debug info section)
+        error_message = str(ctx.exception)
+        self.assertIn("No Bank/Cash account found", error_message)
 
 
 if __name__ == "__main__":

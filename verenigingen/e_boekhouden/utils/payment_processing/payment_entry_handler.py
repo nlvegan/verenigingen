@@ -507,10 +507,16 @@ class PaymentEntryHandler:
         )
         for msg in ledger_debug:
             self._log(msg)
-        raise frappe.ValidationError(
+
+        # Include last few debug lines in exception for faster triage
+        error_msg = (
             f"No Bank/Cash account found for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
             f"Please link the ledger mapping to a Bank or Cash account before importing."
         )
+        if ledger_debug:
+            debug_snippet = "\n".join(ledger_debug[-3:])
+            error_msg += f"\n\nDebug info:\n{debug_snippet}"
+        raise frappe.ValidationError(error_msg)
 
     def _get_account_from_pattern(self, description: str, payment_type: str) -> Optional[str]:
         """Match bank account based on description patterns using configurable mapping."""
