@@ -198,12 +198,12 @@ def _create_invoice_line_impl(
         get_or_create_item_improved,
     )
 
-    # Get company from settings - required configuration, no fallback
-    company = frappe.db.get_single_value("E-Boekhouden Settings", "company")
+    # Get company from Verenigingen Settings - required configuration, no fallback
+    company = frappe.db.get_single_value("Verenigingen Settings", "company")
     if not company:
         raise frappe.ValidationError(
-            "E-Boekhouden Settings.company is not configured. "
-            "Please set the company in E-Boekhouden Settings before importing transactions."
+            "Verenigingen Settings.company is not configured. "
+            "Please set the company in Verenigingen Settings before importing transactions."
         )
 
     # Map transaction_type to the format expected by get_or_create_item_improved
