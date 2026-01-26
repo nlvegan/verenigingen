@@ -97,9 +97,12 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
 
         # Note: Using ignore_permissions for automated fiscal year creation during imports
         # Audit: All fiscal year creations are logged in debug_info for traceability
-        fiscal_year.insert(ignore_permissions=True)
-
-        debug_info.append(f"Created fiscal year {fy_name} for transactions in {year}")
+        try:
+            fiscal_year.insert(ignore_permissions=True)
+            debug_info.append(f"Created fiscal year {fy_name} for transactions in {year}")
+        except frappe.DuplicateEntryError:
+            # Another concurrent process created it - this is fine, use the existing one
+            debug_info.append(f"Concurrent fiscal year creation detected for {fy_name}, using existing")
 
         return fy_name
 

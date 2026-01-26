@@ -8,6 +8,8 @@ Modules:
 - account_manager: Consolidated account creation and management (790 → 350 lines)
 - migration_coordinator: Consolidated migration coordination (823 → 400 lines)
 - date_utils: Shared date utilities (fiscal year management)
+- ledger_utils: Canonical ledger ID resolution with auto-create capability
+- bank_account_utils: Bank account resolution for payment processing
 
 Deprecated modules (use alternatives instead):
 - party_manager: DEPRECATED - Use EBoekhoudenPartyResolver from
@@ -21,7 +23,9 @@ from .account_manager import (
     create_account_with_smart_typing,
     get_smart_account_type,
 )
+from .bank_account_utils import resolve_bank_account_for_ledger, resolve_bank_account_or_raise
 from .date_utils import ensure_fiscal_year_exists
+from .ledger_utils import get_ledger_mapping, resolve_ledger_code
 from .migration_coordinator import (
     EBoekhoudenMigrationCoordinator,
     coordinate_migration,
@@ -44,4 +48,8 @@ __all__ = [
     "coordinate_migration",
     "validate_migration_prerequisites",
     "ensure_fiscal_year_exists",
+    "get_ledger_mapping",
+    "resolve_ledger_code",
+    "resolve_bank_account_for_ledger",
+    "resolve_bank_account_or_raise",
 ]

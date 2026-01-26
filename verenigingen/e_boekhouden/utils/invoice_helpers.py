@@ -2,10 +2,10 @@
 import frappe
 from frappe.utils import add_days, flt, getdate, now
 
-# Re-export from canonical location for backward compatibility
-# New code should import directly from:
-#   from verenigingen.e_boekhouden.utils.consolidated.date_utils import ensure_fiscal_year_exists
+# Re-exports from canonical locations for backward compatibility
+# New code should import directly from the consolidated modules
 from .consolidated.date_utils import ensure_fiscal_year_exists  # noqa: F401
+from .consolidated.ledger_utils import resolve_ledger_code  # noqa: F401
 from .field_mapping import (
     ACCOUNT_TYPE_MAP,
     BTW_CODE_MAP,
@@ -17,74 +17,6 @@ from .field_mapping import (
     PRICE_CATEGORY_RANGES,
     UOM_MAP,
 )
-
-
-def resolve_ledger_code(ledger_id, debug_info=None):
-    """
-    Resolve E-Boekhouden ledger_id to actual ledger_code using Ledger Mapping.
-
-    Delegates to the canonical ledger mapping module for the actual lookup.
-
-    E-Boekhouden REST API returns ledgerId (internal database ID like '13201916'),
-    but ERPNext Accounts are indexed by ledger_code (actual account code like '42902').
-
-    Args:
-        ledger_id: E-Boekhouden's internal ledger ID from REST API
-        debug_info: Optional list to append debug messages
-
-    Returns:
-        ledger_code if mapping found, otherwise returns ledger_id unchanged
-    """
-    if not ledger_id:
-        return ledger_id
-
-    try:
-        # Delegate to canonical ledger mapping module
-        from .eboekhouden_ledger_mapping import get_account_code_from_ledger_id
-
-        ledger_code = get_account_code_from_ledger_id(str(ledger_id))
-
-        if ledger_code:
-            if debug_info is not None:
-                debug_info.append(f"Resolved ledger_id {ledger_id} to ledger_code {ledger_code}")
-            return ledger_code
-        else:
-            # No mapping found - ledger_id might already be a ledger_code
-            if debug_info is not None:
-                debug_info.append(f"No mapping found for ledger_id {ledger_id}, using as-is")
-            return ledger_id
-
-    except Exception as e:
-        # If lookup fails, return original value
-        if debug_info is not None:
-            debug_info.append(f"Ledger resolution failed for {ledger_id}: {str(e)}")
-        return ledger_id
-
-
-def get_default_customer():
-    """
-    REMOVED: Generic customer creation disabled to prevent data corruption.
-
-    All customers must be properly resolved from E-Boekhouden API using the party resolver.
-    """
-    frappe.throw(
-        "Generic customer creation has been disabled. All customers must be resolved from E-Boekhouden API.",
-        title="Customer Resolution Required",
-        exc=frappe.ValidationError,
-    )
-
-
-def get_default_supplier():
-    """
-    REMOVED: Generic supplier creation disabled to prevent data corruption.
-
-    All suppliers must be properly resolved from E-Boekhouden API using the party resolver.
-    """
-    frappe.throw(
-        "Generic supplier creation has been disabled. All suppliers must be resolved from E-Boekhouden API.",
-        title="Supplier Resolution Required",
-        exc=frappe.ValidationError,
-    )
 
 
 def get_or_create_payment_terms(days):
