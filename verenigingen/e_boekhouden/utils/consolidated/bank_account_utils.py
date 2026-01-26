@@ -194,3 +194,74 @@ def _get_account_from_pattern(
                     return acc["name"]
 
     return None
+
+
+def convert_gl_account_to_bank_account(
+    gl_account: str,
+    company: str,
+    debug_info: Optional[list] = None,
+) -> str:
+    """
+    Convert a GL Account (Account DocType) to a Bank Account (Bank Account DocType) name.
+
+    Bank Transaction DocType requires a Bank Account name, not a GL Account.
+    E-Boekhouden ledger mappings return GL Accounts like "1120 - ASN - 97.88.80.455 - NVV",
+    but for Bank Transactions we need the Bank Account DocType name like "ASN Main Account".
+
+    Args:
+        gl_account: Could be either a Bank Account name or GL Account name
+        company: Company for filtering Bank Account lookup
+        debug_info: Optional list to append debug messages
+
+    Returns:
+        Bank Account name (guaranteed to be Bank Account DocType)
+
+    Raises:
+        frappe.ValidationError if no Bank Account found for the GL Account
+    """
+    if debug_info is None:
+        debug_info = []
+
+    # Check if it's already a Bank Account (not a GL Account)
+    if frappe.db.exists("Bank Account", gl_account):
+        debug_info.append(f"Using Bank Account directly: {gl_account}")
+        return gl_account
+
+    # It's a GL Account, convert to Bank Account
+    debug_info.append(f"Converting GL Account to Bank Account: {gl_account}")
+
+    # Look up Bank Account that uses this GL Account
+    bank_account_name = frappe.db.get_value(
+        "Bank Account", {"account": gl_account, "company": company}, "name"
+    )
+
+    if bank_account_name:
+        debug_info.append(f"Resolved Bank Account: {bank_account_name} (GL Account: {gl_account})")
+        return bank_account_name
+
+    # Bank Account not found - provide helpful error
+    available_accounts = frappe.get_all(
+        "Bank Account",
+        filters={"company": company, "is_company_account": 1},
+        fields=["name", "account", "bank"],
+        limit=10,
+    )
+
+    error_msg = (
+        f"No Bank Account found for GL Account '{gl_account}' in company {company}.\n\n"
+        f"Available Bank Accounts:\n"
+    )
+
+    for ba in available_accounts:
+        error_msg += f"  - {ba.name} (GL Account: {ba.account}, Bank: {ba.bank})\n"
+
+    if not available_accounts:
+        error_msg += "  (No Bank Accounts configured for this company)\n"
+
+    error_msg += (
+        f"\nPlease create a Bank Account that links to GL Account '{gl_account}', "
+        f"or update your E-Boekhouden Ledger Mapping to use an existing Bank Account."
+    )
+
+    debug_info.append(f"ERROR: {error_msg}")
+    frappe.throw(error_msg, title="Bank Account Configuration Error")

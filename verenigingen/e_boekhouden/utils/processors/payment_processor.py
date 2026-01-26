@@ -9,6 +9,16 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.consolidated.bank_account_utils import (
+    convert_gl_account_to_bank_account,
+)
+from verenigingen.e_boekhouden.utils.consolidated.invoice_line_utils import (
+    create_invoice_line_for_tegenrekening,
+)
+from verenigingen.e_boekhouden.utils.consolidated.ledger_utils import (
+    get_erpnext_account_from_ledger_id,
+    get_ledger_code_from_id,
+)
 from verenigingen.e_boekhouden.utils.data_integrity import (
     insert_with_duplicate_handling,
     mask_pii_in_mutation,
@@ -187,10 +197,8 @@ class PaymentProcessor(BaseTransactionProcessor):
             f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}, Rows={len(rows)}"
         )
 
-        # Get bank account from main ledger - use shared function with auto-create
+        # Get bank account from main ledger - use consolidated ledger utils with auto-create
         ledger_id = mutation.get("ledgerId")
-        from ..eboekhouden_rest_full_migration import get_erpnext_account_from_ledger_id
-
         bank_account = get_erpnext_account_from_ledger_id(
             ledger_id, self.company, self.debug_info, auto_create=True
         )
@@ -211,19 +219,15 @@ class PaymentProcessor(BaseTransactionProcessor):
         gl_account = bank_account
 
         # Convert GL Account to Bank Account name for Bank Transaction creation
-        bank_account_name = self._convert_to_bank_account_name(bank_account)
-        self.debug_info.append(f"Resolved Bank Account: {bank_account_name} (GL Account: {gl_account})")
+        # Uses consolidated utility for consistency across all processors
+        bank_account_name = convert_gl_account_to_bank_account(bank_account, self.company, self.debug_info)
 
         # Process all rows to get target accounts with amounts
         # For multi-line mutations, we need to create one JE line per row
         row_entries = []
         total_row_amount = 0
 
-        from ..eboekhouden_rest_full_migration import (
-            _get_ledger_code_from_id,
-            create_invoice_line_for_tegenrekening,
-            get_erpnext_account_from_ledger_id,
-        )
+        # All utilities now imported at module level from consolidated utils
 
         if rows:
             for idx, row in enumerate(rows):
@@ -255,7 +259,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 
                 if not target_account:
                     # Create appropriate account if mapping failed
-                    ledger_code = _get_ledger_code_from_id(row_ledger_id, self.debug_info)
+                    ledger_code = get_ledger_code_from_id(row_ledger_id, self.debug_info)
 
                     if mutation_type == 5:  # Money Received - need income account
                         line_dict = create_invoice_line_for_tegenrekening(
@@ -1078,69 +1082,6 @@ class PaymentProcessor(BaseTransactionProcessor):
             frappe.logger().warning(f"Could not extract bank name from '{bank_account}': {str(e)}")
 
         return None
-
-    def _convert_to_bank_account_name(self, account: str) -> str:
-        """
-        Convert GL Account to Bank Account name for Bank Transaction creation.
-
-        Bank Transaction DocType requires a Bank Account (DocType) name, not a GL Account.
-        E-Boekhouden ledger mappings return GL Accounts like "1120 - ASN - 97.88.80.455 - NVV",
-        but we need the Bank Account DocType name like "ASN Main Account".
-
-        This conversion is needed for both Frappe v15 and v16 due to ERPNext data model.
-
-        Args:
-            account: Could be either a Bank Account name or GL Account name
-
-        Returns:
-            Bank Account name (guaranteed to be Bank Account DocType)
-
-        Raises:
-            frappe.ValidationError if no Bank Account found for the GL Account
-        """
-        # Check if it's already a Bank Account (not a GL Account)
-        if frappe.db.exists("Bank Account", account):
-            self.debug_info.append(f"Using Bank Account directly: {account}")
-            return account
-
-        # It's a GL Account, convert to Bank Account
-        self.debug_info.append(f"Converting GL Account to Bank Account: {account}")
-
-        # Look up Bank Account that uses this GL Account
-        bank_account_name = frappe.db.get_value(
-            "Bank Account", {"account": account, "company": self.company}, "name"
-        )
-
-        if bank_account_name:
-            self.debug_info.append(f"✓ Resolved Bank Account: {bank_account_name} (GL Account: {account})")
-            return bank_account_name
-
-        # Bank Account not found - provide helpful error
-        available_accounts = frappe.get_all(
-            "Bank Account",
-            filters={"company": self.company, "is_company_account": 1},
-            fields=["name", "account", "bank"],
-            limit=10,
-        )
-
-        error_msg = (
-            f"No Bank Account found for GL Account '{account}' in company {self.company}.\n\n"
-            f"Available Bank Accounts:\n"
-        )
-
-        for ba in available_accounts:
-            error_msg += f"  - {ba.name} (GL Account: {ba.account}, Bank: {ba.bank})\n"
-
-        if not available_accounts:
-            error_msg += "  (No Bank Accounts configured for this company)\n"
-
-        error_msg += (
-            f"\nPlease create a Bank Account that links to GL Account '{account}', "
-            f"or update your E-Boekhouden Ledger Mapping to use an existing Bank Account."
-        )
-
-        self.debug_info.append(f"ERROR: {error_msg}")
-        frappe.throw(error_msg, title="Bank Account Configuration Error")
 
     def _link_bank_transaction_to_journal_entry(
         self, bank_transaction_name: str, journal_entry_name: str, allocated_amount: float

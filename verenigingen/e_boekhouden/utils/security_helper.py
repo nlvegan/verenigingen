@@ -308,9 +308,8 @@ def migration_transaction(
     """
     current_user = frappe.session.user
     start_time = time.time()
-    last_commit_time = start_time
 
-    # Transaction state
+    # Transaction state - includes last_commit_time for time-based auto-commit
     transaction_state = {
         "operations_count": 0,
         "last_commit_count": 0,
@@ -318,6 +317,7 @@ def migration_transaction(
         "rollback_savepoint": None,
         "committed_operations": [],
         "pending_operations": [],
+        "last_commit_time": start_time,  # Track time for auto_commit_interval
     }
 
     try:
@@ -359,10 +359,10 @@ def migration_transaction(
                     }
                 )
 
-                # Auto-commit logic
+                # Auto-commit logic - use state's last_commit_time (updated after each commit)
                 current_time = time.time()
                 operations_since_commit = self.state["operations_count"] - self.state["last_commit_count"]
-                time_since_commit = current_time - last_commit_time
+                time_since_commit = current_time - self.state["last_commit_time"]
 
                 if operations_since_commit >= batch_size or time_since_commit >= auto_commit_interval:
                     self.commit_batch()
@@ -376,6 +376,7 @@ def migration_transaction(
                     self.state["committed_operations"].extend(self.state["pending_operations"])
                     self.state["pending_operations"] = []
                     self.state["last_commit_count"] = self.state["operations_count"]
+                    self.state["last_commit_time"] = time.time()  # Update for time-based auto-commit
 
                     frappe.logger().info(
                         f"Migration batch commit: {self.state['operations_count']} operations "

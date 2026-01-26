@@ -128,6 +128,58 @@ def resolve_ledger_code(
     return ledger_code or str(ledger_id)
 
 
+def get_erpnext_account_from_ledger_id(
+    ledger_id: str,
+    company: str,
+    debug_info: Optional[list] = None,
+    auto_create: bool = False,
+) -> Optional[str]:
+    """
+    Resolve E-Boekhouden ledger_id to ERPNext account only.
+
+    Convenience wrapper around get_ledger_mapping() that returns just the account.
+    This function is API-compatible with the monolith's get_erpnext_account_from_ledger_id.
+
+    Args:
+        ledger_id: E-Boekhouden internal ledger ID
+        company: Company name for account matching
+        debug_info: Optional list to append debug messages
+        auto_create: If True, fetch from API and create mapping when missing
+
+    Returns:
+        ERPNext account name if found, None otherwise
+    """
+    if not ledger_id:
+        return None
+
+    _, erpnext_account = get_ledger_mapping(ledger_id, company, debug_info, auto_create)
+    return erpnext_account
+
+
+def get_ledger_code_from_id(
+    ledger_id: str,
+    debug_info: Optional[list] = None,
+) -> Optional[str]:
+    """
+    Resolve E-Boekhouden ledger_id to ledger_code.
+
+    This function is API-compatible with the monolith's _get_ledger_code_from_id.
+    Unlike resolve_ledger_code(), this does not fall back to the original ledger_id.
+
+    Args:
+        ledger_id: E-Boekhouden internal ledger ID
+        debug_info: Optional list to append debug messages
+
+    Returns:
+        ledger_code if found, None otherwise
+    """
+    if not ledger_id:
+        return None
+
+    ledger_code, _ = get_ledger_mapping(ledger_id, company=None, debug_info=debug_info, auto_create=False)
+    return ledger_code
+
+
 def _update_mapping_erpnext_account(ledger_id: str, erpnext_account: str, debug_info: List[str]) -> None:
     """
     Update the mapping record with the auto-linked ERPNext account.
