@@ -29,6 +29,7 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime
 
+from verenigingen.e_boekhouden.utils.consolidated.progress_utils import update_migration_progress
 from verenigingen.utils.migration.migration_audit_trail import AuditedMigrationOperation, MigrationAuditTrail
 from verenigingen.utils.migration.migration_date_chunking import DateRangeChunker, process_with_date_chunks
 from verenigingen.utils.migration.migration_dry_run import DryRunSimulator
@@ -210,31 +211,20 @@ class EnhancedEBoekhoudenMigration:
         """
         Update migration progress in the document with throttled commits.
 
-        To reduce database churn during migration, commits are throttled to occur
-        only at significant milestones (every 10%) or when explicitly forced.
-        Progress is always written to the database, but commits are batched.
+        Delegates to consolidated progress utility for consistent behavior
+        across all migration modules.
 
         Args:
             operation: Description of current operation for UI display
             percentage: Progress percentage (0-100)
             force_commit: If True, commit immediately regardless of percentage
         """
-        try:
-            self.migration_doc.db_set(
-                {
-                    "current_operation": operation,
-                    "progress_percentage": percentage,
-                }
-            )
-
-            # Throttle commits: only at 10% intervals, 0%, 100%, or when forced
-            should_commit = force_commit or percentage == 0 or percentage == 100 or (percentage % 10 == 0)
-            if should_commit:
-                frappe.db.commit()
-
-        except Exception as e:
-            # Don't fail migration if progress update fails
-            frappe.log_error(f"Failed to update progress: {str(e)}", "Migration Progress")
+        update_migration_progress(
+            self.migration_doc,
+            operation,
+            percentage,
+            force_commit=force_commit,
+        )
 
     def execute_migration(self):
         """

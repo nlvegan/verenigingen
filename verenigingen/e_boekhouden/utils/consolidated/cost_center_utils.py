@@ -181,6 +181,66 @@ def get_chapter_cost_center(
     return result
 
 
+def get_default_cost_center_or_raise(
+    company: str,
+    debug_info: Optional[list] = None,
+    exclude_patterns: Optional[List[str]] = None,
+) -> str:
+    """
+    Get the default cost center for a company, raising ValidationError if not found.
+
+    Same as get_default_cost_center() but raises instead of returning None.
+    Use this when a cost center is required and the operation cannot proceed without one.
+
+    Args:
+        company: Company name
+        debug_info: Optional list to append debug messages
+        exclude_patterns: Additional patterns to exclude (case-insensitive)
+
+    Returns:
+        Cost center name (guaranteed non-None)
+
+    Raises:
+        frappe.ValidationError if no cost center found for the company
+
+    Example:
+        >>> cc = get_default_cost_center_or_raise("NVV")
+        >>> print(cc)  # "Main - NVV"
+    """
+    if debug_info is None:
+        debug_info = []
+
+    cost_center = get_default_cost_center(company, debug_info, exclude_patterns)
+
+    if cost_center:
+        return cost_center
+
+    # Cost center not found - provide helpful error message
+    available_cost_centers = frappe.get_all(
+        "Cost Center",
+        filters={"company": company, "is_group": 0},
+        fields=["name", "cost_center_name"],
+        limit=10,
+    )
+
+    error_msg = f"No cost center found for company '{company}'.\n\n"
+
+    if available_cost_centers:
+        error_msg += "Available cost centers:\n"
+        for cc in available_cost_centers:
+            error_msg += f"  - {cc.name} ({cc.cost_center_name})\n"
+    else:
+        error_msg += "(No cost centers configured for this company)\n"
+
+    error_msg += (
+        f"\nPlease configure a default cost center for company '{company}', "
+        f"or create a cost center named 'Main'."
+    )
+
+    debug_info.append(f"ERROR: {error_msg}")
+    frappe.throw(error_msg, title="Cost Center Configuration Error")
+
+
 def _get_company_default_cost_center(company: str) -> Optional[str]:
     """Get the company's configured default cost center."""
     try:

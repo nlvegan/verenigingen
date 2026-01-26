@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 
 from verenigingen.e_boekhouden.utils.consolidated.account_manager import EBoekhoudenAccountManager
+from verenigingen.e_boekhouden.utils.consolidated.progress_utils import MigrationProgressTracker
 from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, migration_transaction
 
@@ -44,14 +45,13 @@ class EBoekhoudenMigrationCoordinator:
 
         # Migration state
         self.migration_log = []
-        self.progress_tracker = {
-            "phase": None,
-            "total_operations": 0,
-            "completed_operations": 0,
-            "errors": [],
-            "start_time": None,
-            "current_operation": None,
-        }
+
+        # Use consolidated progress tracker
+        self._progress = MigrationProgressTracker()
+
+        # Legacy progress_tracker dict for backwards compatibility
+        # Delegates to consolidated tracker internally
+        self.progress_tracker = self._progress.state
 
     def coordinate_full_migration(self, migration_config: Dict) -> Dict:
         """
@@ -185,20 +185,8 @@ class EBoekhoudenMigrationCoordinator:
         return results
 
     def track_progress(self) -> Dict:
-        """Get current migration progress."""
-        progress = self.progress_tracker.copy()
-
-        if progress["total_operations"] > 0:
-            progress["completion_percentage"] = (
-                progress["completed_operations"] / progress["total_operations"] * 100
-            )
-        else:
-            progress["completion_percentage"] = 0
-
-        if progress["start_time"]:
-            progress["elapsed_time"] = (datetime.now() - progress["start_time"]).total_seconds()
-
-        return progress
+        """Get current migration progress using consolidated tracker."""
+        return self._progress.get_progress()
 
     def get_migration_summary(self) -> Dict:
         """Get comprehensive migration summary."""

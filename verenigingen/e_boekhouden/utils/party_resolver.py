@@ -1,8 +1,35 @@
 # Enhanced party management for E-Boekhouden integration
 import json
+import re
+from typing import Dict, List, Optional, Tuple
 
 import frappe
-from frappe.utils import add_days, now, today
+from frappe.utils import now
+
+# Party type configuration - defines differences between Customer and Supplier
+PARTY_CONFIG = {
+    "Customer": {
+        "doctype": "Customer",
+        "name_field": "customer_name",
+        "type_field": "customer_type",
+        "group_field": "customer_group",
+        "default_group": "All Customer Groups",
+        "territory_field": "territory",
+        "default_territory": "All Territories",
+        "provisional_prefix": "E-Boekhouden Customer",
+    },
+    "Supplier": {
+        "doctype": "Supplier",
+        "name_field": "supplier_name",
+        "type_field": "supplier_type",
+        "group_field": "supplier_group",
+        "default_group": "All Supplier Groups",
+        "territory_field": None,  # Suppliers don't have territory
+        "default_territory": None,
+        "provisional_prefix": "Supplier",
+        "provisional_suffix": "(eBoekhouden)",
+    },
+}
 
 
 class EBoekhoudenPartyResolver:
@@ -18,46 +45,7 @@ class EBoekhoudenPartyResolver:
 
         ALWAYS fetches fresh API data and updates existing customers if better data is available.
         """
-        if debug_info is None:
-            debug_info = []
-
-        if not relation_id:
-            debug_info.append("No relation ID provided, using default customer")
-            return self.get_default_customer()
-
-        # Step 1: ALWAYS try to fetch fresh data from E-Boekhouden API first (SSoT approach)
-        relation_details = None
-        try:
-            relation_details = self.fetch_relation_details(relation_id, debug_info)
-        except Exception as e:
-            debug_info.append(f"API fetch failed for relation {relation_id}: {str(e)}")
-
-        # Step 2: Check if customer already exists
-        existing = frappe.db.get_value(
-            "Customer",
-            {"eboekhouden_relation_code": str(relation_id)},
-            ["name", "customer_name"],
-            as_dict=True,
-        )
-
-        if existing:
-            debug_info.append(f"Found existing customer: {existing['customer_name']} ({existing['name']})")
-
-            # Step 3: Update existing customer with fresh API data if available
-            if relation_details:
-                updated = self.update_customer_with_fresh_data(existing["name"], relation_details, debug_info)
-                if updated:
-                    debug_info.append(f"Updated customer {existing['name']} with fresh API data")
-
-            return existing["name"]
-
-        # Step 4: Create new customer from API data if available
-        if relation_details:
-            return self.create_customer_from_relation(relation_details, debug_info)
-
-        # Step 5: Only create provisional customer if API is completely unavailable
-        debug_info.append(f"API unavailable for relation {relation_id}, creating provisional customer")
-        return self.create_provisional_customer(relation_id, debug_info)
+        return self._resolve_party("Customer", relation_id, debug_info)
 
     def resolve_supplier(self, relation_id, debug_info=None):
         """
@@ -65,12 +53,37 @@ class EBoekhoudenPartyResolver:
 
         ALWAYS fetches fresh API data and updates existing suppliers if better data is available.
         """
+        return self._resolve_party("Supplier", relation_id, debug_info)
+
+    def _resolve_party(self, party_type: str, relation_id, debug_info=None):
+        """
+        Generic party resolution logic used by both resolve_customer and resolve_supplier.
+
+        Steps:
+            1. Fetch fresh data from E-Boekhouden API (SSoT approach)
+            2. Check if party already exists by relation code
+            3. Update existing party with fresh API data if available
+            4. Create new party from API data if available
+            5. Create provisional party if API is unavailable
+
+        Args:
+            party_type: "Customer" or "Supplier"
+            relation_id: E-Boekhouden relation ID
+            debug_info: Optional list for debug messages
+
+        Returns:
+            Party document name
+        """
         if debug_info is None:
             debug_info = []
 
+        config = PARTY_CONFIG[party_type]
+        doctype = config["doctype"]
+        name_field = config["name_field"]
+
         if not relation_id:
-            debug_info.append("No relation ID provided, using default supplier")
-            return self.get_default_supplier()
+            debug_info.append(f"No relation ID provided, using default {party_type.lower()}")
+            return self._get_default_party(party_type)
 
         # Step 1: ALWAYS try to fetch fresh data from E-Boekhouden API first (SSoT approach)
         relation_details = None
@@ -79,32 +92,38 @@ class EBoekhoudenPartyResolver:
         except Exception as e:
             debug_info.append(f"API fetch failed for relation {relation_id}: {str(e)}")
 
-        # Step 2: Check if supplier already exists
+        # Step 2: Check if party already exists
         existing = frappe.db.get_value(
-            "Supplier",
+            doctype,
             {"eboekhouden_relation_code": str(relation_id)},
-            ["name", "supplier_name"],
+            ["name", name_field],
             as_dict=True,
         )
 
         if existing:
-            debug_info.append(f"Found existing supplier: {existing['supplier_name']} ({existing['name']})")
+            debug_info.append(
+                f"Found existing {party_type.lower()}: {existing[name_field]} ({existing['name']})"
+            )
 
-            # Step 3: Update existing supplier with fresh API data if available
+            # Step 3: Update existing party with fresh API data if available
             if relation_details:
-                updated = self.update_supplier_with_fresh_data(existing["name"], relation_details, debug_info)
+                updated = self._update_party_with_fresh_data(
+                    party_type, existing["name"], relation_details, debug_info
+                )
                 if updated:
-                    debug_info.append(f"Updated supplier {existing['name']} with fresh API data")
+                    debug_info.append(f"Updated {party_type.lower()} {existing['name']} with fresh API data")
 
             return existing["name"]
 
-        # Step 4: Create new supplier from API data if available
+        # Step 4: Create new party from API data if available
         if relation_details:
-            return self.create_supplier_from_relation(relation_details, debug_info)
+            return self._create_party_from_relation(party_type, relation_details, debug_info)
 
-        # Step 5: Only create provisional supplier if API is completely unavailable
-        debug_info.append(f"API unavailable for relation {relation_id}, creating provisional supplier")
-        return self.create_provisional_supplier(relation_id, debug_info)
+        # Step 5: Only create provisional party if API is completely unavailable
+        debug_info.append(
+            f"API unavailable for relation {relation_id}, creating provisional {party_type.lower()}"
+        )
+        return self._create_provisional_party(party_type, relation_id, debug_info)
 
     def fetch_relation_details(self, relation_id, debug_info=None):
         """Fetch relation details from E-Boekhouden REST API"""
@@ -127,7 +146,6 @@ class EBoekhoudenPartyResolver:
                 debug_info.append(f"Successfully fetched relation details for {relation_id}")
 
                 # Log what fields we actually received
-                # Check REST API fields and legacy Dutch (SOAP) field names
                 important_fields = [
                     "name",
                     "type",
@@ -165,471 +183,394 @@ class EBoekhoudenPartyResolver:
             debug_info.append(f"Exception fetching relation {relation_id}: {str(e)}")
             return None
 
-    def create_customer_from_relation(self, relation_details, debug_info=None):
-        """Create customer with proper details from relation data"""
+    def _extract_party_name_and_type(
+        self, relation_details: Dict, party_type: str, debug_info: List
+    ) -> Tuple[str, str]:
+        """
+        Extract party name and type from relation details.
+
+        Handles multiple field name conventions (REST API vs legacy SOAP).
+
+        Args:
+            relation_details: API response data
+            party_type: "Customer" or "Supplier"
+            debug_info: Debug log list
+
+        Returns:
+            Tuple of (party_name, entity_type) where entity_type is "Company" or "Individual"
+        """
+        # Try REST API "name" field first
+        relation_name = relation_details.get("name")
+        relation_type_code = relation_details.get("type", "P")  # B=Business, P=Personal
+
+        if relation_name and relation_name.strip():
+            entity_type = "Company" if relation_type_code == "B" else "Individual"
+            return relation_name.strip(), entity_type
+
+        # Fallback to legacy Dutch field names
+        company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
+        first_name = relation_details.get("voornaam") or relation_details.get("firstName")
+        last_name = relation_details.get("achternaam") or relation_details.get("lastName")
+
+        if company_name and company_name.strip():
+            return company_name.strip(), "Company"
+
+        if first_name or last_name:
+            full_name = f"{first_name or ''} {last_name or ''}".strip()
+            if full_name:
+                return full_name, "Individual"
+
+        # Try description-based name extraction
+        party_name = self._extract_name_from_description(debug_info)
+        if party_name:
+            debug_info.append(f"Using description-based name: {party_name}")
+            return party_name, "Individual"
+
+        # Supplier-specific: try additional name fields
+        if party_type == "Supplier":
+            fallback_name = self._extract_supplier_fallback_name(relation_details, debug_info)
+            if fallback_name:
+                return fallback_name, "Company"
+
+        # Final fallback
+        relation_id = relation_details.get("id", "Unknown")
+        if party_type == "Customer":
+            return f"E-Boekhouden Relation {relation_id}", "Individual"
+        else:
+            return f"Supplier {relation_id} (eBoekhouden)", "Individual"
+
+    def _extract_name_from_description(self, debug_info: List) -> Optional[str]:
+        """Try to extract a meaningful name from debug info descriptions."""
+        if not debug_info:
+            return None
+
+        try:
+            from .eboekhouden_payment_naming import get_meaningful_description
+
+            for info in debug_info:
+                if "description" in info.lower():
+                    try:
+                        meaningful_desc = get_meaningful_description({"description": info})
+                        if meaningful_desc and len(meaningful_desc) > 5:
+                            return f"{meaningful_desc[:40]} (eBoekhouden Import)"
+                    except Exception:
+                        pass
+        except ImportError:
+            pass
+
+        return None
+
+    def _extract_supplier_fallback_name(self, relation_details: Dict, debug_info: List) -> Optional[str]:
+        """Extract fallback name for suppliers from additional fields."""
+        # Check for any field containing name-like data
+        name_fields = ["companyName", "company", "bedrijf", "naam", "contactName", "contact"]
+        for field in name_fields:
+            if relation_details.get(field):
+                return relation_details[field][:50]
+
+        # Try to extract from address fields
+        address_fields = ["street", "straat", "address"]
+        for field in address_fields:
+            addr = relation_details.get(field)
+            if addr and len(addr) > 3 and not addr.isdigit():
+                name_match = re.match(r"^([A-Za-z\s&.-]+)", addr)
+                if name_match:
+                    potential_name = name_match.group(1).strip()
+                    if len(potential_name) > 3:
+                        debug_info.append(f"Using extracted fallback name from address: {potential_name}")
+                        return f"{potential_name} (eBoekhouden)"
+
+        return None
+
+    def _handle_duplicate_name(
+        self, party_type: str, proposed_name: str, relation_id: str, debug_info: List
+    ) -> Tuple[str, bool]:
+        """
+        Handle duplicate party name scenarios.
+
+        Args:
+            party_type: "Customer" or "Supplier"
+            proposed_name: The proposed party name
+            relation_id: E-Boekhouden relation ID
+            debug_info: Debug log list
+
+        Returns:
+            Tuple of (final_name, already_exists) where already_exists means
+            we found the exact same party and should return it directly
+        """
+        config = PARTY_CONFIG[party_type]
+        doctype = config["doctype"]
+
+        # Truncate to ERPNext name field limit
+        proposed_name = proposed_name[:140]
+
+        if not frappe.db.exists(doctype, proposed_name):
+            return proposed_name, False
+
+        # Check if it's the same relation (missed in earlier check)
+        existing_relation_code = frappe.db.get_value(doctype, proposed_name, "eboekhouden_relation_code")
+
+        if existing_relation_code == str(relation_id):
+            debug_info.append(f"{party_type} {proposed_name} already exists with same relation code")
+            return proposed_name, True  # Already exists - return directly
+
+        # Different relation - make name unique
+        unique_name = f"{proposed_name[:120]} ({relation_id})"
+
+        # Check if unique name already exists (from partial retry)
+        if frappe.db.exists(doctype, unique_name):
+            debug_info.append(f"{party_type} {unique_name} already exists (from previous attempt)")
+            return unique_name, True
+
+        debug_info.append(
+            f"{party_type} name '{proposed_name}' exists with different relation, using unique name: {unique_name}"
+        )
+        return unique_name, False
+
+    def _create_party_from_relation(self, party_type: str, relation_details: Dict, debug_info=None) -> str:
+        """
+        Create party (Customer or Supplier) from relation details.
+
+        Args:
+            party_type: "Customer" or "Supplier"
+            relation_details: API response data
+            debug_info: Optional debug log list
+
+        Returns:
+            Created party document name
+        """
         if debug_info is None:
             debug_info = []
 
-        customer = frappe.new_doc("Customer")
+        config = PARTY_CONFIG[party_type]
+        doctype = config["doctype"]
+        name_field = config["name_field"]
+        type_field = config["type_field"]
+        group_field = config["group_field"]
 
-        # Determine customer name from E-Boekhouden REST API
-        # According to swagger spec, relations have a "name" field and "type" field (B=Business, P=Personal)
-        relation_name = relation_details.get("name")
-        relation_type = relation_details.get("type", "P")  # Default to Personal if not specified
+        # Create new document
+        party = frappe.new_doc(doctype)
 
-        if relation_name:
-            customer_name = relation_name
-            customer_type = "Company" if relation_type == "B" else "Individual"
-        else:
-            # Fallback to legacy Dutch field names for backwards compatibility
-            company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
-            first_name = relation_details.get("voornaam") or relation_details.get("firstName")
-            last_name = relation_details.get("achternaam") or relation_details.get("lastName")
+        # Extract name and type
+        party_name, entity_type = self._extract_party_name_and_type(relation_details, party_type, debug_info)
 
-            if company_name:
-                customer_name = company_name
-                customer_type = "Company"
-            else:
-                customer_name = f"{first_name or ''} {last_name or ''}".strip()
-                customer_type = "Individual"
+        # Handle duplicate names
+        final_name, already_exists = self._handle_duplicate_name(
+            party_type, party_name, relation_details["id"], debug_info
+        )
 
-        if not customer_name or customer_name.isspace():
-            # Try to extract name from description if available
-            if debug_info and len(debug_info) > 0:
-                # Look for description in debug info
-                from .eboekhouden_payment_naming import get_meaningful_description
+        if already_exists:
+            return final_name
 
-                for info in debug_info:
-                    if "description" in info.lower():
-                        try:
-                            meaningful_desc = get_meaningful_description({"description": info})
-                            if meaningful_desc and len(meaningful_desc) > 5:
-                                customer_name = f"{meaningful_desc[:40]} (eBoekhouden Import)"
-                                debug_info.append(f"Using description-based name: {customer_name}")
-                                break
-                        except ImportError as e:
-                            frappe.log_error(
-                                message=f"Failed to import get_meaningful_description function: {str(e)}",
-                                title="Party Resolver - Import Error",
-                                reference_doctype="Customer",
-                                reference_name=relation_details.get("id", "Unknown"),
-                            )
-                            pass
-                        except Exception as e:
-                            frappe.log_error(
-                                message=f"Failed to get meaningful description from debug info '{info}': {str(e)}",
-                                title="Party Resolver - Description Processing Error",
-                                reference_doctype="Customer",
-                                reference_name=relation_details.get("id", "Unknown"),
-                            )
-                            pass
+        # Set party fields
+        setattr(party, name_field, final_name)
+        setattr(party, type_field, entity_type)
+        setattr(party, group_field, config["default_group"])
 
-            # Final fallback
-            if not customer_name or customer_name.isspace():
-                customer_name = f"E-Boekhouden Relation {relation_details['id']}"
+        # Customer-specific: territory
+        if config.get("territory_field"):
+            setattr(party, config["territory_field"], config["default_territory"])
 
-        customer.customer_name = customer_name
-        customer.customer_type = customer_type
-        customer.customer_group = "All Customer Groups"
-        customer.territory = "All Territories"
-
-        # Check if a customer with this name already exists (different relation)
-        # This handles cases where same person/company has multiple relation IDs
-        proposed_name = customer_name[:140]  # ERPNext name field limit
-        existing_with_name = frappe.db.exists("Customer", proposed_name)
-
-        if existing_with_name:
-            # Check if it's the same relation but somehow missed in the earlier check
-            existing_relation_code = frappe.db.get_value(
-                "Customer", proposed_name, "eboekhouden_relation_code"
-            )
-            if existing_relation_code == str(relation_details["id"]):
-                # It's the same customer, return it instead of creating duplicate
-                debug_info.append(f"Customer {proposed_name} already exists with same relation code")
-                return proposed_name
-            else:
-                # Different relation, make name unique by appending relation ID
-                proposed_name = f"{customer_name[:120]} ({relation_details['id']})"
-
-                # Check if this unique name already exists (e.g., from partial retry)
-                if frappe.db.exists("Customer", proposed_name):
-                    debug_info.append(f"Customer {proposed_name} already exists (from previous attempt)")
-                    return proposed_name
-
-                # IMPORTANT: Must also update customer_name because ERPNext's autoname()
-                # sets self.name = self.customer_name when cust_master_name = "Customer Name"
-                customer.customer_name = proposed_name
-                debug_info.append(
-                    f"Customer name '{customer_name}' exists with different relation, using unique name: {proposed_name}"
-                )
-
-        # Force the document name to use the customer name instead of auto-generated ID
-        # This prevents "E-Boekhouden Relation 123" showing in UI
-        customer.name = proposed_name
+        # Force document name
+        party.name = final_name
 
         # Store relation ID for future matching
-        customer.eboekhouden_relation_code = str(relation_details["id"])
+        party.eboekhouden_relation_code = str(relation_details["id"])
 
-        # Add contact information if available
+        # Add contact information
         if relation_details.get("email"):
-            customer.email_id = relation_details["email"]
+            party.email_id = relation_details["email"]
 
-        # Add address information
-        if any(
-            [relation_details.get("adres"), relation_details.get("postcode"), relation_details.get("plaats")]
-        ):
-            self.add_customer_address(customer, relation_details, debug_info)
-
-        # Add phone number
         if relation_details.get("telefoon"):
-            customer.mobile_no = relation_details["telefoon"]
-
-        # Add tax ID if available
-        if relation_details.get("btwNummer"):
-            customer.tax_id = relation_details["btwNummer"]
-
-        customer.insert()
-        debug_info.append(f"Created customer from relation data: {customer.name} ({customer_name})")
-
-        # Create contact if we have contact details
-        if relation_details.get("email") or relation_details.get("telefoon"):
-            self.create_contact(customer, relation_details, debug_info)
-
-        return customer.name
-
-    def create_supplier_from_relation(self, relation_details, debug_info=None):
-        """Create supplier with proper details from relation data"""
-        if debug_info is None:
-            debug_info = []
-
-        supplier = frappe.new_doc("Supplier")
-
-        # Determine supplier name from E-Boekhouden REST API
-        # According to swagger spec, relations have a "name" field and "type" field (B=Business, P=Personal)
-        relation_name = relation_details.get("name")
-        relation_type = relation_details.get("type", "P")  # Default to Personal if not specified
-
-        if relation_name:
-            supplier_name = relation_name
-            supplier_type = "Company" if relation_type == "B" else "Individual"
-        else:
-            # Fallback to legacy Dutch field names for backwards compatibility
-            company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
-            first_name = relation_details.get("voornaam") or relation_details.get("firstName")
-            last_name = relation_details.get("achternaam") or relation_details.get("lastName")
-
-            if company_name:
-                supplier_name = company_name
-                supplier_type = "Company"
-            else:
-                supplier_name = f"{first_name or ''} {last_name or ''}".strip()
-                supplier_type = "Individual"
-
-        if not supplier_name or supplier_name.isspace():
-            # Try to extract name from description if available
-            if debug_info and len(debug_info) > 0:
-                # Look for description in debug info
-                from .eboekhouden_payment_naming import get_meaningful_description
-
-                for info in debug_info:
-                    if "description" in info.lower():
-                        try:
-                            meaningful_desc = get_meaningful_description({"description": info})
-                            if meaningful_desc and len(meaningful_desc) > 5:
-                                supplier_name = f"{meaningful_desc[:40]} (eBoekhouden Import)"
-                                debug_info.append(f"Using description-based name: {supplier_name}")
-                                break
-                        except ImportError as e:
-                            frappe.log_error(
-                                message=f"Failed to import get_meaningful_description function for supplier: {str(e)}",
-                                title="Party Resolver - Import Error (Supplier)",
-                                reference_doctype="Supplier",
-                                reference_name=relation_details.get("id", "Unknown"),
-                            )
-                            pass
-                        except Exception as e:
-                            frappe.log_error(
-                                message=f"Failed to get meaningful description from debug info '{info}' for supplier: {str(e)}",
-                                title="Party Resolver - Description Processing Error (Supplier)",
-                                reference_doctype="Supplier",
-                                reference_name=relation_details.get("id", "Unknown"),
-                            )
-                            pass
-
-            # Final fallback - try to extract meaningful name from any available data
-            if not supplier_name or supplier_name.isspace():
-                # Try to extract from any other fields that might contain a name
-                fallback_name = None
-
-                # Check for any field containing name-like data
-                name_fields = ["companyName", "company", "bedrijf", "naam", "contactName", "contact"]
-                for field in name_fields:
-                    if relation_details.get(field):
-                        fallback_name = relation_details[field]
-                        break
-
-                # If still no name, check address fields for business names
-                if not fallback_name:
-                    address_fields = ["street", "straat", "address"]
-                    for field in address_fields:
-                        addr = relation_details.get(field)
-                        if addr and len(addr) > 3 and not addr.isdigit():
-                            # Extract potential business name from address (before street number)
-                            import re
-
-                            name_match = re.match(r"^([A-Za-z\s&.-]+)", addr)
-                            if name_match:
-                                potential_name = name_match.group(1).strip()
-                                if len(potential_name) > 3:
-                                    fallback_name = f"{potential_name} (eBoekhouden)"
-                                    break
-
-                if fallback_name:
-                    supplier_name = fallback_name[:50]  # Limit length
-                    debug_info.append(f"Using extracted fallback name: {supplier_name}")
-                else:
-                    # Last resort: include relation ID but make it more descriptive
-                    supplier_name = f"Supplier {relation_details['id']} (eBoekhouden)"
-                    debug_info.append(f"Using final fallback name: {supplier_name}")
-
-        supplier.supplier_name = supplier_name
-        supplier.supplier_type = supplier_type
-        supplier.supplier_group = "All Supplier Groups"
-
-        # Check if a supplier with this name already exists (different relation)
-        # This handles cases where same person/company has multiple relation IDs
-        proposed_name = supplier_name[:140]  # ERPNext name field limit
-        existing_with_name = frappe.db.exists("Supplier", proposed_name)
-
-        if existing_with_name:
-            # Check if it's the same relation but somehow missed in the earlier check
-            existing_relation_code = frappe.db.get_value(
-                "Supplier", proposed_name, "eboekhouden_relation_code"
-            )
-            if existing_relation_code == str(relation_details["id"]):
-                # It's the same supplier, return it instead of creating duplicate
-                debug_info.append(f"Supplier {proposed_name} already exists with same relation code")
-                return proposed_name
-            else:
-                # Different relation, make name unique by appending relation ID
-                proposed_name = f"{supplier_name[:120]} ({relation_details['id']})"
-
-                # Check if this unique name already exists (e.g., from partial retry)
-                if frappe.db.exists("Supplier", proposed_name):
-                    debug_info.append(f"Supplier {proposed_name} already exists (from previous attempt)")
-                    return proposed_name
-
-                # IMPORTANT: Must also update supplier_name because ERPNext's autoname()
-                # sets self.name = self.supplier_name when supp_master_name = "Supplier Name"
-                supplier.supplier_name = proposed_name
-                debug_info.append(
-                    f"Supplier name '{supplier_name}' exists with different relation, using unique name: {proposed_name}"
-                )
-
-        # Force the document name to use the supplier name instead of auto-generated ID
-        # This prevents "E-Boekhouden Relation 123" showing in UI
-        supplier.name = proposed_name
-
-        # Store relation ID
-        supplier.eboekhouden_relation_code = str(relation_details["id"])
+            party.mobile_no = relation_details["telefoon"]
 
         # Add tax ID
         if relation_details.get("btwNummer"):
-            supplier.tax_id = relation_details["btwNummer"]
+            party.tax_id = relation_details["btwNummer"]
 
-        supplier.insert()
-        debug_info.append(f"Created supplier from relation data: {supplier.name} ({supplier_name})")
+        # Insert party
+        party.insert()
+        debug_info.append(f"Created {party_type.lower()} from relation data: {party.name} ({party_name})")
 
-        # Create contact and address
+        # Create contact if we have contact details
         if relation_details.get("email") or relation_details.get("telefoon"):
-            self.create_contact(supplier, relation_details, debug_info)
+            self.create_contact(party, relation_details, debug_info)
 
+        # Add address if available
         if any(
             [relation_details.get("adres"), relation_details.get("postcode"), relation_details.get("plaats")]
         ):
-            self.add_supplier_address(supplier, relation_details, debug_info)
+            self._add_party_address(party, relation_details, debug_info)
 
-        return supplier.name
+        return party.name
+
+    def _update_party_with_fresh_data(
+        self, party_type: str, party_name: str, relation_details: Dict, debug_info=None
+    ) -> bool:
+        """
+        Update existing party with fresh API data from E-Boekhouden.
+
+        Args:
+            party_type: "Customer" or "Supplier"
+            party_name: Existing party document name
+            relation_details: Fresh API data
+            debug_info: Optional debug log list
+
+        Returns:
+            True if party was updated with better data, False otherwise
+        """
+        if debug_info is None:
+            debug_info = []
+
+        config = PARTY_CONFIG[party_type]
+        doctype = config["doctype"]
+        name_field = config["name_field"]
+        type_field = config["type_field"]
+
+        try:
+            party = frappe.get_doc(doctype, party_name)
+
+            # Extract better name from API data
+            better_name, entity_type = self._extract_party_name_and_type(
+                relation_details, party_type, debug_info
+            )
+            current_name = getattr(party, name_field)
+
+            # Only update if current name looks provisional
+            if (
+                better_name
+                and not current_name.startswith("E-Boekhouden")
+                and "eBoekhouden" not in current_name
+            ):
+                debug_info.append(f"{party_type} {party_name} already has good name: {current_name}")
+                return False
+
+            if better_name and better_name != current_name:
+                setattr(party, name_field, better_name)
+                setattr(party, type_field, entity_type)
+
+                # Update other fields if available and not set
+                if relation_details.get("email") and not party.get("email_id"):
+                    party.email_id = relation_details["email"]
+
+                if relation_details.get("btwNummer") and not party.get("tax_id"):
+                    party.tax_id = relation_details["btwNummer"]
+
+                party.save()
+                debug_info.append(f"Updated {party_type.lower()} name: '{current_name}' → '{better_name}'")
+                return True
+
+            return False
+
+        except Exception as e:
+            debug_info.append(f"Failed to update {party_type.lower()} {party_name}: {str(e)}")
+            return False
+
+    def _create_provisional_party(self, party_type: str, relation_id, debug_info=None) -> str:
+        """
+        Create provisional party for later enrichment.
+
+        Args:
+            party_type: "Customer" or "Supplier"
+            relation_id: E-Boekhouden relation ID
+            debug_info: Optional debug log list
+
+        Returns:
+            Created party document name
+        """
+        if debug_info is None:
+            debug_info = []
+
+        config = PARTY_CONFIG[party_type]
+        doctype = config["doctype"]
+        name_field = config["name_field"]
+        group_field = config["group_field"]
+
+        # Build provisional name
+        if party_type == "Customer":
+            provisional_name = f"{config['provisional_prefix']} {relation_id}"
+        else:
+            provisional_name = (
+                f"{config['provisional_prefix']} {relation_id} {config.get('provisional_suffix', '')}"
+            )
+            provisional_name = provisional_name.strip()
+
+        # Check if already exists
+        if frappe.db.exists(doctype, {name_field: provisional_name}):
+            existing_name = frappe.db.get_value(doctype, {name_field: provisional_name}, "name")
+            debug_info.append(f"Provisional {party_type.lower()} already exists: {existing_name}")
+            return existing_name
+
+        # Create new provisional party
+        party = frappe.new_doc(doctype)
+        setattr(party, name_field, provisional_name)
+        setattr(party, group_field, config["default_group"])
+
+        if config.get("territory_field"):
+            setattr(party, config["territory_field"], config["default_territory"])
+
+        party.eboekhouden_relation_code = str(relation_id)
+
+        # For suppliers, set document name explicitly
+        if party_type == "Supplier":
+            party.name = provisional_name[:140]
+
+        party.insert()
+
+        debug_info.append(f"Created provisional {party_type.lower()}: {party.name}")
+        debug_info.append(f"{party_type} {party.name} marked for future enrichment")
+
+        return party.name
+
+    def _get_default_party(self, party_type: str):
+        """
+        REMOVED: Generic party creation disabled to prevent data corruption.
+
+        All parties must be properly resolved from E-Boekhouden API.
+        If this function is called, it indicates an API failure or missing relation data.
+        """
+        error_msg = (
+            f"{party_type.upper()} RESOLUTION FAILED: No {party_type.lower()} could be resolved from E-Boekhouden API. "
+            f"This indicates either an API connectivity issue or missing relation data. "
+            f"Generic {party_type.lower()} creation has been disabled to prevent data corruption. "
+            f"Please check API connectivity and ensure all relation IDs exist in E-Boekhouden."
+        )
+
+        frappe.logger().error(f"PARTY RESOLUTION FAILURE: {error_msg}")
+        frappe.throw(error_msg, title=f"{party_type} Resolution Required", exc=frappe.ValidationError)
+
+    # Keep legacy methods as thin wrappers for backwards compatibility
+    def create_customer_from_relation(self, relation_details, debug_info=None):
+        """Create customer with proper details from relation data"""
+        return self._create_party_from_relation("Customer", relation_details, debug_info)
+
+    def create_supplier_from_relation(self, relation_details, debug_info=None):
+        """Create supplier with proper details from relation data"""
+        return self._create_party_from_relation("Supplier", relation_details, debug_info)
 
     def update_customer_with_fresh_data(self, customer_name, relation_details, debug_info=None):
-        """
-        Update existing customer with fresh API data from E-Boekhouden.
-
-        Returns True if customer was updated with better data, False otherwise.
-        """
-        if debug_info is None:
-            debug_info = []
-
-        try:
-            customer = frappe.get_doc("Customer", customer_name)
-
-            # Determine if we have better name data from API
-            relation_name = relation_details.get("name")
-            relation_type = relation_details.get("type", "P")
-
-            current_name = customer.customer_name
-            better_name = None
-
-            if relation_name and relation_name.strip():
-                better_name = relation_name.strip()
-                customer_type = "Company" if relation_type == "B" else "Individual"
-            else:
-                # Try legacy field names
-                company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
-                first_name = relation_details.get("voornaam") or relation_details.get("firstName")
-                last_name = relation_details.get("achternaam") or relation_details.get("lastName")
-
-                if company_name and company_name.strip():
-                    better_name = company_name.strip()
-                    customer_type = "Company"
-                elif first_name or last_name:
-                    better_name = f"{first_name or ''} {last_name or ''}".strip()
-                    customer_type = "Individual"
-
-            # Only update if we have significantly better data
-            if better_name and not current_name.startswith("E-Boekhouden"):
-                # Current name is already good, don't update
-                debug_info.append(f"Customer {customer_name} already has good name: {current_name}")
-                return False
-            elif better_name and better_name != current_name:
-                # Update with better name
-                customer.customer_name = better_name
-                customer.customer_type = customer_type
-
-                # Update other fields if available
-                if relation_details.get("email") and not customer.get("email_id"):
-                    customer.email_id = relation_details["email"]
-
-                customer.save()
-                debug_info.append(f"Updated customer name: '{current_name}' → '{better_name}'")
-                return True
-
-            return False
-
-        except Exception as e:
-            debug_info.append(f"Failed to update customer {customer_name}: {str(e)}")
-            return False
+        """Update existing customer with fresh API data from E-Boekhouden."""
+        return self._update_party_with_fresh_data("Customer", customer_name, relation_details, debug_info)
 
     def update_supplier_with_fresh_data(self, supplier_name, relation_details, debug_info=None):
-        """
-        Update existing supplier with fresh API data from E-Boekhouden.
-
-        Returns True if supplier was updated with better data, False otherwise.
-        """
-        if debug_info is None:
-            debug_info = []
-
-        try:
-            supplier = frappe.get_doc("Supplier", supplier_name)
-
-            # Determine if we have better name data from API
-            relation_name = relation_details.get("name")
-            relation_type = relation_details.get("type", "P")
-
-            current_name = supplier.supplier_name
-            better_name = None
-
-            if relation_name and relation_name.strip():
-                better_name = relation_name.strip()
-                supplier_type = "Company" if relation_type == "B" else "Individual"
-            else:
-                # Try legacy field names
-                company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
-                first_name = relation_details.get("voornaam") or relation_details.get("firstName")
-                last_name = relation_details.get("achternaam") or relation_details.get("lastName")
-
-                if company_name and company_name.strip():
-                    better_name = company_name.strip()
-                    supplier_type = "Company"
-                elif first_name or last_name:
-                    better_name = f"{first_name or ''} {last_name or ''}".strip()
-                    supplier_type = "Individual"
-
-            # Only update if we have significantly better data
-            if better_name and not current_name.startswith("E-Boekhouden"):
-                # Current name is already good, don't update
-                debug_info.append(f"Supplier {supplier_name} already has good name: {current_name}")
-                return False
-            elif better_name and better_name != current_name:
-                # Update with better name
-                supplier.supplier_name = better_name
-                supplier.supplier_type = supplier_type
-
-                # Update tax ID if available
-                if relation_details.get("btwNummer") and not supplier.get("tax_id"):
-                    supplier.tax_id = relation_details["btwNummer"]
-
-                supplier.save()
-                debug_info.append(f"Updated supplier name: '{current_name}' → '{better_name}'")
-                return True
-
-            return False
-
-        except Exception as e:
-            debug_info.append(f"Failed to update supplier {supplier_name}: {str(e)}")
-            return False
+        """Update existing supplier with fresh API data from E-Boekhouden."""
+        return self._update_party_with_fresh_data("Supplier", supplier_name, relation_details, debug_info)
 
     def create_provisional_customer(self, relation_id, debug_info=None):
         """Create provisional customer for later enrichment"""
-        if debug_info is None:
-            debug_info = []
-
-        customer_name = f"E-Boekhouden Customer {relation_id}"
-
-        # Check if already exists
-        if frappe.db.exists("Customer", {"customer_name": customer_name}):
-            existing_name = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
-            debug_info.append(f"Provisional customer already exists: {existing_name}")
-            return existing_name
-
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = customer_name
-        customer.customer_group = "All Customer Groups"
-        customer.territory = "All Territories"
-        customer.eboekhouden_relation_code = str(relation_id)
-
-        # Mark for enrichment (basic tracking)
-
-        customer.insert()
-
-        debug_info.append(f"Created provisional customer: {customer.name}")
-
-        # Note: Enrichment queue functionality to be implemented later
-        debug_info.append(f"Customer {customer.name} marked for future enrichment")
-
-        return customer.name
+        return self._create_provisional_party("Customer", relation_id, debug_info)
 
     def create_provisional_supplier(self, relation_id, debug_info=None):
         """Create provisional supplier for later enrichment"""
-        if debug_info is None:
-            debug_info = []
+        return self._create_provisional_party("Supplier", relation_id, debug_info)
 
-        supplier_name = f"Supplier {relation_id} (eBoekhouden)"
+    def get_default_customer(self):
+        """REMOVED: Generic customer creation disabled to prevent data corruption."""
+        return self._get_default_party("Customer")
 
-        # Check if already exists
-        if frappe.db.exists("Supplier", {"supplier_name": supplier_name}):
-            existing_name = frappe.db.get_value("Supplier", {"supplier_name": supplier_name}, "name")
-            debug_info.append(f"Provisional supplier already exists: {existing_name}")
-            return existing_name
-
-        supplier = frappe.new_doc("Supplier")
-        supplier.supplier_name = supplier_name
-        supplier.supplier_group = "All Supplier Groups"
-        supplier.eboekhouden_relation_code = str(relation_id)
-
-        # Use supplier name as document name to avoid generic IDs
-        supplier.name = supplier_name[:140]
-
-        # Mark for enrichment (basic tracking)
-
-        supplier.insert()
-
-        debug_info.append(f"Created provisional supplier: {supplier.name}")
-
-        # Note: Enrichment queue functionality to be implemented later
-        debug_info.append(f"Supplier {supplier.name} marked for future enrichment")
-
-        return supplier.name
+    def get_default_supplier(self):
+        """REMOVED: Generic supplier creation disabled to prevent data corruption."""
+        return self._get_default_party("Supplier")
 
     def add_to_enrichment_queue(self, doctype, docname, relation_id, debug_info=None):
         """Add party to enrichment queue for later processing"""
@@ -693,53 +634,19 @@ class EBoekhoudenPartyResolver:
         except Exception as e:
             debug_info.append(f"Failed to create contact for {party.name}: {str(e)}")
 
+    def _add_party_address(self, party, relation_details, debug_info=None):
+        """Add address to party (stub for future implementation)"""
+        if debug_info:
+            debug_info.append(f"Address data available for {party.doctype.lower()} (not implemented yet)")
+
+    # Legacy address methods for backwards compatibility
     def add_customer_address(self, customer, relation_details, debug_info=None):
         """Add address to customer"""
-        # This would be implemented to create Address documents
-        # For now, just log that we have address data
-        if debug_info:
-            debug_info.append("Address data available for customer (not implemented yet)")
+        self._add_party_address(customer, relation_details, debug_info)
 
     def add_supplier_address(self, supplier, relation_details, debug_info=None):
         """Add address to supplier"""
-        # This would be implemented to create Address documents
-        # For now, just log that we have address data
-        if debug_info:
-            debug_info.append("Address data available for supplier (not implemented yet)")
-
-    def get_default_customer(self):
-        """
-        REMOVED: Generic customer creation disabled to prevent data corruption.
-
-        All customers must be properly resolved from E-Boekhouden API.
-        If this function is called, it indicates an API failure or missing relation data.
-        """
-        error_msg = (
-            "CUSTOMER RESOLUTION FAILED: No customer could be resolved from E-Boekhouden API. "
-            "This indicates either an API connectivity issue or missing relation data. "
-            "Generic customer creation has been disabled to prevent data corruption. "
-            "Please check API connectivity and ensure all relation IDs exist in E-Boekhouden."
-        )
-
-        frappe.logger().error(f"PARTY RESOLUTION FAILURE: {error_msg}")
-        frappe.throw(error_msg, title="Customer Resolution Required", exc=frappe.ValidationError)
-
-    def get_default_supplier(self):
-        """
-        REMOVED: Generic supplier creation disabled to prevent data corruption.
-
-        All suppliers must be properly resolved from E-Boekhouden API.
-        If this function is called, it indicates an API failure or missing relation data.
-        """
-        error_msg = (
-            "SUPPLIER RESOLUTION FAILED: No supplier could be resolved from E-Boekhouden API. "
-            "This indicates either an API connectivity issue or missing relation data. "
-            "Generic supplier creation has been disabled to prevent data corruption. "
-            "Please check API connectivity and ensure all relation IDs exist in E-Boekhouden."
-        )
-
-        frappe.logger().error(f"PARTY RESOLUTION FAILURE: {error_msg}")
-        frappe.throw(error_msg, title="Supplier Resolution Required", exc=frappe.ValidationError)
+        self._add_party_address(supplier, relation_details, debug_info)
 
     def enrich_provisional_parties(self, limit=50):
         """Process enrichment queue to enhance provisional parties"""
@@ -814,13 +721,13 @@ class EBoekhoudenPartyResolver:
             debug_info = []
 
         party = frappe.get_doc(doctype, docname)
+        name_field = "customer_name" if doctype == "Customer" else "supplier_name"
 
         # Update name if it was provisional
-        if "E-Boekhouden" in party.get_title() and relation_details.get("bedrijfsnaam"):
-            if doctype == "Customer":
-                party.customer_name = relation_details["bedrijfsnaam"]
-            else:
-                party.supplier_name = relation_details["bedrijfsnaam"]
+        current_title = party.get_title()
+        if "E-Boekhouden" in current_title or "eBoekhouden" in current_title:
+            if relation_details.get("bedrijfsnaam"):
+                setattr(party, name_field, relation_details["bedrijfsnaam"])
 
         # Add contact details
         if relation_details.get("email") and not party.get("email_id"):
@@ -831,8 +738,6 @@ class EBoekhoudenPartyResolver:
 
         if relation_details.get("btwNummer") and not party.get("tax_id"):
             party.tax_id = relation_details["btwNummer"]
-
-        # Mark as enriched (basic tracking)
 
         party.save()
         debug_info.append(f"Enriched {doctype} {docname} with API data")
