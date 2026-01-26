@@ -1,4 +1,4 @@
-# vereinigungen/setup/critical_operation_rules_setup.py
+# verenigungen/setup/critical_operation_rules_setup.py
 """
 Setup Critical Operation Rules during app installation.
 

@@ -33,7 +33,7 @@ from verenigingen.e_boekhouden.utils.security_helper import migration_context, v
 from verenigingen.utils.deprecation import deprecated
 
 
-@deprecated("Use EBoekhoudenPartyResolver from " "vereinigingen.e_boekhouden.utils.party_resolver instead.")
+@deprecated("Use EBoekhoudenPartyResolver from " "verenigingen.e_boekhouden.utils.party_resolver instead.")
 class EBoekhoudenPartyManager:
     """
     Consolidated party management for E-Boekhouden integration.
