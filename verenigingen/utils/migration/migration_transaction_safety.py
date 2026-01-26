@@ -5,8 +5,10 @@ Provides atomic operations, rollback capabilities, and data integrity
 checks for safe migration processing.
 """
 
+import hashlib
 import json
 import os
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -14,6 +16,45 @@ import frappe
 from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
+
+def _write_atomic_json(path: str, data: dict) -> str:
+    """
+    Write JSON data to a file atomically with checksum verification.
+
+    Uses a temporary file and os.replace() to ensure the write is atomic -
+    the file either contains complete valid data or doesn't exist.
+
+    Args:
+        path: Destination file path
+        data: Dictionary to serialize as JSON
+
+    Returns:
+        str: SHA256 checksum of the written data
+
+    Raises:
+        OSError: If the write operation fails
+    """
+    dirpath = os.path.dirname(path)
+    os.makedirs(dirpath, exist_ok=True)
+
+    # Serialize data once to compute checksum and write
+    json_content = json.dumps(data, indent=2, default=str)
+    checksum = hashlib.sha256(json_content.encode()).hexdigest()
+
+    # Write to temp file first, then atomically replace
+    fd, tmp_path = tempfile.mkstemp(dir=dirpath, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json_content)
+        os.replace(tmp_path, path)
+    except Exception:
+        # Clean up temp file on failure
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+    return checksum
 
 
 class MigrationTransaction:
@@ -509,18 +550,16 @@ class MigrationTransaction:
             self._save_transaction_log()
 
     def _save_checkpoint_data(self, checkpoint):
-        """Save checkpoint data to file"""
+        """Save checkpoint data to file atomically"""
         file_path = frappe.get_site_path(
             "private", "files", "migration_checkpoints", f"checkpoint_{checkpoint['id']}.json"
         )
 
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-        with open(file_path, "w") as f:
-            json.dump(checkpoint, f, indent=2, default=str)
+        checksum = _write_atomic_json(file_path, checkpoint)
+        checkpoint["checksum"] = checksum
 
     def _save_backup_data(self, backup_data):
-        """Save backup data to file"""
+        """Save backup data to file atomically with checksum"""
         file_path = frappe.get_site_path(
             "private",
             "files",
@@ -528,15 +567,21 @@ class MigrationTransaction:
             f"backup_{self.migration_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.json",
         )
 
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        checksum = _write_atomic_json(file_path, backup_data)
 
-        with open(file_path, "w") as f:
-            json.dump(backup_data, f, indent=2, default=str)
+        # Log checksum for verification
+        self.log_transaction(
+            {
+                "type": "backup_checksum",
+                "path": file_path,
+                "checksum": checksum,
+            }
+        )
 
         return file_path
 
     def _save_transaction_log(self):
-        """Save transaction log to file"""
+        """Save transaction log to file atomically"""
         file_path = frappe.get_site_path(
             "private",
             "files",
@@ -544,10 +589,7 @@ class MigrationTransaction:
             f"transaction_log_{self.migration_doc.name}_{now_datetime().strftime('%Y%m%d_%H%M%S')}.json",
         )
 
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-        with open(file_path, "w") as f:
-            json.dump(self.transaction_log, f, indent=2, default=str)
+        _write_atomic_json(file_path, {"log": self.transaction_log})
 
     def _get_affected_doctypes(self):
         """Get list of doctypes that will be affected by migration"""
@@ -565,39 +607,142 @@ class MigrationTransaction:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def create_migration_backup(migration_name):
-    """Create a backup before starting migration"""
+def create_migration_backup(migration_name: str) -> dict:
+    """
+    Create a backup before starting migration.
+
+    Requires System Manager role and write permission on the migration document.
+
+    Args:
+        migration_name: Name of the E-Boekhouden Migration document
+
+    Returns:
+        dict: Success status with backup path
+    """
+    user = frappe.session.user
+    if not frappe.has_role(user, "System Manager"):
+        frappe.throw("Only System Manager can create migration backups")
+
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc.check_permission("write")
+
+    # Audit log: record who initiated the backup
+    frappe.logger("migration_audit").info(
+        f"Migration backup initiated | user={user} | migration={migration_name}"
+    )
+
     transaction = MigrationTransaction(migration_doc)
+    transaction.log_transaction(
+        {
+            "type": "admin_action",
+            "action": "create_backup",
+            "user": user,
+            "migration": migration_name,
+        }
+    )
 
     backup_path = transaction.create_pre_migration_backup()
 
-    return {"success": True, "backup_path": backup_path, "message": "Backup created successfully"}
+    return {
+        "success": True,
+        "backup_path": backup_path,
+        "message": "Backup created successfully",
+        "created_by": user,
+    }
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def verify_migration_integrity(migration_name):
-    """Verify data integrity after migration"""
+def verify_migration_integrity(migration_name: str) -> dict:
+    """
+    Verify data integrity after migration.
+
+    Requires System Manager role and read permission on the migration document.
+
+    Args:
+        migration_name: Name of the E-Boekhouden Migration document
+
+    Returns:
+        dict: Integrity report with checks, issues, and status
+    """
+    user = frappe.session.user
+    if not frappe.has_role(user, "System Manager"):
+        frappe.throw("Only System Manager can verify migration integrity")
+
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-    transaction = MigrationTransaction(migration_doc)
+    migration_doc.check_permission("read")
 
-    return transaction.verify_data_integrity()
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def rollback_migration_checkpoint(migration_name, checkpoint_id):
-    """Rollback to a specific checkpoint"""
-    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-    transaction = MigrationTransaction(migration_doc)
-
-    # Load checkpoint data
-    checkpoint_file = frappe.get_site_path(
-        "private", "files", "migration_checkpoints", f"checkpoint_{checkpoint_id}.json"
+    # Audit log: record who initiated the verification
+    frappe.logger("migration_audit").info(
+        f"Migration integrity check initiated | user={user} | migration={migration_name}"
     )
+
+    transaction = MigrationTransaction(migration_doc)
+    transaction.log_transaction(
+        {
+            "type": "admin_action",
+            "action": "verify_integrity",
+            "user": user,
+            "migration": migration_name,
+        }
+    )
+
+    result = transaction.verify_data_integrity()
+    result["verified_by"] = user
+    return result
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def rollback_migration_checkpoint(migration_name: str, checkpoint_id: str) -> dict:
+    """
+    Rollback to a specific checkpoint.
+
+    Requires System Manager role and write permission on the migration document.
+    This is a destructive operation that will undo changes made after the checkpoint.
+
+    Args:
+        migration_name: Name of the E-Boekhouden Migration document
+        checkpoint_id: ID of the checkpoint to rollback to
+
+    Returns:
+        dict: Rollback result with actions taken
+    """
+    user = frappe.session.user
+    if not frappe.has_role(user, "System Manager"):
+        frappe.throw("Only System Manager can rollback migration checkpoints")
+
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc.check_permission("write")
+
+    # Audit log: record who initiated the rollback (critical operation)
+    frappe.logger("migration_audit").warning(
+        f"Migration rollback initiated | user={user} | migration={migration_name} | checkpoint={checkpoint_id}"
+    )
+
+    transaction = MigrationTransaction(migration_doc)
+    transaction.log_transaction(
+        {
+            "type": "admin_action",
+            "action": "rollback_checkpoint",
+            "user": user,
+            "migration": migration_name,
+            "checkpoint_id": checkpoint_id,
+        }
+    )
+
+    # Load checkpoint data with path traversal protection
+    safe_checkpoint_id = checkpoint_id.replace("/", "").replace("\\", "").replace("..", "")
+    checkpoint_file = frappe.get_site_path(
+        "private", "files", "migration_checkpoints", f"checkpoint_{safe_checkpoint_id}.json"
+    )
+
+    if not os.path.exists(checkpoint_file):
+        frappe.throw(f"Checkpoint {checkpoint_id} not found")
 
     with open(checkpoint_file, "r") as f:
         checkpoint = json.load(f)
 
-    return transaction.rollback_to_checkpoint(checkpoint)
+    result = transaction.rollback_to_checkpoint(checkpoint)
+    result["rolled_back_by"] = user
+    return result
