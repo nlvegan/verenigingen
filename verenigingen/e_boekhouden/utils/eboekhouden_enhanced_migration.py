@@ -124,45 +124,98 @@ class EnhancedEBoekhoudenMigration:
 
     def _get_cost_center(self):
         """
-        Intelligently determine the appropriate cost center for migration transactions.
+        Determine the appropriate cost center for migration transactions.
 
-        Uses multiple fallback strategies to ensure a valid cost center is found:
-        1. Look for "Main" cost center for the company
-        2. Use company abbreviation-based cost center
-        3. Fall back to any available cost center for the company
+        Resolution order (explicit configuration preferred over heuristics):
+        1. E-Boekhouden Settings.default_cost_center (migration-specific config)
+        2. Company.default_cost_center (ERPNext standard config)
+        3. Cost center named "Main" for the company (heuristic, logged)
+        4. Company abbreviation-based cost center (heuristic, logged)
+        5. Any non-group cost center for the company (heuristic, logged)
 
         Returns:
             str: Valid cost center name for the company
 
         Raises:
             frappe.ValidationError: If no cost center can be found
-
-        Note:
-            Cost centers are required for all ERPNext transactions.
-            This method ensures migration can proceed even with incomplete setup.
         """
-        # Try multiple approaches to find cost center
-        cost_center = frappe.db.get_value(
+        # Priority 1: Explicit migration setting
+        if self.settings.default_cost_center:
+            if frappe.db.exists("Cost Center", self.settings.default_cost_center):
+                return self.settings.default_cost_center
+            else:
+                frappe.log_error(
+                    f"E-Boekhouden Settings.default_cost_center '{self.settings.default_cost_center}' "
+                    "does not exist - falling back to other methods",
+                    "Migration Cost Center",
+                )
+
+        # Priority 2: Company default cost center
+        company_default = frappe.db.get_value("Company", self.company, "default_cost_center")
+        if company_default and frappe.db.exists("Cost Center", company_default):
+            return company_default
+
+        # Priority 3-5: Heuristics (log what we're trying for transparency)
+        heuristic_candidates = []
+
+        # Try "Main" cost center
+        main_cc = frappe.db.get_value(
             "Cost Center", {"company": self.company, "cost_center_name": "Main", "is_group": 0}, "name"
         )
+        if main_cc:
+            frappe.log_error(
+                f"Using heuristic cost center 'Main': {main_cc}. "
+                "Consider setting E-Boekhouden Settings.default_cost_center explicitly.",
+                "Migration Cost Center Heuristic",
+            )
+            return main_cc
+        heuristic_candidates.append("Main")
 
-        if not cost_center:
-            abbr = frappe.db.get_value("Company", self.company, "abbr")
-            if abbr:
-                cost_center = f"{self.company} - {abbr}"
-                if not frappe.db.exists("Cost Center", cost_center):
-                    cost_center = None
+        # Try company abbreviation-based cost center
+        abbr = frappe.db.get_value("Company", self.company, "abbr")
+        if abbr:
+            abbr_cc = f"{self.company} - {abbr}"
+            if frappe.db.exists("Cost Center", abbr_cc):
+                frappe.log_error(
+                    f"Using heuristic cost center '{abbr_cc}'. "
+                    "Consider setting E-Boekhouden Settings.default_cost_center explicitly.",
+                    "Migration Cost Center Heuristic",
+                )
+                return abbr_cc
+            heuristic_candidates.append(abbr_cc)
 
-        if not cost_center:
-            cost_center = frappe.db.get_value("Cost Center", {"company": self.company, "is_group": 0}, "name")
+        # Try any non-group cost center
+        any_cc = frappe.db.get_value("Cost Center", {"company": self.company, "is_group": 0}, "name")
+        if any_cc:
+            frappe.log_error(
+                f"Using fallback cost center '{any_cc}'. "
+                "Consider setting E-Boekhouden Settings.default_cost_center explicitly.",
+                "Migration Cost Center Heuristic",
+            )
+            return any_cc
 
-        if not cost_center:
-            frappe.throw(_("No main cost center found for company {0}").format(self.company))
+        # No cost center found - fail with actionable message
+        frappe.throw(
+            _(
+                "No cost center found for company {0}. Tried: {1}. "
+                "Please configure 'default_cost_center' in E-Boekhouden Settings "
+                "or create a cost center for this company."
+            ).format(self.company, ", ".join(heuristic_candidates))
+        )
 
-        return cost_center
+    def _update_progress(self, operation, percentage, force_commit=False):
+        """
+        Update migration progress in the document with throttled commits.
 
-    def _update_progress(self, operation, percentage):
-        """Update migration progress in the document"""
+        To reduce database churn during migration, commits are throttled to occur
+        only at significant milestones (every 10%) or when explicitly forced.
+        Progress is always written to the database, but commits are batched.
+
+        Args:
+            operation: Description of current operation for UI display
+            percentage: Progress percentage (0-100)
+            force_commit: If True, commit immediately regardless of percentage
+        """
         try:
             self.migration_doc.db_set(
                 {
@@ -170,7 +223,12 @@ class EnhancedEBoekhoudenMigration:
                     "progress_percentage": percentage,
                 }
             )
-            frappe.db.commit()
+
+            # Throttle commits: only at 10% intervals, 0%, 100%, or when forced
+            should_commit = force_commit or percentage == 0 or percentage == 100 or (percentage % 10 == 0)
+            if should_commit:
+                frappe.db.commit()
+
         except Exception as e:
             # Don't fail migration if progress update fails
             frappe.log_error(f"Failed to update progress: {str(e)}", "Migration Progress")
@@ -243,9 +301,23 @@ class EnhancedEBoekhoudenMigration:
             # Note: REST API handles account types automatically, no manual fix needed
 
             # Step 4: Process data using REST API (unlimited transactions, not SOAP's 500 limit)
+            # CONTRACT: start_full_rest_import is expected to:
+            # - Handle its own batching and incremental commits
+            # - Create checkpoints in transaction_manager for rollback support
+            # - Return a dict with at minimum: {"success": bool, "imported": int, "errors": list}
+            # - Not raise exceptions for recoverable errors (return them in errors list)
+            # - Respect dry_run flag from migration_doc if present
             self._update_progress("Starting transaction import via REST API...", 20)
             with AuditedMigrationOperation(self.audit_trail, "rest_api_migration"):
                 result = start_full_rest_import(self.migration_doc.name)
+
+                # Validate expected contract fields are present
+                if not isinstance(result, dict):
+                    frappe.log_error(
+                        f"start_full_rest_import returned {type(result).__name__} instead of dict",
+                        "REST Import Contract Violation",
+                    )
+                    result = {"success": False, "error": "REST import returned invalid response type"}
 
             # Step 5: Verify data integrity
             if not self.dry_run:
@@ -320,16 +392,51 @@ class EnhancedEBoekhoudenMigration:
         )
 
     def _attempt_rollback(self):
-        """Attempt to rollback on failure"""
+        """
+        Attempt to rollback on failure using the last available checkpoint.
+
+        Safely accesses checkpoint_data with type guards to prevent unexpected
+        failures if the transaction manager is in an unexpected state.
+
+        Returns:
+            dict: Rollback result if successful, None if no checkpoints available
+        """
         try:
-            # Find the last checkpoint
-            if self.transaction_manager.checkpoint_data:
-                last_checkpoint = list(self.transaction_manager.checkpoint_data.values())[-1]
-                rollback_result = self.transaction_manager.rollback_to_checkpoint(last_checkpoint)
+            # Safely access checkpoint_data with type guards
+            checkpoint_data = getattr(self.transaction_manager, "checkpoint_data", None)
 
-                self.audit_trail.log_rollback(last_checkpoint["id"], rollback_result)
+            if not checkpoint_data:
+                self.audit_trail.log_event(
+                    "rollback_skipped",
+                    {"reason": "No checkpoint data available"},
+                    severity="warning",
+                )
+                return None
 
-                return rollback_result
+            if not isinstance(checkpoint_data, dict):
+                self.audit_trail.log_event(
+                    "rollback_skipped",
+                    {"reason": f"checkpoint_data is not a dict: {type(checkpoint_data).__name__}"},
+                    severity="warning",
+                )
+                return None
+
+            if not checkpoint_data:  # Empty dict
+                self.audit_trail.log_event(
+                    "rollback_skipped",
+                    {"reason": "checkpoint_data is empty"},
+                    severity="warning",
+                )
+                return None
+
+            # Get the last checkpoint
+            last_checkpoint = list(checkpoint_data.values())[-1]
+            rollback_result = self.transaction_manager.rollback_to_checkpoint(last_checkpoint)
+
+            self.audit_trail.log_rollback(last_checkpoint["id"], rollback_result)
+
+            return rollback_result
+
         except Exception as e:
             self.audit_trail.log_event(
                 "rollback_failed", {"error": str(e), "traceback": frappe.get_traceback()}, severity="critical"
@@ -339,7 +446,7 @@ class EnhancedEBoekhoudenMigration:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def execute_enhanced_migration(migration_name):
+def execute_enhanced_migration(migration_name: str) -> dict:
     """
     Execute eBoekhouden migration with comprehensive enterprise features.
 
@@ -348,10 +455,16 @@ def execute_enhanced_migration(migration_name):
     progress tracking, and data integrity verification.
 
     Args:
-        migration_name (str): Name of the E-Boekhouden Migration document
+        migration_name: Name of the E-Boekhouden Migration document
 
     Returns:
-        dict: Comprehensive migration result with enterprise features
+        dict: Always returns a structured response with:
+            - success (bool): Whether migration completed successfully
+            - error (str, optional): Error message if failed
+            - error_id (str, optional): Frappe error log ID for debugging
+            - validation_report (dict, optional): Pre-validation results
+            - integrity_report (dict, optional): Post-migration integrity check
+            - audit_summary (dict, optional): Complete audit trail
 
     Enterprise Features:
         - Pre-migration validation and backup creation
@@ -361,20 +474,49 @@ def execute_enhanced_migration(migration_name):
         - Comprehensive reporting and dry-run simulation
 
     Note:
-        This function is exposed via Frappe's whitelist for API access.
-        All migrations now use the enhanced framework for consistency.
+        This function always returns a dict, never raises exceptions.
+        Critical errors are logged and returned with an error_id for debugging.
     """
-    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-    settings = frappe.get_single("E-Boekhouden Settings")
+    try:
+        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        migration_doc.check_permission("write")
+        settings = frappe.get_single("E-Boekhouden Settings")
 
-    # Always use enhanced migration - no fallback options
-    enhanced_migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
-    return enhanced_migration.execute_migration()
+        # Always use enhanced migration - no fallback options
+        enhanced_migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
+        result = enhanced_migration.execute_migration()
+
+        # Ensure success flag is present
+        if "success" not in result:
+            result["success"] = True
+
+        return result
+
+    except frappe.ValidationError as e:
+        # Validation errors are expected failures (bad config, missing data)
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "validation",
+        }
+
+    except Exception as e:
+        # Unexpected errors - log for debugging and return structured response
+        error_id = frappe.log_error(
+            title=f"Migration failed: {migration_name}",
+            message=frappe.get_traceback(),
+        )
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "critical",
+            "error_id": error_id,
+        }
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def run_migration_dry_run(migration_name):
+def run_migration_dry_run(migration_name: str) -> dict:
     """
     Execute complete migration simulation without data modification.
 
@@ -383,7 +525,7 @@ def run_migration_dry_run(migration_name):
     Essential for migration planning and risk assessment.
 
     Args:
-        migration_name (str): Name of the E-Boekhouden Migration document
+        migration_name: Name of the E-Boekhouden Migration document
 
     Returns:
         dict: Dry-run simulation results containing:
@@ -401,6 +543,7 @@ def run_migration_dry_run(migration_name):
         - Performance estimation and optimization opportunities
     """
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc.check_permission("read")
     migration_doc.dry_run = True
 
     settings = frappe.get_single("E-Boekhouden Settings")
@@ -411,7 +554,7 @@ def run_migration_dry_run(migration_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def validate_migration_data(migration_name):
+def validate_migration_data(migration_name: str) -> dict:
     """
     Perform comprehensive pre-migration data validation and readiness assessment.
 
@@ -420,7 +563,7 @@ def validate_migration_data(migration_name):
     and provides detailed guidance for addressing any issues.
 
     Args:
-        migration_name (str): Name of the E-Boekhouden Migration document
+        migration_name: Name of the E-Boekhouden Migration document
 
     Returns:
         dict: Comprehensive validation report containing:
@@ -438,6 +581,7 @@ def validate_migration_data(migration_name):
         - Integration readiness verification
     """
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc.check_permission("read")
     settings = frappe.get_single("E-Boekhouden Settings")
 
     enhanced_migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
