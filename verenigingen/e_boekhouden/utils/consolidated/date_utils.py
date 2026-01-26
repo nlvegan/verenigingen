@@ -79,6 +79,15 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
             )
             return fy_name
 
+        # Permission check: Only allow auto-creation if user can create fiscal years
+        if not frappe.has_permission("Fiscal Year", "create"):
+            error_msg = (
+                f"User {frappe.session.user} lacks permission to create Fiscal Year. "
+                f"Please ask an administrator to create fiscal year {fy_name}."
+            )
+            debug_info.append(error_msg)
+            raise frappe.PermissionError(error_msg)
+
         # Create new fiscal year for calendar year (Jan 1 - Dec 31)
         year_start = date(year, 1, 1)
         year_end = date(year, 12, 31)

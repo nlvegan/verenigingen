@@ -5,7 +5,8 @@ This module provides canonical ledger resolution with optional auto-creation
 of mappings. All ledger ID to code/account resolution should go through here.
 """
 
-from typing import Optional, Tuple
+import time
+from typing import List, Optional, Tuple
 
 import frappe
 
@@ -13,6 +14,11 @@ from verenigingen.e_boekhouden.utils.eboekhouden_ledger_mapping import (
     _find_erpnext_account_by_code,
     get_account_code_from_ledger_id,
 )
+
+# Retry configuration for external API calls
+API_MAX_RETRIES = 3
+API_BASE_DELAY = 1.0  # seconds
+API_MAX_DELAY = 10.0  # seconds
 
 
 def get_ledger_mapping(
@@ -82,6 +88,11 @@ def get_ledger_mapping(
 
     # Step 2: No mapping found - optionally create one via API
     if auto_create:
+        # Permission check: Only allow auto-creation if user can create ledger mappings
+        if not frappe.has_permission("E-Boekhouden Ledger Mapping", "create"):
+            debug_info.append(f"User {frappe.session.user} lacks permission to auto-create ledger mappings")
+            return (None, None)
+
         ledger_code, erpnext_account = _fetch_and_create_single_mapping(ledger_id_str, company, debug_info)
         if ledger_code:
             return (ledger_code, erpnext_account)
@@ -117,19 +128,25 @@ def resolve_ledger_code(
     return ledger_code or str(ledger_id)
 
 
-def _update_mapping_erpnext_account(ledger_id: str, erpnext_account: str, debug_info: list) -> None:
-    """Update the mapping record with the auto-linked ERPNext account."""
+def _update_mapping_erpnext_account(ledger_id: str, erpnext_account: str, debug_info: List[str]) -> None:
+    """
+    Update the mapping record with the auto-linked ERPNext account.
+
+    Uses atomic update with filter to avoid TOCTOU race conditions.
+    """
     try:
-        docname = frappe.db.get_value("E-Boekhouden Ledger Mapping", {"ledger_id": ledger_id})
-        if docname:
-            frappe.db.set_value(
-                "E-Boekhouden Ledger Mapping",
-                docname,
-                "erpnext_account",
-                erpnext_account,
-                update_modified=False,
-            )
+        # Atomic update using filter dict - avoids race condition between check and update
+        updated = frappe.db.set_value(
+            "E-Boekhouden Ledger Mapping",
+            {"ledger_id": ledger_id},
+            "erpnext_account",
+            erpnext_account,
+            update_modified=False,
+        )
+        if updated:
             debug_info.append(f"Auto-linked ledger {ledger_id} to account {erpnext_account}")
+        else:
+            debug_info.append(f"No mapping found to update for ledger {ledger_id}")
     except Exception as e:
         # Non-critical - mapping can be reconciled by admin
         debug_info.append(f"Failed to persist auto-link for {ledger_id}: {str(e)}")
@@ -138,12 +155,13 @@ def _update_mapping_erpnext_account(ledger_id: str, erpnext_account: str, debug_
 def _fetch_and_create_single_mapping(
     ledger_id: str,
     company: Optional[str],
-    debug_info: list,
+    debug_info: List[str],
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Fetch a single ledger from E-Boekhouden API and create mapping.
 
     This is idempotent - concurrent calls will handle duplicate creation gracefully.
+    Uses retry with exponential backoff for transient API failures.
     """
     try:
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
@@ -155,17 +173,53 @@ def _fetch_and_create_single_mapping(
             return (None, None)
 
         import requests
+        from requests.exceptions import RequestException
 
         base_url = iterator.base_url
         url = f"{base_url}/v1/ledger/{ledger_id}"
-        resp = requests.get(
-            url,
-            headers={"Authorization": token, "Accept": "application/json"},
-            timeout=15,
-        )
 
-        if resp.status_code != 200:
-            debug_info.append(f"API returned {resp.status_code} for ledger {ledger_id}")
+        # Retry with exponential backoff for transient failures
+        last_error = None
+        for attempt in range(API_MAX_RETRIES):
+            try:
+                resp = requests.get(
+                    url,
+                    headers={"Authorization": token, "Accept": "application/json"},
+                    timeout=15,
+                )
+
+                if resp.status_code == 200:
+                    break  # Success
+                elif resp.status_code in (429, 500, 502, 503, 504):
+                    # Retryable status codes
+                    last_error = f"API returned {resp.status_code}"
+                    if attempt < API_MAX_RETRIES - 1:
+                        delay = min(API_BASE_DELAY * (2**attempt), API_MAX_DELAY)
+                        debug_info.append(
+                            f"Retrying ledger {ledger_id} fetch after {delay}s (attempt {attempt + 1})"
+                        )
+                        time.sleep(delay)
+                        continue
+                else:
+                    # Non-retryable error
+                    debug_info.append(f"API returned {resp.status_code} for ledger {ledger_id}")
+                    return (None, None)
+
+            except RequestException as e:
+                last_error = str(e)
+                if attempt < API_MAX_RETRIES - 1:
+                    delay = min(API_BASE_DELAY * (2**attempt), API_MAX_DELAY)
+                    debug_info.append(
+                        f"Retrying ledger {ledger_id} fetch after {delay}s due to: {last_error}"
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    debug_info.append(f"API request failed after {API_MAX_RETRIES} attempts: {last_error}")
+                    return (None, None)
+        else:
+            # All retries exhausted
+            debug_info.append(f"API request failed after {API_MAX_RETRIES} attempts: {last_error}")
             return (None, None)
 
         ledger_data = resp.json()

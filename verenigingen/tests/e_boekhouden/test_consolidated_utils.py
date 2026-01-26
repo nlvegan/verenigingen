@@ -138,6 +138,24 @@ class TestLedgerUtils(unittest.TestCase):
         result = resolve_ledger_code(None, "NVV")
         self.assertIsNone(result)
 
+    @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.frappe")
+    def test_get_ledger_mapping_denies_auto_create_without_permission(self, mock_frappe):
+        """Test that auto_create is denied when user lacks permission"""
+        from verenigingen.e_boekhouden.utils.consolidated.ledger_utils import (
+            get_ledger_mapping,
+        )
+
+        mock_frappe.db.get_value.return_value = None  # No existing mapping
+        mock_frappe.has_permission.return_value = False  # User lacks permission
+        mock_frappe.session.user = "test@example.com"
+
+        code, account = get_ledger_mapping("13201916", "NVV", self.debug_info, auto_create=True)
+
+        self.assertIsNone(code)
+        self.assertIsNone(account)
+        self.assertTrue(any("lacks permission" in msg.lower() for msg in self.debug_info))
+        mock_frappe.has_permission.assert_called_once_with("E-Boekhouden Ledger Mapping", "create")
+
 
 class TestBankAccountUtils(unittest.TestCase):
     """Tests for bank_account_utils.py - bank account resolution"""
@@ -384,6 +402,25 @@ class TestDateUtils(unittest.TestCase):
         result = ensure_fiscal_year_exists(date(2024, 6, 15), "NVV", self.debug_info)
         self.assertEqual(result, "2024")
 
+    @patch("verenigingen.e_boekhouden.utils.consolidated.date_utils.frappe")
+    def test_ensure_fiscal_year_denies_creation_without_permission(self, mock_frappe):
+        """Test that fiscal year creation is denied when user lacks permission"""
+        from verenigingen.e_boekhouden.utils.consolidated.date_utils import (
+            ensure_fiscal_year_exists,
+        )
+
+        mock_frappe.db.sql.return_value = []  # No existing fiscal year
+        mock_frappe.db.get_value.return_value = None  # Name doesn't exist
+        mock_frappe.has_permission.return_value = False  # User lacks permission
+        mock_frappe.session.user = "test@example.com"
+        mock_frappe.PermissionError = frappe.PermissionError
+
+        with self.assertRaises(frappe.PermissionError) as ctx:
+            ensure_fiscal_year_exists("2025-03-15", "NVV", self.debug_info)
+
+        self.assertIn("lacks permission", str(ctx.exception))
+        mock_frappe.has_permission.assert_called_once_with("Fiscal Year", "create")
+
 
 class TestLedgerUtilsAutoCreate(unittest.TestCase):
     """Tests for ledger auto-creation via API"""
@@ -474,6 +511,98 @@ class TestLedgerUtilsAutoCreate(unittest.TestCase):
                 self.assertTrue(
                     any("concurrent" in msg.lower() for msg in self.debug_info),
                     f"Expected concurrent message in debug_info: {self.debug_info}",
+                )
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.time")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.frappe")
+    def test_fetch_and_create_retries_on_transient_failure(self, mock_frappe, mock_time):
+        """Test that API calls are retried with exponential backoff on transient failures"""
+        from verenigingen.e_boekhouden.utils.consolidated.ledger_utils import (
+            _fetch_and_create_single_mapping,
+        )
+
+        # Mock justified: External Service - E-Boekhouden API
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBoekhoudenRESTIterator"
+        ) as MockIterator:
+            mock_iterator = MagicMock()
+            mock_iterator._get_session_token.return_value = "test-token"
+            mock_iterator.base_url = "https://api.e-boekhouden.nl"
+            MockIterator.return_value = mock_iterator
+
+            # Mock justified: External Service - E-Boekhouden API
+            with patch("requests.get") as mock_requests:
+                # First two calls return 503, third succeeds
+                mock_error_response = MagicMock()
+                mock_error_response.status_code = 503
+
+                mock_success_response = MagicMock()
+                mock_success_response.status_code = 200
+                mock_success_response.json.return_value = {"code": "42902", "description": "Revenue"}
+
+                mock_requests.side_effect = [
+                    mock_error_response,
+                    mock_error_response,
+                    mock_success_response,
+                ]
+
+                mock_frappe.db.get_value.return_value = None
+                mock_doc = MagicMock()
+                mock_frappe.new_doc.return_value = mock_doc
+
+                with patch(
+                    "verenigingen.e_boekhouden.utils.consolidated.ledger_utils._find_erpnext_account_by_code"
+                ) as mock_find:
+                    mock_find.return_value = "42902 - Revenue - NVV"
+                    code, account = _fetch_and_create_single_mapping("13201916", "NVV", self.debug_info)
+
+                # Should succeed after retries
+                self.assertEqual(code, "42902")
+                self.assertEqual(account, "42902 - Revenue - NVV")
+
+                # Verify retries occurred
+                self.assertEqual(mock_requests.call_count, 3)
+                self.assertTrue(
+                    any("retrying" in msg.lower() for msg in self.debug_info),
+                    f"Expected retry message in debug_info: {self.debug_info}",
+                )
+
+    @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.time")
+    @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.frappe")
+    def test_fetch_and_create_fails_after_max_retries(self, mock_frappe, mock_time):
+        """Test that API calls fail gracefully after max retries exhausted"""
+        from verenigingen.e_boekhouden.utils.consolidated.ledger_utils import (
+            _fetch_and_create_single_mapping,
+            API_MAX_RETRIES,
+        )
+
+        # Mock justified: External Service - E-Boekhouden API
+        with patch(
+            "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBoekhoudenRESTIterator"
+        ) as MockIterator:
+            mock_iterator = MagicMock()
+            mock_iterator._get_session_token.return_value = "test-token"
+            mock_iterator.base_url = "https://api.e-boekhouden.nl"
+            MockIterator.return_value = mock_iterator
+
+            # Mock justified: External Service - E-Boekhouden API
+            with patch("requests.get") as mock_requests:
+                # All calls return 503
+                mock_error_response = MagicMock()
+                mock_error_response.status_code = 503
+                mock_requests.return_value = mock_error_response
+
+                code, account = _fetch_and_create_single_mapping("13201916", "NVV", self.debug_info)
+
+                # Should fail after max retries
+                self.assertIsNone(code)
+                self.assertIsNone(account)
+
+                # Verify all retries were attempted
+                self.assertEqual(mock_requests.call_count, API_MAX_RETRIES)
+                self.assertTrue(
+                    any("failed after" in msg.lower() for msg in self.debug_info),
+                    f"Expected failure message in debug_info: {self.debug_info}",
                 )
 
 
