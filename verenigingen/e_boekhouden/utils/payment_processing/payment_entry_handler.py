@@ -500,7 +500,13 @@ class PaymentEntryHandler:
                 return bank_account
 
         # No fallback - fail hard with clear error message
-        ledger_code, _ = get_ledger_mapping(str(ledger_id), self.company, auto_create=False)
+        # Surface debug info from final mapping lookup for operational visibility
+        ledger_debug = []
+        ledger_code, _ = get_ledger_mapping(
+            str(ledger_id), self.company, debug_info=ledger_debug, auto_create=False
+        )
+        for msg in ledger_debug:
+            self._log(msg)
         raise frappe.ValidationError(
             f"No Bank/Cash account found for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
             f"Please link the ledger mapping to a Bank or Cash account before importing."
