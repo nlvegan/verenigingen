@@ -434,6 +434,7 @@ class TestLedgerUtilsAutoCreate(unittest.TestCase):
         """Set up test fixtures"""
         self.debug_info = []
 
+    # Mock justified: External HTTP API - e-boekhouden REST API, not business logic
     @patch("requests.get")
     @patch("verenigingen.e_boekhouden.utils.consolidated.ledger_utils.frappe")
     def test_fetch_and_create_mapping_from_api(self, mock_frappe, mock_requests):
@@ -490,6 +491,7 @@ class TestLedgerUtilsAutoCreate(unittest.TestCase):
             mock_iterator.base_url = "https://api.e-boekhouden.nl"
             MockIterator.return_value = mock_iterator
 
+            # Mock justified: External HTTP API - e-boekhouden REST API, not business logic
             with patch("requests.get") as mock_requests:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
