@@ -24,18 +24,22 @@ Total consolidated: 964 lines → ~400 lines of focused functionality
 """
 
 import json
-import warnings
 from typing import Dict, List, Optional, Tuple
 
 import frappe
 from frappe.utils import add_days, now, today
 
 from verenigingen.e_boekhouden.utils.security_helper import migration_context, validate_and_insert
+from verenigingen.utils.deprecation import deprecated
 
 
+@deprecated("Use EBoekhoudenPartyResolver from " "vereinigingen.e_boekhouden.utils.party_resolver instead.")
 class EBoekhoudenPartyManager:
     """
     Consolidated party management for E-Boekhouden integration.
+
+    .. deprecated::
+        This class is deprecated. Use EBoekhoudenPartyResolver instead.
 
     Features:
     - Intelligent customer/supplier resolution
@@ -46,12 +50,6 @@ class EBoekhoudenPartyManager:
     """
 
     def __init__(self):
-        warnings.warn(
-            "EBoekhoudenPartyManager is deprecated. "
-            "Use EBoekhoudenPartyResolver from verenigingen.e_boekhouden.utils.party_resolver instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         self.settings = frappe.get_single("E-Boekhouden Settings")
         self.enrichment_queue = []
         self.debug_log = []
@@ -509,12 +507,14 @@ class EBoekhoudenPartyManager:
 
 
 # Backward compatibility functions for existing code
+@deprecated("Use EBoekhoudenPartyResolver().resolve_customer() instead.")
 def get_or_create_customer_simple(relation_id: str, debug_log: Optional[List] = None) -> Optional[str]:
     """Backward compatibility wrapper."""
     manager = EBoekhoudenPartyManager()
     return manager.get_or_create_customer_simple(relation_id, debug_log)
 
 
+@deprecated("Use EBoekhoudenPartyResolver().resolve_supplier() instead.")
 def get_or_create_supplier_simple(
     relation_id: str, description: str = "", debug_log: Optional[List] = None
 ) -> Optional[str]:
