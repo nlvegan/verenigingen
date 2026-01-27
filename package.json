@@ -4,6 +4,7 @@
   "description": "Association Management App with TailwindCSS styling",
   "main": "index.js",
   "scripts": {
+    "production": "echo 'Assets pre-built and committed - no build step needed'",
     "build-css": "tailwindcss -i ./verenigingen/templates/styles/tailwind.css -o ./verenigingen/public/css/tailwind.css --config ./tailwind.config.js --watch",
     "build": "tailwindcss -i ./verenigingen/templates/styles/tailwind.css -o ./verenigingen/public/css/tailwind.css --config ./tailwind.config.js --minify",
     "test": "jest --testMatch='**/tests/unit/**/*.test.js'",
