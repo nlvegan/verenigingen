@@ -117,23 +117,11 @@ fixtures = [
             ]
         ],
     },
-    {
-        "doctype": "Module Profile",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                    "Verenigingen Member",
-                    "Verenigingen Volunteer",
-                    "Verenigingen Chapter Board Member",
-                    "Verenigingen Auditor",
-                    "Verenigingen National Board Member",
-                    "Verenigingen Treasurer",
-                ],
-            ]
-        ],
-    },
+    # NOTE: Module Profile is intentionally NOT included here.
+    # Module Profile's on_update hook queues a background job with a document lock.
+    # During migrations, this can cause DocumentLockedError if migration fails and retries.
+    # Module Profiles are synced via patch: v2_1.sync_module_profiles_safely
+    # See: https://github.com/frappe/frappe/issues/36368
     # =========================================================================
     # REPORTS
     # =========================================================================
