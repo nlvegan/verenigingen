@@ -8,8 +8,8 @@ one-off-test-debug-folder
 tags
 node_modules
 
-# Generated CSS (rebuilt via `npm run build:css`)
-verenigingen/public/css/tailwind.css
+# Generated CSS - committed for Frappe Cloud deployment
+# Rebuild locally with: npm run build
 
 CLAUDE.md
 TEST_SUMMARY.md
