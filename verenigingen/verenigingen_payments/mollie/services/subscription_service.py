@@ -252,40 +252,105 @@ class SubscriptionService:
         return subscriptions
 
     def _ensure_customer_exists(self, member) -> str:
-        """Ensure member has a Mollie customer ID."""
-        if member.mollie_customer_id:
-            return member.mollie_customer_id
+        """
+        Ensure member has a Mollie customer ID.
+        Uses row locking to prevent duplicate customer creation on concurrent requests.
+        """
+        member_name = member.name
 
-        # Create new customer
-        customer = self.client.create_customer(
-            name=f"{member.first_name} {member.last_name}".strip(),
-            email=member.email,
-            metadata={"member_id": member.name},
-        )
+        # Use row lock to prevent race condition
+        frappe.db.begin()
+        try:
+            # Acquire row lock - other requests will wait here
+            locked_row = frappe.db.sql(
+                """
+                SELECT mollie_customer_id, first_name, last_name, email
+                FROM `tabMember` WHERE name = %s FOR UPDATE
+                """,
+                member_name,
+                as_dict=True,
+            )
 
-        # Update member record
-        member.mollie_customer_id = customer.id
-        member.save(ignore_permissions=True)
+            if not locked_row:
+                frappe.db.commit()
+                raise ValueError(f"Member {member_name} not found")
 
-        return customer.id
+            member_data = locked_row[0]
+            existing_customer_id = member_data.get("mollie_customer_id")
+
+            # Check if customer already exists (may have been created by concurrent request)
+            if existing_customer_id:
+                frappe.db.commit()  # Release lock
+                return existing_customer_id
+
+            # Create new customer while holding the lock
+            full_name = f"{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()
+            customer = self.client.create_customer(
+                name=full_name,
+                email=member_data.get("email"),
+                metadata={"member_id": member_name},
+            )
+
+            # Update member record while holding lock
+            frappe.db.set_value(
+                "Member", member_name, "mollie_customer_id", customer.id, update_modified=False
+            )
+            frappe.db.commit()  # Commit and release lock
+
+            return customer.id
+
+        except Exception as e:
+            frappe.db.rollback()
+            raise
 
     def _ensure_donor_customer_exists(self, donor) -> str:
-        """Ensure donor has a Mollie customer ID."""
-        if donor.mollie_customer_id:
-            return donor.mollie_customer_id
+        """
+        Ensure donor has a Mollie customer ID.
+        Uses row locking to prevent duplicate customer creation on concurrent requests.
+        """
+        donor_name = donor.name
 
-        # Create new customer
-        customer = self.client.create_customer(
-            name=donor.donor_name or "",
-            email=donor.donor_email,
-            metadata={"donor_id": donor.name},
-        )
+        # Use row lock to prevent race condition
+        frappe.db.begin()
+        try:
+            # Acquire row lock - other requests will wait here
+            locked_row = frappe.db.sql(
+                """
+                SELECT mollie_customer_id, donor_name, donor_email
+                FROM `tabDonor` WHERE name = %s FOR UPDATE
+                """,
+                donor_name,
+                as_dict=True,
+            )
 
-        # Update donor record
-        donor.mollie_customer_id = customer.id
-        donor.save(ignore_permissions=True)
+            if not locked_row:
+                frappe.db.commit()
+                raise ValueError(f"Donor {donor_name} not found")
 
-        return customer.id
+            donor_data = locked_row[0]
+            existing_customer_id = donor_data.get("mollie_customer_id")
+
+            # Check if customer already exists (may have been created by concurrent request)
+            if existing_customer_id:
+                frappe.db.commit()  # Release lock
+                return existing_customer_id
+
+            # Create new customer while holding the lock
+            customer = self.client.create_customer(
+                name=donor_data.get("donor_name") or "",
+                email=donor_data.get("donor_email"),
+                metadata={"donor_id": donor_name},
+            )
+
+            # Update donor record while holding lock
+            frappe.db.set_value("Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False)
+            frappe.db.commit()  # Commit and release lock
+
+            return customer.id
+
+        except Exception as e:
+            frappe.db.rollback()
+            raise
 
     def _has_valid_mandate(self, member) -> bool:
         """Check if member has a valid SEPA mandate."""

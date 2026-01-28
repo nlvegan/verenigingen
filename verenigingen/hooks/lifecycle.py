@@ -19,6 +19,8 @@ after_install = [
 # Run after database migrations complete
 # Used for schema updates, index creation, and data backfills
 after_migrate = [
+    # Ensure required payment modes exist (needed for membership applications)
+    "verenigingen.setup.ensure_required_payment_modes",
     # Brand settings initialization
     "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
     # Workflow setup

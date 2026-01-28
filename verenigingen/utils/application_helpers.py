@@ -60,23 +60,120 @@ def save_with_system_context(doc, context_description="system operation"):
         ctx.log_operation(doc.doctype, doc.name)
 
 
-def map_payment_method(payment_method):
-    """Map form payment method values to Member doctype values"""
+def validate_payment_method_exists(mode_of_payment: str) -> bool:
+    """
+    Check if a Mode of Payment exists in the database.
+
+    Args:
+        mode_of_payment: The name of the Mode of Payment to check
+
+    Returns:
+        True if exists, False otherwise
+    """
+    return bool(frappe.db.exists("Mode of Payment", mode_of_payment))
+
+
+def get_missing_payment_modes() -> list:
+    """
+    Check which required payment modes are missing from the database.
+
+    Returns:
+        List of missing payment mode names
+    """
+    required_modes = ["Bank Transfer", "SEPA Direct Debit", "Mollie"]
+    missing = []
+    for mode in required_modes:
+        if not frappe.db.exists("Mode of Payment", mode):
+            missing.append(mode)
+    return missing
+
+
+def ensure_payment_modes_exist():
+    """
+    Ensure required payment modes exist. Creates them if missing.
+
+    This is a recovery function that can be called to fix missing payment modes
+    without requiring a full reinstall.
+    """
+    payment_modes = [
+        {"mode_of_payment": "Bank Transfer", "type": "Bank"},
+        {"mode_of_payment": "SEPA Direct Debit", "type": "Bank"},
+        {"mode_of_payment": "Mollie", "type": "General"},
+        {"mode_of_payment": "Cash", "type": "Cash"},
+    ]
+
+    created = []
+    for pm_data in payment_modes:
+        name = pm_data["mode_of_payment"]
+        if not frappe.db.exists("Mode of Payment", name):
+            try:
+                doc = frappe.get_doc({"doctype": "Mode of Payment", **pm_data})
+                doc.insert(ignore_permissions=True)
+                created.append(name)
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to create Mode of Payment '{name}': {str(e)}", "Payment Mode Creation Error"
+                )
+
+    if created:
+        frappe.db.commit()
+
+    return created
+
+
+def map_payment_method(payment_method, validate: bool = True):
+    """
+    Map form payment method values to Member doctype values.
+
+    Args:
+        payment_method: The payment method value from the form (e.g., 'bank_transfer')
+        validate: If True, validates that the mapped Mode of Payment exists
+
+    Returns:
+        The mapped Mode of Payment name (e.g., 'Bank Transfer')
+
+    Raises:
+        frappe.ValidationError: If validate=True and the Mode of Payment doesn't exist
+    """
     payment_method_map = {
         "bank_transfer": "Bank Transfer",
         "sepa_direct_debit": "SEPA Direct Debit",
         "credit_card": "Credit Card",
         "cash": "Cash",
         "other": "Other",
+        "mollie": "Mollie",
         # Also handle case where we receive the display values directly
         "Bank Transfer": "Bank Transfer",
         "SEPA Direct Debit": "SEPA Direct Debit",
         "Credit Card": "Credit Card",
         "Cash": "Cash",
         "Other": "Other",
+        "Mollie": "Mollie",
     }
     # Default to Bank Transfer if no match found
-    return payment_method_map.get(payment_method, "Bank Transfer")
+    mapped_value = payment_method_map.get(payment_method, "Bank Transfer")
+
+    if validate and not validate_payment_method_exists(mapped_value):
+        # Check what modes are missing and provide helpful error message
+        missing_modes = get_missing_payment_modes()
+
+        error_msg = _("Payment method '{0}' is not configured in this system. ").format(mapped_value)
+
+        if missing_modes:
+            error_msg += _(
+                "Missing payment modes: {0}. "
+                "Please run 'bench --site <site> execute "
+                '"verenigingen.utils.application_helpers.ensure_payment_modes_exist"\' '
+                "or contact your system administrator."
+            ).format(", ".join(missing_modes))
+        else:
+            error_msg += _(
+                "Please create '{0}' in Setup > Mode of Payment, " "or contact your system administrator."
+            ).format(mapped_value)
+
+        frappe.throw(error_msg, title=_("Payment Method Not Found"))
+
+    return mapped_value
 
 
 def generate_application_id():

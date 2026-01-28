@@ -1125,7 +1125,11 @@ class UnifiedWebhookWrapperService:
                 }
         except Exception as e:
             self.logger.error(f"Failed to fetch payment {payment_id} from Mollie: {e}")
-            raise MolliePaymentError(f"Cannot fetch payment data: {str(e)}")
+            raise MolliePaymentError(
+                f"Cannot fetch payment data: {str(e)}",
+                payment_id=payment_id,
+                original_error=e,
+            ) from e
 
     def _create_unified_payment_entry(self, donation, payment_data):
         """Create Payment Entry using unified payment entry creator."""

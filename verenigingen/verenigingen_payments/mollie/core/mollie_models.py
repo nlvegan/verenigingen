@@ -6,8 +6,11 @@ Clean data models for Mollie API objects, independent of the API client.
 
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, Optional
+
+# Decimal precision for monetary amounts (2 decimal places)
+DECIMAL_PLACES = Decimal("0.01")
 
 
 @dataclass
@@ -24,7 +27,9 @@ class Money:
 
     def to_dict(self) -> Dict[str, str]:
         """Convert to dictionary format expected by Mollie API."""
-        return {"value": f"{self.amount:.2f}", "currency": self.currency}
+        # Use explicit quantize for proper rounding semantics
+        formatted_amount = self.amount.quantize(DECIMAL_PLACES, rounding=ROUND_HALF_UP)
+        return {"value": str(formatted_amount), "currency": self.currency}
 
 
 @dataclass

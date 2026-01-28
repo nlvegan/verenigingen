@@ -60,8 +60,11 @@ class MollieClient:
                     raise MolliePaymentError("Mollie live API key not configured in Mollie Settings")
 
             return api_key
+        except MolliePaymentError:
+            # Re-raise our own exceptions without wrapping
+            raise
         except Exception as e:
-            raise MolliePaymentError(f"Failed to get Mollie API key: {e}")
+            raise MolliePaymentError(f"Failed to get Mollie API key: {e}", original_error=e) from e
 
     def _get_mollie_client(self):
         """Get or create the underlying Mollie API client."""
@@ -70,7 +73,7 @@ class MollieClient:
                 mollie_settings = frappe.get_single("Mollie Settings")
                 self._mollie_client = mollie_settings.get_mollie_client()
             except Exception as e:
-                raise MolliePaymentError(f"Failed to initialize Mollie client: {e}")
+                raise MolliePaymentError(f"Failed to initialize Mollie client: {e}", original_error=e) from e
         return self._mollie_client
 
     @property

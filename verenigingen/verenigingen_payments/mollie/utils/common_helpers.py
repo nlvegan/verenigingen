@@ -7,10 +7,15 @@ common operations used across Mollie integration code.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import frappe
 from frappe import _
+
+# Decimal precision for monetary amounts (2 decimal places)
+DECIMAL_PLACES = Decimal("0.01")
+MIN_MOLLIE_AMOUNT = Decimal("0.01")
 
 # Pre-compiled regex patterns for Mollie ID validation
 MOLLIE_ID_PATTERNS = {
@@ -200,44 +205,61 @@ def log_mollie_error(operation: str, error: Exception, context: Optional[Dict[st
     frappe.log_error(error_message, f"Mollie {operation} Error")
 
 
-def validate_mollie_amount(amount: Any, min_amount: float = 0.01) -> float:
+def validate_mollie_amount(amount: Any, min_amount: Union[Decimal, float, str] = None) -> Decimal:
     """
-    Validate and normalize amount for Mollie API.
+    Validate and normalize amount for Mollie API using Decimal for precision.
 
-    Mollie requires amounts to be positive floats with minimum transaction amounts
+    Mollie requires amounts to be positive with minimum transaction amounts
     (typically €0.01 for EUR). This utility ensures consistent validation across
-    all payment and subscription operations.
+    all payment and subscription operations using Decimal to avoid floating-point
+    precision issues.
 
     Args:
-        amount: Amount value (can be string, int, or float)
+        amount: Amount value (can be string, int, float, or Decimal)
         min_amount: Minimum allowed amount (default: 0.01 EUR)
 
     Returns:
-        Validated float amount
+        Validated Decimal amount with 2 decimal places
 
     Raises:
         ValueError: If amount is invalid, non-positive, or below minimum
 
     Example:
         >>> validate_mollie_amount("25.50")
-        25.5
+        Decimal('25.50')
         >>> validate_mollie_amount(0.005)
-        ValueError: Amount must be at least 0.01, got: 0.005
+        ValueError: Amount must be at least 0.01, got: 0.01
         >>> validate_mollie_amount(-10)
-        ValueError: Amount must be positive, got: -10.0
+        ValueError: Amount must be positive, got: -10.00
     """
+    if min_amount is None:
+        min_amount = MIN_MOLLIE_AMOUNT
+    elif not isinstance(min_amount, Decimal):
+        min_amount = Decimal(str(min_amount))
+
     try:
-        amount_float = float(amount)
-    except (TypeError, ValueError) as e:
+        # Convert to string first to avoid float precision issues
+        if isinstance(amount, Decimal):
+            amount_decimal = amount
+        elif isinstance(amount, float):
+            # Use string conversion to preserve precision
+            amount_decimal = Decimal(str(amount))
+        else:
+            amount_decimal = Decimal(str(amount))
+
+        # Quantize to 2 decimal places with proper rounding
+        amount_decimal = amount_decimal.quantize(DECIMAL_PLACES, rounding=ROUND_HALF_UP)
+
+    except (TypeError, ValueError, InvalidOperation) as e:
         raise ValueError(f"Invalid amount format: {amount}") from e
 
-    if amount_float <= 0:
-        raise ValueError(f"Amount must be positive, got: {amount_float}")
+    if amount_decimal <= 0:
+        raise ValueError(f"Amount must be positive, got: {amount_decimal}")
 
-    if amount_float < min_amount:
-        raise ValueError(f"Amount must be at least {min_amount}, got: {amount_float}")
+    if amount_decimal < min_amount:
+        raise ValueError(f"Amount must be at least {min_amount}, got: {amount_decimal}")
 
-    return amount_float
+    return amount_decimal
 
 
 def validate_mollie_id(mollie_id: str, id_type: str = "payment") -> Tuple[bool, str]:
@@ -334,6 +356,8 @@ def format_mollie_amount(amount: Any, currency: str = "EUR") -> Dict[str, str]:
     Extracted from repeated `.2f` formatting patterns throughout payment_gateways.py
     (lines 165, 194, 542, 1194, 1974). Provides consistent amount structure.
 
+    Uses Decimal internally to avoid floating-point precision issues.
+
     Args:
         amount: Amount value (will be validated)
         currency: Currency code (default: "EUR")
@@ -352,7 +376,8 @@ def format_mollie_amount(amount: Any, currency: str = "EUR") -> Dict[str, str]:
     """
     validated_amount = validate_mollie_amount(amount)
 
-    return {"value": f"{validated_amount:.2f}", "currency": currency}
+    # Decimal already quantized to 2 places, convert to string
+    return {"value": str(validated_amount), "currency": currency}
 
 
 def format_mollie_amount_string(amount: Any) -> str:
@@ -361,6 +386,8 @@ def format_mollie_amount_string(amount: Any) -> str:
 
     Used for metadata fields where only the string value is needed,
     not the full amount dictionary.
+
+    Uses Decimal internally to avoid floating-point precision issues.
 
     Args:
         amount: Amount value (will be validated)
@@ -373,7 +400,8 @@ def format_mollie_amount_string(amount: Any) -> str:
         "25.50"
     """
     validated_amount = validate_mollie_amount(amount)
-    return f"{validated_amount:.2f}"
+    # Decimal already quantized to 2 places
+    return str(validated_amount)
 
 
 def get_mollie_currency() -> str:
@@ -529,3 +557,163 @@ def get_members_by_customer(customer_name: str, fields: Optional[list] = None) -
     members = frappe.get_all("Member", filters={"customer": customer_name}, fields=fields)
 
     return members
+
+
+# Metadata sanitization constants
+METADATA_MAX_TOTAL_SIZE = 1024  # Mollie metadata limit (1KB)
+METADATA_MAX_KEY_LENGTH = 50
+METADATA_MAX_VALUE_LENGTH = 255
+
+# Allowed metadata keys that can be passed to Mollie
+ALLOWED_METADATA_KEYS = frozenset(
+    {
+        # Reference tracking
+        "reference_doctype",
+        "reference_docname",
+        "donation_id",
+        "member_id",
+        "invoice_id",
+        "subscription_id",
+        # Transaction context
+        "donation_type",
+        "payment_type",
+        "payment_for",
+        "description",
+        # Non-sensitive identifiers
+        "locale",
+        "source",
+        "campaign",
+    }
+)
+
+# Keys that should never be passed to Mollie (PII/sensitive)
+BLOCKED_METADATA_KEYS = frozenset(
+    {
+        # Personal Identifiable Information
+        "email",
+        "donor_email",
+        "member_email",
+        "phone",
+        "contact_number",
+        "address",
+        "name",
+        "first_name",
+        "last_name",
+        "full_name",
+        # Financial data
+        "iban",
+        "bank_account",
+        "credit_card",
+        "card_number",
+        # Authentication data
+        "password",
+        "token",
+        "secret",
+        "api_key",
+    }
+)
+
+
+def sanitize_metadata(
+    metadata: Optional[Dict[str, Any]],
+    allow_unlisted_keys: bool = False,
+    max_total_size: int = METADATA_MAX_TOTAL_SIZE,
+) -> Dict[str, str]:
+    """
+    Sanitize metadata before sending to Mollie API.
+
+    Applies key whitelisting, PII filtering, size limits, and value sanitization
+    to ensure safe metadata is passed to external payment provider.
+
+    Args:
+        metadata: Raw metadata dictionary to sanitize
+        allow_unlisted_keys: If True, allows keys not in ALLOWED_METADATA_KEYS
+                            (but still blocks BLOCKED_METADATA_KEYS)
+        max_total_size: Maximum total size in bytes for the metadata
+
+    Returns:
+        Sanitized metadata dictionary with string values only
+
+    Example:
+        >>> sanitize_metadata({"donation_id": "DON-001", "email": "test@example.com"})
+        {"donation_id": "DON-001"}  # email is blocked
+    """
+    if not metadata:
+        return {}
+
+    sanitized = {}
+    total_size = 0
+
+    for key, value in metadata.items():
+        # Skip None values
+        if value is None:
+            continue
+
+        # Block sensitive/PII keys
+        key_lower = key.lower()
+        if key_lower in BLOCKED_METADATA_KEYS or any(
+            blocked in key_lower for blocked in ["password", "secret", "token", "key"]
+        ):
+            frappe.logger().debug(f"Blocked metadata key: {key}")
+            continue
+
+        # Check if key is allowed
+        if not allow_unlisted_keys and key not in ALLOWED_METADATA_KEYS:
+            frappe.logger().debug(f"Skipped non-whitelisted metadata key: {key}")
+            continue
+
+        # Truncate key if too long
+        safe_key = str(key)[:METADATA_MAX_KEY_LENGTH]
+
+        # Convert value to string and truncate if too long
+        safe_value = str(value)[:METADATA_MAX_VALUE_LENGTH]
+
+        # Check total size limit
+        entry_size = len(safe_key) + len(safe_value) + 4  # Account for JSON formatting
+        if total_size + entry_size > max_total_size:
+            frappe.logger().warning(f"Metadata size limit reached, skipping key: {key}")
+            break
+
+        sanitized[safe_key] = safe_value
+        total_size += entry_size
+
+    return sanitized
+
+
+def merge_metadata_safely(
+    base_metadata: Dict[str, Any],
+    additional_metadata: Optional[Dict[str, Any]],
+) -> Dict[str, str]:
+    """
+    Safely merge additional metadata into base metadata with sanitization.
+
+    The base metadata is added first (whitelisted keys only), then additional
+    metadata is merged with the same sanitization rules. This prevents
+    additional metadata from overwriting critical base metadata.
+
+    Args:
+        base_metadata: Core metadata that must be preserved
+        additional_metadata: Optional user-provided metadata to merge
+
+    Returns:
+        Merged and sanitized metadata dictionary
+
+    Example:
+        >>> base = {"reference_doctype": "Donation", "reference_docname": "DON-001"}
+        >>> additional = {"campaign": "spring-2024", "email": "test@example.com"}
+        >>> merge_metadata_safely(base, additional)
+        {"reference_doctype": "Donation", "reference_docname": "DON-001", "campaign": "spring-2024"}
+    """
+    # Sanitize base metadata (strict - only whitelisted keys)
+    result = sanitize_metadata(base_metadata, allow_unlisted_keys=False)
+
+    if additional_metadata:
+        # Sanitize additional metadata (also strict by default)
+        additional_sanitized = sanitize_metadata(additional_metadata, allow_unlisted_keys=False)
+
+        # Merge but don't overwrite base keys
+        for key, value in additional_sanitized.items():
+            if key not in result:
+                result[key] = value
+
+    return result

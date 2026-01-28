@@ -458,38 +458,53 @@ class PaymentService:
     ) -> Dict[str, Any]:
         """
         Create or get existing Mollie customer for recurring payments.
-        Complete port from original implementation.
+        Uses row locking to prevent duplicate customer creation on concurrent requests.
         """
+        donor_name = donation_doc.donor
+
+        # Use row lock to prevent race condition
+        frappe.db.begin()
         try:
-            donor_doc = frappe.get_doc("Donor", donation_doc.donor)
-            frappe.logger().debug(f"Got donor doc: {donor_doc.donor_name} ({donor_doc.donor_email})")
+            # Acquire row lock - other requests will wait here
+            locked_row = frappe.db.sql(
+                """
+                SELECT donor_name, donor_email, mollie_customer_id
+                FROM `tabDonor` WHERE name = %s FOR UPDATE
+                """,
+                donor_name,
+                as_dict=True,
+            )
 
-            # Check if donor already has a Mollie customer ID
-            existing_customer_id = donor_doc.mollie_customer_id
+            if not locked_row:
+                frappe.db.commit()
+                return {"status": "error", "message": "Donor not found"}
 
+            donor_data = locked_row[0]
+            existing_customer_id = donor_data.get("mollie_customer_id")
+
+            # Check if customer already exists (may have been created by concurrent request)
             if existing_customer_id:
+                frappe.db.commit()  # Release lock
                 frappe.logger().debug(f"Using existing customer ID: {existing_customer_id}")
                 return {"status": "existing", "customer_id": existing_customer_id}
 
             frappe.logger().debug("Creating new Mollie customer...")
+
             # Create new Mollie customer using gateway's client directly
             customer_data = {
-                "name": donor_doc.donor_name,
-                "email": donor_doc.donor_email,
-                "metadata": {"donor_id": donor_doc.name, "created_for": "recurring_donations"},
+                "name": donor_data.get("donor_name") or "",
+                "email": donor_data.get("donor_email"),
+                "metadata": {"donor_id": donor_name, "created_for": "recurring_donations"},
             }
-
-            # Add phone if available
-            if hasattr(donor_doc, "phone") and donor_doc.phone:
-                customer_data["phone"] = donor_doc.phone
 
             frappe.logger().debug(f"Customer data: {customer_data}")
 
-            # Create customer using Mollie client directly
+            # Create customer while holding the lock
             try:
                 customer = self.gateway.client.customers.create(customer_data)
                 frappe.logger().debug(f"Customer creation successful: {customer.id if customer else 'None'}")
             except Exception as create_error:
+                frappe.db.rollback()
                 frappe.logger().debug(f"Customer creation failed with error: {create_error}")
                 return {
                     "status": "error",
@@ -497,63 +512,124 @@ class PaymentService:
                 }
 
             if customer and customer.id:
-                # Store customer ID on donor (handle guest user permissions for public donations)
-                try:
-                    donor_doc.mollie_customer_id = customer.id
-                    # PUBLIC DONATION FLOW: Allow guest users to update donor with Mollie customer ID
-                    donor_doc.flags.ignore_permissions = True
-                    donor_doc.save()
-                    frappe.db.commit()
-                    frappe.logger().debug(f"Saved customer ID {customer.id} to donor")
-                except Exception as e:
-                    frappe.logger().debug(f"Failed to save customer ID: {e}")
-                    frappe.log_error(f"Failed to save Mollie customer ID: {e}", "Customer ID Storage Error")
-
+                # Store customer ID on donor while holding lock
+                frappe.db.set_value(
+                    "Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False
+                )
+                frappe.db.commit()  # Commit and release lock
+                frappe.logger().debug(f"Saved customer ID {customer.id} to donor")
                 return {"status": "created", "customer_id": customer.id}
             else:
+                frappe.db.commit()  # Release lock
                 frappe.logger().debug("Customer creation returned no valid response")
                 return {"status": "error", "message": "Customer creation returned invalid response"}
 
         except Exception as e:
+            frappe.db.rollback()
             frappe.logger().debug(f"Overall customer creation error: {e}")
             frappe.log_error(f"Mollie customer creation error: {e}", "Mollie Customer Error")
             return {"status": "error", "message": "Customer creation failed"}
 
     def _get_or_create_customer(self, donor) -> str:
-        """Get existing Mollie customer ID or create new customer for donor."""
-        if donor.mollie_customer_id:
-            return donor.mollie_customer_id
+        """
+        Get existing Mollie customer ID or create new customer for donor.
+        Uses row locking to prevent duplicate customer creation on concurrent requests.
+        """
+        donor_name = donor.name
 
-        # Create new customer
-        customer = self.client.create_customer(
-            name=donor.donor_name or "",
-            email=donor.donor_email,
-            metadata={"donor_id": donor.name},
-        )
+        # Use row lock to prevent race condition
+        frappe.db.begin()
+        try:
+            # Acquire row lock - other requests will wait here
+            locked_row = frappe.db.sql(
+                """
+                SELECT mollie_customer_id, donor_name, donor_email
+                FROM `tabDonor` WHERE name = %s FOR UPDATE
+                """,
+                donor_name,
+                as_dict=True,
+            )
 
-        # Update donor record
-        donor.mollie_customer_id = customer.id
-        donor.save(ignore_permissions=True)
+            if not locked_row:
+                frappe.db.commit()
+                raise ValueError(f"Donor {donor_name} not found")
 
-        return customer.id
+            donor_data = locked_row[0]
+            existing_customer_id = donor_data.get("mollie_customer_id")
+
+            # Check if customer already exists (may have been created by concurrent request)
+            if existing_customer_id:
+                frappe.db.commit()  # Release lock
+                return existing_customer_id
+
+            # Create new customer while holding the lock
+            customer = self.client.create_customer(
+                name=donor_data.get("donor_name") or "",
+                email=donor_data.get("donor_email"),
+                metadata={"donor_id": donor_name},
+            )
+
+            # Update donor record while holding lock
+            frappe.db.set_value("Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False)
+            frappe.db.commit()  # Commit and release lock
+
+            return customer.id
+
+        except Exception as e:
+            frappe.db.rollback()
+            raise
 
     def _get_or_create_customer_from_member(self, member) -> str:
-        """Get existing Mollie customer ID or create new customer for member."""
-        if member.mollie_customer_id:
-            return member.mollie_customer_id
+        """
+        Get existing Mollie customer ID or create new customer for member.
+        Uses row locking to prevent duplicate customer creation on concurrent requests.
+        """
+        member_name = member.name
 
-        # Create new customer
-        customer = self.client.create_customer(
-            name=f"{member.first_name} {member.last_name}".strip(),
-            email=member.email,
-            metadata={"member_id": member.name},
-        )
+        # Use row lock to prevent race condition
+        frappe.db.begin()
+        try:
+            # Acquire row lock - other requests will wait here
+            locked_row = frappe.db.sql(
+                """
+                SELECT mollie_customer_id, first_name, last_name, email
+                FROM `tabMember` WHERE name = %s FOR UPDATE
+                """,
+                member_name,
+                as_dict=True,
+            )
 
-        # Update member record
-        member.mollie_customer_id = customer.id
-        member.save(ignore_permissions=True)
+            if not locked_row:
+                frappe.db.commit()
+                raise ValueError(f"Member {member_name} not found")
 
-        return customer.id
+            member_data = locked_row[0]
+            existing_customer_id = member_data.get("mollie_customer_id")
+
+            # Check if customer already exists (may have been created by concurrent request)
+            if existing_customer_id:
+                frappe.db.commit()  # Release lock
+                return existing_customer_id
+
+            # Create new customer while holding the lock
+            full_name = f"{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()
+            customer = self.client.create_customer(
+                name=full_name,
+                email=member_data.get("email"),
+                metadata={"member_id": member_name},
+            )
+
+            # Update member record while holding lock
+            frappe.db.set_value(
+                "Member", member_name, "mollie_customer_id", customer.id, update_modified=False
+            )
+            frappe.db.commit()  # Commit and release lock
+
+            return customer.id
+
+        except Exception as e:
+            frappe.db.rollback()
+            raise
 
     def _get_webhook_url(self) -> str:
         """Get webhook URL based on environment (test vs live)."""

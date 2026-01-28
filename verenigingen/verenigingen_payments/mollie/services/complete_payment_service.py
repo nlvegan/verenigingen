@@ -21,9 +21,13 @@ from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_
 from ..core.client import MollieClient
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
 from ..utils.common_helpers import (
+    create_error_response,
+    create_success_response,
     format_mollie_amount,
     format_mollie_amount_string,
     get_member_by_customer_id,
+    merge_metadata_safely,
+    validate_mollie_amount,
 )
 from .webhook_wrapper_service_unified import UnifiedWebhookWrapperService
 
@@ -320,8 +324,14 @@ class CompletePaymentService:
         if not donation_doc:
             raise MollieValidationError("Donation document is required")
 
-        if not form_data.get("amount") or float(form_data["amount"]) <= 0:
-            raise MollieValidationError("Valid amount is required")
+        # Use validate_mollie_amount for proper validation and error handling
+        if not form_data.get("amount"):
+            raise MollieValidationError("Amount is required")
+
+        try:
+            validate_mollie_amount(form_data["amount"])
+        except ValueError as e:
+            raise MollieValidationError(f"Invalid amount: {e}") from e
 
         if not form_data.get("currency"):
             raise MollieValidationError("Currency is required")
@@ -338,6 +348,12 @@ class CompletePaymentService:
 
         if not subscription_data.get("amount"):
             raise MollieValidationError("Subscription amount is required")
+
+        # Validate amount using centralized validation
+        try:
+            validate_mollie_amount(subscription_data["amount"])
+        except ValueError as e:
+            raise MollieValidationError(f"Invalid subscription amount: {e}") from e
 
         if not subscription_data.get("interval"):
             raise MollieValidationError("Subscription interval is required")
@@ -363,20 +379,26 @@ class CompletePaymentService:
 
     def _prepare_payment_data(self, donation_doc: Any, form_data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare payment data for Mollie API."""
+        # Core metadata (whitelisted, non-PII)
+        base_metadata = {
+            # Webhook handler expects donation-first flow format
+            "reference_doctype": "Donation",
+            "reference_docname": donation_doc.name,
+            # Keep original fields for backward compatibility
+            "donation_id": donation_doc.name,
+            "donation_type": getattr(donation_doc, "donation_type", "general"),
+        }
+
+        # Safely merge any additional metadata from form_data
+        # This applies key whitelisting and PII filtering
+        sanitized_metadata = merge_metadata_safely(base_metadata, form_data.get("metadata"))
+
         payment_data = {
             "amount": format_mollie_amount(form_data["amount"], form_data["currency"]),
             "description": f"Donation {donation_doc.name}",
             "redirectUrl": form_data["return_url"],
             "webhookUrl": self.client.get_webhook_url(),
-            "metadata": {
-                # Webhook handler expects donation-first flow format
-                "reference_doctype": "Donation",
-                "reference_docname": donation_doc.name,
-                # Keep original fields for backward compatibility
-                "donation_id": donation_doc.name,
-                "donor_email": getattr(donation_doc, "donor_email", ""),
-                "donation_type": getattr(donation_doc, "donation_type", "general"),
-            },
+            "metadata": sanitized_metadata,
         }
 
         # Add optional payment method restrictions
@@ -387,66 +409,101 @@ class CompletePaymentService:
         if form_data.get("sequenceType"):
             payment_data["sequenceType"] = form_data["sequenceType"]
 
-        # Merge any additional metadata from form_data
-        if form_data.get("metadata"):
-            payment_data["metadata"].update(form_data["metadata"])
-
         return payment_data
 
     def _create_or_get_customer(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new customer or get existing one based on legacy pattern."""
-        try:
-            email = customer_data["email"]
+        """
+        Create a new customer or get existing one with race condition protection.
 
-            # First try to find existing donor by email
-            existing_donors = frappe.get_all(
-                "Donor", filters={"donor_email": email}, fields=["name", "mollie_customer_id"]
+        Uses SELECT FOR UPDATE to prevent duplicate customer creation when
+        concurrent requests arrive for the same donor.
+        """
+        email = customer_data["email"]
+
+        # First check without lock for quick path (most common case)
+        existing_donors = frappe.get_all(
+            "Donor", filters={"donor_email": email}, fields=["name", "mollie_customer_id"]
+        )
+
+        if not existing_donors:
+            # No donor exists, create customer without lock (no race condition risk)
+            return self._create_mollie_customer_only(customer_data)
+
+        donor_name = existing_donors[0]["name"]
+
+        # Donor exists - use row lock to prevent race condition
+        frappe.db.begin()
+        try:
+            # Acquire row lock - other requests will wait here
+            locked_row = frappe.db.sql(
+                """
+                SELECT mollie_customer_id FROM `tabDonor`
+                WHERE name = %s FOR UPDATE
+                """,
+                donor_name,
+                as_dict=True,
             )
 
-            if existing_donors:
-                donor_doc = frappe.get_doc("Donor", existing_donors[0]["name"])
+            if not locked_row:
+                frappe.db.commit()
+                return self._create_mollie_customer_only(customer_data)
 
-                # If donor has existing customer ID, verify it exists in Mollie
-                if donor_doc.mollie_customer_id:
-                    try:
-                        customer = self.client.get_customer(donor_doc.mollie_customer_id)
-                        frappe.logger().info(
-                            f"Found existing Mollie customer {customer.id} for donor {donor_doc.name}"
-                        )
-                        return {"status": "found", "customer_id": customer.id}
-                    except Exception as e:
-                        frappe.logger().warning(
-                            f"Existing customer ID {donor_doc.mollie_customer_id} not found in Mollie: {e}"  # noqa: E713
-                        )
-                        # Continue to create new customer
+            existing_customer_id = locked_row[0].get("mollie_customer_id")
 
-            # Create new customer in Mollie
+            # Check if customer already exists (may have been created by concurrent request)
+            if existing_customer_id:
+                try:
+                    customer = self.client.get_customer(existing_customer_id)
+                    frappe.db.commit()  # Release lock
+                    frappe.logger().info(
+                        f"Found existing Mollie customer {customer.id} for donor {donor_name}"
+                    )
+                    return {"status": "found", "customer_id": customer.id}
+                except Exception as e:
+                    frappe.logger().warning(
+                        f"Existing customer ID {existing_customer_id} not found in Mollie: {e}"
+                    )
+                    # Continue to create new customer (stale ID case)
+
+            # Create new customer in Mollie while holding the lock
             mollie_customer_data = {"name": customer_data.get("name", ""), "email": email}
-
             if customer_data.get("locale"):
                 mollie_customer_data["locale"] = customer_data["locale"]
 
             customer = self.client.create_customer(mollie_customer_data)
             frappe.logger().info(f"Created new Mollie customer {customer.id}")
 
-            # Update donor with new customer ID if donor exists
-            if existing_donors:
-                try:
-                    donor_doc = frappe.get_doc("Donor", existing_donors[0]["name"])
-                    donor_doc.mollie_customer_id = customer.id
-                    donor_doc.flags.ignore_permissions = True
-                    donor_doc.save()
-                    frappe.db.commit()
-                    frappe.logger().info(f"Saved customer ID {customer.id} to donor {donor_doc.name}")
-                except Exception as e:
-                    frappe.logger().warning(f"Failed to save customer ID to donor: {e}")
+            # Update donor with new customer ID (still holding lock)
+            frappe.db.set_value("Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False)
+            frappe.db.commit()  # Commit and release lock
+            frappe.logger().info(f"Saved customer ID {customer.id} to donor {donor_name}")
 
             return {"status": "created", "customer_id": customer.id}
 
         except Exception as e:
+            frappe.db.rollback()
             error_msg = f"Failed to create or get Mollie customer: {e}"
             frappe.log_error(error_msg, "Mollie Customer Error")
-            return {"success": False, "error": error_msg}
+            return create_error_response(error_msg)
+
+    def _create_mollie_customer_only(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create Mollie customer without updating any Frappe document."""
+        try:
+            mollie_customer_data = {
+                "name": customer_data.get("name", ""),
+                "email": customer_data["email"],
+            }
+            if customer_data.get("locale"):
+                mollie_customer_data["locale"] = customer_data["locale"]
+
+            customer = self.client.create_customer(mollie_customer_data)
+            frappe.logger().info(f"Created new Mollie customer {customer.id} (no donor)")
+            return {"status": "created", "customer_id": customer.id}
+
+        except Exception as e:
+            error_msg = f"Failed to create Mollie customer: {e}"
+            frappe.log_error(error_msg, "Mollie Customer Error")
+            return create_error_response(error_msg)
 
     def _update_donation_with_payment(self, donation_doc: Any, mollie_payment: Any) -> None:
         """Update donation document with Mollie payment details."""
@@ -457,7 +514,10 @@ class CompletePaymentService:
         # Save payment amount in case it differs from requested amount (use centralized extractor)
         extractor = get_payment_data_extractor()
         payment_amount = extractor.extract_amount(mollie_payment, allow_zero=False)
-        if abs(payment_amount - float(donation_doc.amount)) > 0.01:
+        # Use Decimal for precise comparison to avoid floating-point issues
+        payment_decimal = Decimal(str(payment_amount))
+        donation_decimal = Decimal(str(donation_doc.amount))
+        if abs(payment_decimal - donation_decimal) > Decimal("0.01"):
             frappe.logger().warning(
                 f"Payment amount {payment_amount} differs from donation amount {donation_doc.amount}"
             )

@@ -2857,3 +2857,17 @@ def reinstall_onboarding():
 
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+def ensure_required_payment_modes():
+    """
+    Ensure required payment modes exist during migration.
+
+    This is called by after_migrate to ensure existing sites have the required
+    payment modes for membership applications to work correctly.
+    """
+    from verenigingen.utils.application_helpers import ensure_payment_modes_exist
+
+    created = ensure_payment_modes_exist()
+    if created:
+        print(f"   ✓ Created missing payment modes: {', '.join(created)}")
