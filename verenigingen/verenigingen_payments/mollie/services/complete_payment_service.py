@@ -427,11 +427,29 @@ class CompletePaymentService:
 
         if not existing_donors:
             # No donor exists, create customer without lock (no race condition risk)
+            # This is safe because we can't have a race condition for a non-existent donor
             return self._create_mollie_customer_only(customer_data)
 
         donor_name = existing_donors[0]["name"]
 
-        # Donor exists - use row lock to prevent race condition
+        # ===== ROW LOCKING FOR RACE CONDITION PREVENTION =====
+        #
+        # PROBLEM: Without locking, two concurrent requests for the same donor could both:
+        #   1. Check mollie_customer_id (both see None)
+        #   2. Create new Mollie customers (duplicate!)
+        #   3. Save their customer ID (one gets overwritten)
+        #
+        # SOLUTION: Use SELECT ... FOR UPDATE to acquire an exclusive row lock
+        #   - First request acquires lock, second request WAITS
+        #   - After first request commits, second request sees the updated value
+        #   - No duplicate Mollie customers created
+        #
+        # TRANSACTION SEMANTICS:
+        #   - begin() starts transaction and creates savepoint
+        #   - commit() persists changes AND releases the row lock
+        #   - rollback() undoes changes AND releases the row lock
+        #   - ALL exit paths must either commit() or rollback() to release the lock
+        #
         frappe.db.begin()
         try:
             # Acquire row lock - other requests will wait here

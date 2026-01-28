@@ -643,6 +643,7 @@ def sanitize_metadata(
 
     sanitized = {}
     total_size = 0
+    dropped_keys: Dict[str, str] = {}  # key -> reason for dropping
 
     for key, value in metadata.items():
         # Skip None values
@@ -654,28 +655,58 @@ def sanitize_metadata(
         if key_lower in BLOCKED_METADATA_KEYS or any(
             blocked in key_lower for blocked in ["password", "secret", "token", "key"]
         ):
-            frappe.logger().debug(f"Blocked metadata key: {key}")
+            dropped_keys[key] = "blocked_pii"
             continue
 
         # Check if key is allowed
         if not allow_unlisted_keys and key not in ALLOWED_METADATA_KEYS:
-            frappe.logger().debug(f"Skipped non-whitelisted metadata key: {key}")
+            dropped_keys[key] = "not_whitelisted"
             continue
 
         # Truncate key if too long
         safe_key = str(key)[:METADATA_MAX_KEY_LENGTH]
+        if len(str(key)) > METADATA_MAX_KEY_LENGTH:
+            dropped_keys[key] = f"key_truncated_to_{METADATA_MAX_KEY_LENGTH}_chars"
 
         # Convert value to string and truncate if too long
-        safe_value = str(value)[:METADATA_MAX_VALUE_LENGTH]
+        original_value = str(value)
+        safe_value = original_value[:METADATA_MAX_VALUE_LENGTH]
+        if len(original_value) > METADATA_MAX_VALUE_LENGTH:
+            dropped_keys[
+                key
+            ] = f"value_truncated_from_{len(original_value)}_to_{METADATA_MAX_VALUE_LENGTH}_chars"
 
         # Check total size limit
         entry_size = len(safe_key) + len(safe_value) + 4  # Account for JSON formatting
         if total_size + entry_size > max_total_size:
-            frappe.logger().warning(f"Metadata size limit reached, skipping key: {key}")
+            dropped_keys[key] = "size_limit_exceeded"
+            # Log remaining keys that won't fit
+            remaining_keys = [k for k in metadata.keys() if k not in sanitized and k not in dropped_keys]
+            for remaining_key in remaining_keys:
+                dropped_keys[remaining_key] = "size_limit_exceeded"
             break
 
         sanitized[safe_key] = safe_value
         total_size += entry_size
+
+    # Log summary of dropped fields (visible in production)
+    if dropped_keys:
+        pii_blocked = [k for k, reason in dropped_keys.items() if reason == "blocked_pii"]
+        not_whitelisted = [k for k, reason in dropped_keys.items() if reason == "not_whitelisted"]
+        size_exceeded = [k for k, reason in dropped_keys.items() if reason == "size_limit_exceeded"]
+
+        if pii_blocked:
+            frappe.logger().warning(
+                f"Mollie metadata: blocked {len(pii_blocked)} PII key(s): {', '.join(pii_blocked)}"
+            )
+        if not_whitelisted:
+            frappe.logger().info(
+                f"Mollie metadata: skipped {len(not_whitelisted)} non-whitelisted key(s): {', '.join(not_whitelisted)}"
+            )
+        if size_exceeded:
+            frappe.logger().warning(
+                f"Mollie metadata: dropped {len(size_exceeded)} key(s) due to size limit: {', '.join(size_exceeded)}"
+            )
 
     return sanitized
 

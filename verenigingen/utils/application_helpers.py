@@ -157,6 +157,19 @@ def map_payment_method(payment_method, validate: bool = True):
         # Check what modes are missing and provide helpful error message
         missing_modes = get_missing_payment_modes()
 
+        # Machine-friendly error code for automated deployments
+        error_code = "PAYMENT_MODE_NOT_CONFIGURED"
+        error_data = {
+            "error_code": error_code,
+            "missing_payment_mode": mapped_value,
+            "all_missing_modes": missing_modes,
+            "recovery_command": (
+                "bench --site <site> execute "
+                '"verenigingen.utils.application_helpers.ensure_payment_modes_exist"'
+            ),
+        }
+
+        # User-friendly error message
         error_msg = _("Payment method '{0}' is not configured in this system. ").format(mapped_value)
 
         if missing_modes:
@@ -171,7 +184,18 @@ def map_payment_method(payment_method, validate: bool = True):
                 "Please create '{0}' in Setup > Mode of Payment, " "or contact your system administrator."
             ).format(mapped_value)
 
-        frappe.throw(error_msg, title=_("Payment Method Not Found"))
+        # Log structured error for monitoring/alerting systems
+        frappe.log_error(
+            f"[{error_code}] {error_msg}\nError data: {error_data}", "Payment Mode Configuration Error"
+        )
+
+        # Throw with both human-readable message and machine-readable error code
+        frappe.throw(
+            error_msg,
+            title=_("Payment Method Not Found"),
+            exc=frappe.ValidationError,
+        )
+        # Note: The error_code can be found in the error log for automated detection
 
     return mapped_value
 

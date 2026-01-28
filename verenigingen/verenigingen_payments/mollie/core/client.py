@@ -111,10 +111,14 @@ class MollieClient:
             if "Expecting value: line 1 column 1" in str(e):
                 frappe.logger().error(f"🔍 JSON parsing error for payment {payment_id}: {e}")
                 frappe.logger().error(f"🔍 Exception type: {type(e)}")
-                # Try to get more details about the error
+                # Try to get more details about the error (truncate response to avoid logging sensitive data)
                 if hasattr(e, "response"):
                     frappe.logger().error(f"🔍 Response status: {getattr(e.response, 'status_code', 'N/A')}")
-                    frappe.logger().error(f"🔍 Response text: {getattr(e.response, 'text', 'N/A')}")
+                    # Truncate response text to 200 chars to avoid logging sensitive data
+                    response_text = getattr(e.response, "text", "N/A")
+                    if response_text and len(response_text) > 200:
+                        response_text = response_text[:200] + "... [truncated]"
+                    frappe.logger().error(f"🔍 Response text (truncated): {response_text}")
 
             error_msg = f"Failed to get payment {payment_id} from Mollie: {e}"
             frappe.log_error(error_msg, "Mollie Client")
