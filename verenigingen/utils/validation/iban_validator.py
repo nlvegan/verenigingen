@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 
 import frappe
 from frappe import _
@@ -28,7 +29,7 @@ IBAN_SPECS = {
 
 
 @frappe.whitelist()
-def validate_iban(iban):
+def validate_iban(iban: str) -> dict:
     """
     Comprehensive IBAN validation with mod-97 checksum
     Returns: dict with 'valid' (bool) and 'message' (str)
@@ -94,26 +95,50 @@ def validate_iban(iban):
 
 def validate_iban_checksum(iban):
     """
-    Validate IBAN using mod-97 algorithm
+    Validate IBAN using streaming mod-97 algorithm.
+
+    Uses streaming calculation to avoid memory issues with large numeric strings.
+    Instead of building a full numeric string and converting to int, we accumulate
+    the remainder digit by digit, which is mathematically equivalent but uses O(1) memory.
+
+    Args:
+        iban: Cleaned IBAN string (uppercase, no spaces)
+
+    Returns:
+        True if checksum is valid (mod 97 == 1), False otherwise
     """
-    # Move first 4 characters to end
+    # Move first 4 characters to end (ISO 13616)
     rearranged = iban[4:] + iban[:4]
 
-    # Convert letters to numbers (A=10, B=11, ..., Z=35)
-    numeric_iban = ""
+    # Streaming MOD-97: accumulate remainder digit by digit
+    # This avoids building a potentially huge numeric string
+    remainder = 0
     for char in rearranged:
         if char.isdigit():
-            numeric_iban += char
+            remainder = (remainder * 10 + int(char)) % 97
         else:
-            numeric_iban += str(ord(char) - ord("A") + 10)
+            # Letters A-Z map to 10-35 (two digits each)
+            value = ord(char) - ord("A") + 10
+            # Process the two digits of the letter value
+            remainder = (remainder * 10 + value // 10) % 97
+            remainder = (remainder * 10 + value % 10) % 97
 
-    # Calculate mod 97
-    return int(numeric_iban) % 97 == 1
+    return remainder == 1
 
 
 def calculate_iban_checksum(country_code, bank_code, account_number):
     """
-    Calculate the correct checksum for an IBAN
+    Calculate the correct checksum for an IBAN using streaming mod-97.
+
+    Uses streaming calculation to avoid memory issues with large numeric strings.
+
+    Args:
+        country_code: Two-letter country code (e.g., "NL")
+        bank_code: Bank identifier (e.g., "INGB")
+        account_number: Account number portion
+
+    Returns:
+        Two-digit checksum as string (e.g., "91")
     """
     # Create IBAN without checksum (use 00 as placeholder)
     temp_iban = country_code + "00" + bank_code + account_number
@@ -121,16 +146,18 @@ def calculate_iban_checksum(country_code, bank_code, account_number):
     # Move first 4 characters to end
     rearranged = temp_iban[4:] + temp_iban[:4]
 
-    # Convert letters to numbers
-    numeric_iban = ""
+    # Streaming MOD-97: accumulate remainder digit by digit
+    remainder = 0
     for char in rearranged:
         if char.isdigit():
-            numeric_iban += char
+            remainder = (remainder * 10 + int(char)) % 97
         else:
-            numeric_iban += str(ord(char) - ord("A") + 10)
+            # Letters A-Z map to 10-35 (two digits each)
+            value = ord(char) - ord("A") + 10
+            remainder = (remainder * 10 + value // 10) % 97
+            remainder = (remainder * 10 + value % 10) % 97
 
-    # Calculate checksum
-    remainder = int(numeric_iban) % 97
+    # Calculate checksum: 98 - remainder
     checksum = 98 - remainder
 
     return f"{checksum:02d}"
@@ -183,7 +210,7 @@ def generate_test_iban(bank_code="TEST", account_number=None):
 
 
 @frappe.whitelist()
-def format_iban(iban):
+def format_iban(iban: str) -> str:
     """
     Format IBAN with proper spacing (groups of 4)
     """
@@ -199,7 +226,7 @@ def format_iban(iban):
 
 
 @frappe.whitelist()
-def get_bank_from_iban(iban):
+def get_bank_from_iban(iban: str) -> Optional[dict]:
     """
     Extract bank information from IBAN
     Returns: dict with bank_code and bank_name
@@ -283,7 +310,7 @@ def get_bank_from_iban(iban):
 
 
 @frappe.whitelist()
-def derive_bic_from_iban(iban):
+def derive_bic_from_iban(iban: str) -> Optional[str]:
     """
     Enhanced BIC derivation from IBAN with extended bank database
     """

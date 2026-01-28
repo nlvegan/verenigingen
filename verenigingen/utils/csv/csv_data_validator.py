@@ -14,6 +14,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.csv.data_transformers import clean_value
+from verenigingen.utils.validation.iban_validator import validate_iban as iban_validator_validate
 
 
 class CSVDataValidator:
@@ -279,20 +280,17 @@ class CSVDataValidator:
 
     def validate_iban(self, iban: str) -> bool:
         """
-        Enhanced IBAN validation with MOD-97 checksum (ISO 13616).
+        Validate IBAN using centralized validator with streaming MOD-97.
+
+        Delegates to vereinigingen.utils.validation.iban_validator for comprehensive
+        IBAN validation including country-specific length checks and streaming
+        MOD-97 checksum calculation.
 
         Args:
             iban: IBAN number to validate
 
         Returns:
             True if valid IBAN with correct checksum, False otherwise
-
-        Validation Rules:
-        - Length between 15-34 characters
-        - Starts with 2-letter country code
-        - Positions 3-4 are check digits
-        - Remaining characters are alphanumeric
-        - MOD-97 checksum must equal 1
 
         Example:
             NL91ABNA0417164300 → True (valid Dutch IBAN)
@@ -301,39 +299,6 @@ class CSVDataValidator:
         if not iban:
             return False
 
-        # Remove spaces and convert to uppercase
-        iban = re.sub(r"\s+", "", iban.upper())
-
-        # Check length (minimum 15, maximum 34)
-        if len(iban) < 15 or len(iban) > 34:
-            return False
-
-        # Check if starts with country code (2 letters)
-        if not iban[:2].isalpha():
-            return False
-
-        # Check if positions 3-4 are digits (check digits)
-        if not iban[2:4].isdigit():
-            return False
-
-        # Check remaining characters are alphanumeric
-        if not iban[4:].isalnum():
-            return False
-
-        # Perform MOD-97 validation (ISO 13616)
-        try:
-            # Move first 4 characters to end
-            rearranged = iban[4:] + iban[:4]
-
-            # Replace letters with numbers (A=10, B=11, ..., Z=35)
-            numeric_string = ""
-            for char in rearranged:
-                if char.isdigit():
-                    numeric_string += char
-                else:
-                    numeric_string += str(ord(char) - ord("A") + 10)
-
-            # Check if MOD 97 equals 1
-            return int(numeric_string) % 97 == 1
-        except (ValueError, OverflowError):
-            return False
+        # Delegate to centralized validator which uses streaming MOD-97
+        result = iban_validator_validate(iban)
+        return result.get("valid", False)

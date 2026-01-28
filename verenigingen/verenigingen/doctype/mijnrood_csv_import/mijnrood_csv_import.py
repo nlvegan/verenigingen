@@ -29,7 +29,10 @@ from verenigingen.utils.csv.data_transformers import (
     parse_date,
 )
 from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
-from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
+from verenigingen.utils.csv_import_processor import (
+    CSVImportBackgroundProcessor,
+    ensure_bulk_import_members_set,
+)
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -394,7 +397,14 @@ class MijnroodCSVImport(Document):
         self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{mollie_validation_summary}{validation_warnings_summary}{performance_report}"
 
         if error_log:
-            self.error_log = "\\n".join(error_log[:50])  # Limit error log size
+            # Persist full error log as File attachment before truncating for UI
+            self._persist_full_error_log(error_log)
+            # Truncate for UI display (full log available as attachment)
+            self.error_log = "\\n".join(error_log[:50])
+            if len(error_log) > 50:
+                self.error_log += (
+                    f"\\n\\n... and {len(error_log) - 50} more errors (see attached full_error_log.txt)"
+                )
 
         # Update account creation tracking from Bulk Operation Tracker
         if self.create_user_accounts and processed_members:
@@ -408,6 +418,59 @@ class MijnroodCSVImport(Document):
         frappe.logger().info("Notes field set with itemized member lists")
 
         self.save()
+
+    def _persist_full_error_log(self, error_log: List[str]):
+        """
+        Persist full error log as File attachment for audit purposes.
+
+        This preserves complete error details that would otherwise be lost
+        when truncating for UI display. The full log can be downloaded
+        from the document's attachments.
+
+        Args:
+            error_log: List of error messages from import processing
+        """
+        if not error_log:
+            return
+
+        try:
+            # Generate timestamped filename
+            from frappe.utils import now_datetime
+
+            timestamp = now_datetime().strftime("%Y%m%d_%H%M%S")
+            filename = f"import_errors_{timestamp}.txt"
+
+            # Build file content with header
+            content_lines = [
+                f"Full Error Log for {self.name}",
+                f"Generated: {now_datetime()}",
+                f"Total Errors: {len(error_log)}",
+                "=" * 60,
+                "",
+            ]
+            content_lines.extend(error_log)
+            content = "\n".join(content_lines)
+
+            # Create File document attached to this import
+            file_doc = frappe.get_doc(
+                {
+                    "doctype": "File",
+                    "file_name": filename,
+                    "attached_to_doctype": self.doctype,
+                    "attached_to_name": self.name,
+                    "content": content,
+                    "is_private": 1,
+                }
+            )
+            file_doc.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+            frappe.logger().info(
+                f"[CSV IMPORT] Persisted full error log ({len(error_log)} entries) as {filename}"
+            )
+        except Exception as e:
+            # Don't fail the import if file attachment fails
+            frappe.logger().error(f"[CSV IMPORT] Failed to persist full error log: {str(e)}")
 
     def _process_user_account_creation(self, processed_members: List[str]) -> str:
         """
@@ -1016,11 +1079,8 @@ class MijnroodCSVImport(Document):
 
         # CRITICAL: Add member to bulk import tracking set IMMEDIATELY after insert
         # This prevents race conditions if member is reloaded/saved during approval workflow
-        if hasattr(frappe.local, "bulk_import_members"):
-            frappe.local.bulk_import_members.add(member.name)
-        else:
-            # Tracking set should have been initialized by processor - log warning if missing
-            frappe.logger().warning(f"bulk_import_members not initialized when creating {member.name}")
+        # Use helper to ensure set exists (handles edge cases where processor didn't initialize it)
+        ensure_bulk_import_members_set().add(member.name)
 
         # Record performance metrics for optimization feedback
         creation_time = time.time() - start_time
@@ -2129,7 +2189,7 @@ class MijnroodCSVImport(Document):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def validate_import_file(import_doc_name):
+def validate_import_file(import_doc_name: str) -> dict:
     """Manually validate an import file."""
     try:
         doc = frappe.get_doc("Mijnrood CSV Import", import_doc_name)
