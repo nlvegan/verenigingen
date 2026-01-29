@@ -266,6 +266,11 @@ class CSVImportBackgroundProcessor:
 
     def _default_finalize(self, created: int, updated: int, skipped: int, error_log: List[str]):
         """Default finalization if no custom callback provided."""
+        from verenigingen.utils.import_helpers import (
+            persist_full_error_log,
+            truncate_error_log_for_display,
+        )
+
         self.import_doc.reload()
         self.import_doc.import_status = "Completed"
         self.import_doc.import_summary = (
@@ -274,57 +279,14 @@ class CSVImportBackgroundProcessor:
 
         if error_log:
             # Persist full error log as File attachment before truncating
-            self._persist_full_error_log(error_log)
+            filename = persist_full_error_log(error_log, self.doctype, self.import_doc_name)
             # Truncate for UI display
-            self.import_doc.error_log = "\n".join(error_log[:100])
-            if len(error_log) > 100:
-                self.import_doc.error_log += (
-                    f"\n\n... and {len(error_log) - 100} more errors (see attached full_error_log.txt)"
-                )
+            self.import_doc.error_log = truncate_error_log_for_display(
+                error_log, max_lines=100, full_log_filename=filename
+            )
 
         self.import_doc.save(ignore_permissions=True)
         frappe.db.commit()
-
-    def _persist_full_error_log(self, error_log: List[str]):
-        """
-        Persist full error log as File attachment for audit purposes.
-
-        Args:
-            error_log: List of error messages from import processing
-        """
-        if not error_log:
-            return
-
-        try:
-            timestamp = now().replace(" ", "_").replace(":", "-")
-            filename = f"import_errors_{timestamp}.txt"
-
-            content_lines = [
-                f"Full Error Log for {self.import_doc_name}",
-                f"Generated: {now()}",
-                f"Total Errors: {len(error_log)}",
-                "=" * 60,
-                "",
-            ]
-            content_lines.extend(error_log)
-            content = "\n".join(content_lines)
-
-            file_doc = frappe.get_doc(
-                {
-                    "doctype": "File",
-                    "file_name": filename,
-                    "attached_to_doctype": self.doctype,
-                    "attached_to_name": self.import_doc_name,
-                    "content": content,
-                    "is_private": 1,
-                }
-            )
-            file_doc.insert(ignore_permissions=True)
-            frappe.db.commit()
-
-            frappe.logger().info(f"Persisted full error log ({len(error_log)} entries) as {filename}")
-        except Exception as e:
-            frappe.logger().error(f"Failed to persist full error log: {str(e)}")
 
     def _send_completion_notification(self, created: int, updated: int, skipped: int):
         """Send in-app notification on successful completion."""

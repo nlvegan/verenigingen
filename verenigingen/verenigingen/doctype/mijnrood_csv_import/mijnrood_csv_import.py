@@ -398,13 +398,16 @@ class MijnroodCSVImport(Document):
 
         if error_log:
             # Persist full error log as File attachment before truncating for UI
-            self._persist_full_error_log(error_log)
+            from verenigingen.utils.import_helpers import (
+                persist_full_error_log,
+                truncate_error_log_for_display,
+            )
+
+            filename = persist_full_error_log(error_log, self.doctype, self.name)
             # Truncate for UI display (full log available as attachment)
-            self.error_log = "\\n".join(error_log[:50])
-            if len(error_log) > 50:
-                self.error_log += (
-                    f"\\n\\n... and {len(error_log) - 50} more errors (see attached full_error_log.txt)"
-                )
+            self.error_log = truncate_error_log_for_display(
+                error_log, max_lines=50, full_log_filename=filename
+            )
 
         # Update account creation tracking from Bulk Operation Tracker
         if self.create_user_accounts and processed_members:
@@ -418,59 +421,6 @@ class MijnroodCSVImport(Document):
         frappe.logger().info("Notes field set with itemized member lists")
 
         self.save()
-
-    def _persist_full_error_log(self, error_log: List[str]):
-        """
-        Persist full error log as File attachment for audit purposes.
-
-        This preserves complete error details that would otherwise be lost
-        when truncating for UI display. The full log can be downloaded
-        from the document's attachments.
-
-        Args:
-            error_log: List of error messages from import processing
-        """
-        if not error_log:
-            return
-
-        try:
-            # Generate timestamped filename
-            from frappe.utils import now_datetime
-
-            timestamp = now_datetime().strftime("%Y%m%d_%H%M%S")
-            filename = f"import_errors_{timestamp}.txt"
-
-            # Build file content with header
-            content_lines = [
-                f"Full Error Log for {self.name}",
-                f"Generated: {now_datetime()}",
-                f"Total Errors: {len(error_log)}",
-                "=" * 60,
-                "",
-            ]
-            content_lines.extend(error_log)
-            content = "\n".join(content_lines)
-
-            # Create File document attached to this import
-            file_doc = frappe.get_doc(
-                {
-                    "doctype": "File",
-                    "file_name": filename,
-                    "attached_to_doctype": self.doctype,
-                    "attached_to_name": self.name,
-                    "content": content,
-                    "is_private": 1,
-                }
-            )
-            file_doc.insert(ignore_permissions=True)
-            frappe.db.commit()
-
-            frappe.logger().info(
-                f"[CSV IMPORT] Persisted full error log ({len(error_log)} entries) as {filename}"
-            )
-        except Exception as e:
-            # Don't fail the import if file attachment fails
-            frappe.logger().error(f"[CSV IMPORT] Failed to persist full error log: {str(e)}")
 
     def _process_user_account_creation(self, processed_members: List[str]) -> str:
         """

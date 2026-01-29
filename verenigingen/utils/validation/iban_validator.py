@@ -55,35 +55,45 @@ def validate_iban(iban: str) -> dict:
     # Extract country code
     country_code = iban_clean[:2]
 
-    # Check if country is supported
-    if country_code not in IBAN_SPECS:
-        return {"valid": False, "message": _("Unsupported country code: {0}").format(country_code)}
+    # Check if country is in our specifications
+    if country_code in IBAN_SPECS:
+        # Full validation for known countries
+        expected_length = IBAN_SPECS[country_code]["length"]
+        if len(iban_clean) != expected_length:
+            # Country name mapping for better messages
+            country_names = {
+                "NL": "Dutch",
+                "BE": "Belgian",
+                "DE": "German",
+                "FR": "French",
+                "GB": "British",
+                "IT": "Italian",
+                "ES": "Spanish",
+            }
+            country_name = country_names.get(country_code, country_code)
+            return {
+                "valid": False,
+                "message": _("{0} IBAN must be {1} characters").format(country_name, expected_length),
+            }
 
-    # Check length
-    expected_length = IBAN_SPECS[country_code]["length"]
-    if len(iban_clean) != expected_length:
-        # Country name mapping for better messages
-        country_names = {
-            "NL": "Dutch",
-            "BE": "Belgian",
-            "DE": "German",
-            "FR": "French",
-            "GB": "British",
-            "IT": "Italian",
-            "ES": "Spanish",
-        }
-        country_name = country_names.get(country_code, country_code)
-        return {
-            "valid": False,
-            "message": _("{0} IBAN must be {1} characters").format(country_name, expected_length),
-        }
+        # Validate BBAN pattern
+        bban = iban_clean[4:]
+        if not re.match(IBAN_SPECS[country_code]["bban_pattern"], bban):
+            return {
+                "valid": False,
+                "message": _("Invalid account number format for {0}").format(country_code),
+            }
+    else:
+        # Fallback validation for unsupported countries:
+        # - IBAN length must be 15-34 characters (ISO 13616 standard)
+        # - MOD-97 checksum still applies universally
+        if len(iban_clean) < 15 or len(iban_clean) > 34:
+            return {
+                "valid": False,
+                "message": _("IBAN must be between 15 and 34 characters"),
+            }
 
-    # Validate BBAN pattern
-    bban = iban_clean[4:]
-    if not re.match(IBAN_SPECS[country_code]["bban_pattern"], bban):
-        return {"valid": False, "message": _("Invalid account number format for {0}").format(country_code)}
-
-    # Perform mod-97 checksum validation
+    # Perform mod-97 checksum validation (applies to all IBANs)
     if not validate_iban_checksum(iban_clean):
         return {
             "valid": False,
@@ -163,7 +173,6 @@ def calculate_iban_checksum(country_code, bank_code, account_number):
     return f"{checksum:02d}"
 
 
-@frappe.whitelist()
 def generate_test_iban(bank_code="TEST", account_number=None):
     """
     Generate a valid test IBAN with proper MOD-97 checksum
@@ -419,7 +428,6 @@ def derive_bic_from_iban(iban: str) -> Optional[str]:
     return None
 
 
-@frappe.whitelist()
 def generate_invalid_iban(error_type="checksum"):
     """
     Generate invalid IBANs for negative testing
@@ -449,7 +457,6 @@ def generate_invalid_iban(error_type="checksum"):
     return invalid_patterns.get(error_type, invalid_patterns["checksum"])
 
 
-@frappe.whitelist()
 def create_mock_bank_scenario(scenario="normal"):
     """
     Create different banking scenarios for testing
