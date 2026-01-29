@@ -332,17 +332,37 @@ def _create_volunteer(row: Dict, member: Document, import_batch_name: Optional[s
     """
     Create a new Volunteer record.
 
+    Uses FOR UPDATE lock on member row to prevent race conditions where
+    multiple concurrent processes could create duplicate volunteers.
+
     Args:
         row: Mapped row data from validator
         member: Member document to link
         import_batch_name: Name of the VIP Import document for batch tracking
 
     Returns:
-        Created Volunteer document
+        Created (or existing) Volunteer document
 
     Raises:
         frappe.ValidationError: If member doesn't meet age requirement
     """
+    # Lock member row to prevent concurrent volunteer creation
+    # This ensures only one process can create a volunteer for this member at a time
+    frappe.db.sql("SELECT name FROM `tabMember` WHERE name = %s FOR UPDATE", member.name)
+
+    # Re-check if volunteer already exists (after acquiring lock)
+    # Another process may have created one while we waited for the lock
+    existing_volunteer_name = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
+    if existing_volunteer_name:
+        # Return existing volunteer - another process created it first
+        existing_volunteer = frappe.get_doc("Volunteer", existing_volunteer_name)
+        # Update with VIP data if needed (e.g., vip_user_id wasn't set before)
+        if row.get("vip_user_id") and not existing_volunteer.vip_user_id:
+            existing_volunteer.vip_user_id = str(row["vip_user_id"])
+            existing_volunteer.flags.bulk_member_operations = True
+            existing_volunteer.save(ignore_permissions=True)
+        return existing_volunteer
+
     # Validate volunteer age requirement
     age_error = _validate_volunteer_age(member)
     if age_error:
@@ -395,11 +415,8 @@ def _create_volunteer(row: Dict, member: Document, import_batch_name: Optional[s
     # User must have VIP Import create/submit permission to reach this code path
     volunteer.insert(ignore_permissions=True)
 
-    # Update member's volunteer_record link with race condition protection
-    # Re-check current state before updating to avoid overwriting concurrent updates
-    current_volunteer_record = frappe.db.get_value("Member", member.name, "volunteer_record")
-    if not current_volunteer_record:
-        frappe.db.set_value("Member", member.name, "volunteer_record", volunteer.name, update_modified=False)
+    # Update member's volunteer_record link (safe - we hold the lock on member row)
+    frappe.db.set_value("Member", member.name, "volunteer_record", volunteer.name, update_modified=False)
 
     return volunteer
 

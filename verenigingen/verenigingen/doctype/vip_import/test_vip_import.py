@@ -549,11 +549,91 @@ class TestVIPImportBackgroundJob(FrappeTestCase):
 class TestVIPImportRobustness(FrappeTestCase):
     """Test robustness features of VIP Import."""
 
-    def test_savepoint_rollback_on_volunteer_link_failure(self):
-        """Test that volunteer creation is rolled back if member link update fails."""
+    def _create_race_condition_test_data(self, unique_id):
+        """Create test member and volunteer for race condition testing.
+
+        Args:
+            unique_id: Unique identifier suffix for test data
+
+        Returns:
+            Tuple of (member, volunteer, row_data)
+        """
+        # Create a member
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Race",
+                "last_name": "Test",
+                "email": f"race-test-{unique_id}@example.com",
+                "member_id": f"TEST-RACE-{unique_id}",
+                "status": "Active",
+            }
+        )
+        member.flags.bulk_member_operations = True
+        member.insert(ignore_permissions=True)
+
+        # Pre-create a volunteer to simulate race condition
+        volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": "Race Test",
+                "member": member.name,
+                "status": "Active",
+                "start_date": today(),
+            }
+        )
+        volunteer.flags.bulk_member_operations = True
+        volunteer.flags.skip_volunteer_account_creation = True
+        volunteer.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        row = {
+            "row_number": 1,
+            "vip_user_id": f"race-test-{unique_id}",
+            "first_name": "Race",
+            "last_name": "Test",
+            "organization_email": f"race-test-{unique_id}@example.com",
+            "volunteer_status": "Active",
+        }
+
+        return member, volunteer, row
+
+    def _cleanup_race_condition_test_data(self, member, volunteer):
+        """Clean up test data created for race condition testing."""
+        volunteer.delete(ignore_permissions=True)
+        frappe.db.set_value("Member", member.name, "volunteer_record", None, update_modified=False)
+        member.delete(ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_duplicate_volunteer_handling_race_condition(self):
+        """Test that concurrent volunteer creation is handled gracefully."""
         import uuid
 
         unique_id = str(uuid.uuid4())[:8]
+        member, volunteer, row = self._create_race_condition_test_data(unique_id)
+
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+            _create_volunteer,
+        )
+
+        # This should NOT raise an error - should detect existing and return it
+        result = _create_volunteer(row, member, import_batch_name=None)
+
+        # Should return the existing volunteer, not create a duplicate
+        self.assertEqual(result.name, volunteer.name)
+
+        # Cleanup
+        self._cleanup_race_condition_test_data(member, volunteer)
+
+    def _create_savepoint_test_data(self, unique_id):
+        """Create test member for savepoint rollback testing.
+
+        Args:
+            unique_id: Unique identifier suffix for test data
+
+        Returns:
+            Tuple of (member, row_data, test_vip_id)
+        """
         test_email = f"savepoint-test-{unique_id}@example.com"
         test_vip_id = f"savepoint-test-{unique_id}"
         test_member_id = f"TEST-SAVEPOINT-{unique_id}"
@@ -582,6 +662,26 @@ class TestVIPImportRobustness(FrappeTestCase):
             "organization_email": test_email,
             "volunteer_status": "Active",
         }
+
+        return member, row, test_vip_id
+
+    def _cleanup_savepoint_test_data(self, member, test_vip_id):
+        """Clean up test data created for savepoint testing."""
+        orphan_vol = frappe.db.exists("Volunteer", {"vip_user_id": test_vip_id})
+        if orphan_vol:
+            frappe.delete_doc("Volunteer", orphan_vol, force=True)
+        if frappe.db.exists("Member", member.name):
+            # Clear volunteer_record link before deleting member
+            frappe.db.set_value("Member", member.name, "volunteer_record", None, update_modified=False)
+            frappe.delete_doc("Member", member.name, force=True)
+        frappe.db.commit()
+
+    def test_savepoint_rollback_on_volunteer_link_failure(self):
+        """Test that volunteer creation is rolled back if member link update fails."""
+        import uuid
+
+        unique_id = str(uuid.uuid4())[:8]
+        member, row, test_vip_id = self._create_savepoint_test_data(unique_id)
 
         # Mock db.set_value to fail on volunteer_record update
         original_set_value = frappe.db.set_value
@@ -620,15 +720,8 @@ class TestVIPImportRobustness(FrappeTestCase):
             volunteer_exists = frappe.db.exists("Volunteer", {"vip_user_id": test_vip_id})
             self.assertFalse(volunteer_exists, "Volunteer should be rolled back on failure")
         finally:
-            # Cleanup - delete any orphaned volunteer and the test member
-            orphan_vol = frappe.db.exists("Volunteer", {"vip_user_id": test_vip_id})
-            if orphan_vol:
-                frappe.delete_doc("Volunteer", orphan_vol, force=True)
-            if frappe.db.exists("Member", member.name):
-                # Clear volunteer_record link before deleting member
-                frappe.db.set_value("Member", member.name, "volunteer_record", None, update_modified=False)
-                frappe.delete_doc("Member", member.name, force=True)
-            frappe.db.commit()
+            # Cleanup
+            self._cleanup_savepoint_test_data(member, test_vip_id)
 
 
 if __name__ == "__main__":
