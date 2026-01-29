@@ -14,6 +14,7 @@ Author: Verenigingen Development Team
 """
 
 import traceback
+from contextlib import contextmanager
 from typing import Callable, Dict, List, Optional
 
 import frappe
@@ -39,6 +40,38 @@ def ensure_bulk_import_members_set():
     if not hasattr(frappe.local, "bulk_import_members"):
         frappe.local.bulk_import_members = set()
     return frappe.local.bulk_import_members
+
+
+@contextmanager
+def bulk_member_operations(import_doc_name: str = None):
+    """
+    Context manager for bulk import operations.
+
+    Sets up the bulk operations flag and member tracking set, ensuring
+    proper cleanup on both success and failure. This prevents fee override
+    hooks and background event processing during bulk imports.
+
+    Args:
+        import_doc_name: Optional name of the import document for logging
+
+    Yields:
+        set: The bulk_import_members tracking set
+
+    Usage:
+        with bulk_member_operations("MEMBER-IMPORT-2025-00016") as member_set:
+            # Process import rows
+            member_set.add(member.name)
+    """
+    try:
+        frappe.flags.bulk_member_operations = True
+        member_set = ensure_bulk_import_members_set()
+        frappe.logger().info(f"Bulk import started: {import_doc_name or 'unnamed'}")
+        yield member_set
+    finally:
+        frappe.flags.bulk_member_operations = False
+        if hasattr(frappe.local, "bulk_import_members"):
+            frappe.local.bulk_import_members.clear()
+        frappe.logger().info(f"Bulk import cleanup complete: {import_doc_name or 'unnamed'}")
 
 
 class CSVImportBackgroundProcessor:
@@ -95,93 +128,82 @@ class CSVImportBackgroundProcessor:
         try:
             self.load_import_doc()
 
-            # Set bulk operations flag to prevent fee override hooks and background event processing
-            frappe.flags.bulk_member_operations = True
+            # Use context manager for bulk operations flag management
+            with bulk_member_operations(self.import_doc_name):
+                # Update status to processing
+                self._update_status("In Progress", 0, len(data_rows))
 
-            # Initialize tracking set for members being imported (persists for entire background job)
-            ensure_bulk_import_members_set()
+                created_count = 0
+                updated_count = 0
+                skipped_count = 0
+                error_log = []
+                created_records = []
+                updated_records = []
+                skipped_records = []
 
-            frappe.logger().info(f"Bulk import initialized for {self.import_doc_name}")
+                total_rows = len(data_rows)
 
-            # Update status to processing
-            self._update_status("In Progress", 0, len(data_rows))
+                # Process in batches
+                for batch_start in range(0, total_rows, batch_size):
+                    batch_end = min(batch_start + batch_size, total_rows)
+                    batch = data_rows[batch_start:batch_end]
 
-            created_count = 0
-            updated_count = 0
-            skipped_count = 0
-            error_log = []
-            created_records = []
-            updated_records = []
-            skipped_records = []
+                    frappe.logger().info(
+                        f"Processing batch {batch_start}-{batch_end} of {total_rows} for {self.import_doc_name}"
+                    )
 
-            total_rows = len(data_rows)
+                    # Process each row in the batch
+                    for row in batch:
+                        try:
+                            result, record_name = process_row_callback(row, error_log)
 
-            # Process in batches
-            for batch_start in range(0, total_rows, batch_size):
-                batch_end = min(batch_start + batch_size, total_rows)
-                batch = data_rows[batch_start:batch_end]
+                            if result == "created":
+                                created_count += 1
+                                if record_name:
+                                    created_records.append(record_name)
+                            elif result == "updated":
+                                updated_count += 1
+                                if record_name:
+                                    updated_records.append(record_name)
+                            else:
+                                skipped_count += 1
+                                if record_name:
+                                    skipped_records.append(record_name)
 
-                frappe.logger().info(
-                    f"Processing batch {batch_start}-{batch_end} of {total_rows} for {self.import_doc_name}"
-                )
-
-                # Process each row in the batch
-                for row in batch:
-                    try:
-                        result, record_name = process_row_callback(row, error_log)
-
-                        if result == "created":
-                            created_count += 1
-                            if record_name:
-                                created_records.append(record_name)
-                        elif result == "updated":
-                            updated_count += 1
-                            if record_name:
-                                updated_records.append(record_name)
-                        else:
+                        except Exception as e:
                             skipped_count += 1
-                            if record_name:
-                                skipped_records.append(record_name)
+                            error_msg = f"Row {row.get('row_number', '?')}: {str(e)}"
+                            error_log.append(error_msg)
+                            frappe.logger().error(f"Error processing row: {error_msg}")
 
-                    except Exception as e:
-                        skipped_count += 1
-                        error_msg = f"Row {row.get('row_number', '?')}: {str(e)}"
-                        error_log.append(error_msg)
-                        frappe.logger().error(f"Error processing row: {error_msg}")
+                    # Update progress after each batch
+                    processed_so_far = batch_end
+                    self._update_progress(
+                        processed_so_far, total_rows, created_count, updated_count, skipped_count
+                    )
 
-                # Update progress after each batch
-                processed_so_far = batch_end
-                self._update_progress(
-                    processed_so_far, total_rows, created_count, updated_count, skipped_count
-                )
+                    # Commit batch if enabled
+                    if batch_commit:
+                        frappe.db.commit()
 
-                # Commit batch if enabled
-                if batch_commit:
-                    frappe.db.commit()
+                # Finalize import
+                if finalize_callback:
+                    finalize_callback(
+                        created_count,
+                        updated_count,
+                        skipped_count,
+                        error_log,
+                        created_records,
+                        updated_records,
+                        skipped_records,
+                    )
+                else:
+                    self._default_finalize(created_count, updated_count, skipped_count, error_log)
 
-            # Finalize import
-            if finalize_callback:
-                finalize_callback(
-                    created_count,
-                    updated_count,
-                    skipped_count,
-                    error_log,
-                    created_records,
-                    updated_records,
-                    skipped_records,
-                )
-            else:
-                self._default_finalize(created_count, updated_count, skipped_count, error_log)
+                # Send completion notification
+                self._send_completion_notification(created_count, updated_count, skipped_count)
 
-            # Send completion notification
-            self._send_completion_notification(created_count, updated_count, skipped_count)
-
-            # Clear bulk operations flag and member tracking set
-            frappe.flags.bulk_member_operations = False
-            if hasattr(frappe.local, "bulk_import_members"):
-                frappe.local.bulk_import_members.clear()
-            frappe.logger().info(f"Bulk import completed and cleaned up for {self.import_doc_name}")
-
+            # Context manager handles cleanup; return success result
             return {
                 "success": True,
                 "created": created_count,
@@ -192,11 +214,7 @@ class CSVImportBackgroundProcessor:
             }
 
         except Exception as e:
-            # Clear flag and tracking set on error too
-            frappe.flags.bulk_member_operations = False
-            if hasattr(frappe.local, "bulk_import_members"):
-                frappe.local.bulk_import_members.clear()
-
+            # Context manager already cleaned up flags in finally block
             error_msg = f"Import failed: {str(e)}\n{traceback.format_exc()}"
             frappe.logger().error(f"CSV Import Background Job Failed: {error_msg}")
 
