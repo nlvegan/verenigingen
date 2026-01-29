@@ -549,6 +549,37 @@ class TestVIPImportBackgroundJob(FrappeTestCase):
 class TestVIPImportRobustness(FrappeTestCase):
     """Test robustness features of VIP Import."""
 
+    def test_queue_capacity_check_on_submit(self):
+        """Test that queue capacity is checked before enqueueing import job."""
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen.doctype.vip_import.vip_import import VIPImport
+
+        # Create minimal VIP Import document
+        import_doc = frappe.get_doc(
+            {
+                "doctype": "VIP Import",
+                "import_date": today(),
+                "import_status": "Ready for Import",
+            }
+        )
+
+        # Mock queue capacity check to return False (queue full)
+        with patch(
+            "verenigingen.verenigingen.doctype.vip_import.vip_import.has_queue_capacity", return_value=False
+        ) as mock_capacity:
+            with patch(
+                "verenigingen.verenigingen.doctype.vip_import.vip_import.wait_for_queue_capacity",
+                return_value=False,
+            ) as mock_wait:
+                # Attempt to submit should throw
+                with self.assertRaises(frappe.ValidationError) as context:
+                    import_doc.on_submit()
+
+                self.assertIn("queue", str(context.exception).lower())
+                mock_capacity.assert_called_once()
+                mock_wait.assert_called_once()
+
     def _create_race_condition_test_data(self, unique_id):
         """Create test member and volunteer for race condition testing.
 

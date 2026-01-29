@@ -25,6 +25,7 @@ from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv.vip_data_validator import VIPDataValidator
 from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.queue_management import has_queue_capacity, wait_for_queue_capacity
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 # ==================== CONSTANTS ====================
@@ -148,6 +149,25 @@ class VIPImport(Document):
                     "Import status must be 'Ready for Import' or 'Pending' to process. Current status: {0}"
                 ).format(self.import_status)
             )
+
+        # Check queue capacity before enqueueing
+        if not has_queue_capacity(queue_name="long", required_capacity=1):
+            frappe.msgprint(
+                _("Background job queue is near capacity. Waiting for space..."),
+                indicator="orange",
+            )
+            if not wait_for_queue_capacity(
+                queue_name="long",
+                timeout=60,  # Wait up to 60 seconds
+                log_prefix=f"[VIP Import {self.name}] ",
+            ):
+                frappe.throw(
+                    _(
+                        "Background job queue is full. Please wait a few minutes and try again. "
+                        "The queue processes jobs continuously and should have capacity soon."
+                    ),
+                    exc=frappe.ValidationError,
+                )
 
         # Queue background job
         self.db_set("import_status", "Queued")
