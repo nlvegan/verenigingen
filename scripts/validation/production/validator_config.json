@@ -24,9 +24,12 @@
         "frappe.desk.search.search_widget",
         "frappe.desk.notifications.get_notifications",
         "frappe.desk.desktop.get_desk_sidebar_items",
+        "frappe.desk.query_report.export_query",
+        "frappe.desk.reportview.export_query",
         "frappe.core.doctype.file.file.get_attached_files",
         "frappe.handler.uploadfile",
         "frappe.utils.print_format.download_pdf",
+        "frappe.core.doctype.communication.email.make",
         "run_doc_method"
     ],
     "http_methods": [
@@ -52,9 +55,12 @@
         "przelewy24",
         "Bank Transfer",
         "SEPA Direct Debit",
+        "Direct Debit",
         "Cash",
         "Credit Card",
-        "Wire Transfer"
+        "Wire Transfer",
+        "Mollie",
+        "iDEAL"
     ],
     "excluded_patterns": [
         "node_modules",
@@ -63,14 +69,54 @@
         "build",
         "__pycache__",
         ".pytest_cache",
-        ".mypy_cache"
+        ".mypy_cache",
+        "eslint-plugins"
     ],
     "excluded_file_patterns": [
         "*.min.js",
         "*.bundle.js",
-        "*.map"
+        "*.map",
+        "*.spec.js",
+        "*.test.js",
+        "test_*.js"
+    ],
+    "excluded_js_directories": [
+        "tests/",
+        "test/",
+        "eslint-plugins/",
+        "cypress/",
+        "playwright/"
     ],
     "ignore_method_patterns": [
-        "^[A-Z]+$"
+        "^[A-Z]+$",
+        "^[A-Z][a-z]+$"
+    ],
+    "ignore_method_names": [
+        "Mollie",
+        "DigiD",
+        "bitcoin",
+        "Manual",
+        "Invalid Method",
+        "Active",
+        "Pending",
+        "Approved",
+        "Rejected",
+        "Suspended",
+        "Terminated",
+        "Deceased",
+        "Banned"
+    ],
+    "severity_rules": {
+        "test_methods": "ignore",
+        "api_methods": "medium",
+        "core_methods": "high"
+    },
+    "test_file_patterns": [
+        "test",
+        "spec",
+        "mock",
+        "fixture",
+        "cypress",
+        "playwright"
     ]
 }

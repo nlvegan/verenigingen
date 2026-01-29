@@ -135,6 +135,11 @@ class EnhancedJSPythonParameterValidator:
         if method_name in payment_methods:
             return True
 
+        # Check explicit ignore method names (common false positives like "Mollie", "DigiD")
+        ignore_names = self.config.get('ignore_method_names', [])
+        if method_name in ignore_names:
+            return True
+
         # Check ignore patterns (e.g., all uppercase = HTTP methods)
         ignore_patterns = self.config.get('ignore_method_patterns', [])
         for pattern in ignore_patterns:
@@ -145,20 +150,36 @@ class EnhancedJSPythonParameterValidator:
     
     def is_excluded_path(self, file_path: Path) -> bool:
         """Check if file path should be excluded from validation"""
-        exclude_patterns = self.config.get('exclude_patterns', [])
-        path_str = str(file_path).lower()
-        
+        path_str = str(file_path)
+        path_lower = path_str.lower()
+        filename = file_path.name.lower()
+
+        # Check excluded directory patterns (e.g., "tests/", "eslint-plugins/")
+        excluded_dirs = self.config.get('excluded_js_directories', [])
+        for dir_pattern in excluded_dirs:
+            if dir_pattern.rstrip('/') in path_str:
+                return True
+
+        # Check excluded file patterns (e.g., "*.spec.js", "test_*.js")
+        excluded_file_patterns = self.config.get('excluded_file_patterns', [])
+        for pattern in excluded_file_patterns:
+            # Convert glob pattern to regex
+            regex_pattern = pattern.replace('.', r'\.').replace('*', '.*')
+            if re.match(regex_pattern, filename):
+                return True
+
+        # Check general exclude patterns (e.g., "node_modules", ".git")
+        exclude_patterns = self.config.get('excluded_patterns', [])
         for pattern in exclude_patterns:
-            # More precise pattern matching
-            pattern_parts = [p for p in pattern.replace('**', '').replace('*', '').split('/') if p]
-            if any(part and part in path_str for part in pattern_parts):
-                # Only exclude if it's a clear match (e.g., 'test' in path for test files)
-                if pattern.startswith('**/test') and 'test' in path_str:
-                    return True
-                elif pattern.startswith('**/debug') and 'debug' in path_str:
-                    return True
-                elif pattern.endswith('.js') and path_str.endswith('.js'):
-                    return True
+            if pattern.lower() in path_lower:
+                return True
+
+        # Check test file patterns in path
+        test_patterns = self.config.get('test_file_patterns', [])
+        for pattern in test_patterns:
+            if pattern in path_lower:
+                return True
+
         return False
     
     def get_method_severity(self, method_name: str, js_call: JSCall) -> str:
@@ -283,8 +304,9 @@ class EnhancedJSPythonParameterValidator:
                     for match in matches:
                         method_name = match.group(1)
                         
-                        # Extract context (current line + next few lines for args)
-                        context_lines = lines[max(0, line_num-1):min(len(lines), line_num+5)]
+                        # Extract context (current line + next several lines for args)
+                        # Increased from 5 to 15 lines to capture larger args blocks
+                        context_lines = lines[max(0, line_num-1):min(len(lines), line_num+15)]
                         context = '\n'.join(context_lines)
                         
                         # Extract arguments
@@ -311,21 +333,30 @@ class EnhancedJSPythonParameterValidator:
     def _extract_args_from_context(self, context: str) -> Dict[str, Any]:
         """Extract arguments from JavaScript context"""
         args = {}
-        
+
         for pattern in ARGS_PATTERNS:
             match = re.search(pattern, context, re.DOTALL)
             if match:
                 args_str = match.group(1)
-                
-                # Simple parsing - look for key: value pairs
-                # This could be enhanced with a proper JS parser
+
+                # Parse key: value pairs (traditional syntax)
                 key_value_pattern = r'[\'"]?(\w+)[\'"]?\s*:\s*([^,}]+)'
                 for kv_match in re.finditer(key_value_pattern, args_str):
                     key = kv_match.group(1).strip('\'"')
                     value = kv_match.group(2).strip().rstrip(',')
                     args[key] = value
+
+                # Also parse ES6 shorthand property syntax (e.g., { chapter_name, segment })
+                # These are variable names used directly as properties
+                # Match word at start of line or after comma/brace, followed by comma/newline/brace
+                es6_shorthand_pattern = r'(?:^|[,{\s])(\w+)(?=\s*[,}\n])'
+                for shorthand_match in re.finditer(es6_shorthand_pattern, args_str, re.MULTILINE):
+                    key = shorthand_match.group(1).strip()
+                    # Skip if already found via key: value pattern or if it's a common keyword
+                    if key not in args and key not in ('true', 'false', 'null', 'undefined'):
+                        args[key] = key  # In shorthand, key and value are the same
                 break
-        
+
         return args
     
     def _determine_call_type(self, line: str) -> str:
