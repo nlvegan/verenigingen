@@ -159,7 +159,12 @@ fixtures = [
     # =========================================================================
     {
         "doctype": "Workspace",
-        "filters": [["name", "in", ["E-Boekhouden", "Verenigingen"]]],
+        "filters": [["name", "in", ["E-Boekhouden", "Verenigingen", "Verenigingen Payments"]]],
+    },
+    # Desktop Icons (module cards on home page - links workspaces to app for icon resolution)
+    {
+        "doctype": "Desktop Icon",
+        "filters": [["app", "=", "verenigingen"]],
     },
     {
         "doctype": "Dashboard Chart",
