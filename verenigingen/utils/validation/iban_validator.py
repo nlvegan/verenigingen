@@ -219,7 +219,7 @@ def generate_test_iban(bank_code="TEST", account_number=None):
 
 
 @frappe.whitelist()
-def format_iban(iban: str) -> str:
+def format_iban(iban: Optional[str]) -> Optional[str]:
     """
     Format IBAN with proper spacing (groups of 4)
     """

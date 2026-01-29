@@ -1,3 +1,5 @@
+import unittest
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.validation.iban_validator import (
     derive_bic_from_iban,
@@ -47,12 +49,10 @@ class TestIBANValidator(EnhancedTestCase):
             # Wrong length
             ("NL39RABO030006526", "Dutch IBAN must be 18 characters"),
             ("DE8937040044053201300", "German IBAN must be 22 characters"),
-            # Invalid country codes
-            ("XX39RABO0300065264", "Unsupported country code: XX"),
+            # Invalid format (not matching CC##... pattern)
             ("12345678901234567890", "Invalid IBAN format"),
-            # Empty/None
+            # Empty
             ("", "IBAN is required"),
-            (None, "IBAN is required"),
             # Too short
             ("NL", "IBAN too short"),
             # Invalid characters
@@ -74,12 +74,17 @@ class TestIBANValidator(EnhancedTestCase):
             ("DE89370400440532013000", "DE89 3704 0044 0532 0130 00"),
             ("BE68539007547034", "BE68 5390 0754 7034"),
             ("", ""),
-            (None, None),
         ]
 
         for input_iban, expected in test_cases:
             formatted = format_iban(input_iban)
             self.assertEqual(formatted, expected)
+
+    def test_format_iban_none_returns_none(self):
+        """Test format_iban with None input returns None"""
+        # format_iban has special handling for None
+        result = format_iban(None)
+        self.assertIsNone(result)
 
     def test_validate_iban_checksum(self):
         """Test mod-97 checksum validation"""
@@ -141,7 +146,6 @@ class TestIBANValidator(EnhancedTestCase):
             ("DE89370400440532013000", None),  # Non-Dutch
             ("INVALID", None),  # Invalid IBAN
             ("", None),  # Empty
-            (None, None),  # None
         ]
 
         for iban, expected in test_cases:
@@ -169,6 +173,48 @@ class TestIBANValidator(EnhancedTestCase):
                 formatted = format_iban(input_iban)
                 normalized = formatted.replace(" ", "").upper()
                 self.assertEqual(normalized, expected_normalized)
+
+    def test_validate_iban_fallback_unsupported_country(self):
+        """Test fallback validation for countries not in IBAN_SPECS (ISO 13616 generic check)"""
+        # Valid IBANs from countries not in our IBAN_SPECS
+        # These use generic validation: 15-34 chars + MOD-97 checksum
+        fallback_test_cases = [
+            # Greece (GR) - 27 chars, not in our IBAN_SPECS
+            ("GR9608100010000001234567890", True, "Valid Greek IBAN"),
+            # Hungary (HU) - 28 chars, not in our IBAN_SPECS
+            ("HU93116000060000000012345676", True, "Valid Hungarian IBAN"),
+            # Romania (RO) - 24 chars, not in our IBAN_SPECS
+            ("RO09BCYP0000001234567890", True, "Valid Romanian IBAN"),
+        ]
+
+        for iban, expected_valid, description in fallback_test_cases:
+            result = validate_iban(iban)
+            self.assertEqual(
+                result["valid"], expected_valid, f"{description}: {iban} - {result.get('message', '')}"
+            )
+
+    def test_validate_iban_fallback_invalid_length(self):
+        """Test fallback rejects IBANs with invalid length (outside 15-34 chars)"""
+        # Invalid length for unsupported countries
+        invalid_cases = [
+            # Too short (< 15 chars) - use XX country code which is not in IBAN_SPECS
+            ("XX001234567890", "IBAN must be between 15 and 34 characters"),  # 14 chars
+            # Too long (> 34 chars)
+            ("XX001234567890123456789012345678901", "IBAN must be between 15 and 34 characters"),  # 35 chars
+        ]
+
+        for iban, expected_message in invalid_cases:
+            result = validate_iban(iban)
+            self.assertFalse(result["valid"], f"IBAN should be invalid: {iban}")
+            self.assertIn(expected_message, result["message"])
+
+    def test_validate_iban_fallback_invalid_checksum(self):
+        """Test fallback still validates MOD-97 checksum for unsupported countries"""
+        # Valid format but wrong checksum for unsupported country
+        # GR9608100010000001234567890 is valid, GR9608100010000001234567891 should fail
+        result = validate_iban("GR9608100010000001234567891")  # Wrong last digit
+        self.assertFalse(result["valid"])
+        self.assertIn("Invalid IBAN checksum", result["message"])
 
     def test_comprehensive_dutch_bank_coverage(self):
         """Test that all major Dutch banks are covered"""
