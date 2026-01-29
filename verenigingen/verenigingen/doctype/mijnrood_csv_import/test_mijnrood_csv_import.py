@@ -172,6 +172,37 @@ class TestMijnroodCSVImport(unittest.TestCase):
         self.assertTrue(any("Invalid email format" in error for error in errors))
         self.assertTrue(any("Invalid IBAN format" in error for error in errors))
 
+    def test_sanitize_error_message(self):
+        """Test PII sanitization from error messages."""
+        from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import (
+            _sanitize_error_message,
+        )
+
+        # Test email sanitization
+        msg_with_email = "Error for user test@example.com on row 5"
+        sanitized = _sanitize_error_message(msg_with_email)
+        self.assertNotIn("test@example.com", sanitized)
+        self.assertIn("[EMAIL REDACTED]", sanitized)
+
+        # Test phone sanitization
+        msg_with_phone = "Contact number +31612345678 is invalid"
+        sanitized = _sanitize_error_message(msg_with_phone)
+        self.assertNotIn("+31612345678", sanitized)
+        self.assertIn("[PHONE REDACTED]", sanitized)
+
+        # Test IBAN sanitization (should be masked, not fully redacted)
+        msg_with_iban = "Invalid IBAN NL91ABNA0417164300 provided"
+        sanitized = _sanitize_error_message(msg_with_iban)
+        self.assertNotIn("NL91ABNA0417164300", sanitized)
+        # IBAN is masked showing country code + last 4 digits
+        self.assertIn("NL", sanitized)
+        self.assertIn("4300", sanitized)
+
+        # Test message without PII remains unchanged
+        msg_clean = "Row 5: Invalid status value"
+        sanitized = _sanitize_error_message(msg_clean)
+        self.assertEqual(sanitized, msg_clean)
+
     def test_get_import_template(self):
         """Test CSV template generation."""
         from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import (

@@ -33,6 +33,7 @@ from verenigingen.utils.csv_import_processor import (
     CSVImportBackgroundProcessor,
     ensure_bulk_import_members_set,
 )
+from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -42,6 +43,30 @@ try:
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
+
+
+def _sanitize_error_message(message: str) -> str:
+    """
+    Sanitize PII (email addresses, phone numbers) from error messages.
+
+    Uses centralized sanitize_error_for_audit utility for consistent
+    PII redaction across the application.
+
+    Args:
+        message: Raw error message that may contain PII
+
+    Returns:
+        Sanitized message with PII redacted
+    """
+    return (
+        sanitize_error_for_audit(
+            message,
+            max_length=1000,
+            remove_stack_trace=False,  # Preserve structure for import errors
+            redact_pii=True,
+        )
+        or message
+    )
 
 
 class MijnroodCSVImport(Document):
