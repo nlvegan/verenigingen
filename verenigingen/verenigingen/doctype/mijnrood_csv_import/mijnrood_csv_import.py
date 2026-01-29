@@ -72,6 +72,21 @@ def _sanitize_error_message(message: str) -> str:
 class MijnroodCSVImport(Document):
     """DocType for importing member data from CSV files with validation and preview."""
 
+    # Lazy-initialized instances to avoid repeated instantiation
+    @property
+    def _validator(self):
+        """Lazy-initialized CSVDataValidator instance."""
+        if not hasattr(self, "_MijnroodCSVImport__validator"):
+            self.__validator = CSVDataValidator()
+        return self.__validator
+
+    @property
+    def _parser(self):
+        """Lazy-initialized SecureCSVParser instance with document encoding."""
+        if not hasattr(self, "_MijnroodCSVImport__parser"):
+            self.__parser = SecureCSVParser(encoding=getattr(self, "encoding", None))
+        return self.__parser
+
     def validate(self):
         """Validate the document before saving."""
         # Only do basic validation - no file processing
@@ -166,85 +181,69 @@ class MijnroodCSVImport(Document):
 
     def _read_csv_file(self) -> List[Dict]:
         """Read CSV file and return parsed data using SecureCSVParser."""
-        parser = SecureCSVParser(encoding=self.encoding)
-        return parser.read_csv_file(self.csv_file)
+        return self._parser.read_csv_file(self.csv_file)
 
     def _sanitize_filename(self) -> str:
         """Sanitize filename to prevent security issues."""
-        parser = SecureCSVParser()
-        return parser._sanitize_filename(self.csv_file)
+        return self._parser._sanitize_filename(self.csv_file)
 
     def _resolve_file_location(self, filename: str) -> Tuple[Optional[str], Optional[bytes]]:
         """Resolve file location using multiple methods."""
-        parser = SecureCSVParser()
-        return parser._resolve_file_location(self.csv_file, filename)
+        return self._parser._resolve_file_location(self.csv_file, filename)
 
     def _try_file_document_lookup(self, filename: str) -> Tuple[Optional[str], Optional[bytes]]:
         """Try to find file via Frappe File document lookup."""
-        parser = SecureCSVParser()
-        return parser._try_file_document_lookup(self.csv_file, filename)
+        return self._parser._try_file_document_lookup(self.csv_file, filename)
 
     def _try_direct_path_construction(self, filename: str) -> Optional[str]:
         """Try to construct file path directly using common locations."""
-        parser = SecureCSVParser()
-        return parser._try_direct_path_construction(filename)
+        return self._parser._try_direct_path_construction(filename)
 
     def _handle_file_not_found(self, filename: str):
         """Handle file not found scenario with helpful debug information."""
-        parser = SecureCSVParser()
-        parser._handle_file_not_found(self.csv_file, filename)
+        self._parser._handle_file_not_found(self.csv_file, filename)
 
     def _parse_file_data(
         self, file_path: Optional[str], file_content: Optional[bytes], filename: str
     ) -> List[Dict]:
         """Parse file data based on available file path or content."""
-        parser = SecureCSVParser()
-        return parser._parse_file_data(file_path, file_content, filename)
+        return self._parser._parse_file_data(file_path, file_content, filename)
 
     def _is_safe_file_path(self, file_path: str) -> bool:
         """Check if file path is within allowed directories for security."""
-        parser = SecureCSVParser()
-        return parser.validate_file_path(file_path)
+        return self._parser.validate_file_path(file_path)
 
     def _read_file_from_path(self, file_path: str) -> List[Dict]:
         """Read file from file system path."""
-        parser = SecureCSVParser(encoding=self.encoding)
-        return parser._read_file_from_path(file_path)
+        return self._parser._read_file_from_path(file_path)
 
     def _read_file_from_content(self, file_content: bytes, filename: str) -> List[Dict]:
         """Read file from content bytes."""
-        parser = SecureCSVParser(encoding=self.encoding)
-        return parser._read_file_from_content(file_content, filename)
+        return self._parser._read_file_from_content(file_content, filename)
 
     def _parse_csv_content(self, csvfile) -> List[Dict]:
         """Parse CSV content from file-like object."""
-        parser = SecureCSVParser()
-        return parser.parse_csv_content(csvfile)
+        return self._parser.parse_csv_content(csvfile)
 
     def _validate_and_map_data(self, csv_data: List[Dict]) -> Tuple[List[Dict], List[str]]:
         """Validate CSV data and map to Member fields using CSVDataValidator."""
-        validator = CSVDataValidator()
-        return validator.validate_and_map_data(csv_data)
+        return self._validator.validate_and_map_data(csv_data)
 
     def _map_row_data(self, row: Dict, field_mapping: Dict, row_num: int) -> Dict:
         """Map a single row from CSV to Member fields using CSVDataValidator."""
-        validator = CSVDataValidator()
-        return validator.map_row_data(row, row_num)
+        return self._validator.map_row_data(row, row_num)
 
     def _validate_row(self, row: Dict, row_num: int) -> List[str]:
         """Validate a single row using CSVDataValidator."""
-        validator = CSVDataValidator()
-        return validator.validate_row(row, row_num)
+        return self._validator.validate_row(row, row_num)
 
     def _is_valid_email(self, email: str) -> bool:
         """Validate email format using CSVDataValidator."""
-        validator = CSVDataValidator()
-        return validator.validate_email(email)
+        return self._validator.validate_email(email)
 
     def _is_valid_iban(self, iban: str) -> bool:
         """Validate IBAN format using CSVDataValidator."""
-        validator = CSVDataValidator()
-        return validator.validate_iban(iban)
+        return self._validator.validate_iban(iban)
 
     def _clean_value(self, value: str, field_type: str) -> Any:
         """Clean and convert values based on field type."""
