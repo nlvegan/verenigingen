@@ -497,6 +497,9 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
     """
     Process a single row from the VIP import.
 
+    Uses savepoints to ensure atomic row processing - if any part fails,
+    all changes for this row are rolled back.
+
     Args:
         row: Mapped row data from validator
         import_doc: VIP Import document
@@ -505,9 +508,15 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
     Returns:
         Result dictionary with status and details
     """
+    import time
+
     row_num = row.get("row_number", "?")
+    savepoint_name = f"vip_row_{row_num}_{int(time.time() * 1000)}"
 
     try:
+        # Create savepoint before any modifications
+        frappe.db.sql(f"SAVEPOINT {savepoint_name}")
+
         # Find existing Member
         member = _find_member(row)
 
@@ -516,6 +525,7 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
                 member = _create_member(row)
                 stats["members_created"] += 1
             else:
+                # No rollback needed - no changes made
                 stats["members_not_found"] += 1
                 return {
                     "status": "skipped",
@@ -557,6 +567,12 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
             }
 
     except Exception as e:
+        # Rollback to savepoint on any error
+        try:
+            frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+        except Exception:
+            pass  # Savepoint may already be released
+
         frappe.log_error(
             title=f"VIP Import Row {row_num} Error",
             message=f"Error: {str(e)}\nRow data: {json.dumps(row, default=str)}",

@@ -546,5 +546,90 @@ class TestVIPImportBackgroundJob(FrappeTestCase):
         self.assertEqual(stats["members_not_found"], 1)
 
 
+class TestVIPImportRobustness(FrappeTestCase):
+    """Test robustness features of VIP Import."""
+
+    def test_savepoint_rollback_on_volunteer_link_failure(self):
+        """Test that volunteer creation is rolled back if member link update fails."""
+        import uuid
+
+        unique_id = str(uuid.uuid4())[:8]
+        test_email = f"savepoint-test-{unique_id}@example.com"
+        test_vip_id = f"savepoint-test-{unique_id}"
+        test_member_id = f"TEST-SAVEPOINT-{unique_id}"
+
+        # Create a member with unique email and explicit member_id to avoid auto-gen collision
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "Savepoint",
+                "last_name": "Test",
+                "email": test_email,
+                "member_id": test_member_id,  # Explicit unique member_id
+                "status": "Active",
+            }
+        )
+        member.flags.bulk_member_operations = True
+        member.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        row = {
+            "row_number": 1,
+            "vip_user_id": test_vip_id,
+            "member_id": test_member_id,  # Match by member_id for more reliable lookup
+            "first_name": "Savepoint",
+            "last_name": "Test",
+            "organization_email": test_email,
+            "volunteer_status": "Active",
+        }
+
+        # Mock db.set_value to fail on volunteer_record update
+        original_set_value = frappe.db.set_value
+
+        def failing_set_value(doctype, name, field, value=None, *args, **kwargs):
+            # Fail on the volunteer_record update to Member
+            if doctype == "Member" and field == "volunteer_record":
+                raise Exception("Simulated DB failure on volunteer_record update")
+            return original_set_value(doctype, name, field, value, *args, **kwargs)
+
+        import_doc = MagicMock()
+        import_doc.create_members_if_missing = False
+        import_doc.duplicate_handling = "Update existing"
+        import_doc.name = None  # Skip batch tracking in test
+
+        stats = {
+            "volunteers_created": 0,
+            "volunteers_updated": 0,
+            "volunteers_skipped": 0,
+            "members_not_found": 0,
+            "members_created": 0,
+        }
+
+        try:
+            with patch.object(frappe.db, "set_value", failing_set_value):
+                from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+                    _process_single_row,
+                )
+
+                result = _process_single_row(row, import_doc, stats)
+
+            # Should return error status
+            self.assertEqual(result["status"], "error", f"Expected error status, got: {result}")
+
+            # Volunteer should NOT exist (rolled back)
+            volunteer_exists = frappe.db.exists("Volunteer", {"vip_user_id": test_vip_id})
+            self.assertFalse(volunteer_exists, "Volunteer should be rolled back on failure")
+        finally:
+            # Cleanup - delete any orphaned volunteer and the test member
+            orphan_vol = frappe.db.exists("Volunteer", {"vip_user_id": test_vip_id})
+            if orphan_vol:
+                frappe.delete_doc("Volunteer", orphan_vol, force=True)
+            if frappe.db.exists("Member", member.name):
+                # Clear volunteer_record link before deleting member
+                frappe.db.set_value("Member", member.name, "volunteer_record", None, update_modified=False)
+                frappe.delete_doc("Member", member.name, force=True)
+            frappe.db.commit()
+
+
 if __name__ == "__main__":
     unittest.main()
