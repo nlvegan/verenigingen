@@ -267,10 +267,33 @@ class MijnroodCSVImport(Document):
         return parse_date(date_str)
 
     def _process_single_member(self, row: Dict, error_log: List[str]) -> tuple:
-        """Process a single member with proper error handling and transaction isolation."""
+        """Process a single member with proper error handling and transaction isolation.
+
+        Uses MemberImportService for member creation/update and orchestrates
+        related record creation via _create_related_records_via_services.
+        """
+        from verenigingen.services.csv_import.member_import_service import (
+            get_member_import_service,
+        )
+
         try:
-            # Use Frappe's transaction context for individual member processing
-            result, member_name = self._create_or_update_member(row)
+            # Use MemberImportService for member creation/update
+            service = get_member_import_service()
+            result, member_name = service.create_or_update_member(
+                row_data=row,
+                import_doc_name=self.name,
+                create_volunteer_records=self.create_volunteer_records,
+            )
+
+            # Create related records if member was successfully created/updated
+            if result in ("created", "updated") and member_name:
+                related_failures = self._create_related_records_via_services(member_name, row)
+                if related_failures:
+                    self._append_to_error_log(
+                        f"Member {member_name} {result} but with related record issues: "
+                        f"{', '.join(related_failures)}"
+                    )
+
             return result, member_name
         except frappe.ValidationError as ve:
             # Enhanced error message with row number and field values for debugging
@@ -1442,6 +1465,160 @@ class MijnroodCSVImport(Document):
                 )
 
         return failed_operations
+
+    def _create_related_records_via_services(self, member_name: str, row_data: Dict) -> List[str]:
+        """Create related records using extracted services.
+
+        This method orchestrates service calls for related record creation,
+        replacing the inline logic in _create_related_records_with_tracking.
+
+        Args:
+            member_name: Name of the member document
+            row_data: Original CSV row data
+
+        Returns:
+            List of failed operation names (empty if all succeeded)
+        """
+        from verenigingen.services.csv_import.address_import_service import (
+            get_address_import_service,
+        )
+        from verenigingen.services.csv_import.membership_import_service import (
+            get_membership_import_service,
+        )
+        from verenigingen.services.csv_import.mollie_sync_service import (
+            get_mollie_sync_service,
+        )
+
+        member_doc = frappe.get_doc("Member", member_name)
+        failed_operations = []
+
+        # Address creation - check row_data for address fields
+        if self._has_address_data(row_data):
+            try:
+                address_service = get_address_import_service()
+                address_name = address_service.create_or_update_address(member_doc, row_data)
+                if address_name:
+                    frappe.db.set_value(
+                        "Member",
+                        member_name,
+                        "primary_address",
+                        address_name,
+                        update_modified=False,
+                    )
+            except Exception as e:
+                failed_operations.append("address")
+                frappe.log_error(
+                    f"Address creation failed for {member_name}: {e}",
+                    "CSV Import - Address Error",
+                )
+
+        # Mollie data sync - check row_data for Mollie fields
+        if row_data.get("custom_mollie_customer_id") or row_data.get("custom_mollie_subscription_id"):
+            try:
+                mollie_service = get_mollie_sync_service()
+                mollie_data = {
+                    "custom_mollie_customer_id": row_data.get("custom_mollie_customer_id"),
+                    "custom_mollie_subscription_id": row_data.get("custom_mollie_subscription_id"),
+                    "custom_subscription_status": (
+                        "active" if row_data.get("custom_mollie_subscription_id") else None
+                    ),
+                }
+                mollie_service.sync_mollie_data(member_doc, mollie_data)
+            except Exception as e:
+                failed_operations.append("mollie_data")
+                frappe.log_error(
+                    f"Mollie sync failed for {member_name}: {e}",
+                    "CSV Import - Mollie Error",
+                )
+
+        # Termination record - delegate to existing method for now
+        membership_type = (row_data.get("membership_type") or "").lower()
+        if membership_type in [
+            "opgezegd",
+            "terminated",
+            "uitgeschreven",
+            "geroyeerd",
+            "expelled",
+            "geschorst",
+            "overleden",
+            "deceased",
+        ]:
+            try:
+                termination_data = {
+                    "membership_type": membership_type,
+                    "member_since": row_data.get("member_since"),
+                    "termination_reason": self._get_termination_reason(membership_type),
+                }
+                self._create_termination_record(member_doc, termination_data)
+            except Exception as e:
+                failed_operations.append("termination")
+                frappe.log_error(
+                    f"Termination record failed for {member_name}: {e}",
+                    "CSV Import - Termination Error",
+                )
+
+        # Volunteer creation - delegate to existing method
+        if self.create_volunteer_records and member_doc.status == "Active":
+            try:
+                self._create_volunteer_for_member(member_doc)
+            except Exception as e:
+                failed_operations.append("volunteer")
+                frappe.log_error(
+                    f"Volunteer creation failed for {member_name}: {e}",
+                    "CSV Import - Volunteer Error",
+                )
+
+        # Chapter assignment
+        if row_data.get("chapter"):
+            chapter_raw = str(row_data["chapter"]).strip()
+            chapter_name = chapter_raw.rstrip("*").strip()
+            if chapter_name:
+                try:
+                    self._assign_member_to_chapter(member_doc, chapter_name)
+                except Exception as e:
+                    failed_operations.append("chapter")
+                    frappe.log_error(
+                        f"Chapter assignment failed for {member_name}: {e}",
+                        "CSV Import - Chapter Error",
+                    )
+
+        # Membership creation via service
+        if self._should_create_membership(member_doc, row_data):
+            try:
+                membership_service = get_membership_import_service()
+                membership_service.create_membership_from_csv(member_doc, row_data)
+            except Exception as e:
+                failed_operations.append("membership")
+                frappe.log_error(
+                    f"Membership creation failed for {member_name}: {e}",
+                    "CSV Import - Membership Error",
+                )
+
+        return failed_operations
+
+    def _has_address_data(self, row_data: Dict) -> bool:
+        """Check if row_data has meaningful address data."""
+        address_line1 = row_data.get("address_line1")
+        city = row_data.get("city")
+        if address_line1:
+            address_line1 = str(address_line1).strip()
+        if city:
+            city = str(city).strip()
+        return bool(address_line1 and city)
+
+    def _should_create_membership(self, member_doc: Document, row_data: Dict) -> bool:
+        """Check if membership should be created for this member."""
+        if member_doc.status != "Active":
+            return False
+        # Check if dues_rate is provided (indicating membership data exists)
+        if "dues_rate" not in row_data:
+            return False
+        # Check no active membership exists
+        existing = frappe.db.exists(
+            "Membership",
+            {"member": member_doc.name, "status": "Active", "docstatus": 1},
+        )
+        return not existing
 
     def _update_member_fields(self, member_doc: Document, row_data: Dict):
         """Update member document fields from row data."""
