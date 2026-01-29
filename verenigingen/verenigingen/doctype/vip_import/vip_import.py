@@ -13,6 +13,7 @@ Import Flow:
 
 import json
 import re
+import uuid
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -194,7 +195,7 @@ def _find_member(row: Dict) -> Optional[Document]:
     """
     Find existing Member by cascade matching.
 
-    Matching order:
+    Uses MemberLookupService with VIP-specific 4-step cascade:
     1. member_id (nvv_relatie_nummer)
     2. procurios_id (alternate member ID source)
     3. personal_email (private_email)
@@ -206,31 +207,12 @@ def _find_member(row: Dict) -> Optional[Document]:
     Returns:
         Member document or None if not found
     """
-    # Try member_id first (from nvv_relatie_nummer)
-    if row.get("member_id"):
-        member_name = frappe.db.get_value("Member", {"member_id": row["member_id"]}, "name")
-        if member_name:
-            return frappe.get_doc("Member", member_name)
+    from verenigingen.services.member.member_lookup_service import (
+        get_member_lookup_service,
+    )
 
-    # Try procurios_id as alternate member_id lookup
-    if row.get("procurios_id"):
-        member_name = frappe.db.get_value("Member", {"member_id": row["procurios_id"]}, "name")
-        if member_name:
-            return frappe.get_doc("Member", member_name)
-
-    # Try personal email
-    if row.get("personal_email"):
-        member_name = frappe.db.get_value("Member", {"email": row["personal_email"]}, "name")
-        if member_name:
-            return frappe.get_doc("Member", member_name)
-
-    # Try organization email
-    if row.get("organization_email"):
-        member_name = frappe.db.get_value("Member", {"email": row["organization_email"]}, "name")
-        if member_name:
-            return frappe.get_doc("Member", member_name)
-
-    return None
+    service = get_member_lookup_service()
+    return service.find_member(row, strategies=service.VIP_STRATEGIES)
 
 
 def _find_volunteer(row: Dict, member: Optional[Document]) -> Optional[Document]:
@@ -516,8 +498,9 @@ def _update_volunteer(
         volunteer.save(ignore_permissions=True)
 
     # Update member's volunteer_record link with race condition protection
-    # Re-check current state before updating to avoid overwriting concurrent updates
+    # Acquire lock before check-then-update to prevent race condition
     if member:
+        frappe.db.sql("SELECT name FROM `tabMember` WHERE name = %s FOR UPDATE", member.name)
         current_volunteer_record = frappe.db.get_value("Member", member.name, "volunteer_record")
         if not current_volunteer_record:
             frappe.db.set_value(
@@ -545,10 +528,10 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
     Returns:
         Result dictionary with status and details
     """
-    import time
-
     row_num = row.get("row_number", "?")
-    savepoint_name = f"vip_row_{row_num}_{int(time.time() * 1000)}"
+    # Use UUID to generate safe savepoint names (prevents SQL injection via row_num)
+    savepoint_id = str(uuid.uuid4()).replace("-", "")[:16]
+    savepoint_name = f"sp_{savepoint_id}"
 
     try:
         # Create savepoint before any modifications
@@ -607,12 +590,19 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
         # Rollback to savepoint on any error
         try:
             frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-        except Exception:
-            pass  # Savepoint may already be released
+        except Exception as cleanup_error:
+            frappe.logger().warning(f"Savepoint rollback failed for {savepoint_name}: {cleanup_error}")
+        finally:
+            try:
+                frappe.db.sql(f"RELEASE SAVEPOINT {savepoint_name}")
+            except Exception:
+                pass  # Savepoint may already be released by rollback
 
+        # Sanitize PII from row data before logging
+        sanitized_row = {k: _sanitize_error_message(str(v)) if v else v for k, v in row.items()}
         frappe.log_error(
             title=f"VIP Import Row {row_num} Error",
-            message=f"Error: {str(e)}\nRow data: {json.dumps(row, default=str)}",
+            message=f"Error: {_sanitize_error_message(str(e))}\nRow data: {json.dumps(sanitized_row, default=str)}",
         )
         return {
             "status": "error",
