@@ -14,6 +14,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cstr, flt, getdate, today
 
+from verenigingen.services.member.member_lookup_service import get_member_lookup_service
 from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
 from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.utils.csv.csv_data_validator import CSVDataValidator
@@ -1155,14 +1156,12 @@ class MijnroodCSVImport(Document):
 
         row_num = row_data.get("row_number", "?")
 
-        # Check if member exists by member_id or email
-        existing_member = None
-
-        if row_data.get("member_id"):
-            existing_member = frappe.db.get_value("Member", {"member_id": row_data["member_id"]}, "name")
-
-        if not existing_member and row_data.get("email"):
-            existing_member = frappe.db.get_value("Member", {"email": row_data["email"]}, "name")
+        # Check if member exists using cascade lookup (member_id -> email)
+        lookup_service = get_member_lookup_service()
+        existing_member_doc = lookup_service.find_member(
+            row_data, strategies=lookup_service.MIJNROOD_STRATEGIES
+        )
+        existing_member = existing_member_doc.name if existing_member_doc else None
 
         if existing_member:
             # Update existing member with transaction safety
