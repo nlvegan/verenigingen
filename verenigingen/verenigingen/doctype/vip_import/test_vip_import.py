@@ -549,6 +549,50 @@ class TestVIPImportBackgroundJob(FrappeTestCase):
 class TestVIPImportRobustness(FrappeTestCase):
     """Test robustness features of VIP Import."""
 
+    def test_import_status_reflects_acr_failures(self):
+        """Test that import status shows warning when ACR queuing fails."""
+        # Create a VIP Import document
+        import_doc = frappe.get_doc(
+            {
+                "doctype": "VIP Import",
+                "import_date": today(),
+            }
+        )
+        import_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        try:
+            # Mock ACR result with error
+            acr_result = {
+                "error": "Redis connection failed",
+                "acrs_created": 0,
+                "active_volunteers_queued": 5,
+            }
+
+            stats = {
+                "volunteers_created": 3,
+                "volunteers_updated": 2,
+                "volunteers_skipped": 0,
+                "members_not_found": 0,
+                "members_created": 0,
+            }
+
+            # Call the status update function
+            from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+                _set_final_import_status,
+            )
+
+            _set_final_import_status(import_doc, stats=stats, acr_result=acr_result)
+            frappe.db.commit()
+
+            import_doc.reload()
+            self.assertEqual(import_doc.import_status, "Completed with Warnings")
+            self.assertIn("Redis connection failed", import_doc.acr_error or "")
+        finally:
+            # Cleanup
+            import_doc.delete(ignore_permissions=True)
+            frappe.db.commit()
+
     def test_queue_capacity_check_on_submit(self):
         """Test that queue capacity is checked before enqueueing import job."""
         from unittest.mock import patch

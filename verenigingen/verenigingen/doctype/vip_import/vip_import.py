@@ -732,6 +732,119 @@ def _generate_skipped_rows_log(skipped_rows: List[Dict[str, str]]) -> str:
     return "\n".join(output) if output else ""
 
 
+# ==================== FINAL STATUS ====================
+
+
+def _set_final_import_status(
+    import_doc: Document,
+    stats: Dict[str, int],
+    acr_result: Dict[str, Any],
+    errors: List[str] = None,
+    skipped_rows: List[Dict] = None,
+    skipped_reasons: List[str] = None,
+) -> None:
+    """
+    Set final import status and summary fields.
+
+    Sets status to "Completed with Warnings" if ACR queuing failed,
+    otherwise "Completed".
+
+    Args:
+        import_doc: VIP Import document
+        stats: Processing statistics dictionary
+        acr_result: Account creation result dictionary
+        errors: List of error messages
+        skipped_rows: List of skipped row info dicts
+        skipped_reasons: List of delegated account skip reasons
+    """
+    errors = errors or []
+    skipped_rows = skipped_rows or []
+    skipped_reasons = skipped_reasons or []
+
+    # Determine final status
+    if acr_result.get("error"):
+        import_doc.db_set("import_status", "Completed with Warnings")
+        import_doc.db_set("acr_error", acr_result["error"][:500])
+    else:
+        import_doc.db_set("import_status", "Completed")
+
+    # Set statistics
+    import_doc.db_set("volunteers_created", stats.get("volunteers_created", 0))
+    import_doc.db_set("volunteers_updated", stats.get("volunteers_updated", 0))
+    import_doc.db_set("volunteers_skipped", stats.get("volunteers_skipped", 0))
+    import_doc.db_set("members_not_found", stats.get("members_not_found", 0))
+    import_doc.db_set("members_created", stats.get("members_created", 0))
+
+    # Set account creation tracking fields
+    import_doc.db_set("acrs_created", acr_result.get("acrs_created", 0))
+    import_doc.db_set("acrs_queued_for_active", acr_result.get("active_volunteers_queued", 0))
+    import_doc.db_set("users_upgraded", acr_result.get("users_linked", 0))
+    if acr_result.get("tracker_name"):
+        import_doc.db_set("bulk_operation_tracker", acr_result["tracker_name"])
+
+    # Set skipped rows log
+    if skipped_rows:
+        skipped_rows_log = _generate_skipped_rows_log(skipped_rows)
+        import_doc.db_set("skipped_rows_log", skipped_rows_log)
+
+    # Build summary
+    summary_parts = [
+        f"Import completed at {now_datetime()}",
+        f"Volunteers created: {stats.get('volunteers_created', 0)}",
+        f"Volunteers updated: {stats.get('volunteers_updated', 0)}",
+        f"Volunteers skipped: {stats.get('volunteers_skipped', 0)}",
+    ]
+    if stats.get("members_created", 0) > 0:
+        summary_parts.append(f"Members created: {stats['members_created']}")
+    if stats.get("members_not_found", 0) > 0:
+        summary_parts.append(f"Members not found: {stats['members_not_found']}")
+
+    # Add account creation summary
+    if acr_result.get("active_volunteers_queued", 0) > 0:
+        summary_parts.extend(
+            [
+                "",
+                "--- Account Creation ---",
+                f"Active volunteers queued: {acr_result['active_volunteers_queued']}",
+            ]
+        )
+        if acr_result.get("inactive_skipped", 0) > 0:
+            summary_parts.append(f"Inactive/Retired skipped: {acr_result['inactive_skipped']}")
+        if acr_result.get("acrs_created", 0) > 0:
+            summary_parts.append(f"Account creation requests: {acr_result['acrs_created']}")
+        if acr_result.get("users_linked", 0) > 0:
+            summary_parts.append(f"Users linked (already had accounts): {acr_result['users_linked']}")
+        if acr_result.get("tracker_name"):
+            summary_parts.append(f"Progress tracker: {acr_result['tracker_name']}")
+    elif acr_result.get("inactive_skipped", 0) > 0:
+        summary_parts.extend(
+            [
+                "",
+                "--- Account Creation ---",
+                f"All {acr_result['inactive_skipped']} volunteers have Inactive/Retired status - "
+                "no account upgrades needed",
+            ]
+        )
+
+    if acr_result.get("error"):
+        summary_parts.append(f"\nAccount creation error: {acr_result['error']}")
+
+    import_doc.db_set("import_summary", "\n".join(summary_parts))
+
+    # Set errors (sanitize PII from error messages)
+    if errors:
+        sanitized_errors = [_sanitize_error_message(e) for e in errors[:MAX_ERRORS_TO_LOG]]
+        import_doc.db_set("error_log", "\n".join(sanitized_errors))
+        import_doc.db_set("top_errors_summary", f"{len(errors)} errors encountered during import")
+
+    # Include skipped delegated accounts in error log if any
+    if skipped_reasons:
+        current_log = import_doc.error_log or ""
+        sanitized_skipped = [_sanitize_error_message(r) for r in skipped_reasons[:MAX_SKIPPED_TO_LOG]]
+        delegated_section = "\n\n--- Delegated Accounts Skipped ---\n" + "\n".join(sanitized_skipped)
+        import_doc.db_set("error_log", current_log + delegated_section)
+
+
 # ==================== ACCOUNT CREATION ====================
 
 
@@ -962,77 +1075,16 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
         # Process account creation for Active volunteers
         acr_result = _process_account_creation(import_doc_name, processed_volunteers)
 
-        # Finalize
+        # Finalize - set status and summary fields
         import_doc.reload()
-        import_doc.db_set("import_status", "Completed")
-        import_doc.db_set("volunteers_created", stats["volunteers_created"])
-        import_doc.db_set("volunteers_updated", stats["volunteers_updated"])
-        import_doc.db_set("volunteers_skipped", stats["volunteers_skipped"])
-        import_doc.db_set("members_not_found", stats["members_not_found"])
-        import_doc.db_set("members_created", stats["members_created"])
-
-        # Set account creation tracking fields
-        import_doc.db_set("acrs_created", acr_result.get("acrs_created", 0))
-        import_doc.db_set("acrs_queued_for_active", acr_result.get("active_volunteers_queued", 0))
-        import_doc.db_set("users_upgraded", acr_result.get("users_linked", 0))
-        if acr_result.get("tracker_name"):
-            import_doc.db_set("bulk_operation_tracker", acr_result["tracker_name"])
-
-        # Set skipped rows log
-        if skipped_rows:
-            skipped_rows_log = _generate_skipped_rows_log(skipped_rows)
-            import_doc.db_set("skipped_rows_log", skipped_rows_log)
-
-        # Set summary
-        summary_parts = [
-            f"Import completed at {now_datetime()}",
-            f"Volunteers created: {stats['volunteers_created']}",
-            f"Volunteers updated: {stats['volunteers_updated']}",
-            f"Volunteers skipped: {stats['volunteers_skipped']}",
-        ]
-        if stats["members_created"] > 0:
-            summary_parts.append(f"Members created: {stats['members_created']}")
-        if stats["members_not_found"] > 0:
-            summary_parts.append(f"Members not found: {stats['members_not_found']}")
-
-        # Add account creation summary
-        if acr_result.get("active_volunteers_queued", 0) > 0:
-            summary_parts.append("")
-            summary_parts.append("--- Account Creation ---")
-            summary_parts.append(f"Active volunteers queued: {acr_result['active_volunteers_queued']}")
-            if acr_result.get("inactive_skipped", 0) > 0:
-                summary_parts.append(f"Inactive/Retired skipped: {acr_result['inactive_skipped']}")
-            if acr_result.get("acrs_created", 0) > 0:
-                summary_parts.append(f"Account creation requests: {acr_result['acrs_created']}")
-            if acr_result.get("users_linked", 0) > 0:
-                summary_parts.append(f"Users linked (already had accounts): {acr_result['users_linked']}")
-            if acr_result.get("tracker_name"):
-                summary_parts.append(f"Progress tracker: {acr_result['tracker_name']}")
-        elif acr_result.get("inactive_skipped", 0) > 0:
-            summary_parts.append("")
-            summary_parts.append("--- Account Creation ---")
-            summary_parts.append(
-                f"All {acr_result['inactive_skipped']} volunteers have Inactive/Retired status - no account upgrades needed"
-            )
-
-        if acr_result.get("error"):
-            summary_parts.append(f"Account creation error: {acr_result['error']}")
-
-        import_doc.db_set("import_summary", "\n".join(summary_parts))
-
-        # Set errors (sanitize PII from error messages)
-        if errors:
-            sanitized_errors = [_sanitize_error_message(e) for e in errors[:MAX_ERRORS_TO_LOG]]
-            import_doc.db_set("error_log", "\n".join(sanitized_errors))
-            import_doc.db_set("top_errors_summary", f"{len(errors)} errors encountered during import")
-
-        # Include skipped delegated accounts in error log if any (sanitize PII)
-        if skipped_reasons:
-            current_log = import_doc.error_log or ""
-            sanitized_skipped = [_sanitize_error_message(r) for r in skipped_reasons[:MAX_SKIPPED_TO_LOG]]
-            delegated_section = "\n\n--- Delegated Accounts Skipped ---\n" + "\n".join(sanitized_skipped)
-            import_doc.db_set("error_log", current_log + delegated_section)
-
+        _set_final_import_status(
+            import_doc=import_doc,
+            stats=stats,
+            acr_result=acr_result,
+            errors=errors,
+            skipped_rows=skipped_rows,
+            skipped_reasons=skipped_reasons,
+        )
         frappe.db.commit()
 
     except Exception as e:
