@@ -621,6 +621,44 @@ def _process_single_row(row: Dict, import_doc: Document, stats: Dict) -> Dict[st
         }
 
 
+# ==================== BULK VOLUNTEER CREATION ====================
+
+
+def _create_volunteers_batch(
+    member_names: List[str],
+    vip_data: Dict[str, Dict[str, Any]] = None,
+    import_batch_name: str = None,
+) -> "BulkVolunteerCreationSummary":
+    """
+    Create volunteers for members using BulkVolunteerCreationService.
+
+    This is a wrapper that provides a path to use the same robust volunteer
+    creation service as MijnRood CSV Import. Provides consistent error handling,
+    batch processing, and detailed outcome tracking.
+
+    Note: Currently this is a preparatory function. Full integration into
+    row processing would require refactoring _process_single_row.
+
+    Args:
+        member_names: List of member document names
+        vip_data: Optional mapping of member_name to VIP CSV row data
+            (reserved for future use - not yet passed to service)
+        import_batch_name: Import batch name for tracking
+            (reserved for future use - not yet passed to service)
+
+    Returns:
+        BulkVolunteerCreationSummary with creation results
+    """
+    from verenigingen.services.volunteer.bulk_volunteer_creation_service import (
+        get_bulk_volunteer_creation_service,
+    )
+
+    service = get_bulk_volunteer_creation_service()
+    return service.create_volunteers_for_members(
+        member_names=member_names,
+    )
+
+
 # ==================== SKIPPED ROWS LOGGING ====================
 
 

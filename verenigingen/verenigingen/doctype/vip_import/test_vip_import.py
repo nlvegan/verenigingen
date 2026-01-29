@@ -798,6 +798,64 @@ class TestVIPImportRobustness(FrappeTestCase):
             # Cleanup
             self._cleanup_savepoint_test_data(member, test_vip_id)
 
+    def _create_test_member(self, first_name, last_name, email):
+        """Create a test member for testing."""
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": email,
+                "status": "Active",
+                "birth_date": "1990-01-01",  # Ensure old enough for volunteering
+            }
+        )
+        member.flags.bulk_member_operations = True
+        member.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return member
+
+    def test_create_volunteers_batch_uses_service(self):
+        """Test that _create_volunteers_batch uses BulkVolunteerCreationService."""
+        from verenigingen.services.volunteer.bulk_volunteer_creation_service import (
+            BulkVolunteerCreationSummary,
+        )
+
+        # Create test member
+        member = self._create_test_member(
+            first_name="Bulk",
+            last_name="ServiceTest",
+            email="bulk-service-test@example.com",
+        )
+
+        try:
+            # Mock the service
+            mock_summary = BulkVolunteerCreationSummary(
+                total_attempted=1,
+                created=1,
+            )
+
+            with patch(
+                "verenigingen.verenigingen.doctype.vip_import.vip_import.get_bulk_volunteer_creation_service"
+            ) as mock_get_service:
+                mock_service = MagicMock()
+                mock_service.create_volunteers_for_members.return_value = mock_summary
+                mock_get_service.return_value = mock_service
+
+                from verenigingen.verenigingen.doctype.vip_import.vip_import import (
+                    _create_volunteers_batch,
+                )
+
+                result = _create_volunteers_batch(member_names=[member.name], import_batch_name="TEST-BULK")
+
+                mock_service.create_volunteers_for_members.assert_called_once()
+                self.assertEqual(result.created, 1)
+
+        finally:
+            # Cleanup
+            member.delete(ignore_permissions=True)
+            frappe.db.commit()
+
 
 if __name__ == "__main__":
     unittest.main()
