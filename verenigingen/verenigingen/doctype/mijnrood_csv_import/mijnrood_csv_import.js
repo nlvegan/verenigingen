@@ -142,6 +142,70 @@ frappe.ui.form.on('Mijnrood CSV Import', {
 
 				frappe.set_route('List', 'Member', filters);
 			});
+
+			// Add retry buttons for failed operations
+			if (frm.doc.create_volunteer_records) {
+				frm.add_custom_button(__('Retry Volunteer Creations'), () => {
+					frappe.confirm(
+						__('This will attempt to create volunteer records for members that are missing them. Continue?'),
+						() => {
+							frappe.call({
+								method: 'retry_failed_volunteer_creations',
+								doc: frm.doc,
+								freeze: true,
+								freeze_message: __('Retrying volunteer creations...'),
+								callback: function(r) {
+									if (r.message && r.message.success) {
+										frappe.show_alert({
+											message: r.message.message,
+											indicator: 'green'
+										});
+										frm.reload_doc();
+									} else {
+										frappe.msgprint({
+											title: __('Retry Failed'),
+											message: r.message.message || 'Unknown error',
+											indicator: 'red'
+										});
+									}
+								}
+							});
+						}
+					);
+				}, __('Retry'));
+			}
+
+			// Add retry button for failed ACRs if user account creation was enabled
+			if (frm.doc.create_user_accounts && frm.doc.acrs_failed > 0) {
+				frm.add_custom_button(__('Retry Account Creations'), () => {
+					frappe.confirm(
+						__('This will retry creating user accounts for {0} failed requests. Continue?', [frm.doc.acrs_failed]),
+						() => {
+							frappe.call({
+								method: 'retry_failed_account_creations',
+								doc: frm.doc,
+								freeze: true,
+								freeze_message: __('Retrying account creations...'),
+								callback: function(r) {
+									if (r.message && r.message.success) {
+										frappe.show_alert({
+											message: r.message.message,
+											indicator: 'green'
+										});
+										frm.reload_doc();
+									} else {
+										frappe.msgprint({
+											title: __('Retry Failed'),
+											message: r.message.message || 'Unknown error',
+											indicator: 'red'
+										});
+									}
+								}
+							});
+						}
+					);
+				}, __('Retry'));
+			}
 		}
 
 		// Set help text and warnings based on status

@@ -1734,12 +1734,12 @@ def cleanup_all_test_data(dry_run=True):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def cleanup_test_members_only(email_patterns=None):
+def cleanup_test_members_only(email_patterns: list | None = None):
     """
     Safer cleanup that only deletes members matching test email patterns.
 
     Args:
-        email_patterns (list): List of email patterns to match (default: test patterns)
+        email_patterns: List of email patterns to match (default: test patterns)
 
     Returns:
         dict: Results of cleanup
@@ -1899,7 +1899,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
     - Member Payment History, Chapter Member, Chapter Board Member
     - Volunteer Assignment, Volunteer Skill, Volunteer Interest Area, Volunteer Development Goal
     - SEPA Mandate, Contribution Amendment Request, Membership Termination Request, Account Creation Request
-    - Volunteer, Membership, Membership Type, Donor, Member, Employee
+    - Volunteer, Membership, Membership Type, Donor, Member, Employee, Chapter
 
     CONTACT/ADDRESS (ALL records, not just member-linked):
     - Contact Email, Contact Phone, Dynamic Link
@@ -1923,7 +1923,6 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
     - Membership Dues Schedule: Only non-templates deleted, templates preserved
 
     Tables that will be UPDATED (references cleared):
-    - Chapter (chapter_head cleared)
     - Customer (custom_member cleared)
 
     PRESERVED:
@@ -2003,6 +2002,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             ("tabDonor", True, "Donor records (if DocType exists)"),
             ("tabMember", False, "Core member records"),
             ("tabEmployee", False, "Employee records"),
+            ("tabChapter", False, "Chapter/local group records"),
             # ===== CONTACT/ADDRESS TABLES =====
             ("tabContact", False, "All contact records"),
             ("tabAddress", False, "All address records"),
@@ -2017,11 +2017,12 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             # ===== AUDIT LOGS =====
             ("tabAPI Audit Log", False, "API audit log entries"),
             ("tabSEPA Audit Log", False, "SEPA audit log entries"),
+            # ===== PERMISSIONS =====
+            ("tabUser Permission", False, "User permission records"),
         ]
 
         # Tables to update (clear references) - for documentation
         _tables_to_update = [  # noqa: F841
-            ("tabChapter", "chapter_head", "Clear chapter head references"),
             ("tabCustomer", "custom_member", "Clear customer-member links"),
         ]
 

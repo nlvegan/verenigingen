@@ -140,6 +140,48 @@ class AccountCreationService(StatelessService):
 
         return True, None
 
+    def _check_missing_artifacts(
+        self,
+        user_name: str,
+        member_name: str,
+        roles: List[str],
+        create_employee: bool,
+    ) -> Tuple[bool, List[str]]:
+        """
+        Check if a linked user is missing required artifacts (Employee, Volunteer, Roles).
+
+        Args:
+            user_name: The User document name (email)
+            member_name: The Member document name
+            roles: List of role names that should be assigned
+            create_employee: Whether employee record is required
+
+        Returns:
+            Tuple of (needs_acr, missing_artifacts_list)
+        """
+        missing_artifacts = []
+
+        # Check if employee record is required and missing
+        if create_employee:
+            user_has_employee = frappe.db.exists("Employee", {"user_id": user_name})
+            if not user_has_employee:
+                missing_artifacts.append("Employee record")
+
+        # Check if volunteer record is required and missing
+        if create_employee and roles and "Verenigingen Volunteer" in roles:
+            if not frappe.db.exists("Volunteer", {"member": member_name}):
+                missing_artifacts.append("Volunteer record")
+
+        # Check if required roles are missing
+        if roles:
+            user_doc = frappe.get_doc("User", user_name)
+            current_roles = [r.role for r in user_doc.roles]
+            missing_roles = [r for r in roles if r not in current_roles]
+            if missing_roles:
+                missing_artifacts.append(f"Roles: {', '.join(missing_roles)}")
+
+        return bool(missing_artifacts), missing_artifacts
+
     def detect_existing_user(self, email: str) -> Optional[Dict]:
         """
         Detect if a user account already exists with the given email.
@@ -300,12 +342,24 @@ class AccountCreationService(StatelessService):
             # User exists - attempt to link if not already linked
             if existing_user_info["linked_member"]:
                 if existing_user_info["linked_member"] == member.name:
-                    # Already linked - nothing to do
-                    return (
-                        True,
-                        None,
-                        {"action": "already_linked", "user_name": existing_user_info["user_name"]},
+                    # Already linked - but check if we need an ACR to complete missing artifacts
+                    user_name = existing_user_info["user_name"]
+                    needs_acr, missing_artifacts = self._check_missing_artifacts(
+                        user_name, member.name, roles, create_employee
                     )
+
+                    if needs_acr:
+                        self.logger.info(
+                            f"Member {member.name} already linked to user {user_name} but missing: "
+                            f"{', '.join(missing_artifacts)}. Creating ACR to complete setup."
+                        )
+                        # Fall through to ACR creation
+                    else:
+                        return (
+                            True,
+                            None,
+                            {"action": "already_linked", "user_name": user_name},
+                        )
                 else:
                     # Linked to different member - security violation
                     return (
@@ -323,7 +377,21 @@ class AccountCreationService(StatelessService):
                 )
 
                 if success:
-                    return True, None, {"action": "linked", "user_name": existing_user_info["user_name"]}
+                    # User linked successfully - but check if we still need to create
+                    # an ACR to complete missing artifacts (e.g., Employee record)
+                    user_name = existing_user_info["user_name"]
+                    needs_acr, missing_artifacts = self._check_missing_artifacts(
+                        user_name, member.name, roles, create_employee
+                    )
+
+                    if needs_acr:
+                        self.logger.info(
+                            f"User {user_name} linked to member {member.name} but missing: "
+                            f"{', '.join(missing_artifacts)}. Creating ACR to complete setup."
+                        )
+                        # Fall through to ACR creation
+                    else:
+                        return True, None, {"action": "linked", "user_name": user_name}
                 else:
                     # Linking failed (likely name mismatch) - need to create new request
                     self.logger.warning(
