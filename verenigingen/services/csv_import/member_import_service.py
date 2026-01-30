@@ -211,6 +211,31 @@ class MemberImportService(StatelessService):
         if create_volunteer_records:
             member_doc.interested_in_volunteering = 1
 
+    def _ensure_bulk_context(self) -> None:
+        """Ensure bulk operation flags are set for proper import behavior.
+
+        This defensive check guards against the service being called outside
+        of the expected bulk import context. Without these flags:
+        - Notifications may spam users during bulk import
+        - Version tracking may flood the activity log
+        - Chapter events may overflow the event queue
+
+        Logs a warning if flags were missing and sets them, ensuring the
+        import continues safely.
+        """
+        required_flags = {
+            "bulk_member_operations": True,
+            "in_bulk_import": True,
+        }
+
+        for flag_name, expected_value in required_flags.items():
+            if not getattr(frappe.flags, flag_name, False):
+                self.logger.warning(
+                    f"MemberImportService called without {flag_name} flag set. "
+                    "Setting it defensively to ensure proper bulk behavior."
+                )
+                setattr(frappe.flags, flag_name, expected_value)
+
     def create_or_update_member(
         self,
         row_data: Dict[str, Any],
@@ -233,6 +258,9 @@ class MemberImportService(StatelessService):
             - status: 'created', 'updated', 'skipped', or 'failed'
             - member_name_or_none: Member document name or None on failure
         """
+        # Defensive check to ensure bulk context flags are set
+        self._ensure_bulk_context()
+
         row_num = row_data.get("row_number", "?")
 
         # Check if member exists using cascade lookup (member_id -> email)
@@ -308,10 +336,59 @@ class MemberImportService(StatelessService):
         create_volunteer_records: bool,
         row_num: Any,
     ) -> Tuple[str, Optional[str]]:
-        """Create a new member with row data."""
-        savepoint_name = f"member_create_{row_num}_{int(time.time() * 1000)}"
+        """Create a new member with row data.
+
+        Uses advisory lock to prevent race conditions when concurrent imports
+        try to create the same member simultaneously.
+        """
+        import hashlib
+
+        # Generate lock key from canonical identifier (member_id or email)
+        lock_key = row_data.get("member_id") or row_data.get("email", "")
+        if lock_key:
+            # Hash to ensure safe lock name (no special chars, bounded length)
+            lock_hash = hashlib.md5(lock_key.lower().strip().encode()).hexdigest()[:16]
+            lock_name = f"member_create_{lock_hash}"
+        else:
+            # Fallback to row-based lock if no identifier
+            lock_name = f"member_create_row_{row_num}_{int(time.time() * 1000)}"
+
+        savepoint_name = f"sp_member_{row_num}_{int(time.time() * 1000)}"
+        lock_acquired = False
 
         try:
+            # Acquire advisory lock to serialize creates for same member
+            lock_result = frappe.db.sql("SELECT GET_LOCK(%s, 5) as acquired", lock_name, as_dict=True)
+            lock_acquired = lock_result and lock_result[0].acquired == 1
+
+            if not lock_acquired:
+                self.logger.warning(
+                    f"Row {row_num}: Could not acquire lock for member creation, "
+                    "another process may be creating this member"
+                )
+                # Wait briefly and re-check if member was created by another process
+                time.sleep(0.5)
+                lookup_service = get_member_lookup_service()
+                existing = lookup_service.find_member(row_data, strategies=lookup_service.MIJNROOD_STRATEGIES)
+                if existing:
+                    self.logger.info(
+                        f"Row {row_num}: Member {existing.name} was created by concurrent process"
+                    )
+                    return "skipped", existing.name
+
+            # Re-check if member exists after acquiring lock (TOCTOU prevention)
+            lookup_service = get_member_lookup_service()
+            existing_after_lock = lookup_service.find_member(
+                row_data, strategies=lookup_service.MIJNROOD_STRATEGIES
+            )
+            if existing_after_lock:
+                self.logger.info(
+                    f"Row {row_num}: Member {existing_after_lock.name} found after lock "
+                    "(created by concurrent process)"
+                )
+                return "skipped", existing_after_lock.name
+
+            # Create savepoint for atomic creation
             frappe.db.sql(f"SAVEPOINT {savepoint_name}")
 
             member = frappe.new_doc("Member")
@@ -329,12 +406,18 @@ class MemberImportService(StatelessService):
             return "created", member.name
 
         except frappe.DuplicateEntryError as e:
-            frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+            try:
+                frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+            except Exception:
+                pass
             self.logger.warning(f"Row {row_num}: Duplicate member - {str(e)[:100]}")
             return "skipped", None
 
         except frappe.ValidationError as e:
-            frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+            try:
+                frappe.db.sql(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+            except Exception:
+                pass
             self.logger.error(f"Row {row_num}: Validation error - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Validation Error Row {row_num}")
             return "failed", None
@@ -347,6 +430,14 @@ class MemberImportService(StatelessService):
             self.logger.error(f"Row {row_num}: Creation failed - {str(e)[:200]}")
             frappe.log_error(frappe.get_traceback(), f"CSV Import Error Row {row_num}")
             return "failed", None
+
+        finally:
+            # Always release the advisory lock
+            if lock_acquired:
+                try:
+                    frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
+                except Exception:
+                    pass
 
     def _set_dues_rate_fields(self, member_doc: Document, row_data: Dict[str, Any]) -> None:
         """Set dues rate related fields on member document."""

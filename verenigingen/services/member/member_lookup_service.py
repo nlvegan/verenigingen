@@ -31,7 +31,7 @@ Usage:
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import frappe
 from frappe.model.document import Document
@@ -125,6 +125,41 @@ class MemberLookupService(StatelessService):
             ...     strategies=[LookupStrategy.MEMBER_ID, LookupStrategy.EMAIL]
             ... )
         """
+        member, _ = self.find_member_with_strategy(row_data, strategies)
+        return member
+
+    def find_member_with_strategy(
+        self,
+        row_data: Dict[str, Any],
+        strategies: Optional[List[LookupStrategy]] = None,
+    ) -> Tuple[Optional[Document], Optional[LookupStrategy]]:
+        """
+        Find existing member using cascade matching, returning the matched strategy.
+
+        Tries each strategy in order until a match is found. Returns both the
+        member document and the strategy that matched, which is useful for
+        debugging and audit logging.
+
+        Args:
+            row_data: Dictionary with lookup field values. Expected keys
+                depend on the strategies used (e.g., 'member_id', 'email',
+                'personal_email', 'organization_email', 'procurios_id')
+            strategies: Ordered list of strategies to try. Defaults to
+                VIP_STRATEGIES if not specified.
+
+        Returns:
+            Tuple of (member_document, matched_strategy). Both are None if
+            no match is found.
+
+        Example:
+            >>> service = MemberLookupService()
+            >>> member, strategy = service.find_member_with_strategy(
+            ...     {'member_id': '12345', 'email': 'test@example.com'},
+            ...     strategies=[LookupStrategy.MEMBER_ID, LookupStrategy.EMAIL]
+            ... )
+            >>> if member:
+            ...     print(f"Found {member.name} via {strategy.value}")
+        """
         if strategies is None:
             strategies = self.VIP_STRATEGIES
 
@@ -132,9 +167,9 @@ class MemberLookupService(StatelessService):
             member = self._find_by_strategy(strategy, row_data)
             if member:
                 self.logger.debug(f"Found member {member.name} via {strategy.value}")
-                return member
+                return member, strategy
 
-        return None
+        return None, None
 
     def _find_by_strategy(
         self,
@@ -187,6 +222,10 @@ class MemberLookupService(StatelessService):
         """
         Find member by email field.
 
+        Normalizes email (lowercase, strip whitespace) before lookup to
+        ensure consistent matching regardless of case or formatting in
+        the source data.
+
         Args:
             email: The email address to search for
 
@@ -195,9 +234,24 @@ class MemberLookupService(StatelessService):
         """
         if not email:
             return None
-        member_name = frappe.db.get_value("Member", {"email": email}, "name")
+
+        # Normalize email: lowercase and strip whitespace
+        normalized_email = str(email).lower().strip()
+        if not normalized_email:
+            return None
+
+        # Use LOWER() in query to match regardless of stored case
+        member_name = frappe.db.sql(
+            """
+            SELECT name FROM `tabMember`
+            WHERE LOWER(email) = %s
+            LIMIT 1
+            """,
+            normalized_email,
+            as_dict=True,
+        )
         if member_name:
-            return frappe.get_doc("Member", member_name)
+            return frappe.get_doc("Member", member_name[0].name)
         return None
 
 

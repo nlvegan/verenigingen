@@ -1513,6 +1513,29 @@ class MijnroodCSVImport(Document):
         This method orchestrates service calls for related record creation,
         replacing the inline logic in _create_related_records_with_tracking.
 
+        IMPORTANT - Partial Commit Behavior:
+        -----------------------------------
+        The Member record is committed to the database BEFORE this method is
+        called (see _process_single_member). This means:
+
+        1. Member exists and is fully persisted when related record creation begins
+        2. Each related record (address, mollie, termination, volunteer) is created
+           independently with its own try/except block
+        3. If one related record fails, others will still be attempted
+        4. Failures are tracked and logged, but do not cause rollback of the member
+
+        This is intentional: we prioritize having the member record even if some
+        related records fail (e.g., due to validation errors or external service
+        issues). Failed operations can be retried later or fixed manually.
+
+        Example failure scenario:
+        - Member MEM-12345 created and committed
+        - Address creation succeeds
+        - Mollie sync fails (validation error)
+        - Termination record creation succeeds
+        - Result: Member has address and termination record, Mollie data missing
+        - The error log will show "mollie_data" as a failed operation
+
         Args:
             member_name: Name of the member document
             row_data: Original CSV row data
