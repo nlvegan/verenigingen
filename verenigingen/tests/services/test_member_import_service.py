@@ -380,3 +380,35 @@ class TestMemberImportServiceConfigurable(IntegrationTestCase):
                 expected_delays[i - 1] * 2,
                 f"Delay at attempt {i} should be 2x previous",
             )
+
+    def test_get_lock_config_returns_defaults(self):
+        """Test that _get_lock_config returns default values when not configured."""
+        from verenigingen.services.csv_import.member_import_service import (
+            _DEFAULT_LOCK_MAX_RETRIES,
+            _DEFAULT_LOCK_RETRY_BASE_DELAY,
+            _DEFAULT_LOCK_TIMEOUT_SECONDS,
+            _get_lock_config,
+        )
+
+        timeout, retries, base_delay = _get_lock_config()
+
+        # Should return defaults when site_config doesn't have overrides
+        self.assertEqual(timeout, _DEFAULT_LOCK_TIMEOUT_SECONDS)
+        self.assertEqual(retries, _DEFAULT_LOCK_MAX_RETRIES)
+        self.assertEqual(base_delay, _DEFAULT_LOCK_RETRY_BASE_DELAY)
+
+    def test_get_lock_config_returns_tuple(self):
+        """Test that _get_lock_config returns proper tuple structure."""
+        from verenigingen.services.csv_import.member_import_service import (
+            _get_lock_config,
+        )
+
+        result = _get_lock_config()
+
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 3)
+        # All values should be numeric
+        timeout, retries, base_delay = result
+        self.assertIsInstance(timeout, (int, float))
+        self.assertIsInstance(retries, (int, float))
+        self.assertIsInstance(base_delay, (int, float))

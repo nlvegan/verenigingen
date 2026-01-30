@@ -135,6 +135,29 @@ def run_tests():
     assert 0.1 <= member_import_service.LOCK_RETRY_BASE_DELAY <= 5
     print("  PASSED: Configuration constants are sensible")
 
+    # Test 7: Dynamic lock configuration
+    print("\nTest 7: Dynamic lock configuration (_get_lock_config)...")
+    from verenigingen.services.csv_import.member_import_service import (
+        _get_lock_config,
+        _DEFAULT_LOCK_TIMEOUT_SECONDS,
+        _DEFAULT_LOCK_MAX_RETRIES,
+        _DEFAULT_LOCK_RETRY_BASE_DELAY,
+    )
+
+    timeout, retries, base_delay = _get_lock_config()
+    assert isinstance(timeout, (int, float)), "Timeout should be numeric"
+    assert isinstance(retries, (int, float)), "Retries should be numeric"
+    assert isinstance(base_delay, (int, float)), "Base delay should be numeric"
+    # Without site_config override, should return defaults
+    assert (
+        timeout == _DEFAULT_LOCK_TIMEOUT_SECONDS
+    ), f"Expected {_DEFAULT_LOCK_TIMEOUT_SECONDS}, got {timeout}"
+    assert retries == _DEFAULT_LOCK_MAX_RETRIES, f"Expected {_DEFAULT_LOCK_MAX_RETRIES}, got {retries}"
+    assert (
+        base_delay == _DEFAULT_LOCK_RETRY_BASE_DELAY
+    ), f"Expected {_DEFAULT_LOCK_RETRY_BASE_DELAY}, got {base_delay}"
+    print("  PASSED: _get_lock_config returns correct defaults")
+
     print("\n" + "=" * 60)
     print("ALL TESTS PASSED!")
     print("=" * 60)

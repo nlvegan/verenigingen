@@ -34,10 +34,34 @@ from verenigingen.utils.csv.data_transformers import clean_phone_number
 from verenigingen.utils.csv_import_processor import ensure_bulk_import_members_set
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 
-# Advisory lock configuration (can be overridden via site_config or settings)
-LOCK_TIMEOUT_SECONDS = 10  # Maximum time to wait for lock acquisition
-LOCK_MAX_RETRIES = 3  # Number of retry attempts if lock acquisition fails
-LOCK_RETRY_BASE_DELAY = 0.5  # Base delay in seconds (exponential backoff: 0.5, 1.0, 2.0)
+# Advisory lock configuration defaults (can be overridden via site_config)
+# To override, add to site_config.json:
+#   "member_import_lock_timeout": 15,
+#   "member_import_lock_retries": 5,
+#   "member_import_lock_base_delay": 1.0
+_DEFAULT_LOCK_TIMEOUT_SECONDS = 10
+_DEFAULT_LOCK_MAX_RETRIES = 3
+_DEFAULT_LOCK_RETRY_BASE_DELAY = 0.5
+
+
+def _get_lock_config() -> tuple:
+    """Get lock configuration from site_config with fallbacks to defaults.
+
+    Returns:
+        Tuple of (timeout_seconds, max_retries, base_delay)
+    """
+    site_config = frappe.get_site_config()
+    timeout = site_config.get("member_import_lock_timeout", _DEFAULT_LOCK_TIMEOUT_SECONDS)
+    retries = site_config.get("member_import_lock_retries", _DEFAULT_LOCK_MAX_RETRIES)
+    base_delay = site_config.get("member_import_lock_base_delay", _DEFAULT_LOCK_RETRY_BASE_DELAY)
+    return (timeout, retries, base_delay)
+
+
+# Module-level constants for backward compatibility (read from site_config at import time)
+# Note: For dynamic config, use _get_lock_config() instead
+LOCK_TIMEOUT_SECONDS = _DEFAULT_LOCK_TIMEOUT_SECONDS
+LOCK_MAX_RETRIES = _DEFAULT_LOCK_MAX_RETRIES
+LOCK_RETRY_BASE_DELAY = _DEFAULT_LOCK_RETRY_BASE_DELAY
 
 
 class MemberImportService(StatelessService):
@@ -378,23 +402,39 @@ class MemberImportService(StatelessService):
         Returns:
             True if lock was acquired, False otherwise
         """
-        for attempt in range(LOCK_MAX_RETRIES):
+        # Get dynamic config (allows runtime override via site_config)
+        timeout, max_retries, base_delay = _get_lock_config()
+        retries_needed = 0
+
+        for attempt in range(max_retries):
             lock_result = frappe.db.sql(
                 "SELECT GET_LOCK(%s, %s) as acquired",
-                (lock_name, LOCK_TIMEOUT_SECONDS),
+                (lock_name, timeout),
                 as_dict=True,
             )
             if lock_result and lock_result[0].acquired == 1:
+                # Log contention metric if retries were needed
+                if retries_needed > 0:
+                    self.logger.info(
+                        f"Row {row_num}: Lock acquired after {retries_needed} retries "
+                        f"(contention detected for {lock_name})"
+                    )
                 return True
 
-            # Exponential backoff: 0.5s, 1.0s, 2.0s
-            delay = LOCK_RETRY_BASE_DELAY * (2**attempt)
+            retries_needed += 1
+            # Exponential backoff: base * 2^attempt (e.g., 0.5s, 1.0s, 2.0s)
+            delay = base_delay * (2**attempt)
             self.logger.warning(
-                f"Row {row_num}: Lock acquisition attempt {attempt + 1}/{LOCK_MAX_RETRIES} "
+                f"Row {row_num}: Lock acquisition attempt {attempt + 1}/{max_retries} "
                 f"failed for {lock_name}, retrying in {delay}s"
             )
             time.sleep(delay)
 
+        # Log contention metric on failure
+        self.logger.error(
+            f"Row {row_num}: Lock contention - failed to acquire {lock_name} "
+            f"after {max_retries} attempts (total wait: ~{sum(base_delay * (2**i) for i in range(max_retries)):.1f}s)"
+        )
         return False
 
     def _release_advisory_lock(self, lock_name: str, row_num: Any) -> None:
@@ -465,11 +505,8 @@ class MemberImportService(StatelessService):
             lock_acquired = self._acquire_advisory_lock(lock_name, row_num)
 
             if not lock_acquired:
-                self.logger.warning(
-                    f"Row {row_num}: Could not acquire lock after {LOCK_MAX_RETRIES} attempts, "
-                    "checking if member was created by concurrent process"
-                )
-                # Check if member was created by another process
+                # Fail-safe: without a lock, we cannot safely create a member
+                # Check if another process already created this member
                 lookup_service = get_member_lookup_service()
                 existing = lookup_service.find_member(row_data, strategies=lookup_service.MIJNROOD_STRATEGIES)
                 if existing:
@@ -477,8 +514,13 @@ class MemberImportService(StatelessService):
                         f"Row {row_num}: Member {existing.name} was created by concurrent process"
                     )
                     return "skipped", existing.name
-                # No lock and no existing member - proceed cautiously
-                self.logger.warning(f"Row {row_num}: Proceeding without lock - may result in duplicate")
+                # No lock and no existing member - fail to prevent potential duplicate
+                # This is fail-safe behavior: better to fail and retry than create duplicates
+                self.logger.error(
+                    f"Row {row_num}: Lock acquisition failed and no existing member found. "
+                    "Failing to prevent potential duplicate creation."
+                )
+                return "failed", None
 
             # Re-check if member exists after acquiring lock (TOCTOU prevention)
             # Uses same strategies as initial lookup for consistency
@@ -504,8 +546,21 @@ class MemberImportService(StatelessService):
 
             member.insert()
 
-            # Release lock BEFORE commit to ensure same connection
-            # This is safer as commit() could theoretically affect connection state
+            # IMPORTANT: Release lock BEFORE commit to ensure same connection
+            #
+            # MySQL advisory locks (GET_LOCK/RELEASE_LOCK) are connection-scoped:
+            # - RELEASE_LOCK must be called on the SAME connection that called GET_LOCK
+            # - If the connection changes between GET_LOCK and RELEASE_LOCK, the lock
+            #   will NOT be released (RELEASE_LOCK returns 0 or NULL)
+            #
+            # Frappe's frappe.db.commit() typically preserves the connection, but to be
+            # defensive against any connection pool behavior or future changes, we
+            # release the lock while we're certain we're on the same connection that
+            # acquired it. The member.insert() has already written to the DB; the
+            # commit() just makes it durable.
+            #
+            # Sequence: GET_LOCK -> insert -> RELEASE_LOCK -> commit
+            # This ensures the lock is released even if commit() somehow fails.
             if lock_acquired:
                 self._release_advisory_lock(lock_name, row_num)
                 lock_acquired = False  # Mark as released so finally doesn't retry
