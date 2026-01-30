@@ -132,55 +132,98 @@ class MollieSyncService(StatelessService):
         self,
         member_names: List[str],
         auto_fix_payment_method: bool = True,
-    ) -> Tuple[List[str], List[str]]:
-        """Validate Mollie data on imported members.
+    ) -> Tuple[List[str], List[str], List[str]]:
+        """Validate Mollie subscription data with issue categorization and optional auto-fix.
 
-        Checks that members with Mollie IDs have correct payment method settings
-        and optionally auto-fixes inconsistencies.
+        Performs comprehensive validation of Mollie data on both Member and Customer records:
+        - Validates Mollie ID formats (cst_*, sub_*)
+        - Checks payment method consistency
+        - Detects CRITICAL issues (active subscriptions on terminated/banned/deceased members)
 
         Args:
             member_names: List of member document names to validate
             auto_fix_payment_method: Whether to auto-fix payment method mismatches
 
         Returns:
-            Tuple of (issues, auto_fixed) where:
+            Tuple of (issues, auto_fixed, critical_issues) where:
             - issues: List of validation issue messages
             - auto_fixed: List of auto-fixed issue messages
+            - critical_issues: List of critical issues requiring manual intervention
         """
         issues = []
         auto_fixed = []
+        critical_issues = []
 
         for member_name in member_names:
             try:
                 member = frappe.get_doc("Member", member_name)
 
-                # Check for Mollie data without Mollie payment method
-                has_mollie_data = member.mollie_customer_id or member.mollie_subscription_id
-                is_mollie_payment = member.payment_method == "Mollie"
+                if not member.customer:
+                    continue
 
-                if has_mollie_data and not is_mollie_payment:
+                customer = frappe.get_doc("Customer", member.customer)
+                if not (customer.custom_mollie_customer_id or customer.custom_mollie_subscription_id):
+                    continue
+
+                member_issues = []
+
+                # Validate Mollie Customer ID format
+                if customer.custom_mollie_customer_id:
+                    if not customer.custom_mollie_customer_id.startswith("cst_"):
+                        member_issues.append(
+                            f"Invalid Mollie Customer ID format: {customer.custom_mollie_customer_id}"
+                        )
+
+                # Validate Mollie Subscription ID format
+                if customer.custom_mollie_subscription_id:
+                    if not customer.custom_mollie_subscription_id.startswith("sub_"):
+                        member_issues.append(
+                            f"Invalid Mollie Subscription ID format: {customer.custom_mollie_subscription_id}"
+                        )
+
+                # Check payment method consistency
+                if (
+                    customer.custom_mollie_customer_id or customer.custom_mollie_subscription_id
+                ) and member.payment_method != "Mollie":
                     if auto_fix_payment_method:
-                        member.payment_method = "Mollie"
-                        member._system_update = True
-                        member.save()
-                        auto_fixed.append(
-                            f"Member {member_name}: Payment method set to Mollie "
-                            "(had Mollie data but different payment method)"
+                        old_method = member.payment_method
+                        frappe.db.set_value(
+                            "Member", member_name, "payment_method", "Mollie", update_modified=False
                         )
+                        auto_fixed.append(f"{member_name}: payment_method {old_method} → Mollie")
                     else:
-                        issues.append(
-                            f"Member {member_name}: Has Mollie data but payment method "
-                            f"is '{member.payment_method}'"
+                        member_issues.append(
+                            f"Payment method should be 'Mollie', found: {member.payment_method}"
                         )
 
-                # Check for Mollie payment method without Mollie data
-                if is_mollie_payment and not has_mollie_data:
-                    issues.append(f"Member {member_name}: Payment method is Mollie but no Mollie data")
+                # CRITICAL: Active subscriptions on terminated/banned/deceased members
+                # These represent potential ongoing charges that need manual intervention
+                if customer.custom_mollie_subscription_id and member.status in [
+                    "Terminated",
+                    "Banned",
+                    "Deceased",
+                ]:
+                    critical_msg = (
+                        f"[CRITICAL] Member {member_name}: Active Mollie subscription "
+                        f"{customer.custom_mollie_subscription_id} on {member.status} member - "
+                        "MANUAL CANCELLATION REQUIRED to prevent ongoing charges"
+                    )
+                    critical_issues.append(critical_msg)
+                    member_issues.append(critical_msg)
+
+                if member_issues:
+                    issues.append(f"Member {member_name}: {'; '.join(member_issues)}")
 
             except Exception as e:
+                self.logger.error(f"Error validating Mollie data for {member_name}: {str(e)}")
                 issues.append(f"Member {member_name}: Validation failed - {str(e)}")
 
-        return issues, auto_fixed
+        # Commit auto-fixes
+        if auto_fixed:
+            self.logger.info(f"Mollie validation auto-fixed {len(auto_fixed)} payment method mismatches")
+            frappe.db.commit()
+
+        return issues, auto_fixed, critical_issues
 
 
 # Module-level singleton accessor

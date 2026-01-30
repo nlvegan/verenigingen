@@ -410,16 +410,47 @@ class MijnroodCSVImport(Document):
             frappe.flags.bulk_member_operations = False
             frappe.logger().info("[CSV IMPORT] Cleared bulk_member_operations flag at end of finalization")
 
-        # Validate Mollie subscription data preservation
+        # Validate Mollie subscription data preservation (via MollieSyncService)
         mollie_validation_summary = ""
         if processed_members:
-            mollie_issues = self._validate_mollie_data_preservation(processed_members)
+            from verenigingen.services.csv_import.mollie_sync_service import (
+                get_mollie_sync_service,
+            )
+
+            mollie_service = get_mollie_sync_service()
+            mollie_issues, auto_fixed, critical_issues = mollie_service.validate_mollie_data_preservation(
+                processed_members
+            )
+
+            # Surface critical issues prominently
+            if critical_issues:
+                frappe.logger().error(
+                    f"MOLLIE CRITICAL: {len(critical_issues)} members have active subscriptions "
+                    "but are terminated/banned/deceased"
+                )
+                self._append_to_error_log(
+                    f"\n=== CRITICAL MOLLIE ISSUES ({len(critical_issues)}) ===\n"
+                    + "\n".join(critical_issues[:20])
+                    + ("\n... and more" if len(critical_issues) > 20 else "")
+                )
+                frappe.log_error(
+                    f"CSV Import {self.name} - Critical Mollie Issues:\n\n" + "\n".join(critical_issues),
+                    "CRITICAL: Mollie Subscriptions Need Cancellation",
+                )
+
             if mollie_issues:
                 mollie_validation_summary = (
                     f". Mollie validation: {len(mollie_issues)} issues found (see Error Log)"
                 )
+                if not critical_issues:
+                    frappe.logger().warning("Mollie data validation found %d issues", len(mollie_issues))
+                    frappe.log_error(
+                        "Mollie data preservation issues:\n" + "\n".join(mollie_issues),
+                        "Mollie Data Preservation Validation",
+                    )
             else:
                 mollie_validation_summary = ". Mollie data: preserved correctly"
+                frappe.logger().info("Mollie data preservation validation passed")
 
         # Aggregate and report validation warnings
         validation_warnings_summary = ""
@@ -1062,7 +1093,10 @@ class MijnroodCSVImport(Document):
     def _validate_mollie_data_preservation(
         self, processed_members: List[str], auto_fix_payment_method: bool = True
     ) -> List[str]:
-        """Validate Mollie subscription data with issue categorization and optional auto-fix.
+        """DEPRECATED: Use MollieSyncService.validate_mollie_data_preservation() instead.
+
+        This method is kept for backward compatibility but is no longer called.
+        The service version provides the same functionality with better separation of concerns.
 
         Args:
             processed_members: List of member names to validate
@@ -1174,7 +1208,11 @@ class MijnroodCSVImport(Document):
         return validation_issues
 
     def _create_or_update_member(self, row_data: Dict) -> tuple:
-        """Create or update a member record with transaction safety."""
+        """DEPRECATED: Use MemberImportService.create_or_update_member() instead.
+
+        This method is kept for backward compatibility but is no longer called.
+        The service version provides the same functionality with better separation of concerns.
+        """
         import time
 
         row_num = row_data.get("row_number", "?")
@@ -1243,11 +1281,11 @@ class MijnroodCSVImport(Document):
             return self._create_member_with_safe_optimization(row_data)
 
     def _create_member_with_safe_optimization(self, row_data: Dict) -> tuple:
-        """Create member using safe optimization approach with transaction safety.
+        """DEPRECATED: Use MemberImportService.create_or_update_member() instead.
 
-        Uses savepoints to ensure atomic member + related records creation.
-        If related records fail, the member creation is rolled back to prevent
-        inconsistent state.
+        This method is kept for backward compatibility but is no longer called.
+        The service version provides the same functionality with better separation of concerns.
+        Previously: Create member using safe optimization approach with transaction safety.
         """
         # Check permissions first
         if not self._check_csv_import_permissions():
@@ -1394,11 +1432,14 @@ class MijnroodCSVImport(Document):
         }
 
     def _create_related_records_with_tracking(self, member_doc: Document, row_data: Dict) -> List[str]:
-        """Create related records with granular failure tracking.
+        """DEPRECATED: Use _create_related_records_via_services() instead.
 
+        This method is kept for backward compatibility but is no longer called.
+        The new method uses extracted services (AddressImportService, MollieSyncService,
+        MembershipImportService) for better separation of concerns.
+
+        Previously: Create related records with granular failure tracking.
         Returns a list of failed operation names (empty if all succeeded).
-        This allows the caller to know exactly which operations failed
-        without losing the member creation.
         """
         failed_operations = []
 
@@ -1621,8 +1662,11 @@ class MijnroodCSVImport(Document):
         return not existing
 
     def _update_member_fields(self, member_doc: Document, row_data: Dict):
-        """Update member document fields from row data."""
+        """DEPRECATED: Use MemberImportService.update_member_fields() instead.
 
+        This method is kept for backward compatibility but is no longer called.
+        The service version provides the same functionality with better separation of concerns.
+        """
         # CRITICAL: Set system flags FIRST before any field modifications
         # This ensures workflow validation is bypassed from the start
         member_doc.flags.ignore_workflow = True  # Bypass workflow validation
@@ -2159,11 +2203,11 @@ class MijnroodCSVImport(Document):
             )
 
     def _create_related_records(self, member_doc: Document, row_data: Dict = None):
-        """Create related records (address, termination) after successful member creation.
+        """DEPRECATED: Use _create_related_records_via_services() instead.
 
-        DEPRECATED: This method is kept for backward compatibility.
-        New code should use _create_related_records_with_tracking() which provides
-        granular failure tracking.
+        This method is kept for backward compatibility but is no longer called.
+        New code uses extracted services (AddressImportService, MollieSyncService,
+        MembershipImportService) for better separation of concerns.
         """
         # Delegate to the tracking version and log any failures
         failed_ops = self._create_related_records_with_tracking(member_doc, row_data)
@@ -2297,8 +2341,12 @@ class MijnroodCSVImport(Document):
             # Don't fail the entire import for chapter assignment issues
 
     def _create_membership_from_import(self, member_doc: Document, row_data: dict):
-        """Create a membership record using unified normal approval workflow.
+        """DEPRECATED: Use MembershipImportService.create_membership_from_csv() instead.
 
+        This method is kept for backward compatibility but is no longer called.
+        The service version provides the same functionality with better separation of concerns.
+
+        Previously: Create a membership record using unified normal approval workflow.
         Uses advisory locking to prevent duplicate memberships when multiple
         imports run concurrently for the same member.
         """
@@ -2377,7 +2425,11 @@ class MijnroodCSVImport(Document):
                     pass  # Lock release failure is not critical
 
     def _create_membership_unified_path(self, member_doc: Document, row_data: dict):
-        """Create membership using unified normal approval workflow (Phase 3)."""
+        """DEPRECATED: Use MembershipImportService._create_membership_unified_path() instead.
+
+        This method is kept for backward compatibility but is no longer called.
+        The service version provides the same functionality with better separation of concerns.
+        """
         # Determine membership type from Lidmaatschapstype (aspirant vs regular)
         membership_type = determine_membership_type_for_csv_import(row_data)
 
