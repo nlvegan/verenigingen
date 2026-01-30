@@ -20,7 +20,8 @@ Usage:
 """
 
 import time
-from typing import Any, Dict, Optional, Tuple
+from contextlib import contextmanager
+from typing import Any, Dict, Generator, Optional, Tuple
 
 import frappe
 from frappe import _
@@ -32,6 +33,11 @@ from verenigingen.services.member.member_lookup_service import get_member_lookup
 from verenigingen.utils.csv.data_transformers import clean_phone_number
 from verenigingen.utils.csv_import_processor import ensure_bulk_import_members_set
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
+
+# Advisory lock configuration (can be overridden via site_config or settings)
+LOCK_TIMEOUT_SECONDS = 10  # Maximum time to wait for lock acquisition
+LOCK_MAX_RETRIES = 3  # Number of retry attempts if lock acquisition fails
+LOCK_RETRY_BASE_DELAY = 0.5  # Base delay in seconds (exponential backoff: 0.5, 1.0, 2.0)
 
 
 class MemberImportService(StatelessService):
@@ -211,30 +217,59 @@ class MemberImportService(StatelessService):
         if create_volunteer_records:
             member_doc.interested_in_volunteering = 1
 
-    def _ensure_bulk_context(self) -> None:
-        """Ensure bulk operation flags are set for proper import behavior.
+    @contextmanager
+    def _bulk_context(self) -> Generator[None, None, None]:
+        """Context manager ensuring bulk operation flags are set and restored.
 
-        This defensive check guards against the service being called outside
-        of the expected bulk import context. Without these flags:
+        This defensive context manager guards against the service being called
+        outside of the expected bulk import context. Without these flags:
         - Notifications may spam users during bulk import
         - Version tracking may flood the activity log
         - Chapter events may overflow the event queue
 
-        Logs a warning if flags were missing and sets them, ensuring the
-        import continues safely.
-        """
-        required_flags = {
-            "bulk_member_operations": True,
-            "in_bulk_import": True,
-        }
+        The context manager:
+        1. Saves the previous flag values
+        2. Sets the required flags if not already set (with warning)
+        3. Restores previous values on exit to avoid side effects
 
-        for flag_name, expected_value in required_flags.items():
-            if not getattr(frappe.flags, flag_name, False):
-                self.logger.warning(
-                    f"MemberImportService called without {flag_name} flag set. "
-                    "Setting it defensively to ensure proper bulk behavior."
-                )
-                setattr(frappe.flags, flag_name, expected_value)
+        Usage:
+            with self._bulk_context():
+                # Bulk operations here
+                pass
+
+        Yields:
+            None
+        """
+        required_flags = ["bulk_member_operations", "in_bulk_import"]
+
+        # Save previous values
+        previous_values = {}
+        flags_were_missing = []
+
+        for flag_name in required_flags:
+            previous_values[flag_name] = getattr(frappe.flags, flag_name, None)
+            if not previous_values[flag_name]:
+                flags_were_missing.append(flag_name)
+                setattr(frappe.flags, flag_name, True)
+
+        # Log warning once if any flags were missing
+        if flags_were_missing:
+            self.logger.warning(
+                f"MemberImportService called without bulk context flags: "
+                f"{', '.join(flags_were_missing)}. Setting them defensively."
+            )
+
+        try:
+            yield
+        finally:
+            # Restore previous values to avoid side effects
+            for flag_name, previous_value in previous_values.items():
+                if previous_value is None:
+                    # Flag didn't exist before, remove it
+                    if hasattr(frappe.flags, flag_name):
+                        delattr(frappe.flags, flag_name)
+                else:
+                    setattr(frappe.flags, flag_name, previous_value)
 
     def create_or_update_member(
         self,
@@ -258,32 +293,36 @@ class MemberImportService(StatelessService):
             - status: 'created', 'updated', 'skipped', or 'failed'
             - member_name_or_none: Member document name or None on failure
         """
-        # Defensive check to ensure bulk context flags are set
-        self._ensure_bulk_context()
+        # Use context manager to ensure bulk flags are set and restored
+        with self._bulk_context():
+            row_num = row_data.get("row_number", "?")
 
-        row_num = row_data.get("row_number", "?")
-
-        # Check if member exists using cascade lookup (member_id -> email)
-        lookup_service = get_member_lookup_service()
-        existing_member_doc = lookup_service.find_member(
-            row_data, strategies=lookup_service.MIJNROOD_STRATEGIES
-        )
-
-        if existing_member_doc:
-            return self._update_existing_member(
-                existing_member_doc.name,
-                row_data,
-                import_doc_name,
-                create_volunteer_records,
-                row_num,
+            # Check if member exists using cascade lookup (member_id -> email)
+            lookup_service = get_member_lookup_service()
+            existing_member_doc, matched_strategy = lookup_service.find_member_with_strategy(
+                row_data, strategies=lookup_service.MIJNROOD_STRATEGIES
             )
-        else:
-            return self._create_new_member(
-                row_data,
-                import_doc_name,
-                create_volunteer_records,
-                row_num,
-            )
+
+            if existing_member_doc:
+                # Log at INFO level for audit trail
+                self.logger.info(
+                    f"Row {row_num}: Found existing member {existing_member_doc.name} "
+                    f"via {matched_strategy.value if matched_strategy else 'unknown'}"
+                )
+                return self._update_existing_member(
+                    existing_member_doc.name,
+                    row_data,
+                    import_doc_name,
+                    create_volunteer_records,
+                    row_num,
+                )
+            else:
+                return self._create_new_member(
+                    row_data,
+                    import_doc_name,
+                    create_volunteer_records,
+                    row_num,
+                )
 
     def _update_existing_member(
         self,
@@ -329,6 +368,64 @@ class MemberImportService(StatelessService):
             frappe.log_error(frappe.get_traceback(), f"CSV Import Update Error Row {row_num}")
             return "failed", member_name
 
+    def _acquire_advisory_lock(self, lock_name: str, row_num: Any) -> bool:
+        """Acquire MySQL advisory lock with exponential backoff.
+
+        Args:
+            lock_name: Name of the lock to acquire
+            row_num: Row number for logging
+
+        Returns:
+            True if lock was acquired, False otherwise
+        """
+        for attempt in range(LOCK_MAX_RETRIES):
+            lock_result = frappe.db.sql(
+                "SELECT GET_LOCK(%s, %s) as acquired",
+                (lock_name, LOCK_TIMEOUT_SECONDS),
+                as_dict=True,
+            )
+            if lock_result and lock_result[0].acquired == 1:
+                return True
+
+            # Exponential backoff: 0.5s, 1.0s, 2.0s
+            delay = LOCK_RETRY_BASE_DELAY * (2**attempt)
+            self.logger.warning(
+                f"Row {row_num}: Lock acquisition attempt {attempt + 1}/{LOCK_MAX_RETRIES} "
+                f"failed for {lock_name}, retrying in {delay}s"
+            )
+            time.sleep(delay)
+
+        return False
+
+    def _release_advisory_lock(self, lock_name: str, row_num: Any) -> None:
+        """Release MySQL advisory lock with verification.
+
+        Verifies that RELEASE_LOCK returns 1 (success). If it returns 0 or NULL,
+        logs a warning as this indicates a potential connection issue.
+
+        Args:
+            lock_name: Name of the lock to release
+            row_num: Row number for logging
+        """
+        try:
+            release_result = frappe.db.sql(
+                "SELECT RELEASE_LOCK(%s) as released",
+                (lock_name,),
+                as_dict=True,
+            )
+            if release_result:
+                released = release_result[0].released
+                if released != 1:
+                    # released=0 means lock wasn't held by this connection
+                    # released=NULL means lock doesn't exist
+                    self.logger.warning(
+                        f"Row {row_num}: RELEASE_LOCK returned {released} for {lock_name}. "
+                        "This may indicate the lock was released on a different connection "
+                        "or the connection changed during the operation."
+                    )
+        except Exception as e:
+            self.logger.error(f"Row {row_num}: Failed to release lock {lock_name}: {e}")
+
     def _create_new_member(
         self,
         row_data: Dict[str, Any],
@@ -339,7 +436,14 @@ class MemberImportService(StatelessService):
         """Create a new member with row data.
 
         Uses advisory lock to prevent race conditions when concurrent imports
-        try to create the same member simultaneously.
+        try to create the same member simultaneously. The lock acquisition uses
+        exponential backoff for resilience under high load.
+
+        Advisory Lock Connection Semantics:
+        -----------------------------------
+        MySQL GET_LOCK/RELEASE_LOCK are connection-scoped. In Frappe, frappe.db.sql()
+        uses the same connection (frappe.local.db) within a request. We verify that
+        RELEASE_LOCK returns 1 to detect any connection issues.
         """
         import hashlib
 
@@ -357,17 +461,15 @@ class MemberImportService(StatelessService):
         lock_acquired = False
 
         try:
-            # Acquire advisory lock to serialize creates for same member
-            lock_result = frappe.db.sql("SELECT GET_LOCK(%s, 5) as acquired", lock_name, as_dict=True)
-            lock_acquired = lock_result and lock_result[0].acquired == 1
+            # Acquire advisory lock with exponential backoff
+            lock_acquired = self._acquire_advisory_lock(lock_name, row_num)
 
             if not lock_acquired:
                 self.logger.warning(
-                    f"Row {row_num}: Could not acquire lock for member creation, "
-                    "another process may be creating this member"
+                    f"Row {row_num}: Could not acquire lock after {LOCK_MAX_RETRIES} attempts, "
+                    "checking if member was created by concurrent process"
                 )
-                # Wait briefly and re-check if member was created by another process
-                time.sleep(0.5)
+                # Check if member was created by another process
                 lookup_service = get_member_lookup_service()
                 existing = lookup_service.find_member(row_data, strategies=lookup_service.MIJNROOD_STRATEGIES)
                 if existing:
@@ -375,8 +477,11 @@ class MemberImportService(StatelessService):
                         f"Row {row_num}: Member {existing.name} was created by concurrent process"
                     )
                     return "skipped", existing.name
+                # No lock and no existing member - proceed cautiously
+                self.logger.warning(f"Row {row_num}: Proceeding without lock - may result in duplicate")
 
             # Re-check if member exists after acquiring lock (TOCTOU prevention)
+            # Uses same strategies as initial lookup for consistency
             lookup_service = get_member_lookup_service()
             existing_after_lock = lookup_service.find_member(
                 row_data, strategies=lookup_service.MIJNROOD_STRATEGIES
@@ -398,6 +503,13 @@ class MemberImportService(StatelessService):
             member._csv_import = True
 
             member.insert()
+
+            # Release lock BEFORE commit to ensure same connection
+            # This is safer as commit() could theoretically affect connection state
+            if lock_acquired:
+                self._release_advisory_lock(lock_name, row_num)
+                lock_acquired = False  # Mark as released so finally doesn't retry
+
             frappe.db.commit()
 
             # Add member to bulk import tracking set
@@ -432,12 +544,9 @@ class MemberImportService(StatelessService):
             return "failed", None
 
         finally:
-            # Always release the advisory lock
+            # Release lock if still held (e.g., on exception before normal release)
             if lock_acquired:
-                try:
-                    frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
-                except Exception:
-                    pass
+                self._release_advisory_lock(lock_name, row_num)
 
     def _set_dues_rate_fields(self, member_doc: Document, row_data: Dict[str, Any]) -> None:
         """Set dues rate related fields on member document."""

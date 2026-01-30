@@ -241,13 +241,14 @@ class MemberLookupService(StatelessService):
             return None
 
         # Use LOWER() in query to match regardless of stored case
+        # Pass as tuple to ensure correct parameter handling
         member_name = frappe.db.sql(
             """
             SELECT name FROM `tabMember`
             WHERE LOWER(email) = %s
             LIMIT 1
             """,
-            normalized_email,
+            (normalized_email,),
             as_dict=True,
         )
         if member_name:
