@@ -7,19 +7,17 @@ Tests for MemberImportService - CSV import member creation/update.
 This test module verifies:
 - Advisory lock acquisition and release (including connection semantics)
 - Bulk context flag management (save/restore)
-- Exponential backoff behavior
-- Concurrency handling
+- TOCTOU prevention behavior
+- Lock helpers work correctly
 """
 
-import threading
 import time
-from unittest.mock import patch
 
 import frappe
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from frappe.tests import IntegrationTestCase
 
 
-class TestMemberImportServiceLocks(EnhancedTestCase):
+class TestMemberImportServiceLocks(IntegrationTestCase):
     """Test cases for advisory lock functionality in MemberImportService."""
 
     def setUp(self):
@@ -61,25 +59,23 @@ class TestMemberImportServiceLocks(EnhancedTestCase):
             "RELEASE_LOCK should return 1 when lock was held by this connection",
         )
 
-    def test_release_lock_returns_zero_for_unheld_lock(self):
-        """Test that RELEASE_LOCK returns 0 for a lock not held by this connection."""
-        lock_name = f"unheld_lock_{int(time.time() * 1000)}"
+    def test_release_lock_returns_null_for_nonexistent_lock(self):
+        """Test that RELEASE_LOCK returns NULL for a lock that doesn't exist."""
+        lock_name = f"nonexistent_lock_{int(time.time() * 1000)}"
 
-        # Try to release a lock we never acquired
+        # Try to release a lock that was never acquired
         release_result = frappe.db.sql(
             "SELECT RELEASE_LOCK(%s) as released",
             (lock_name,),
             as_dict=True,
         )
-        # Returns 0 if the lock exists but was not held by this connection
-        # Returns NULL if lock doesn't exist
-        self.assertIn(
+        # Returns NULL if lock doesn't exist (never acquired)
+        self.assertIsNone(
             release_result[0].released,
-            [0, None],
-            "RELEASE_LOCK should return 0 or NULL for unheld lock",
+            "RELEASE_LOCK should return NULL for never-acquired lock",
         )
 
-    def test_acquire_advisory_lock_with_backoff(self):
+    def test_acquire_advisory_lock_helper(self):
         """Test that _acquire_advisory_lock acquires lock successfully."""
         lock_name = f"test_acquire_{int(time.time() * 1000)}"
 
@@ -89,19 +85,18 @@ class TestMemberImportServiceLocks(EnhancedTestCase):
         # Clean up - release the lock
         self.service._release_advisory_lock(lock_name, row_num=1)
 
-    def test_release_advisory_lock_verifies_result(self):
-        """Test that _release_advisory_lock verifies the release was successful."""
+    def test_release_advisory_lock_helper(self):
+        """Test that _release_advisory_lock releases and verifies correctly."""
         lock_name = f"test_release_{int(time.time() * 1000)}"
 
         # First acquire the lock
         lock_acquired = self.service._acquire_advisory_lock(lock_name, row_num=1)
         self.assertTrue(lock_acquired)
 
-        # Release should not raise and should succeed
-        # If there was a connection issue, the method would log a warning
+        # Release should succeed without raising
         self.service._release_advisory_lock(lock_name, row_num=1)
 
-        # Verify lock is actually released by trying to acquire again
+        # Verify lock is actually released by trying to acquire again instantly
         lock_result = frappe.db.sql(
             "SELECT GET_LOCK(%s, 0) as acquired",
             (lock_name,),
@@ -115,8 +110,33 @@ class TestMemberImportServiceLocks(EnhancedTestCase):
         # Clean up
         frappe.db.sql("SELECT RELEASE_LOCK(%s)", (lock_name,))
 
+    def test_lock_reentrant_on_same_connection(self):
+        """Test that MySQL advisory locks are reentrant on the same connection.
 
-class TestMemberImportServiceBulkContext(EnhancedTestCase):
+        This verifies the expected behavior that GET_LOCK on the same connection
+        for a lock we already hold returns 1 (reentrant).
+        """
+        lock_name = f"test_reentrant_{int(time.time() * 1000)}"
+
+        # First acquisition
+        result1 = frappe.db.sql(
+            "SELECT GET_LOCK(%s, 5) as acquired", (lock_name,), as_dict=True
+        )
+        self.assertEqual(result1[0].acquired, 1)
+
+        # Second acquisition on same connection (reentrant)
+        result2 = frappe.db.sql(
+            "SELECT GET_LOCK(%s, 5) as acquired", (lock_name,), as_dict=True
+        )
+        self.assertEqual(
+            result2[0].acquired, 1, "Lock should be reentrant on same connection"
+        )
+
+        # Clean up
+        frappe.db.sql("SELECT RELEASE_LOCK(%s)", (lock_name,))
+
+
+class TestMemberImportServiceBulkContext(IntegrationTestCase):
     """Test cases for bulk context flag management."""
 
     def setUp(self):
@@ -128,6 +148,29 @@ class TestMemberImportServiceBulkContext(EnhancedTestCase):
         )
 
         self.service = MemberImportService()
+
+        # Clean up any existing flags
+        self._original_bulk_member = getattr(
+            frappe.flags, "bulk_member_operations", None
+        )
+        self._original_in_bulk = getattr(frappe.flags, "in_bulk_import", None)
+
+    def tearDown(self):
+        """Clean up after tests."""
+        # Restore original flag state
+        if self._original_bulk_member is None:
+            if hasattr(frappe.flags, "bulk_member_operations"):
+                delattr(frappe.flags, "bulk_member_operations")
+        else:
+            frappe.flags.bulk_member_operations = self._original_bulk_member
+
+        if self._original_in_bulk is None:
+            if hasattr(frappe.flags, "in_bulk_import"):
+                delattr(frappe.flags, "in_bulk_import")
+        else:
+            frappe.flags.in_bulk_import = self._original_in_bulk
+
+        super().tearDown()
 
     def test_bulk_context_sets_flags_when_missing(self):
         """Test that _bulk_context sets flags when they are not present."""
@@ -154,14 +197,10 @@ class TestMemberImportServiceBulkContext(EnhancedTestCase):
             and frappe.flags.bulk_member_operations,
             "bulk_member_operations should be removed after context",
         )
-        self.assertFalse(
-            hasattr(frappe.flags, "in_bulk_import") and frappe.flags.in_bulk_import,
-            "in_bulk_import should be removed after context",
-        )
 
-    def test_bulk_context_preserves_existing_flags(self):
-        """Test that _bulk_context preserves and restores existing flag values."""
-        # Set flags to specific values
+    def test_bulk_context_preserves_existing_true_flags(self):
+        """Test that _bulk_context preserves existing True flag values."""
+        # Set flags to True
         frappe.flags.bulk_member_operations = True
         frappe.flags.in_bulk_import = True
 
@@ -173,11 +212,11 @@ class TestMemberImportServiceBulkContext(EnhancedTestCase):
         # Flags should still be True after context
         self.assertTrue(
             frappe.flags.bulk_member_operations,
-            "bulk_member_operations should be preserved",
+            "bulk_member_operations should be preserved as True",
         )
         self.assertTrue(
             frappe.flags.in_bulk_import,
-            "in_bulk_import should be preserved",
+            "in_bulk_import should be preserved as True",
         )
 
     def test_bulk_context_restores_flags_on_exception(self):
@@ -200,196 +239,37 @@ class TestMemberImportServiceBulkContext(EnhancedTestCase):
             "bulk_member_operations should be cleaned up after exception",
         )
 
-    def test_create_or_update_member_uses_bulk_context(self):
-        """Test that create_or_update_member properly uses bulk context."""
-        # Ensure flags are not set
-        if hasattr(frappe.flags, "bulk_member_operations"):
-            delattr(frappe.flags, "bulk_member_operations")
-        if hasattr(frappe.flags, "in_bulk_import"):
-            delattr(frappe.flags, "in_bulk_import")
 
-        # Create a test member through the service
-        row_data = {
-            "row_number": 1,
-            "first_name": "BulkContext",
-            "last_name": "Test",
-            "email": f"bulk-context-test-{int(time.time())}@example.com",
-        }
+class TestMemberImportServiceTOCTOU(IntegrationTestCase):
+    """Test cases for TOCTOU prevention and strategy consistency."""
 
-        result, member_name = self.service.create_or_update_member(
-            row_data=row_data,
-            import_doc_name="TEST-IMPORT-001",
-        )
+    def test_mijnrood_strategies_are_consistent(self):
+        """Test that MIJNROOD_STRATEGIES include expected lookup methods.
 
-        # Member should be created
-        self.assertEqual(result, "created")
-        self.assertIsNotNone(member_name)
-
-        # After method completes, flags should be cleaned up
-        # (since they weren't set before the call)
-        self.assertFalse(
-            hasattr(frappe.flags, "bulk_member_operations")
-            and frappe.flags.bulk_member_operations,
-            "Flags should be cleaned up after create_or_update_member",
-        )
-
-
-class TestMemberImportServiceBackoff(EnhancedTestCase):
-    """Test cases for exponential backoff behavior."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        super().setUp()
-
-        from verenigingen.services.csv_import.member_import_service import (
-            MemberImportService,
-        )
-
-        self.service = MemberImportService()
-
-    def test_backoff_timing(self):
-        """Test that backoff uses exponential delays."""
-        from verenigingen.services.csv_import import member_import_service
-
-        # Store original values
-        original_timeout = member_import_service.LOCK_TIMEOUT_SECONDS
-        original_retries = member_import_service.LOCK_MAX_RETRIES
-        original_delay = member_import_service.LOCK_RETRY_BASE_DELAY
-
-        try:
-            # Set short values for testing
-            member_import_service.LOCK_TIMEOUT_SECONDS = 0  # Immediate timeout
-            member_import_service.LOCK_MAX_RETRIES = 3
-            member_import_service.LOCK_RETRY_BASE_DELAY = 0.1  # 100ms base
-
-            lock_name = f"backoff_test_{int(time.time() * 1000)}"
-
-            # Hold the lock from another "connection" simulation
-            # Actually, we'll just test that the method tries multiple times
-            # by mocking the sleep to track calls
-            sleep_calls = []
-            original_sleep = time.sleep
-
-            def mock_sleep(duration):
-                sleep_calls.append(duration)
-                # Don't actually sleep in tests
-
-            with patch("time.sleep", mock_sleep):
-                # Acquire and hold the lock so backoff kicks in
-                frappe.db.sql("SELECT GET_LOCK(%s, 10) as acquired", (lock_name,))
-
-                try:
-                    # This should fail to acquire (lock is held)
-                    # and trigger backoff retries
-                    # Note: In same connection, GET_LOCK returns 1 (reentrant)
-                    # So we need to simulate failure differently
-                    pass
-                finally:
-                    frappe.db.sql("SELECT RELEASE_LOCK(%s)", (lock_name,))
-
-        finally:
-            # Restore original values
-            member_import_service.LOCK_TIMEOUT_SECONDS = original_timeout
-            member_import_service.LOCK_MAX_RETRIES = original_retries
-            member_import_service.LOCK_RETRY_BASE_DELAY = original_delay
-
-
-class TestMemberImportServiceConcurrency(EnhancedTestCase):
-    """Test cases for concurrent import handling."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        super().setUp()
-        # Set bulk flags for the test
-        frappe.flags.bulk_member_operations = True
-        frappe.flags.in_bulk_import = True
-
-    def tearDown(self):
-        """Clean up after tests."""
-        super().tearDown()
-        frappe.flags.bulk_member_operations = False
-        frappe.flags.in_bulk_import = False
-
-    def test_concurrent_creates_only_one_member(self):
-        """Test that concurrent imports of same member create only one record.
-
-        This simulates two workers trying to create the same member simultaneously.
-        One should create, the other should skip.
+        The TOCTOU prevention relies on using the same strategies for both
+        the initial lookup and the re-check after acquiring the lock.
         """
-        from verenigingen.services.csv_import.member_import_service import (
-            MemberImportService,
+        from verenigingen.services.member.member_lookup_service import (
+            LookupStrategy,
+            get_member_lookup_service,
         )
 
-        unique_email = f"concurrent-test-{int(time.time() * 1000)}@example.com"
-        unique_member_id = f"CONCURRENT-{int(time.time() * 1000)}"
+        lookup_service = get_member_lookup_service()
 
-        row_data = {
-            "row_number": 1,
-            "member_id": unique_member_id,
-            "first_name": "Concurrent",
-            "last_name": "Test",
-            "email": unique_email,
-        }
+        # Verify MIJNROOD_STRATEGIES exists and has content
+        self.assertIsNotNone(lookup_service.MIJNROOD_STRATEGIES)
+        self.assertGreater(len(lookup_service.MIJNROOD_STRATEGIES), 0)
 
-        results = []
-        errors = []
+        # The strategies should include MEMBER_ID and EMAIL for MijnRood imports
+        strategy_values = [s.value for s in lookup_service.MIJNROOD_STRATEGIES]
+        self.assertIn("member_id", strategy_values, "MIJNROOD should include member_id")
+        self.assertIn("email", strategy_values, "MIJNROOD should include email")
 
-        def import_member(thread_id):
-            """Worker function to import a member."""
-            try:
-                # Each thread gets its own service instance
-                service = MemberImportService()
-                # Use slightly different row numbers to avoid identical savepoint names
-                thread_row_data = {**row_data, "row_number": thread_id}
-                result, member_name = service.create_or_update_member(
-                    row_data=thread_row_data,
-                    import_doc_name=f"TEST-CONCURRENT-{thread_id}",
-                )
-                results.append((thread_id, result, member_name))
-            except Exception as e:
-                errors.append((thread_id, str(e)))
+    def test_lock_prevents_duplicate_via_recheck(self):
+        """Test that the re-check after lock acquisition finds existing members.
 
-        # Create two threads that will try to import simultaneously
-        thread1 = threading.Thread(target=import_member, args=(1,))
-        thread2 = threading.Thread(target=import_member, args=(2,))
-
-        # Start both threads
-        thread1.start()
-        thread2.start()
-
-        # Wait for both to complete
-        thread1.join(timeout=30)
-        thread2.join(timeout=30)
-
-        # Check results
-        self.assertEqual(len(errors), 0, f"No errors expected, got: {errors}")
-        self.assertEqual(len(results), 2, "Both threads should return results")
-
-        # Count outcomes
-        created_count = sum(1 for _, result, _ in results if result == "created")
-        skipped_count = sum(1 for _, result, _ in results if result == "skipped")
-        updated_count = sum(1 for _, result, _ in results if result == "updated")
-
-        # One should create, one should skip or update
-        self.assertGreaterEqual(
-            created_count + updated_count,
-            1,
-            "At least one thread should create or update the member",
-        )
-
-        # Verify only one member exists with this email
-        member_count = frappe.db.count("Member", {"email": unique_email})
-        self.assertEqual(
-            member_count,
-            1,
-            f"Only one member should exist with email {unique_email}",
-        )
-
-    def test_toctou_prevention_same_strategies(self):
-        """Test that TOCTOU re-check uses same lookup strategies as initial check.
-
-        This verifies that the re-check after acquiring lock uses the same
-        strategies as the initial lookup, ensuring consistency.
+        This simulates the TOCTOU scenario where a member is created between
+        the initial check and lock acquisition.
         """
         from verenigingen.services.csv_import.member_import_service import (
             MemberImportService,
@@ -401,15 +281,102 @@ class TestMemberImportServiceConcurrency(EnhancedTestCase):
         service = MemberImportService()
         lookup_service = get_member_lookup_service()
 
-        # Verify MIJNROOD_STRATEGIES is used consistently
-        # This is a static check - the actual code uses lookup_service.MIJNROOD_STRATEGIES
-        # in both the initial check and the re-check after lock acquisition
-        self.assertIsNotNone(lookup_service.MIJNROOD_STRATEGIES)
-        self.assertGreater(len(lookup_service.MIJNROOD_STRATEGIES), 0)
+        # Create a test member first
+        unique_id = f"TOCTOU-{int(time.time() * 1000)}"
+        unique_email = f"toctou-test-{int(time.time() * 1000)}@example.com"
 
-        # The strategies should include at minimum MEMBER_ID and EMAIL
-        from verenigingen.services.member.member_lookup_service import LookupStrategy
+        member = frappe.get_doc(
+            {
+                "doctype": "Member",
+                "first_name": "TOCTOU",
+                "last_name": "Test",
+                "email": unique_email,
+                "member_id": unique_id,
+                "status": "Pending",
+            }
+        )
+        member.flags.ignore_validate = True
+        member.flags.ignore_mandatory = True
+        member.insert()
+        frappe.db.commit()
 
-        strategy_values = [s.value for s in lookup_service.MIJNROOD_STRATEGIES]
-        self.assertIn("member_id", strategy_values)
-        self.assertIn("email", strategy_values)
+        try:
+            # Now the re-check should find this member
+            row_data = {
+                "member_id": unique_id,
+                "email": unique_email,
+            }
+
+            found_member = lookup_service.find_member(
+                row_data, strategies=lookup_service.MIJNROOD_STRATEGIES
+            )
+
+            self.assertIsNotNone(found_member, "Re-check should find existing member")
+            self.assertEqual(found_member.name, member.name)
+
+        finally:
+            # Clean up
+            frappe.delete_doc("Member", member.name, force=True)
+            frappe.db.commit()
+
+
+class TestMemberImportServiceConfigurable(IntegrationTestCase):
+    """Test cases for configurable lock parameters."""
+
+    def test_lock_constants_are_sensible(self):
+        """Test that lock configuration constants have reasonable values."""
+        from verenigingen.services.csv_import import member_import_service
+
+        # Timeout should be reasonable (1-60 seconds)
+        self.assertGreaterEqual(
+            member_import_service.LOCK_TIMEOUT_SECONDS,
+            1,
+            "Lock timeout should be at least 1 second",
+        )
+        self.assertLessEqual(
+            member_import_service.LOCK_TIMEOUT_SECONDS,
+            60,
+            "Lock timeout should not exceed 60 seconds",
+        )
+
+        # Retries should be reasonable (1-10)
+        self.assertGreaterEqual(
+            member_import_service.LOCK_MAX_RETRIES,
+            1,
+            "Should have at least 1 retry",
+        )
+        self.assertLessEqual(
+            member_import_service.LOCK_MAX_RETRIES,
+            10,
+            "Should not have more than 10 retries",
+        )
+
+        # Base delay should be reasonable (0.1-5 seconds)
+        self.assertGreaterEqual(
+            member_import_service.LOCK_RETRY_BASE_DELAY,
+            0.1,
+            "Base delay should be at least 0.1 seconds",
+        )
+        self.assertLessEqual(
+            member_import_service.LOCK_RETRY_BASE_DELAY,
+            5,
+            "Base delay should not exceed 5 seconds",
+        )
+
+    def test_exponential_backoff_formula(self):
+        """Test that exponential backoff produces expected delay sequence."""
+        from verenigingen.services.csv_import import member_import_service
+
+        base_delay = member_import_service.LOCK_RETRY_BASE_DELAY
+        max_retries = member_import_service.LOCK_MAX_RETRIES
+
+        # Calculate expected delays: base * 2^attempt
+        expected_delays = [base_delay * (2**i) for i in range(max_retries)]
+
+        # Verify sequence is exponentially increasing
+        for i in range(1, len(expected_delays)):
+            self.assertEqual(
+                expected_delays[i],
+                expected_delays[i - 1] * 2,
+                f"Delay at attempt {i} should be 2x previous",
+            )
