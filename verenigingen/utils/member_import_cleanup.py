@@ -1991,6 +1991,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             ("tabPayment Entry Reference", False, "Payment entry references"),
             ("tabPayment Entry Deduction", False, "Payment entry deductions"),
             ("tabBank Transaction Payments", False, "Bank transaction payment links"),
+            ("tabJournal Entry Account", False, "Journal entry line items"),
             # ===== MEMBER OPERATIONAL TABLES =====
             ("tabSEPA Mandate", False, "SEPA direct debit mandates"),
             ("tabContribution Amendment Request", False, "Contribution change requests"),
@@ -2011,6 +2012,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             ("tabPayment Entry", False, "Payment entries"),
             ("tabSales Invoice", False, "Sales invoices"),
             ("tabPurchase Invoice", False, "Purchase invoices"),
+            ("tabJournal Entry", False, "Journal entries"),
             # ===== LEDGER ENTRIES (LAST - references documents) =====
             ("tabGL Entry", False, "General ledger entries"),
             ("tabPayment Ledger Entry", False, "Payment ledger entries"),
