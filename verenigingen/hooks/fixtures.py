@@ -166,6 +166,11 @@ fixtures = [
         "doctype": "Desktop Icon",
         "filters": [["app", "=", "verenigingen"]],
     },
+    # Workspace Sidebars (left-side navigation for Frappe 16+ desk view)
+    {
+        "doctype": "Workspace Sidebar",
+        "filters": [["app", "=", "verenigingen"]],
+    },
     {
         "doctype": "Dashboard Chart",
         "filters": [

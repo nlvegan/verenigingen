@@ -1579,7 +1579,7 @@
   "sequence_id": 1.0,
   "shortcuts": [],
   "title": "Verenigingen",
-  "type": null
+  "type": "Workspace"
  },
  {
   "app": null,
@@ -1966,7 +1966,7 @@
   "sequence_id": 2.0,
   "shortcuts": [],
   "title": "Verenigingen Payments",
-  "type": null
+  "type": "Workspace"
  },
  {
   "app": null,
@@ -2148,6 +2148,6 @@
   "sequence_id": 20.0,
   "shortcuts": [],
   "title": "E-Boekhouden",
-  "type": null
+  "type": "Workspace"
  }
 ]

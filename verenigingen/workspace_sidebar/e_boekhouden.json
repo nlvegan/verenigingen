@@ -1,0 +1,139 @@
+{
+ "app": "verenigingen",
+ "creation": "2026-01-31 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Workspace Sidebar",
+ "header_icon": "accounting",
+ "idx": 0,
+ "items": [
+  {
+   "child": 0,
+   "collapsible": 0,
+   "icon": "home",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Home",
+   "link_to": "E-Boekhouden",
+   "link_type": "Workspace",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 0,
+   "collapsible": 1,
+   "icon": "settings",
+   "indent": 1,
+   "keep_closed": 0,
+   "label": "Migration & Settings",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Section Break"
+  },
+  {
+   "child": 1,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "E-Boekhouden Migration",
+   "link_to": "E-Boekhouden Migration",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "E-Boekhouden Settings",
+   "link_to": "E-Boekhouden Settings",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "E-Boekhouden Dashboard",
+   "link_to": "E-Boekhouden Dashboard",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 0,
+   "collapsible": 1,
+   "icon": "route",
+   "indent": 1,
+   "keep_closed": 0,
+   "label": "Mapping & Configuration",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Section Break"
+  },
+  {
+   "child": 1,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Ledger Mapping",
+   "link_to": "E-Boekhouden Ledger Mapping",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Item Mapping",
+   "link_to": "E-Boekhouden Item Mapping",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Payment Mapping",
+   "link_to": "E-Boekhouden Payment Mapping",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 0,
+   "collapsible": 1,
+   "icon": "file-text",
+   "indent": 1,
+   "keep_closed": 0,
+   "label": "Monitoring & Logs",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Section Break"
+  },
+  {
+   "child": 1,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Import Log",
+   "link_to": "E-Boekhouden Import Log",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-01-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "E-Boekhouden",
+ "name": "E-Boekhouden",
+ "owner": "Administrator",
+ "standard": 1,
+ "title": "E-Boekhouden"
+}
