@@ -433,7 +433,7 @@ class SEPABatchStateMachine(StatelessService):
         except ValueError:
             # State is Rejected, which can go to Draft
             if from_state == "Rejected":
-                return ["Rejected", "Draft"] + happy_path
+                return ["Rejected", "Draft"] + happy_path[1:]  # Skip duplicate "Draft"
             return None
 
 

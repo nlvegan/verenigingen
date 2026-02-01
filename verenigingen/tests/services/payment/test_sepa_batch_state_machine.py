@@ -104,13 +104,14 @@ class TestSEPABatchStateMachineTransitions(FrappeTestCase):
         Test that Pending Approval -> Approved is allowed.
 
         Note: This transition requires Accounts Manager role.
+        When no user is provided, it returns allowed=False with required_role set.
         """
         result = self.machine.can_transition(
             "Pending Approval", "Approved", user=None
         )
 
-        # Transition itself is valid, but may require role
-        self.assertTrue(result.allowed or result.required_role == "Accounts Manager")
+        # When user is None, this transition should indicate the required role
+        self.assertEqual(result.required_role, "Accounts Manager")
 
     def test_valid_transition_pending_to_draft(self):
         """
@@ -136,6 +137,7 @@ class TestSEPABatchStateMachineTransitions(FrappeTestCase):
 
         # This transition requires Accounts User role
         # When no user is provided, it returns allowed=False with required_role set
+        self.assertFalse(result.allowed)
         self.assertEqual(result.required_role, "Accounts User")
         # Verify it's in the valid transitions list
         self.assertIn("Exported", self.machine.get_allowed_transitions("Approved"))
@@ -515,6 +517,92 @@ class TestSEPABatchStateMachineCompleteWorkflow(FrappeTestCase):
                 result.allowed,
                 f"{state} should not be cancellable"
             )
+
+
+class TestSEPABatchStateMachineGetPathToProcessed(FrappeTestCase):
+    """Test the get_path_to_processed method that computes the happy path"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        super().setUp()
+        self.machine = get_sepa_batch_state_machine()
+
+    def test_path_from_draft(self):
+        """Test that path from Draft returns the complete happy path"""
+        path = self.machine.get_path_to_processed("Draft")
+
+        self.assertIsNotNone(path)
+        self.assertEqual(path[0], "Draft")
+        self.assertEqual(path[-1], "Processed")
+        # Verify the sequence is correct
+        expected = [
+            "Draft",
+            "Pending Approval",
+            "Approved",
+            "Exported",
+            "Uploaded",
+            "Acknowledged",
+            "Processed",
+        ]
+        self.assertEqual(path, expected)
+
+    def test_path_from_rejected(self):
+        """Test that path from Rejected returns Rejected -> Draft -> rest (no duplicate Draft)"""
+        path = self.machine.get_path_to_processed("Rejected")
+
+        self.assertIsNotNone(path)
+        self.assertEqual(path[0], "Rejected")
+        self.assertEqual(path[-1], "Processed")
+        # Verify no duplicate "Draft" entries
+        draft_count = path.count("Draft")
+        self.assertEqual(draft_count, 1, "Path should have exactly one 'Draft' state")
+        # Verify the sequence
+        expected = [
+            "Rejected",
+            "Draft",
+            "Pending Approval",
+            "Approved",
+            "Exported",
+            "Uploaded",
+            "Acknowledged",
+            "Processed",
+        ]
+        self.assertEqual(path, expected)
+
+    def test_path_from_approved(self):
+        """Test that path from Approved returns from Approved to Processed"""
+        path = self.machine.get_path_to_processed("Approved")
+
+        self.assertIsNotNone(path)
+        self.assertEqual(path[0], "Approved")
+        self.assertEqual(path[-1], "Processed")
+        expected = [
+            "Approved",
+            "Exported",
+            "Uploaded",
+            "Acknowledged",
+            "Processed",
+        ]
+        self.assertEqual(path, expected)
+
+    def test_path_from_processed(self):
+        """Test that path from Processed returns just Processed"""
+        path = self.machine.get_path_to_processed("Processed")
+
+        self.assertIsNotNone(path)
+        self.assertEqual(path, ["Processed"])
+
+    def test_path_from_cancelled(self):
+        """Test that path from Cancelled (terminal) returns None"""
+        path = self.machine.get_path_to_processed("Cancelled")
+
+        self.assertIsNone(path)
+
+    def test_path_from_invalid_state(self):
+        """Test that path from invalid state returns None"""
+        path = self.machine.get_path_to_processed("InvalidState")
+
+        self.assertIsNone(path)
 
 
 class TestSEPABatchStateMachineFactory(FrappeTestCase):
