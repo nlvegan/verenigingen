@@ -87,6 +87,8 @@ scheduler_events = {
         "verenigingen.utils.bulk_retry_processor.process_retry_queues",
         # Amendment processing (moved from daily for faster same-day processing)
         "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
+        # SEPA pain.002 ingestion - scans inbox for bank status reports, updates batch status
+        "verenigingen.services.payment.pain002_ingestion_service.run_pain002_ingestion",
     ],
     # =========================================================================
     # WEEKLY TASKS
