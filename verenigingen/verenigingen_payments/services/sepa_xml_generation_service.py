@@ -105,8 +105,12 @@ class SEPAXMLGenerationService:
         """
         Save XML string to file and attach to document.
 
-        Before saving, checks for duplicate uploads using SEPAUploadGuard.
-        After saving, registers the upload hash to prevent future duplicates.
+        Uses atomic check_and_register() to prevent TOCTOU race conditions.
+        The hash is registered BEFORE attachment to prevent two workers from
+        both passing the check and uploading duplicates.
+
+        If attachment fails after registration, a "phantom" log entry remains,
+        which is safer than allowing duplicate uploads.
 
         Args:
             batch_doc: Direct Debit Batch document
@@ -116,7 +120,7 @@ class SEPAXMLGenerationService:
             File URL of saved XML file
 
         Raises:
-            frappe.ValidationError: If duplicate file detected
+            frappe.ValidationError: If duplicate file detected or sandbox mode active
         """
         # Handle both bytes and string input
         if isinstance(xml_string, bytes):
@@ -135,15 +139,22 @@ class SEPAXMLGenerationService:
         # Get XML content as bytes for hashing (use the final prettified content)
         xml_bytes = xml_pretty.encode("utf-8")
 
-        # Check for duplicate upload BEFORE saving
+        # ATOMIC check-and-register to prevent TOCTOU race condition
+        # This reserves the hash BEFORE attachment to prevent two workers
+        # from both passing a check and uploading duplicates
         guard = get_sepa_upload_guard()
-        check_result = guard.check_upload_allowed(xml_bytes, batch_doc.name)
-        if not check_result.success:
+        atomic_result = guard.check_and_register(
+            xml_bytes,
+            batch_doc.name,
+            uploaded_by=frappe.session.user,
+        )
+        if not atomic_result.success:
             frappe.throw(
-                _("Duplicate SEPA file detected! {0}").format(check_result.message),
-                title=_("Duplicate File Blocked"),
+                _("SEPA file blocked: {0}").format(atomic_result.message),
+                title=_("Upload Blocked"),
             )
 
+        # Hash is now reserved - proceed with file attachment
         # Create temporary file
         temp_file_path = os.path.join(tempfile.gettempdir(), f"sepa-{batch_doc.name}.xml")
         with open(temp_file_path, "w", encoding="utf-8") as f:
@@ -160,14 +171,29 @@ class SEPAXMLGenerationService:
             batch_doc.db_set("sepa_file_generated", 1)
             batch_doc.db_set("status", "Generated")
 
-            # Register the upload AFTER successful save
-            guard.register_upload(
-                xml_bytes,
-                batch_doc.name,
-                uploaded_by=frappe.session.user,
+            # Optionally update the upload log with file info
+            # Find log by file_hash and set file_name
+            frappe.db.set_value(
+                "SEPA Batch Upload Log",
+                {"file_hash": atomic_result.file_hash},
+                {"file_name": f"sepa-{batch_doc.name}.xml"},
             )
 
             return file_url
+
+        except Exception as e:
+            # Attachment failed after hash was registered
+            # Update log to mark as failed (hash stays reserved to prevent retries
+            # with same content - operator must investigate)
+            frappe.db.set_value(
+                "SEPA Batch Upload Log",
+                {"file_hash": atomic_result.file_hash},
+                {"bank_status": "Rejected", "bank_error_message": f"Attachment failed: {str(e)}"},
+            )
+            frappe.logger().error(
+                f"SEPA file attachment failed for batch {batch_doc.name} after hash registration: {e}"
+            )
+            raise
 
         finally:
             # Clean up temporary file

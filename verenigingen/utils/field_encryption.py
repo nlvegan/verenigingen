@@ -41,8 +41,14 @@ class FieldEncryption:
     Configuration (site_config.json):
         field_encryption_key: Base64-encoded 32-byte key
 
-    If no key is configured, generates one on first use and logs a warning.
-    For production, always configure a persistent key in site_config.json.
+    Production Safety:
+        In production (developer_mode=False), the encryption key MUST be
+        configured. The service will throw an error if no key is present,
+        preventing silent data loss from auto-generated ephemeral keys.
+
+    Development Mode:
+        In developer_mode, generates a temporary key with a warning.
+        This key is lost on restart - only for development/testing.
     """
 
     PREFIX = "ENC:"
@@ -53,29 +59,46 @@ class FieldEncryption:
 
     def _get_key(self) -> bytes:
         """
-        Get or generate the encryption key.
+        Get the encryption key from configuration.
 
         Returns:
             bytes: The encryption key suitable for Fernet
 
+        Raises:
+            frappe.ValidationError: In production if no key is configured
+
         Note:
-            If no key is configured, generates a temporary key and logs a warning.
-            This temporary key will be lost on restart, making previously encrypted
-            data unrecoverable. Always configure a persistent key in production.
+            In developer_mode, generates a temporary key with a warning.
+            In production, fails fast with a clear error - no auto-generation.
+            This prevents silent data loss from key changes on restart.
         """
         key = frappe.conf.get("field_encryption_key")
 
         if not key:
-            # Generate new key if not already generated in this session
-            if self._generated_key is None:
-                self._generated_key = Fernet.generate_key()
-                frappe.logger("encryption").warning(
-                    "No field_encryption_key configured in site_config.json. "
-                    "Generated temporary key for this session. "
-                    "Add 'field_encryption_key' to site_config.json for data persistence. "
-                    f"Example: 'field_encryption_key': '{self._generated_key.decode()}'"
+            # Check if we're in developer mode
+            is_developer_mode = frappe.conf.get("developer_mode", False)
+
+            if is_developer_mode:
+                # Development: Generate temporary key with warning
+                if self._generated_key is None:
+                    self._generated_key = Fernet.generate_key()
+                    frappe.logger("encryption").warning(
+                        "DEVELOPMENT ONLY: No field_encryption_key configured. "
+                        "Generated temporary key for this session. "
+                        "To generate a persistent key, run:\n"
+                        "  from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\n"
+                        "Then add to site_config.json:\n"
+                        '  "field_encryption_key": "<your-key>"'
+                    )
+                return self._generated_key
+            else:
+                # Production: Fail fast with clear error
+                frappe.throw(
+                    "Field encryption key not configured. "
+                    "Add 'field_encryption_key' to site_config.json before using encryption. "
+                    "Generate a key with: from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())",
+                    title="Encryption Configuration Required",
                 )
-            return self._generated_key
 
         # Ensure key is bytes
         if isinstance(key, str):
