@@ -33,6 +33,7 @@ from verenigingen.hooks.lifecycle import (
     before_tests,
     boot_session,
     on_logout,
+    on_startup,
 )
 from verenigingen.hooks.permissions import has_permission, permission_query_conditions
 from verenigingen.hooks.portal import (

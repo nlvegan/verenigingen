@@ -6,6 +6,7 @@ These hooks are called at specific points in the application lifecycle:
 - after_migrate: After database migrations complete
 - before_tests: Before running test suite
 - on_logout: When user logs out
+- on_startup: When the application starts
 """
 
 # Run after app is first installed on a site
@@ -42,6 +43,12 @@ before_tests = "verenigingen.tests.setup.before_tests"
 
 # Run when user logs out
 on_logout = "verenigingen.auth_hooks.on_logout"
+
+# Run when the application starts
+# Used for startup verification of critical infrastructure
+on_startup = [
+    "verenigingen.startup_checks.run_all_startup_checks",
+]
 
 # Boot session hooks - run when user session starts
 # Note: Original hooks.py had two declarations that overwrote each other.
