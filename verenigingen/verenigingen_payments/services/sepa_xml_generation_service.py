@@ -15,8 +15,10 @@ import xml.dom.minidom
 from typing import Any, Dict
 
 import frappe
+from frappe import _
 from frappe.utils import nowdate, nowtime, random_string
 
+from verenigingen.services.payment.sepa_upload_guard import get_sepa_upload_guard
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import get_sepa_xml_adapter
 from verenigingen.verenigingen_payments.utils.sepa_utilities import FileManagementUtilities, SEPAXMLValidator
@@ -103,12 +105,18 @@ class SEPAXMLGenerationService:
         """
         Save XML string to file and attach to document.
 
+        Before saving, checks for duplicate uploads using SEPAUploadGuard.
+        After saving, registers the upload hash to prevent future duplicates.
+
         Args:
             batch_doc: Direct Debit Batch document
             xml_string: XML content as string (may be bytes or str)
 
         Returns:
             File URL of saved XML file
+
+        Raises:
+            frappe.ValidationError: If duplicate file detected
         """
         # Handle both bytes and string input
         if isinstance(xml_string, bytes):
@@ -123,6 +131,18 @@ class SEPAXMLGenerationService:
         except Exception:
             # If parsing fails, use as-is
             xml_pretty = xml_content
+
+        # Get XML content as bytes for hashing (use the final prettified content)
+        xml_bytes = xml_pretty.encode("utf-8")
+
+        # Check for duplicate upload BEFORE saving
+        guard = get_sepa_upload_guard()
+        check_result = guard.check_upload_allowed(xml_bytes, batch_doc.name)
+        if not check_result.success:
+            frappe.throw(
+                _("Duplicate SEPA file detected! {0}").format(check_result.message),
+                title=_("Duplicate File Blocked"),
+            )
 
         # Create temporary file
         temp_file_path = os.path.join(tempfile.gettempdir(), f"sepa-{batch_doc.name}.xml")
@@ -139,6 +159,13 @@ class SEPAXMLGenerationService:
             batch_doc.db_set("sepa_file", file_url)
             batch_doc.db_set("sepa_file_generated", 1)
             batch_doc.db_set("status", "Generated")
+
+            # Register the upload AFTER successful save
+            guard.register_upload(
+                xml_bytes,
+                batch_doc.name,
+                uploaded_by=frappe.session.user,
+            )
 
             return file_url
 
