@@ -348,24 +348,32 @@ class Pain002IngestionService(StatelessService):
             )
 
         try:
-            # Find log entry by file_name matching original_message_id
-            log_name = frappe.db.get_value(
-                "SEPA Batch Upload Log",
-                filters={"file_name": original_message_id},
-                fieldname="name",
-            )
-
-            if not log_name:
-                return OperationResult.fail(
-                    message=_("SEPA Batch Upload Log not found for message ID: {0}").format(
-                        original_message_id
-                    ),
-                    error_code="PAIN002_LOG_NOT_FOUND",
-                )
-
-            # Update the log entry
+            # Use explicit transaction with FOR UPDATE lock to prevent TOCTOU race
             frappe.db.begin()
             try:
+                # Lock the row for update to ensure atomicity
+                locked_rows = frappe.db.sql(
+                    """
+                    SELECT name FROM `tabSEPA Batch Upload Log`
+                    WHERE file_name = %s
+                    FOR UPDATE
+                    """,
+                    (original_message_id,),
+                    as_dict=True,
+                )
+
+                if not locked_rows:
+                    frappe.db.commit()  # Release lock
+                    return OperationResult.fail(
+                        message=_("SEPA Batch Upload Log not found for message ID: {0}").format(
+                            original_message_id
+                        ),
+                        error_code="PAIN002_LOG_NOT_FOUND",
+                    )
+
+                log_name = locked_rows[0].name
+
+                # Now safe to update - row is locked
                 frappe.db.set_value(
                     "SEPA Batch Upload Log",
                     log_name,

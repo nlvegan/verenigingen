@@ -243,7 +243,7 @@ class TestPain002IngestionService(FrappeTestCase):
         result = self.service.process_file(file_path)
 
         self.assertFalse(result.success)
-        self.assertIn("error_code", dir(result) or result.error_code is not None)
+        self.assertIsNotNone(result.error_code)
 
     def test_process_file_handles_missing_status(self):
         """Test that process_file fails when OrgnlGrpInfAndSts is missing"""
