@@ -1,0 +1,16 @@
+{
+ "app": "verenigingen",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "credit-card",
+ "icon_type": "Link",
+ "idx": 0,
+ "label": "Verenigingen Payments",
+ "link_to": "Verenigingen Payments",
+ "link_type": "Workspace Sidebar",
+ "name": "Verenigingen Payments",
+ "restrict_removal": 0,
+ "roles": [],
+ "standard": 1
+}

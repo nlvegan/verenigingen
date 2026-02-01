@@ -1,0 +1,16 @@
+{
+ "app": "verenigingen",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "heart-handshake",
+ "icon_type": "Link",
+ "idx": 0,
+ "label": "Verenigingen",
+ "link_to": "Verenigingen",
+ "link_type": "Workspace Sidebar",
+ "name": "Verenigingen",
+ "restrict_removal": 0,
+ "roles": [],
+ "standard": 1
+}

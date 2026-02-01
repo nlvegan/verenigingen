@@ -157,19 +157,13 @@ fixtures = [
     # =========================================================================
     # WORKSPACES AND DASHBOARDS
     # =========================================================================
+    # NOTE: Desktop Icons and Workspace Sidebars are NOT included here.
+    # Frappe 16 syncs these from app-level folders during migration:
+    # - verenigingen/desktop_icon/*.json (auto-synced by frappe.model.sync)
+    # - verenigingen/workspace_sidebar/*.json (auto-synced by frappe.model.sync)
     {
         "doctype": "Workspace",
         "filters": [["name", "in", ["E-Boekhouden", "Verenigingen", "Verenigingen Payments"]]],
-    },
-    # Desktop Icons (module cards on home page - links workspaces to app for icon resolution)
-    {
-        "doctype": "Desktop Icon",
-        "filters": [["app", "=", "verenigingen"]],
-    },
-    # Workspace Sidebars (left-side navigation for Frappe 16+ desk view)
-    {
-        "doctype": "Workspace Sidebar",
-        "filters": [["app", "=", "verenigingen"]],
     },
     {
         "doctype": "Dashboard Chart",

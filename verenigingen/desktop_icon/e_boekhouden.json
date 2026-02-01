@@ -1,0 +1,16 @@
+{
+ "app": "verenigingen",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "scroll",
+ "icon_type": "Link",
+ "idx": 0,
+ "label": "E-Boekhouden",
+ "link_to": "E-Boekhouden",
+ "link_type": "Workspace Sidebar",
+ "name": "E-Boekhouden",
+ "restrict_removal": 0,
+ "roles": [],
+ "standard": 1
+}
