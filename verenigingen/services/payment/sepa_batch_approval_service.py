@@ -222,11 +222,23 @@ class SEPABatchApprovalService(StatelessService):
                 http_status=400,
             )
 
-        # Record approval metadata
+        # Record approval metadata with explicit transaction control
+        frappe.db.begin()
         try:
-            batch_doc = frappe.get_doc("Direct Debit Batch", batch_name)
-            batch_doc.db_set("approved_by", approver)
-            batch_doc.db_set("approved_on", now_datetime())
+            # Capture timestamp once and reuse
+            approval_time = now_datetime()
+
+            # Record approval metadata in a single operation
+            frappe.db.set_value(
+                "Direct Debit Batch",
+                batch_name,
+                {
+                    "approved_by": approver,
+                    "approved_on": approval_time,
+                },
+                update_modified=True,
+            )
+
             frappe.db.commit()
 
             self.logger.info(f"Batch {batch_name} approved by {approver}")
@@ -234,10 +246,11 @@ class SEPABatchApprovalService(StatelessService):
             return OperationResult.ok(
                 batch_name,
                 approved_by=approver,
-                approved_on=now_datetime(),
+                approved_on=approval_time,
             )
 
         except Exception as e:
+            frappe.db.rollback()
             self.logger.error(f"Failed to record approval metadata for {batch_name}: {e}")
             return OperationResult.from_exception(
                 e,
