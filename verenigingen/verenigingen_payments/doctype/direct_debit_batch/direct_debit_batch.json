@@ -19,6 +19,8 @@
     "risk_level",
     "column_break_approval",
     "approval_notes",
+    "approved_by",
+    "approved_on",
     "related_bank_transactions",
     "validation_section",
     "validation_status",
@@ -129,6 +131,21 @@
       "fieldname": "approval_notes",
       "fieldtype": "Long Text",
       "label": "Approval Notes",
+      "allow_on_submit": 1
+    },
+    {
+      "fieldname": "approved_by",
+      "fieldtype": "Link",
+      "label": "Approved By",
+      "options": "User",
+      "read_only": 1,
+      "allow_on_submit": 1
+    },
+    {
+      "fieldname": "approved_on",
+      "fieldtype": "Datetime",
+      "label": "Approved On",
+      "read_only": 1,
       "allow_on_submit": 1
     },
     {
