@@ -22,6 +22,7 @@ app_include_js = [
     # Removed termination_dashboard.js as it's a React component and causes import errors
     "/assets/verenigingen/js/member_portal_redirect.js",
     "/assets/verenigingen/js/utils/iban-validator.js",
+    "/assets/verenigingen/js/utils/iban-masking.js",
     "/assets/verenigingen/js/member_age_chart.js",
 ]
 
