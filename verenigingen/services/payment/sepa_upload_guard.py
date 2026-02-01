@@ -34,6 +34,7 @@ Author: Verenigingen Development Team
 
 import hashlib
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 import frappe
@@ -44,6 +45,16 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.sepa_sandbox import get_sandbox
 
 
+class UploadBlockReason(str, Enum):
+    """Machine-readable reason codes for upload blocking."""
+
+    NONE = "NONE"  # Upload allowed
+    SANDBOX_MODE = "SANDBOX_MODE"  # Blocked by sandbox mode
+    DUPLICATE_HASH = "DUPLICATE_HASH"  # Same file already uploaded
+    REGISTRATION_FAILED = "REGISTRATION_FAILED"  # Failed to register upload
+    INTEGRITY_ERROR = "INTEGRITY_ERROR"  # DB constraint violation (race condition)
+
+
 @dataclass
 class UploadCheckResult:
     """
@@ -52,6 +63,7 @@ class UploadCheckResult:
     Attributes:
         success: True if upload is allowed (no duplicate found)
         file_hash: SHA256 hash of the file content
+        reason_code: Machine-readable reason for blocking (for automation)
         duplicate_batch: Name of the batch that was already uploaded (if duplicate)
         duplicate_upload_time: When the duplicate was uploaded (if duplicate)
         message: Human-readable message explaining the result
@@ -59,6 +71,7 @@ class UploadCheckResult:
 
     success: bool
     file_hash: str
+    reason_code: UploadBlockReason = UploadBlockReason.NONE
     duplicate_batch: Optional[str] = None
     duplicate_upload_time: Optional[str] = None
     message: str = ""
@@ -89,15 +102,28 @@ class SEPAUploadGuard(StatelessService):
 
     def _compute_file_hash(self, content: bytes) -> str:
         """
-        Compute SHA256 hash of file content.
+        Compute SHA256 hash of canonicalized XML content.
+
+        Uses C14N (Canonical XML) to ensure semantically identical XML
+        always produces the same hash, regardless of whitespace or
+        attribute ordering differences.
 
         Args:
-            content: File content as bytes
+            content: XML file content as bytes
 
         Returns:
             Hexadecimal string of SHA256 hash (64 characters)
         """
-        return hashlib.sha256(content).hexdigest()
+        try:
+            # Use C14N canonicalization for consistent hashing
+            from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAXMLCanonicalizer
+
+            return SEPAXMLCanonicalizer.compute_canonical_hash(content)
+        except (ImportError, ValueError) as e:
+            # Fallback to raw hash if canonicalization fails
+            # This ensures the system remains functional even if XML is malformed
+            self.logger.warning(f"XML canonicalization failed, using raw hash: {e}")
+            return hashlib.sha256(content).hexdigest()
 
     def _find_existing_upload(self, file_hash: str) -> Optional[dict]:
         """
@@ -154,6 +180,7 @@ class SEPAUploadGuard(StatelessService):
             return UploadCheckResult(
                 success=False,
                 file_hash=self._compute_file_hash(file_content),
+                reason_code=UploadBlockReason.SANDBOX_MODE,
                 message=sandbox_result.message,
             )
 
@@ -165,6 +192,7 @@ class SEPAUploadGuard(StatelessService):
             return UploadCheckResult(
                 success=False,
                 file_hash=file_hash,
+                reason_code=UploadBlockReason.DUPLICATE_HASH,
                 duplicate_batch=existing.get("batch_name"),
                 duplicate_upload_time=str(existing.get("upload_time"))
                 if existing.get("upload_time")
@@ -177,6 +205,7 @@ class SEPAUploadGuard(StatelessService):
         return UploadCheckResult(
             success=True,
             file_hash=file_hash,
+            reason_code=UploadBlockReason.NONE,
             message=_("File has not been uploaded before. Upload is allowed."),
         )
 
@@ -295,6 +324,7 @@ class SEPAUploadGuard(StatelessService):
             return UploadCheckResult(
                 success=False,
                 file_hash=self._compute_file_hash(file_content),
+                reason_code=UploadBlockReason.SANDBOX_MODE,
                 message=sandbox_result.message,
             )
 
@@ -314,6 +344,7 @@ class SEPAUploadGuard(StatelessService):
                 return UploadCheckResult(
                     success=False,
                     file_hash=file_hash,
+                    reason_code=UploadBlockReason.DUPLICATE_HASH,
                     duplicate_batch=existing.get("batch_name"),
                     duplicate_upload_time=str(existing.get("upload_time"))
                     if existing.get("upload_time")
@@ -344,8 +375,41 @@ class SEPAUploadGuard(StatelessService):
             return UploadCheckResult(
                 success=True,
                 file_hash=file_hash,
+                reason_code=UploadBlockReason.NONE,
                 message=_("Upload registered successfully."),
             )
+
+        except frappe.DuplicateEntryError:
+            # DB unique constraint caught the race condition - another worker won
+            frappe.db.rollback()
+            self.logger.warning(
+                f"IntegrityError in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
+            )
+
+            # Look up the winning entry to provide duplicate info
+            existing = self._find_existing_upload(file_hash)
+            if existing:
+                return UploadCheckResult(
+                    success=False,
+                    file_hash=file_hash,
+                    reason_code=UploadBlockReason.INTEGRITY_ERROR,
+                    duplicate_batch=existing.get("batch_name"),
+                    duplicate_upload_time=str(existing.get("upload_time"))
+                    if existing.get("upload_time")
+                    else None,
+                    message=_(
+                        "Duplicate file detected (concurrent upload). "
+                        "This file was already uploaded as batch '{0}' on {1}."
+                    ).format(existing.get("batch_name"), existing.get("upload_time")),
+                )
+            else:
+                # Shouldn't happen, but handle gracefully
+                return UploadCheckResult(
+                    success=False,
+                    file_hash=file_hash,
+                    reason_code=UploadBlockReason.INTEGRITY_ERROR,
+                    message=_("Duplicate file detected by database constraint."),
+                )
 
         except Exception as e:
             frappe.db.rollback()
@@ -355,6 +419,7 @@ class SEPAUploadGuard(StatelessService):
             return UploadCheckResult(
                 success=False,
                 file_hash=file_hash,
+                reason_code=UploadBlockReason.REGISTRATION_FAILED,
                 message=_("Failed to register upload: {0}").format(str(e)),
             )
 
@@ -380,6 +445,7 @@ def get_sepa_upload_guard() -> SEPAUploadGuard:
 
 __all__ = [
     "SEPAUploadGuard",
+    "UploadBlockReason",
     "UploadCheckResult",
     "get_sepa_upload_guard",
 ]

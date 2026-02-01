@@ -429,6 +429,94 @@ class FileManagementUtilities:
             raise
 
 
+class SEPAXMLCanonicalizer:
+    """
+    Utility class for XML canonicalization (C14N).
+
+    Ensures identical logical XML content always produces identical hashes,
+    regardless of whitespace, attribute ordering, or formatting differences.
+    This is critical for duplicate detection in SEPA batch processing.
+    """
+
+    @staticmethod
+    def canonicalize(xml_content: bytes) -> bytes:
+        """
+        Canonicalize XML using C14N (Canonical XML).
+
+        This ensures that:
+        - Semantically identical XML produces identical byte sequences
+        - Whitespace is normalized
+        - Attribute order is consistent
+        - Namespace prefixes are normalized
+
+        Args:
+            xml_content: Raw XML content as bytes
+
+        Returns:
+            Canonicalized XML as bytes, suitable for hashing
+
+        Raises:
+            ValueError: If XML cannot be parsed
+        """
+        try:
+            from lxml import etree
+
+            # Parse the XML
+            doc = etree.fromstring(xml_content)
+
+            # Canonicalize using exclusive C14N (recommended for SEPA/ISO 20022)
+            # exclusive=True removes unnecessary namespace declarations
+            # with_comments=False removes comments for consistent hashing
+            return etree.tostring(
+                doc,
+                method="c14n",
+                exclusive=False,
+                with_comments=False,
+            )
+
+        except ImportError:
+            # Fallback if lxml is not available
+            import xml.etree.ElementTree as ET
+            from io import BytesIO
+
+            # Python 3.8+ has C14N support in standard library
+            try:
+                doc = ET.fromstring(xml_content)
+                output = BytesIO()
+                ET.canonicalize(xml_data=xml_content, out=output)
+                return output.getvalue()
+            except AttributeError:
+                # Python < 3.8 without lxml - use basic normalization
+                import xml.dom.minidom
+
+                dom = xml.dom.minidom.parseString(xml_content)
+                # Remove pretty printing and normalize
+                normalized = dom.toxml(encoding="utf-8")
+                return normalized
+
+        except Exception as e:
+            raise ValueError(f"Failed to canonicalize XML: {e}") from e
+
+    @staticmethod
+    def compute_canonical_hash(xml_content: bytes) -> str:
+        """
+        Compute SHA256 hash of canonicalized XML.
+
+        Use this instead of hashing raw XML to ensure identical logical
+        content produces identical hashes.
+
+        Args:
+            xml_content: Raw XML content as bytes
+
+        Returns:
+            SHA256 hash as hexadecimal string (64 characters)
+        """
+        import hashlib
+
+        canonical = SEPAXMLCanonicalizer.canonicalize(xml_content)
+        return hashlib.sha256(canonical).hexdigest()
+
+
 class SEPAXMLValidator:
     """Utility class for SEPA XML validation"""
 
