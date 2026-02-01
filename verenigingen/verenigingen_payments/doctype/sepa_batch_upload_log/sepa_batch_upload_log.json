@@ -1,0 +1,157 @@
+{
+  "app": "verenigingen",
+  "autoname": "format:SEPA-UPL-{####}",
+  "creation": "2025-01-31 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "batch_section",
+    "batch_name",
+    "batch_status",
+    "column_break_1",
+    "upload_time",
+    "uploaded_by",
+    "file_section",
+    "file_hash",
+    "file_size",
+    "column_break_2",
+    "file_name",
+    "bank_section",
+    "bank_reference",
+    "bank_acknowledgement_time",
+    "column_break_3",
+    "bank_status",
+    "bank_error_message"
+  ],
+  "fields": [
+    {
+      "fieldname": "batch_section",
+      "fieldtype": "Section Break",
+      "label": "Batch Information"
+    },
+    {
+      "fieldname": "batch_name",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Batch",
+      "options": "Direct Debit Batch",
+      "reqd": 1
+    },
+    {
+      "default": "Pending Upload",
+      "fieldname": "batch_status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Status",
+      "options": "Pending Upload\nUploaded\nAcknowledged\nRejected\nProcessed",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "upload_time",
+      "fieldtype": "Datetime",
+      "in_list_view": 1,
+      "label": "Upload Time"
+    },
+    {
+      "fieldname": "uploaded_by",
+      "fieldtype": "Link",
+      "label": "Uploaded By",
+      "options": "User"
+    },
+    {
+      "fieldname": "file_section",
+      "fieldtype": "Section Break",
+      "label": "File Details"
+    },
+    {
+      "fieldname": "file_hash",
+      "fieldtype": "Data",
+      "label": "File Hash (SHA256)",
+      "read_only": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "file_size",
+      "fieldtype": "Int",
+      "label": "File Size (bytes)"
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "file_name",
+      "fieldtype": "Data",
+      "label": "File Name"
+    },
+    {
+      "fieldname": "bank_section",
+      "fieldtype": "Section Break",
+      "label": "Bank Response"
+    },
+    {
+      "fieldname": "bank_reference",
+      "fieldtype": "Data",
+      "label": "Bank Reference"
+    },
+    {
+      "fieldname": "bank_acknowledgement_time",
+      "fieldtype": "Datetime",
+      "label": "Bank Acknowledgement Time"
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "bank_status",
+      "fieldtype": "Select",
+      "label": "Bank Status",
+      "options": "\nAccepted\nPartially Accepted\nRejected"
+    },
+    {
+      "fieldname": "bank_error_message",
+      "fieldtype": "Small Text",
+      "label": "Bank Error Message"
+    }
+  ],
+  "modified": "2025-01-31 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen Payments",
+  "name": "SEPA Batch Upload Log",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 0,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Accounts Manager",
+      "share": 0,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}
