@@ -292,6 +292,58 @@ class TestSEPAUploadGuard(FrappeTestCase):
         self.assertEqual(result.duplicate_batch, "BATCH-001")
         self.assertEqual(result.duplicate_upload_time, "2025-02-01 10:00:00")
 
+    # ========== Sandbox Mode Integration Tests ==========
+
+    def test_upload_blocked_in_sandbox_mode(self):
+        """Upload should be blocked when sandbox mode is enabled."""
+        original = frappe.conf.get("sepa_sandbox_mode")
+        try:
+            frappe.conf.sepa_sandbox_mode = True
+            result = self.guard.check_upload_allowed(
+                self.sample_xml_content, self.test_batch_name
+            )
+            self.assertFalse(result.success)
+            self.assertIn("sandbox", result.message.lower())
+        finally:
+            if original is not None:
+                frappe.conf.sepa_sandbox_mode = original
+            elif hasattr(frappe.conf, "sepa_sandbox_mode"):
+                delattr(frappe.conf, "sepa_sandbox_mode")
+
+    def test_check_and_register_blocked_in_sandbox_mode(self):
+        """Check and register should be blocked when sandbox mode is enabled."""
+        original = frappe.conf.get("sepa_sandbox_mode")
+        try:
+            frappe.conf.sepa_sandbox_mode = True
+            result = self.guard.check_and_register(
+                file_content=self.sample_xml_content,
+                batch_name=self.test_batch_name,
+                uploaded_by="Administrator"
+            )
+            self.assertFalse(result.success)
+            self.assertIn("sandbox", result.message.lower())
+        finally:
+            if original is not None:
+                frappe.conf.sepa_sandbox_mode = original
+            elif hasattr(frappe.conf, "sepa_sandbox_mode"):
+                delattr(frappe.conf, "sepa_sandbox_mode")
+
+    def test_upload_allowed_when_sandbox_mode_disabled(self):
+        """Upload should be allowed when sandbox mode is disabled."""
+        original = frappe.conf.get("sepa_sandbox_mode")
+        try:
+            frappe.conf.sepa_sandbox_mode = False
+            result = self.guard.check_upload_allowed(
+                self.sample_xml_content, self.test_batch_name
+            )
+            # Should succeed (no duplicate exists, sandbox disabled)
+            self.assertTrue(result.success)
+        finally:
+            if original is not None:
+                frappe.conf.sepa_sandbox_mode = original
+            elif hasattr(frappe.conf, "sepa_sandbox_mode"):
+                delattr(frappe.conf, "sepa_sandbox_mode")
+
 
 class TestSEPAUploadGuardFactory(FrappeTestCase):
     """Test the factory function for SEPAUploadGuard"""

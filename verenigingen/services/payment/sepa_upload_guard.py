@@ -41,6 +41,7 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.sepa_sandbox import get_sandbox
 
 
 @dataclass
@@ -146,6 +147,16 @@ class SEPAUploadGuard(StatelessService):
             UploadCheckResult with success=True if upload allowed,
             or success=False with duplicate information if blocked
         """
+        # Check sandbox mode first - block uploads in sandbox mode
+        sandbox = get_sandbox()
+        sandbox_result = sandbox.check_upload_allowed()
+        if not sandbox_result.allowed:
+            return UploadCheckResult(
+                success=False,
+                file_hash=self._compute_file_hash(file_content),
+                message=sandbox_result.message,
+            )
+
         file_hash = self._compute_file_hash(file_content)
 
         existing = self._find_existing_upload(file_hash)
@@ -277,6 +288,16 @@ class SEPAUploadGuard(StatelessService):
             UploadCheckResult with success=True if registered successfully,
             or success=False if duplicate detected (with detailed duplicate info)
         """
+        # Check sandbox mode first - block uploads in sandbox mode
+        sandbox = get_sandbox()
+        sandbox_result = sandbox.check_upload_allowed()
+        if not sandbox_result.allowed:
+            return UploadCheckResult(
+                success=False,
+                file_hash=self._compute_file_hash(file_content),
+                message=sandbox_result.message,
+            )
+
         file_hash = self._compute_file_hash(file_content)
 
         if uploaded_by is None:

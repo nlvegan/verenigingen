@@ -14,7 +14,7 @@ from frappe import _
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import critical_api
 from verenigingen.utils.settings_utils import get_payments_settings
-from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+from verenigingen.verenigingen_payments.core.mollie_base_client import MollieBaseClient
 
 
 def get_context(context):
@@ -66,7 +66,7 @@ def get_member_reconciliation_data() -> OperationResult[Dict[str, Any]]:
         )
 
         # Fetch all subscriptions from Mollie
-        client = MollieClient()
+        client = MollieBaseClient(use_backend_api=False)
         all_subscriptions = _fetch_all_mollie_subscriptions(client)
 
         frappe.publish_realtime(
@@ -147,35 +147,14 @@ def get_member_reconciliation_data() -> OperationResult[Dict[str, Any]]:
 
 def _fetch_all_mollie_subscriptions(client):
     """Fetch all subscriptions from Mollie API with pagination."""
-    all_subscriptions = []
-    next_url = None
-    page_count = 0
+    frappe.publish_realtime(
+        "reconciliation_progress",
+        {"message": "Fetching subscriptions from Mollie API...", "progress": 15},
+        user=frappe.session.user,
+    )
 
-    endpoint = "subscriptions?limit=250"
-
-    while True:
-        page_count += 1
-
-        frappe.publish_realtime(
-            "reconciliation_progress",
-            {"message": f"Fetching page {page_count} from Mollie API...", "progress": 10 + (page_count * 2)},
-            user=frappe.session.user,
-        )
-
-        if next_url:
-            response = client._make_request("GET", next_url.replace(client.BASE_URL, ""))
-        else:
-            response = client._make_request("GET", endpoint)
-
-        subscriptions = response.get("_embedded", {}).get("subscriptions", [])
-        all_subscriptions.extend(subscriptions)
-
-        # Check for pagination
-        next_link = response.get("_links", {}).get("next", {})
-        if next_link and next_link.get("href"):
-            next_url = next_link["href"]
-        else:
-            break
+    # Use MollieBaseClient's paginated GET - handles pagination automatically
+    all_subscriptions = client.get("subscriptions", paginated=True)
 
     return all_subscriptions
 
@@ -285,11 +264,11 @@ def _build_member_reconciliation(members, mollie_subscriptions):
 @frappe.whitelist()
 @critical_api()  # Financial data updates
 def update_member_mollie_fields(
-    member_id,
-    mollie_subscription_id=None,
-    subscription_status=None,
-    next_payment_date=None,
-    mollie_subscription_next_invoice_date=None,
+    member_id: str,
+    mollie_subscription_id: str | None = None,
+    subscription_status: str | None = None,
+    next_payment_date: str | None = None,
+    mollie_subscription_next_invoice_date: str | None = None,
 ) -> OperationResult[Dict[str, Any]]:
     """
     Update Member's Mollie-related fields and return updated member data.

@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
-from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+from verenigingen.verenigingen_payments.core.mollie_base_client import MollieBaseClient
 
 
 class SubscriptionAudit:
@@ -25,7 +25,7 @@ class SubscriptionAudit:
     """
 
     def __init__(self):
-        self.client = MollieClient()
+        self.client = MollieBaseClient(use_backend_api=False)
         self.issues = {
             # Mollie-side issues (subscriptions in Mollie we need to address)
             "subscription_no_member_match": [],  # Subscription exists but no Member with that subscription_id
@@ -63,53 +63,27 @@ class SubscriptionAudit:
         """
         Fetch all subscriptions from Mollie using the global subscriptions endpoint.
 
-        Note: The Mollie Python SDK doesn't have a direct subscriptions.list() method
-        at the API root level, so we use direct REST API call.
+        Uses MollieBaseClient's built-in pagination support.
         """
-        all_subscriptions = []
-        next_url = None
-        page_count = 0
-
         try:
-            # Use direct API call to list all subscriptions
-            endpoint = "subscriptions?limit=250"  # Fetch 250 at a time for efficiency
+            frappe.publish_realtime(
+                "msgprint", "Fetching subscriptions from Mollie API...", user=frappe.session.user
+            )
 
-            while True:
-                page_count += 1
+            # Use MollieBaseClient's paginated GET - handles pagination automatically
+            all_subscriptions = self.client.get("subscriptions", paginated=True)
 
-                # Publish progress
-                frappe.publish_realtime(
-                    "msgprint", f"Fetching page {page_count} from Mollie API...", user=frappe.session.user
-                )
+            frappe.publish_realtime(
+                "msgprint",
+                f"Retrieved {len(all_subscriptions)} subscriptions from Mollie.",
+                user=frappe.session.user,
+            )
 
-                if next_url:
-                    # Pagination: use the next URL from previous response
-                    response = self.client._make_request("GET", next_url.replace(self.client.BASE_URL, ""))
-                else:
-                    response = self.client._make_request("GET", endpoint)
-
-                # Extract subscriptions from response
-                subscriptions = response.get("_embedded", {}).get("subscriptions", [])
-                all_subscriptions.extend(subscriptions)
-
-                frappe.publish_realtime(
-                    "msgprint",
-                    f"Retrieved {len(all_subscriptions)} subscriptions so far...",
-                    user=frappe.session.user,
-                )
-
-                # Check for pagination
-                next_link = response.get("_links", {}).get("next", {})
-                if next_link and next_link.get("href"):
-                    next_url = next_link["href"]
-                else:
-                    break
+            return all_subscriptions
 
         except Exception as e:
             frappe.log_error(f"Failed to fetch Mollie subscriptions: {str(e)}", "Subscription Audit")
             frappe.throw(_("Failed to fetch subscriptions from Mollie: {0}").format(str(e)))
-
-        return all_subscriptions
 
     def _cross_reference_with_members(self, mollie_subscriptions: List[Dict[str, Any]]):
         """
