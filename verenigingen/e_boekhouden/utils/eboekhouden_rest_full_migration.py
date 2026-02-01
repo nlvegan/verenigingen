@@ -2322,8 +2322,8 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
         create_single_line_fallback,
         get_or_create_payment_terms,
         process_line_items,
-        resolve_customer,
     )
+    from .party_resolver import resolve_customer
 
     mutation_id = mutation_detail.get("id")
     description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
@@ -2956,8 +2956,8 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
         create_single_line_fallback,
         get_or_create_payment_terms,
         process_line_items,
-        resolve_supplier,
     )
+    from .party_resolver import resolve_supplier
 
     mutation_id = mutation_detail.get("id")
     description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
