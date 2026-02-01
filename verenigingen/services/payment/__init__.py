@@ -4,6 +4,7 @@ Payment Services Package
 Provides payment-related business logic separated from Member DocType.
 
 Services:
+- alert_manager: Reconciliation threshold monitoring and alerts
 - validation_service: Payment validation orchestration (IBAN, bank details, amounts)
 - sepa_upload_guard: SEPA batch upload duplicate detection
 - pain002_ingestion_service: Automated pain.002 bank status report ingestion
@@ -12,6 +13,11 @@ Services:
 - operations_service: Payment operations (create entries, process payments) [TODO]
 """
 
+from verenigingen.services.payment.alert_manager import (
+    AlertManager,
+    ReconciliationAlertResult,
+    get_alert_manager,
+)
 from verenigingen.services.payment.pain002_ingestion_service import (
     Pain002IngestionService,
     get_pain002_ingestion_service,
@@ -39,6 +45,9 @@ from verenigingen.services.payment.validation_service import (
 )
 
 __all__ = [
+    "AlertManager",
+    "ReconciliationAlertResult",
+    "get_alert_manager",
     "PaymentValidationService",
     "ValidationResult",
     "get_payment_validation_service",
