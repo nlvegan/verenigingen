@@ -127,6 +127,17 @@ class SEPAUploadGuard(StatelessService):
         This method only checks for duplicates; it does not register the upload.
         Use register_upload() to record the upload after successful bank submission.
 
+        WARNING - Race Condition Risk:
+            This method is NOT atomic. When used separately from register_upload(),
+            a race condition exists where two concurrent requests might both pass
+            the check and then both register, defeating duplicate detection.
+
+            For production use, ALWAYS use check_and_register() instead of calling
+            this method followed by register_upload(). Only use this method if you:
+            - Are in a single-threaded context
+            - Will not call register_upload() based on the result
+            - Are displaying information to a user in a non-critical context
+
         Args:
             file_content: The pain.008 XML file content as bytes
             batch_name: Name/identifier of the SEPA batch (for logging)
@@ -169,6 +180,26 @@ class SEPAUploadGuard(StatelessService):
 
         This creates a record of the upload to prevent future duplicates.
         Call this after successfully uploading the file to the bank portal.
+
+        WARNING - Document Hook Unsafe:
+            This method calls frappe.db.commit() directly, which breaks transaction
+            semantics if called from document hooks (validate, before_save, etc.).
+            During document hooks, Frappe manages a single implicit transaction that
+            commits at request end. Calling commit() here would:
+            - Commit data prematurely
+            - Prevent proper rollback if validation fails later
+            - Break hook chain ordering
+
+            Do NOT call this from document hooks. Call it from:
+            - Whitelisted API methods (transaction committed at request end)
+            - Background jobs (independent transactions)
+            - check_and_register() (which manages its own transaction)
+
+        WARNING - Race Condition Risk:
+            When used separately from check_upload_allowed(), this method is NOT
+            protected against concurrent duplicate uploads. Always validate with
+            check_upload_allowed() BEFORE calling this, and in production use
+            check_and_register() instead for atomic check-and-register.
 
         Args:
             file_content: The pain.008 XML file content as bytes
@@ -223,6 +254,20 @@ class SEPAUploadGuard(StatelessService):
         atomic operation. Use this to prevent race conditions when multiple
         operators might upload the same file simultaneously.
 
+        This is the RECOMMENDED method for all production use cases. It:
+        - Acquires a transaction lock
+        - Checks for duplicates
+        - Registers the upload
+        - Commits atomically
+        - All within a single database transaction
+
+        Return Type Note:
+            This method returns UploadCheckResult (not OperationResult) because:
+            - It's the user-facing API method with rich result information
+            - Callers need detailed duplicate info (batch name, upload time)
+            - register_upload() returns OperationResult for internal orchestration
+            This distinction is intentional and serves different use cases.
+
         Args:
             file_content: The pain.008 XML file content as bytes
             batch_name: Name/identifier of the SEPA batch
@@ -230,7 +275,7 @@ class SEPAUploadGuard(StatelessService):
 
         Returns:
             UploadCheckResult with success=True if registered successfully,
-            or success=False if duplicate detected
+            or success=False if duplicate detected (with detailed duplicate info)
         """
         file_hash = self._compute_file_hash(file_content)
 
