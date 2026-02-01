@@ -33,11 +33,29 @@ class SEPABatchUploadLog(Document):
     cannot be uploaded twice. This is a critical safety feature to prevent
     duplicate bank submissions that could result in members being charged
     multiple times.
+
+    Note: This DocType should be created through the SEPAUploadGuard service
+    for proper transaction handling and state management, not directly by
+    application code.
     """
 
     def validate(self):
         """Validate the upload log entry before saving."""
+        self.validate_batch_name()
         self.validate_unique_hash()
+
+    def validate_batch_name(self):
+        """
+        Ensure batch_name is set for audit trail traceability.
+
+        The batch_name links this upload log to the Direct Debit Batch
+        that triggered it, enabling complete audit trail reconstruction.
+        """
+        if not self.batch_name:
+            frappe.throw(
+                _("Batch Name is required for SEPA upload log tracking."),
+                frappe.ValidationError,
+            )
 
     def validate_unique_hash(self):
         """
@@ -70,8 +88,10 @@ class SEPABatchUploadLog(Document):
         Prevent deletion of upload logs to maintain audit trail integrity.
 
         Upload logs are part of the financial audit trail and must be retained
-        for regulatory compliance. Only system-level operations may delete these
-        records during automated cleanup processes.
+        for regulatory compliance. Deletion is prevented at the permission level
+        in the DocType JSON configuration.
         """
-        if frappe.session.user not in ["Administrator", "System"]:
-            frappe.throw(_("SEPA upload logs cannot be manually deleted for audit trail integrity."))
+        frappe.throw(
+            _("SEPA upload logs cannot be deleted for audit trail integrity."),
+            frappe.PermissionError,
+        )
