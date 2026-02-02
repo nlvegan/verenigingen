@@ -24,8 +24,8 @@ after_migrate = [
     "verenigingen.setup.ensure_required_payment_modes",
     # Brand settings initialization
     "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
-    # Workflow setup
-    "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
+    # Workflow setup - DISABLED: Workflow not in use, has bugs in action master creation
+    # "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
     # Security framework
     "verenigingen.utils.security.setup_all_security",
     # Database indexes
