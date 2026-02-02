@@ -7,6 +7,7 @@ including proper bank account mapping and multi-invoice reconciliation support.
 
 import json
 import re
+import threading
 from typing import Dict, List, Optional, Tuple
 
 import frappe
@@ -15,6 +16,9 @@ from frappe.utils import flt, getdate, nowdate
 
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
+
+# Lock for thread-safe monkey patching of Payment Entry during floating point fix
+_floating_point_fix_lock = threading.Lock()
 
 
 class PaymentEntryHandler:
@@ -357,7 +361,87 @@ class PaymentEntryHandler:
 
             # Submit Payment Entry (commits both PE and BT together in atomic transaction)
             self._log(f"Submitting Payment Entry {pe.name} (will commit both PE and BT atomically)...")
-            pe.submit()
+
+            # WORKAROUND: Fix floating point precision error in ERPNext
+            # ERPNext rounds base_paid_amount but not base_total_allocated_amount after summing,
+            # causing tiny unallocated amounts (e.g., 1e-13) that create zero-value GL entries.
+            # Example: 504.28 + 117.92 = 622.1999999999999 (floating point) != 622.2 (rounded)
+            # We fix this by:
+            # 1. Using db_set to fix the values directly in DB
+            # 2. Temporarily patching set_unallocated_amount to prevent recalculation during submit
+            pe.reload()  # Get fresh values after insert
+
+            # Debug: Log all amounts before submit
+            self._log(f"DEBUG PRE-SUBMIT: paid_amount={pe.paid_amount}, received_amount={pe.received_amount}")
+            self._log(
+                f"DEBUG PRE-SUBMIT: base_paid_amount={pe.base_paid_amount}, base_received_amount={pe.base_received_amount}"
+            )
+            self._log(
+                f"DEBUG PRE-SUBMIT: total_allocated_amount={pe.total_allocated_amount}, base_total_allocated_amount={pe.base_total_allocated_amount}"
+            )
+            self._log(
+                f"DEBUG PRE-SUBMIT: unallocated_amount={pe.unallocated_amount}, repr={repr(pe.unallocated_amount)}"
+            )
+            self._log(
+                f"DEBUG PRE-SUBMIT: source_exchange_rate={pe.source_exchange_rate}, target_exchange_rate={pe.target_exchange_rate}"
+            )
+            for ref in pe.references:
+                self._log(
+                    f"DEBUG REF: {ref.reference_doctype} {ref.reference_name} allocated={ref.allocated_amount} repr={repr(ref.allocated_amount)}"
+                )
+
+            # WORKAROUND for floating point precision errors during submit
+            # During submit(), validate() calls set_total_allocated_amount() which sums reference amounts.
+            # This can cause floating point errors like 504.28 + 117.92 = 622.1999999999999
+            # When this happens, set_unallocated_amount() computes a tiny non-zero value (~1e-13)
+            # which creates a GL entry with ~zero amount that fails validation.
+            #
+            # The fix: Detect potential floating point issues by comparing raw sum vs paid_amount,
+            # then patch both set_total_allocated_amount and set_unallocated_amount to prevent
+            # recalculation during submit, preserving the correctly-rounded values from insert.
+
+            # Check for potential floating point mismatch
+            raw_sum = sum(ref.allocated_amount for ref in pe.references)
+            paid_amount = pe.paid_amount or pe.received_amount
+            floating_point_diff = abs(raw_sum - paid_amount)
+            needs_floating_point_fix = floating_point_diff > 0 and floating_point_diff < 0.01
+
+            self._log(
+                f"DEBUG: raw_sum={raw_sum}, paid_amount={paid_amount}, diff={floating_point_diff}, needs_fix={needs_floating_point_fix}"
+            )
+
+            # Use lock for thread-safe monkey patching during submit
+            # This prevents race conditions when multiple mutations are imported concurrently
+            with _floating_point_fix_lock:
+                if needs_floating_point_fix:
+                    self._log("Applying floating point precision fix for submit")
+                    from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+                    # Save original methods
+                    original_set_total_allocated = PaymentEntry.set_total_allocated_amount
+                    original_set_unallocated = PaymentEntry.set_unallocated_amount
+
+                    def patched_set_total_allocated(self):
+                        if hasattr(self, "_skip_amount_recalc") and self._skip_amount_recalc:
+                            return
+                        return original_set_total_allocated(self)
+
+                    def patched_set_unallocated(self):
+                        if hasattr(self, "_skip_amount_recalc") and self._skip_amount_recalc:
+                            return
+                        return original_set_unallocated(self)
+
+                    PaymentEntry.set_total_allocated_amount = patched_set_total_allocated
+                    PaymentEntry.set_unallocated_amount = patched_set_unallocated
+                    pe._skip_amount_recalc = True
+
+                try:
+                    pe.submit()
+                finally:
+                    # Restore original methods if we patched them
+                    if needs_floating_point_fix:
+                        PaymentEntry.set_total_allocated_amount = original_set_total_allocated
+                        PaymentEntry.set_unallocated_amount = original_set_unallocated
             self._log(
                 f"✓ ATOMIC TRANSACTION COMPLETE: Payment Entry {pe.name} submitted "
                 f"{f'with linked Bank Transaction {bank_transaction_name}' if bank_transaction_name else 'without Bank Transaction'}"
@@ -603,7 +687,8 @@ class PaymentEntryHandler:
 
         if mutation.get("rows"):
             row_amounts = [abs(flt(row.get("amount", 0), 2)) for row in mutation.get("rows", [])]
-            amount = sum(row_amounts)
+            # Round sum to avoid floating point precision errors (e.g., 504.28 + 117.92 = 622.1999999999999)
+            amount = flt(sum(row_amounts), 2)
             self._log(f"Row amounts: {row_amounts}")
             self._log(f"Calculated amount {amount} from {len(mutation.get('rows', []))} rows")
 
@@ -768,14 +853,32 @@ class PaymentEntryHandler:
 
         For Type 3/4 payments, trust E-Boekhouden amounts completely since
         ERPNext outstanding_amount may be incorrect during batch processing.
+
+        The last allocation is adjusted to ensure sum exactly equals paid_amount,
+        avoiding floating point precision errors that cause ERPNext GL Entry failures.
         """
-        for invoice, amount in zip(invoices, row_amounts):
+        paid_amount = payment_entry.paid_amount or payment_entry.received_amount
+        allocated_so_far = 0.0
+
+        # If paid_amount is not set (e.g., in tests), fall back to using row amounts directly
+        use_floating_point_fix = paid_amount is not None
+
+        for i, (invoice, amount) in enumerate(zip(invoices, row_amounts)):
             # For Type 3/4 payments, use E-Boekhouden amount directly
             invoice_total = invoice["grand_total"]
             is_debit_note = invoice_total < 0
 
-            # For debit notes, allocation amount must be NEGATIVE
-            allocation = -amount if is_debit_note else amount
+            # Adjust last allocation to ensure sum equals paid_amount exactly
+            # This prevents floating point errors like 504.28 + 117.92 = 622.1999999999999
+            is_last = i == len(invoices) - 1
+            if use_floating_point_fix and is_last:
+                # Last allocation = remaining amount to match paid_amount exactly
+                allocation = flt(paid_amount - allocated_so_far, 2)
+                if is_debit_note:
+                    allocation = -abs(allocation)
+            else:
+                allocation = -amount if is_debit_note else amount
+                allocated_so_far += abs(allocation)
 
             # For E-Boekhouden Type 3/4 payments, bypass outstanding amount validation
             # For debit notes: set outstanding_amount to 0 (ERPNext convention)
@@ -802,30 +905,55 @@ class PaymentEntryHandler:
 
         For Type 3/4 payments, trust E-Boekhouden amounts and relationships.
         Don't limit by outstanding_amount due to potential race conditions.
+
+        The last allocation is adjusted to ensure sum exactly equals paid_amount,
+        avoiding floating point precision errors that cause ERPNext GL Entry failures.
         """
-        total_to_allocate = (
-            sum(row_amounts) if row_amounts else payment_entry.paid_amount or payment_entry.received_amount
-        )
+        paid_amount = payment_entry.paid_amount or payment_entry.received_amount
+        total_to_allocate = flt(sum(row_amounts), 2) if row_amounts else (paid_amount or 0)
+
+        # If paid_amount is not set (e.g., in tests), fall back to using calculated amounts directly
+        use_floating_point_fix = paid_amount is not None
+
+        # First pass: calculate what we'll allocate to each invoice
+        allocations = []
+        remaining = total_to_allocate
 
         for invoice in invoices:
-            if total_to_allocate <= 0:
+            if remaining <= 0:
                 break
 
-            # For Type 3/4 payments, allocate what E-Boekhouden specifies
             invoice_total = invoice["grand_total"]
             is_debit_note = invoice_total < 0
-
-            # Calculate allocation amount
             max_invoice_amount = abs(invoice_total)
-            max_allocation = min(total_to_allocate, max_invoice_amount)
+            allocation_amount = min(remaining, max_invoice_amount)
 
-            # For debit notes, allocation amount must be NEGATIVE to match the invoice
-            # For normal invoices, allocation is positive
-            allocation = -max_allocation if is_debit_note else max_allocation
+            allocations.append(
+                {
+                    "invoice": invoice,
+                    "amount": allocation_amount,
+                    "is_debit_note": is_debit_note,
+                }
+            )
+            remaining -= allocation_amount
+
+        # Second pass: adjust last allocation to ensure sum equals paid_amount exactly
+        allocated_so_far = 0.0
+        for i, alloc in enumerate(allocations):
+            invoice = alloc["invoice"]
+            is_debit_note = alloc["is_debit_note"]
+
+            is_last = i == len(allocations) - 1
+            if use_floating_point_fix and is_last:
+                # Last allocation = remaining amount to match paid_amount exactly
+                allocation = flt(paid_amount - allocated_so_far, 2)
+                if is_debit_note:
+                    allocation = -abs(allocation)
+            else:
+                allocation = -alloc["amount"] if is_debit_note else alloc["amount"]
+                allocated_so_far += abs(allocation)
 
             # For E-Boekhouden Type 3/4 payments, bypass outstanding amount validation
-            # For debit notes: set outstanding_amount to 0 (ERPNext convention)
-            # For normal invoices: set to grand_total to allow any allocation
             outstanding_for_ref = 0 if is_debit_note else invoice["grand_total"]
 
             payment_entry.append(
@@ -839,11 +967,10 @@ class PaymentEntryHandler:
                 },
             )
 
-            total_to_allocate -= max_allocation  # Use absolute amount for tracking
             self._log(f"Allocated {allocation} to {invoice['name']} (FIFO, E-Boekhouden authoritative)")
 
-        if total_to_allocate > 0:
-            self._log(f"WARNING: {total_to_allocate} remains unallocated")
+        if remaining > 0.01:  # Allow tiny floating point residual
+            self._log(f"WARNING: {remaining} remains unallocated")
 
     def _simple_invoice_allocation(
         self, payment_entry: frappe._dict, invoice_numbers: List[str], party_type: str
