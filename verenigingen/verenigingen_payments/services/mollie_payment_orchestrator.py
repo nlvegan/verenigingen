@@ -856,10 +856,24 @@ class MolliePaymentOrchestrator:
             if customer_email:
                 customer.append("email_ids", {"email_id": customer_email, "is_primary": 1})
 
-            customer.insert(ignore_permissions=True)
-            result.actions_taken.append(f"Created Customer: {customer.name} from Mollie data")
-
-            return customer.name
+            # Permission bypass is intentional: this runs in service layer context where
+            # authorization is already verified via @high_security_api(OperationType.FINANCIAL).
+            # The Customer is created for reconciliation purposes for orphaned payments.
+            try:
+                customer.insert(ignore_permissions=True)
+                result.actions_taken.append(f"Created Customer: {customer.name} from Mollie data")
+                return customer.name
+            except frappe.exceptions.DuplicateEntryError:
+                # Race condition: another process created this Customer concurrently
+                existing_customer = frappe.db.get_value(
+                    "Customer",
+                    {"custom_mollie_customer_id": mollie_customer_id},
+                    "name",
+                )
+                if existing_customer:
+                    result.actions_taken.append(f"Found concurrently created Customer: {existing_customer}")
+                    return existing_customer
+                raise  # Re-raise if we still can't find it
 
         except Exception as e:
             frappe.logger().warning(f"Could not fetch/create customer from Mollie {mollie_customer_id}: {e}")

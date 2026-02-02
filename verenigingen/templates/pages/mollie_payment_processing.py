@@ -620,7 +620,7 @@ def process_payment_batch_job(batch_num, payment_ids, docstatus, payment_modes, 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def scan_incomplete_payments():
+def scan_incomplete_payments() -> dict:
     """
     Scan for payments that are partially processed (missing documents).
 
