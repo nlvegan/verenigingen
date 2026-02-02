@@ -2938,12 +2938,19 @@ class MollieDebugService(StatelessService):
                     processing_result = orchestrator.process_orphaned_payment(
                         payment_id=payment_id,
                     )
+                elif processing_mode == "bt_only":
+                    # BT only mode - has member but no matching invoice
+                    # Creates Bank Transaction only, skips Payment Entry
+                    processing_result = orchestrator.process_bt_only_payment(
+                        payment_id=payment_id,
+                    )
                 else:
-                    # Standard processing using orchestrator (discovery mode: don't create invoices)
+                    # Standard processing (bt_pe_reconcile mode or unspecified)
+                    # Creates BT + PE + reconciliation
                     processing_result = orchestrator.process_payment(
                         payment_id=payment_id,
                         invoice_name=invoice_name,
-                        create_missing_invoice=False,  # Discovery mode
+                        create_missing_invoice=False,  # Discovery mode: don't create invoices
                     )
 
                 # Convert orchestrator result to legacy format

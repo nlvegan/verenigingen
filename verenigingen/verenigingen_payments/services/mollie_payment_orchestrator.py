@@ -700,6 +700,106 @@ class MolliePaymentOrchestrator:
 
         return result
 
+    def process_bt_only_payment(
+        self,
+        payment_id: str,
+        payment: Optional[Any] = None,
+        member_name: Optional[str] = None,
+    ) -> PaymentProcessingResult:
+        """
+        Process a payment in BT-only mode - creates Bank Transaction only, no Payment Entry.
+
+        This handles payments that have a member but no matching invoice. It:
+        1. Finds the member and their Customer record
+        2. Creates Bank Transaction linked to that Customer
+        3. Does NOT create Payment Entry or Sales Invoice
+
+        Use this mode when you want to record the bank transaction for reconciliation
+        but need to handle invoicing separately or manually.
+
+        Args:
+            payment_id: Mollie payment ID
+            payment: Optional pre-fetched Mollie payment object
+            member_name: Optional pre-resolved member name
+
+        Returns:
+            PaymentProcessingResult with processing outcome
+        """
+        result = PaymentProcessingResult(payment_id=payment_id)
+
+        try:
+            # Check if BT already exists (idempotency)
+            existing_bt = frappe.db.get_value(
+                "Bank Transaction",
+                {"reference_number": payment_id},
+                "name",
+            )
+            if existing_bt:
+                result.status = "already_processed"
+                result.bank_transaction = existing_bt
+                result.skipped_reason = "Bank Transaction already exists"
+                return result
+
+            # Fetch payment from Mollie if not provided
+            if not payment:
+                payment = self.mollie_client.sdk_client.payments.get(payment_id)
+
+            # Validate payment status
+            if payment.status != "paid":
+                result.status = "skipped"
+                result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
+                return result
+
+            # Find member if not provided
+            if not member_name:
+                member_name = self.dues_processor.find_member_for_payment(payment)
+
+            if member_name:
+                result.member = member_name
+
+            # Get Customer from member
+            customer_name = None
+            if member_name:
+                customer_name = frappe.db.get_value("Member", member_name, "customer")
+                if customer_name:
+                    result.actions_taken.append(f"Found member's Customer: {customer_name}")
+
+            # Get BT configuration
+            config = self.bt_creator.get_mollie_bank_account_config()
+            if config.get("error"):
+                result.status = "error"
+                result.error = f"Bank account config error: {config['error']}"
+                return result
+
+            # Create Bank Transaction (BT only mode - no PE)
+            bt_name = self.bt_creator.create_from_mollie_payment(
+                payment=payment,
+                bank_account=config["bank_account"],
+                company=config["company"],
+                additional_description=f"BT-only mode (no matching invoice)",
+                party_type="Customer" if customer_name else None,
+                party=customer_name,
+            )
+
+            if bt_name:
+                result.bank_transaction = bt_name
+                result.status = "success"
+                result.actions_taken.append(f"Created Bank Transaction: {bt_name}")
+                result.actions_taken.append("PE skipped: bt_only mode (no matching invoice)")
+            else:
+                result.status = "error"
+                result.error = "Failed to create Bank Transaction"
+
+        except Exception as e:
+            result.status = "error"
+            result.error = str(e)
+            frappe.log_error(
+                f"Error processing bt_only payment {payment_id}: {e}",
+                "Mollie BT-Only Payment Error",
+            )
+
+        return result
+
     def _find_or_create_customer_from_mollie(
         self,
         mollie_customer_id: str,
