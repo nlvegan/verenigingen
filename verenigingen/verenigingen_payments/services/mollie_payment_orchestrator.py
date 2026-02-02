@@ -908,9 +908,11 @@ class MolliePaymentOrchestrator:
             if customer_email:
                 customer.append("email_ids", {"email_id": customer_email, "is_primary": 1})
 
-            # Permission bypass is intentional: this runs in service layer context where
-            # authorization is already verified via @high_security_api(OperationType.FINANCIAL).
-            # The Customer is created for reconciliation purposes for orphaned payments.
+            # Permission bypass is intentional for orphaned payment reconciliation.
+            # Authorization context depends on caller:
+            # - Webhook path: authenticated via Mollie HMAC-SHA256 signature verification
+            # - Admin batch path: authenticated via @high_security_api(OperationType.FINANCIAL)
+            # Customer created with "(Orphaned)" suffix for easy identification during reconciliation.
             try:
                 customer.insert(ignore_permissions=True)
                 result.actions_taken.append(f"Created Customer: {customer.name} from Mollie data")
