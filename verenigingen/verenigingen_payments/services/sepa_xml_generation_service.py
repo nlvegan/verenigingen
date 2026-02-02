@@ -183,12 +183,16 @@ class SEPAXMLGenerationService:
 
         except Exception as e:
             # Attachment failed after hash was registered
-            # Update log to mark as failed (hash stays reserved to prevent retries
-            # with same content - operator must investigate)
+            # Update log to mark as failed and set is_phantom flag for efficient querying
+            # Hash stays reserved to prevent retries with same content - operator must investigate
             frappe.db.set_value(
                 "SEPA Batch Upload Log",
                 {"file_hash": atomic_result.file_hash},
-                {"bank_status": "Rejected", "bank_error_message": f"Attachment failed: {str(e)}"},
+                {
+                    "bank_status": "Rejected",
+                    "bank_error_message": f"Attachment failed: {str(e)}",
+                    "is_phantom": 1,
+                },
             )
             frappe.logger().error(
                 f"SEPA file attachment failed for batch {batch_doc.name} after hash registration: {e}"

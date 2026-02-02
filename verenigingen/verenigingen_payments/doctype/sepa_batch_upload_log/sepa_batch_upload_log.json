@@ -16,6 +16,7 @@
     "file_size",
     "column_break_2",
     "file_name",
+    "is_phantom",
     "bank_section",
     "bank_reference",
     "bank_acknowledgement_time",
@@ -88,6 +89,14 @@
       "fieldname": "file_name",
       "fieldtype": "Data",
       "label": "File Name"
+    },
+    {
+      "default": "0",
+      "description": "Set when file attachment fails after hash reservation. Enables efficient querying for phantom entries.",
+      "fieldname": "is_phantom",
+      "fieldtype": "Check",
+      "in_standard_filter": 1,
+      "label": "Is Phantom Entry"
     },
     {
       "fieldname": "bank_section",
