@@ -678,7 +678,7 @@ result = mark_phantom_hash_abandoned(
 )
 ```
 
-**Important**: Abandoning deletes the log entry and frees the hash for re-upload.
+**Important**: Abandoning marks the log entry as `bank_status=Abandoned` with `hash_freed=1`, preserving the full audit trail (who abandoned, when, and why) while freeing the hash for re-upload.
 
 ### Monitoring Phantom Hashes
 

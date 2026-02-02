@@ -437,6 +437,17 @@ def retry_phantom_attachment(
         )
         frappe.db.commit()
 
+        # DESIGN NOTE: Lock-Release-Reacquire Pattern
+        # We intentionally release the row lock here (via commit) before file generation because:
+        # 1. XML generation and file attachment can be slow (seconds)
+        # 2. Holding a DB lock during I/O would block other operations unnecessarily
+        # 3. The [RETRY_IN_PROGRESS] message acts as a "soft lock" for human operators
+        # 4. Race condition mitigation: If two workers reach this point concurrently:
+        #    - Both may generate files, but only one will succeed in the final update
+        #    - The idempotency check at function start (STATUS_RESOLVED) ensures the
+        #      second completer finds the entry already resolved and returns success
+        # 5. We re-acquire the lock before the final update to prevent lost updates
+
         # Attempt to regenerate the file (outside transaction for performance)
         try:
             from verenigingen.verenigingen_payments.services.sepa_xml_adapter import get_sepa_xml_adapter
