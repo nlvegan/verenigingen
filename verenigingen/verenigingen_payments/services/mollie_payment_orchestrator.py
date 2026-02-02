@@ -113,6 +113,9 @@ class PaymentProcessingResult:
         actions_taken: List of actions performed
         error: Error message if failed
         skipped_reason: Reason if skipped
+        failed_step: Which processing step failed (for diagnostics)
+        exception_type: Type of exception that caused failure
+        link_error: Specific error if BT-PE linking failed
     """
 
     payment_id: str
@@ -125,6 +128,9 @@ class PaymentProcessingResult:
     error: Optional[str] = None
     skipped_reason: Optional[str] = None
     reconciled: bool = False
+    failed_step: Optional[str] = None
+    exception_type: Optional[str] = None
+    link_error: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
@@ -139,6 +145,9 @@ class PaymentProcessingResult:
             "error": self.error,
             "skipped_reason": self.skipped_reason,
             "reconciled": self.reconciled,
+            "failed_step": self.failed_step,
+            "exception_type": self.exception_type,
+            "link_error": self.link_error,
         }
 
 
@@ -479,14 +488,15 @@ class MolliePaymentOrchestrator:
                     )
                 else:
                     # Log linking failure for troubleshooting - this indicates a reconciliation issue
+                    link_error_msg = (
+                        f"Failed to link BT {result.bank_transaction} to PE {result.payment_entry}"
+                    )
                     frappe.log_error(
-                        f"Failed to link BT {result.bank_transaction} to PE {result.payment_entry} "
-                        f"for payment {payment_id}",
+                        f"{link_error_msg} for payment {payment_id}",
                         "Mollie BT-PE Link Failure",
                     )
-                    result.actions_taken.append(
-                        f"Warning: Failed to link BT {result.bank_transaction} to PE {result.payment_entry}"
-                    )
+                    result.link_error = link_error_msg
+                    result.actions_taken.append(f"Warning: {link_error_msg}")
 
             # Determine final status
             if result.bank_transaction or result.payment_entry:
@@ -498,8 +508,18 @@ class MolliePaymentOrchestrator:
         except Exception as e:
             result.status = "error"
             result.error = str(e)
+            result.exception_type = type(e).__name__
+            # Determine failed step based on what we have so far
+            if not result.sales_invoice and not result.bank_transaction:
+                result.failed_step = "invoice_matching"
+            elif not result.bank_transaction:
+                result.failed_step = "create_bank_transaction"
+            elif not result.payment_entry:
+                result.failed_step = "create_payment_entry"
+            else:
+                result.failed_step = "link_bt_pe"
             frappe.log_error(
-                f"Error processing payment {payment_id}: {e}",
+                f"Error processing payment {payment_id} at step '{result.failed_step}': {e}",
                 "Mollie Payment Orchestrator Error",
             )
 

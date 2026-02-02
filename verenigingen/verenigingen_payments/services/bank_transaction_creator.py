@@ -5,10 +5,12 @@ Reusable service for creating Bank Transactions from various sources
 (Mollie payments, settlements, manual imports, etc.)
 """
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import frappe
 from frappe.utils import getdate
+
+from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
 
 
 class BankTransactionCreator:
@@ -778,6 +780,9 @@ class BankTransactionCreator:
             bt_doc.set_status()
             bt_doc.save()
 
+        Includes retry logic for transient errors (deadlocks, timeouts) with
+        exponential backoff. Non-retryable errors (validation) fail immediately.
+
         Args:
             bt_name: Bank Transaction name
             pe_name: Payment Entry name
@@ -792,16 +797,22 @@ class BankTransactionCreator:
             if success:
                 print("Bank Transaction reconciled with Payment Entry")
         """
-        try:
-            # Check if already linked (idempotent)
-            existing_link = frappe.db.exists(
-                "Bank Transaction Payments",
-                {"parent": bt_name, "payment_entry": pe_name},
-            )
-            if existing_link:
-                frappe.logger().debug(f"BT {bt_name} already linked to PE {pe_name}")
-                return True
+        # Check if already linked (idempotent) - do this outside retry loop
+        existing_link = frappe.db.exists(
+            "Bank Transaction Payments",
+            {"parent": bt_name, "payment_entry": pe_name},
+        )
+        if existing_link:
+            frappe.logger().debug(f"BT {bt_name} already linked to PE {pe_name}")
+            return True
 
+        def perform_link() -> Tuple[bool, str]:
+            """
+            Inner function to perform the actual linking.
+
+            Returns:
+                Tuple of (success, status_or_error)
+            """
             bt_doc = frappe.get_doc("Bank Transaction", bt_name)
 
             # Use ERPNext's standard reconciliation pattern
@@ -831,14 +842,48 @@ class BankTransactionCreator:
             if not pe_doc.clearance_date and bt_doc.date:
                 pe_doc.db_set("clearance_date", bt_doc.date, update_modified=False)
 
-            frappe.logger().info(
-                f"✅ Linked Bank Transaction {bt_name} to Payment Entry {pe_name} "
-                f"(allocated: {actual_allocated}, status: {bt_doc.status})"
+            return (True, f"allocated: {actual_allocated}, status: {bt_doc.status}")
+
+        try:
+            # Use centralized retry logic for transient errors (deadlocks, timeouts)
+            success, status_info = execute_with_deadlock_retry(
+                perform_link,
+                operation_name=f"link BT {bt_name} to PE {pe_name}",
+                max_retries=3,
+                log_errors=True,
             )
-            return True
+
+            if success:
+                frappe.logger().info(
+                    f"✅ Linked Bank Transaction {bt_name} to Payment Entry {pe_name} ({status_info})"
+                )
+            return success
+
+        except frappe.ValidationError as e:
+            # Validation errors are non-retryable - log and fail
+            frappe.logger().warning(f"Validation error linking BT {bt_name} to PE {pe_name}: {e}")
+            frappe.log_error(
+                f"BT-PE link validation failed: BT={bt_name}, PE={pe_name}, error={e}",
+                "BT-PE Link Validation Error",
+            )
+            return False
 
         except Exception as e:
-            frappe.logger().warning(f"Could not link BT {bt_name} to PE {pe_name}: {e}")
+            # Check if this was a retryable error that exhausted retries
+            if is_deadlock_error(e):
+                frappe.logger().error(
+                    f"Failed to link BT {bt_name} to PE {pe_name} after max retries (deadlock): {e}"
+                )
+                frappe.log_error(
+                    f"BT-PE link failed after retries: BT={bt_name}, PE={pe_name}, error={e}",
+                    "BT-PE Link Deadlock Error",
+                )
+            else:
+                frappe.logger().warning(f"Could not link BT {bt_name} to PE {pe_name}: {e}")
+                frappe.log_error(
+                    f"BT-PE link failed: BT={bt_name}, PE={pe_name}, error={e}",
+                    "BT-PE Link Error",
+                )
             return False
 
 
