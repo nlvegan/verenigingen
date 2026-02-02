@@ -108,11 +108,23 @@ class SEPAUploadGuard(StatelessService):
         always produces the same hash, regardless of whitespace or
         attribute ordering differences.
 
+        Production Behavior:
+            In production (developer_mode=False), canonicalization failures
+            raise an exception to ensure consistent hashing. Inconsistent
+            hashes could allow duplicate uploads.
+
+        Development Behavior:
+            In developer_mode, falls back to raw hash with a warning to
+            allow testing with malformed XML.
+
         Args:
             content: XML file content as bytes
 
         Returns:
             Hexadecimal string of SHA256 hash (64 characters)
+
+        Raises:
+            frappe.ValidationError: In production, if canonicalization fails
         """
         try:
             # Use C14N canonicalization for consistent hashing
@@ -120,9 +132,19 @@ class SEPAUploadGuard(StatelessService):
 
             return SEPAXMLCanonicalizer.compute_canonical_hash(content)
         except (ImportError, ValueError) as e:
-            # Fallback to raw hash if canonicalization fails
-            # This ensures the system remains functional even if XML is malformed
-            self.logger.warning(f"XML canonicalization failed, using raw hash: {e}")
+            # In production, fail fast - inconsistent hashing is dangerous
+            if not frappe.conf.get("developer_mode"):
+                self.logger.error(f"XML canonicalization failed in production: {e}")
+                frappe.throw(
+                    _(
+                        "SEPA XML canonicalization failed. This is required for consistent "
+                        "duplicate detection. Please check the XML format. Error: {0}"
+                    ).format(str(e)),
+                    title=_("XML Processing Error"),
+                )
+
+            # In developer_mode only, allow fallback to raw hash for testing
+            self.logger.warning(f"XML canonicalization failed (dev mode fallback to raw hash): {e}")
             return hashlib.sha256(content).hexdigest()
 
     def _find_existing_upload(self, file_hash: str) -> Optional[dict]:
@@ -383,7 +405,7 @@ class SEPAUploadGuard(StatelessService):
             # DB unique constraint caught the race condition - another worker won
             frappe.db.rollback()
             self.logger.warning(
-                f"IntegrityError in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
+                f"DuplicateEntryError in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
             )
 
             # Look up the winning entry to provide duplicate info
@@ -413,9 +435,42 @@ class SEPAUploadGuard(StatelessService):
 
         except Exception as e:
             frappe.db.rollback()
-            self.logger.error(f"Failed in check_and_register: {e}")
 
-            # Return failure result
+            # Check if this is a DB integrity error (pymysql.IntegrityError, etc.)
+            # These indicate constraint violations not caught by frappe.DuplicateEntryError
+            error_str = str(e).lower()
+            if "duplicate" in error_str or "integrity" in error_str or "unique" in error_str:
+                self.logger.warning(
+                    f"DB integrity error in check_and_register (possible race condition): "
+                    f"hash={file_hash[:16]}..., error={e}"
+                )
+
+                # Try to find the existing entry
+                existing = self._find_existing_upload(file_hash)
+                if existing:
+                    return UploadCheckResult(
+                        success=False,
+                        file_hash=file_hash,
+                        reason_code=UploadBlockReason.INTEGRITY_ERROR,
+                        duplicate_batch=existing.get("batch_name"),
+                        duplicate_upload_time=str(existing.get("upload_time"))
+                        if existing.get("upload_time")
+                        else None,
+                        message=_(
+                            "Duplicate file detected (database constraint). "
+                            "This file was already uploaded as batch '{0}' on {1}."
+                        ).format(existing.get("batch_name"), existing.get("upload_time")),
+                    )
+                else:
+                    return UploadCheckResult(
+                        success=False,
+                        file_hash=file_hash,
+                        reason_code=UploadBlockReason.INTEGRITY_ERROR,
+                        message=_("Database constraint violation during upload registration."),
+                    )
+
+            # Generic error - not an integrity constraint
+            self.logger.error(f"Failed in check_and_register: {e}")
             return UploadCheckResult(
                 success=False,
                 file_hash=file_hash,

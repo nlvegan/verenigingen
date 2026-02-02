@@ -448,6 +448,53 @@ The system uses Fernet symmetric encryption (AES-128-CBC with HMAC) for sensitiv
    - Replace `field_encryption_key` with new key
    - Clear cache: `bench clear-cache`
 
+### Batch Processing for Large Datasets
+
+For sites with >1000 encrypted records, use batch processing to avoid timeouts and memory issues:
+
+```python
+# In bench console
+import json
+from cryptography.fernet import Fernet
+import base64
+
+# Load export
+with open("/tmp/iban_export.json", "r") as f:
+    export = json.load(f)
+
+# Create new encryptor
+new_key = "<paste-new-key-here>"
+new_fernet = Fernet(new_key.encode())
+
+# Process in batches of 100
+BATCH_SIZE = 100
+total = len(export)
+
+for i in range(0, total, BATCH_SIZE):
+    batch = export[i:i + BATCH_SIZE]
+
+    for item in batch:
+        encrypted = "ENC:" + base64.urlsafe_b64encode(
+            new_fernet.encrypt(item["decrypted_iban"].encode())
+        ).decode()
+        frappe.db.set_value("Member", item["member"], "iban", encrypted)
+
+    # Commit after each batch
+    frappe.db.commit()
+
+    # Progress indicator
+    processed = min(i + BATCH_SIZE, total)
+    print(f"Progress: {processed}/{total} ({100*processed//total}%)")
+
+print(f"Re-encrypted {total} IBANs in batches of {BATCH_SIZE}")
+```
+
+**Performance Tips:**
+- Use batch size 50-100 for production to balance speed and safety
+- Run during off-peak hours (scheduled maintenance window)
+- Monitor database load during rotation
+- Keep the export file secure until rotation is verified
+
 4. **Verify rotation**:
    ```python
    from verenigingen.utils.field_encryption import get_encryption
