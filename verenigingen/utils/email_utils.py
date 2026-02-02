@@ -8,8 +8,6 @@ with the email fixtures and Frappe settings.
 import frappe
 
 from verenigingen.utils.email_addresses import (
-    get_email,
-    get_environment_email,
     get_placeholder_email,
     get_support_email,
     get_test_email,
@@ -43,8 +41,8 @@ def get_member_contact_email() -> str:
     except Exception:
         pass
 
-    # Final fallback to fixture
-    return get_environment_email("member_administration", get_email("production", "member_administration"))
+    # Final fallback to placeholder email
+    return get_placeholder_email("support")
 
 
 def get_support_contact_email() -> str:
@@ -64,8 +62,8 @@ def get_support_contact_email() -> str:
     except Exception:
         pass
 
-    # Fallback to environment-appropriate email
-    return get_environment_email("general_support", get_placeholder_email("support"))
+    # Fallback to placeholder email
+    return get_placeholder_email("support")
 
 
 def get_app_contact_email() -> str:
@@ -75,7 +73,7 @@ def get_app_contact_email() -> str:
     Returns:
         str: App contact email address
     """
-    return get_environment_email("app_contact", get_email("production", "app_contact"))
+    return get_placeholder_email("support")
 
 
 def get_notification_email() -> str:
@@ -85,7 +83,7 @@ def get_notification_email() -> str:
     Returns:
         str: Notification email address
     """
-    return get_environment_email("admin_notifications", get_email("production", "admin_notifications"))
+    return get_placeholder_email("support")
 
 
 def create_test_user_email(purpose: str, user_id: str = None) -> str:
@@ -176,7 +174,7 @@ def validate_email_usage(email: str, context: str = "") -> dict:
         if "production" in context.lower():
             result["warnings"].append("Development email used in production context")
             result["recommendations"].append("Use production email configuration")
-    elif email in get_email("production", "app_contact"):
+    elif email == get_support_email():
         result["email_type"] = "production"
     else:
         result["email_type"] = "unknown"

@@ -295,6 +295,27 @@
 }
 
 .hover\:bg-amber-50:hover { background-color: #fffbeb; }
+
+/* Recovery Filter Buttons */
+.recovery-filter-btn {
+    transition: all 0.2s ease;
+}
+
+.recovery-filter-btn.active {
+    box-shadow: 3px 3px 0 #000;
+    transform: translate(-1px, -1px);
+}
+
+/* Recovery Progress Animation */
+#recovery-progress-bar {
+    transition: width 0.5s ease-out;
+}
+
+/* Recovery Gap Type Colors */
+.gap-type-invoice { border-left: 4px solid #dc2626; }
+.gap-type-pe { border-left: 4px solid #f97316; }
+.gap-type-both { border-left: 4px solid #7c3aed; }
+.gap-type-link { border-left: 4px solid #2563eb; }
 </style>
 {% endblock %}
 
@@ -458,6 +479,17 @@
                             </div>
                         </div>
 
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">{{ _("Retrieval Mode") }}</label>
+                                <select id="bulk-retrieval-mode" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white">
+                                    <option value="customer" selected>{{ _("Customer-based (iterate members)") }}</option>
+                                    <option value="global_payments">{{ _("Global Payments (finds orphans)") }}</option>
+                                </select>
+                                <p class="brutal-help">{{ _("Global mode retrieves all payments and identifies orphans") }}</p>
+                            </div>
+                        </div>
+
                         <button type="button" onclick="bulkRetrieveAllMemberPayments()" class="btn-brutal btn-brutal--success">
                             <i class="fa fa-download mr-2"></i>{{ _("Retrieve All Member Payments") }}
                         </button>
@@ -495,9 +527,12 @@
                         </div>
 
                         <!-- Quick Selection Buttons -->
-                        <div class="mb-4 flex gap-2">
+                        <div class="mb-4 flex gap-2 flex-wrap">
                             <button type="button" onclick="bulkSelectAllUnprocessed()" class="btn-brutal btn-brutal--primary">
                                 <i class="fa fa-check-square mr-2"></i>{{ _("Select All Unprocessed") }}
+                            </button>
+                            <button type="button" onclick="bulkSelectOrphanedOnly()" class="btn-brutal btn-brutal--warning" id="select-orphaned-btn" style="display: none;">
+                                <i class="fa fa-exclamation-triangle mr-2"></i>{{ _("Select Orphaned Only") }}
                             </button>
                             <button type="button" onclick="bulkDeselectAll()" class="btn-brutal">
                                 <i class="fa fa-square-o mr-2"></i>{{ _("Deselect All") }}
@@ -547,6 +582,195 @@
                             <p class="mb-1">{{ _("4. Choose Draft or Submitted mode") }}</p>
                             <p class="mb-1">{{ _("5. Select unprocessed payments and process in bulk") }}</p>
                             <p>{{ _("6. Payment Entries and/or Bank Transactions are created automatically") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Historical Payment Recovery Section -->
+            <div class="bg-white border-2 border-black rounded-lg p-4 mb-6">
+                <div class="p-4 border-2 border-black rounded-lg bg-white">
+                    <h3 class="text-lg font-semibold text-black mb-2">
+                        <i class="fa fa-history mr-2"></i>{{ _("Historical Payment Recovery") }}
+                    </h3>
+                    <p class="text-gray-900 mb-4">
+                        {{ _("Find and fix incomplete payment processing - Bank Transactions missing Payment Entries, Sales Invoices, or reconciliation links") }}
+                    </p>
+
+                    <!-- Step 1: Scan for Gaps -->
+                    <div class="brutal-section-dark rounded-lg mb-4">
+                        <h4 class="font-semibold mb-3"><i class="fa fa-search mr-2"></i>{{ _("Step 1: Scan for Processing Gaps") }}</h4>
+                        <p class="brutal-help mb-3">{{ _("Analyzes all Bank Transactions to find payments missing documents or reconciliation") }}</p>
+
+                        <button type="button" onclick="scanIncompletePayments()" id="scan-gaps-btn" class="btn-brutal btn-brutal--primary">
+                            <i class="fa fa-search mr-2"></i>{{ _("Scan for Incomplete Payments") }}
+                        </button>
+                    </div>
+
+                    <!-- Scan Results Summary -->
+                    <div id="recovery-summary" class="mb-4 p-4 bg-white border-2 border-black rounded-lg" style="display: none;">
+                        <h4 class="font-semibold text-black mb-3"><i class="fa fa-chart-pie mr-2"></i>{{ _("Processing Status Summary") }}</h4>
+
+                        <!-- Statistics Grid -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div class="p-3 border-2 border-black text-center">
+                                <div class="text-2xl font-bold" id="recovery-total-bt">0</div>
+                                <div class="text-xs text-gray-600 uppercase">{{ _("Total Bank Transactions") }}</div>
+                            </div>
+                            <div class="p-3 border-2 border-black text-center bg-green-600 text-white">
+                                <div class="text-2xl font-bold" id="recovery-complete">0</div>
+                                <div class="text-xs uppercase">{{ _("Complete") }}</div>
+                            </div>
+                            <div class="p-3 border-2 border-black text-center bg-amber-400 text-black">
+                                <div class="text-2xl font-bold" id="recovery-incomplete">0</div>
+                                <div class="text-xs uppercase">{{ _("Need Recovery") }}</div>
+                            </div>
+                        </div>
+
+                        <!-- Completion Progress Bar -->
+                        <div class="mb-4">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span>{{ _("Completion Rate") }}</span>
+                                <span id="recovery-rate">0%</span>
+                            </div>
+                            <div class="w-full h-3 bg-gray-200 border border-black">
+                                <div id="recovery-progress-bar" class="h-full bg-green-600 transition-all" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Gap Type Breakdown -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                            <div class="flex items-center gap-2 p-2 border border-black">
+                                <span class="w-3 h-3 bg-red-600 border border-black"></span>
+                                <span>{{ _("Missing Sales Invoice:") }}</span>
+                                <span class="font-bold" id="recovery-missing-sinv">0</span>
+                            </div>
+                            <div class="flex items-center gap-2 p-2 border border-black">
+                                <span class="w-3 h-3 bg-orange-500 border border-black"></span>
+                                <span>{{ _("Missing Payment Entry:") }}</span>
+                                <span class="font-bold" id="recovery-missing-pe">0</span>
+                            </div>
+                            <div class="flex items-center gap-2 p-2 border border-black">
+                                <span class="w-3 h-3 bg-purple-600 border border-black"></span>
+                                <span>{{ _("Missing Both:") }}</span>
+                                <span class="font-bold" id="recovery-missing-both">0</span>
+                            </div>
+                            <div class="flex items-center gap-2 p-2 border border-black">
+                                <span class="w-3 h-3 bg-blue-600 border border-black"></span>
+                                <span>{{ _("Missing Link Only:") }}</span>
+                                <span class="font-bold" id="recovery-missing-link">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Select Payments to Recover -->
+                    <div id="recovery-selection" class="mb-4 p-4 bg-white border-2 border-black rounded-lg" style="display: none;">
+                        <h4 class="font-semibold text-black mb-3"><i class="fa fa-check-square mr-2"></i>{{ _("Step 2: Select Payments to Recover") }}</h4>
+
+                        <!-- Filter Buttons -->
+                        <div class="mb-4 flex gap-2 flex-wrap">
+                            <button type="button" onclick="filterRecoveryGaps('all')" class="btn-brutal btn-brutal--primary text-xs recovery-filter-btn active" data-filter="all">
+                                {{ _("All Incomplete") }} (<span id="filter-count-all">0</span>)
+                            </button>
+                            <button type="button" onclick="filterRecoveryGaps('missing_invoice')" class="btn-brutal text-xs recovery-filter-btn" data-filter="missing_invoice">
+                                {{ _("Missing Invoice") }} (<span id="filter-count-invoice">0</span>)
+                            </button>
+                            <button type="button" onclick="filterRecoveryGaps('missing_payment_entry')" class="btn-brutal text-xs recovery-filter-btn" data-filter="missing_payment_entry">
+                                {{ _("Missing PE") }} (<span id="filter-count-pe">0</span>)
+                            </button>
+                            <button type="button" onclick="filterRecoveryGaps('missing_both')" class="btn-brutal text-xs recovery-filter-btn" data-filter="missing_both">
+                                {{ _("Missing Both") }} (<span id="filter-count-both">0</span>)
+                            </button>
+                            <button type="button" onclick="filterRecoveryGaps('missing_link')" class="btn-brutal text-xs recovery-filter-btn" data-filter="missing_link">
+                                {{ _("Missing Link") }} (<span id="filter-count-link">0</span>)
+                            </button>
+                        </div>
+
+                        <!-- Selection Controls -->
+                        <div class="mb-4 flex gap-2 flex-wrap items-center">
+                            <button type="button" onclick="selectAllRecoveryPayments()" class="btn-brutal btn-brutal--success text-xs">
+                                <i class="fa fa-check-square mr-1"></i>{{ _("Select All Visible") }}
+                            </button>
+                            <button type="button" onclick="deselectAllRecoveryPayments()" class="btn-brutal text-xs">
+                                <i class="fa fa-square-o mr-1"></i>{{ _("Deselect All") }}
+                            </button>
+                            <span class="text-sm font-medium text-black ml-4">
+                                {{ _("Selected:") }} <span id="recovery-selected-count" class="font-bold">0</span>
+                            </span>
+                        </div>
+
+                        <!-- Incomplete Payments Table -->
+                        <div class="overflow-x-auto mb-4 max-h-80 overflow-y-auto border-2 border-black">
+                            <table class="w-full text-sm">
+                                <thead class="brutal-table-header sticky top-0">
+                                    <tr>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">
+                                            <input type="checkbox" id="recovery-select-all" onchange="toggleSelectAllRecovery()">
+                                        </th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Payment ID") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Member") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Has BT") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Has PE") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Has SINV") }}</th>
+                                        <th class="px-2 py-2 text-left border-b-2 border-black">{{ _("Missing") }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recovery-gaps-table">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Preview & Execute -->
+                    <div id="recovery-actions" class="mb-4 p-4 bg-white border-2 border-black rounded-lg" style="display: none;">
+                        <h4 class="font-semibold text-black mb-3"><i class="fa fa-magic mr-2"></i>{{ _("Step 3: Preview & Execute Recovery") }}</h4>
+
+                        <div class="flex gap-4 flex-wrap">
+                            <button type="button" onclick="previewRecovery()" id="preview-recovery-btn" class="btn-brutal btn-brutal--info">
+                                <i class="fa fa-eye mr-2"></i>{{ _("Preview What Will Be Created") }}
+                            </button>
+                            <button type="button" onclick="executeRecovery()" id="execute-recovery-btn" class="btn-brutal btn-brutal--warning" disabled>
+                                <i class="fa fa-play mr-2"></i>{{ _("Execute Recovery") }}
+                            </button>
+                        </div>
+
+                        <!-- Preview Results -->
+                        <div id="recovery-preview" class="mt-4 p-3 bg-blue-100 border-2 border-black rounded-lg" style="display: none;">
+                            <h5 class="font-semibold mb-2"><i class="fa fa-clipboard mr-2"></i>{{ _("Preview: Documents to Create") }}</h5>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                                <div class="p-2 bg-white border border-black text-center">
+                                    <div class="font-bold text-lg" id="preview-bt-count">0</div>
+                                    <div class="text-xs">{{ _("Bank Transactions") }}</div>
+                                </div>
+                                <div class="p-2 bg-white border border-black text-center">
+                                    <div class="font-bold text-lg" id="preview-pe-count">0</div>
+                                    <div class="text-xs">{{ _("Payment Entries") }}</div>
+                                </div>
+                                <div class="p-2 bg-white border border-black text-center">
+                                    <div class="font-bold text-lg" id="preview-sinv-count">0</div>
+                                    <div class="text-xs">{{ _("Sales Invoices") }}</div>
+                                </div>
+                                <div class="p-2 bg-white border border-black text-center">
+                                    <div class="font-bold text-lg" id="preview-link-count">0</div>
+                                    <div class="text-xs">{{ _("Links") }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Execution Results -->
+                    <div id="recovery-results" class="bg-white border-2 border-black rounded p-4 mt-4 font-mono whitespace-pre-wrap max-h-96 overflow-y-auto" style="display: none;"></div>
+
+                    <!-- Help Section -->
+                    <div class="mt-4 p-3 bg-white border-2 border-black rounded-lg">
+                        <div class="text-sm text-black">
+                            <p class="mb-2"><strong>{{ _("How Payment Recovery Works:") }}</strong></p>
+                            <p class="mb-1">{{ _("1. Scan analyzes all Bank Transactions to find processing gaps") }}</p>
+                            <p class="mb-1">{{ _("2. Filter and select which payments need recovery") }}</p>
+                            <p class="mb-1">{{ _("3. Preview shows exactly what documents will be created") }}</p>
+                            <p class="mb-1">{{ _("4. Execute creates missing Sales Invoices, Payment Entries, and reconciliation links") }}</p>
+                            <p class="mb-1 text-amber-600"><strong>{{ _("Note:") }}</strong> {{ _("This tool fixes historical gaps. For new payments, use the Bulk Processor above.") }}</p>
                         </div>
                     </div>
                 </div>
@@ -879,6 +1103,7 @@ function bulkRetrieveAllMemberPayments() {
     const fromDate = fromDateInput.value;
     const maxPayments = document.getElementById('bulk-max-payments').value;
     const paymentStatus = document.getElementById('bulk-payment-status').value;
+    const retrievalMode = document.getElementById('bulk-retrieval-mode').value;
 
     if (!fromDate) {
         alert('Please select a From Date');
@@ -904,18 +1129,26 @@ function bulkRetrieveAllMemberPayments() {
         return;
     }
 
+    const modeDescription = retrievalMode === 'global_payments'
+        ? 'Global Payments mode (finds orphaned payments)'
+        : 'Customer-based mode (iterate through members)';
+
     const estimatedApiCalls = Math.ceil(maxPayments / 250);
-    if (!confirm(`This will retrieve payments for ALL active members with Mollie IDs using the global payments endpoint.\n\nFrom date: ${fromDate} (${daysBack} days ago)\nMax payments: ${maxPayments}\nStatus: ${paymentStatus}\nEstimated API calls: ~${estimatedApiCalls}\n\nContinue?`)) {
+    if (!confirm(`This will retrieve payments using ${modeDescription}.\n\nFrom date: ${fromDate} (${daysBack} days ago)\nMax payments: ${maxPayments}\nStatus: ${paymentStatus}\nEstimated API calls: ~${estimatedApiCalls}\n\nContinue?`)) {
         return;
     }
 
     document.getElementById('bulk-payments-list').style.display = 'block';
-    document.getElementById('bulk-payments-table-body').innerHTML = '<tr><td colspan="8" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>Fetching payments via BulkPaymentChecker (with deduplication)...</td></tr>';
+    const loadingMessage = retrievalMode === 'global_payments'
+        ? 'Fetching all payments from Mollie (identifies orphaned payments)...'
+        : 'Fetching payments via BulkPaymentChecker (with deduplication)...';
+    document.getElementById('bulk-payments-table-body').innerHTML = `<tr><td colspan="8" class="text-center py-4"><i class="fa fa-spinner fa-spin mr-2"></i>${loadingMessage}</td></tr>`;
 
     const formData = new FormData();
     formData.append('days_back', daysBack);
     formData.append('max_payments', maxPayments);
     formData.append('payment_status_filter', paymentStatus === 'all' ? null : paymentStatus);
+    formData.append('retrieval_mode', retrievalMode);
 
     fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.bulk_retrieve_all_member_payments', {
         method: 'POST',
@@ -943,17 +1176,13 @@ function bulkRetrieveAllMemberPayments() {
 }
 
 function displayBulkPaymentsResults(data) {
-    console.log('BMPP Response Data:', {
-        total_payments: data.total_payments,
-        total_payments_found: data.total_payments_found,
-        total_payments_after_filtering: data.total_payments_after_filtering,
-        total_filtered_by_date: data.total_filtered_by_date,
-        total_filtered_by_duplicate: data.total_filtered_by_duplicate,
-        total_filtered_by_customer: data.total_filtered_by_customer
-    });
+    console.log('BMPP Response Data:', data);
 
-    document.getElementById('bulk-total-members').textContent = data.total_members || 0;
-    document.getElementById('bulk-members-checked').textContent = data.members_checked || 0;
+    // Check if this is global_payments mode (has orphaned_transactions)
+    const isGlobalMode = data.retrieval_mode === 'global_payments';
+
+    document.getElementById('bulk-total-members').textContent = data.total_members || (isGlobalMode ? 'N/A' : 0);
+    document.getElementById('bulk-members-checked').textContent = data.members_checked || (isGlobalMode ? 'N/A' : 0);
 
     const totalPaymentsFound = data.total_payments_found || 0;
     const totalPaymentsMatched = data.total_payments || 0;
@@ -961,13 +1190,18 @@ function displayBulkPaymentsResults(data) {
     const filteredByDate = data.total_filtered_by_date || 0;
     const filteredByDuplicate = data.total_filtered_by_duplicate || 0;
     const filteredByCustomer = data.total_filtered_by_customer || 0;
+    const orphanedCount = (data.orphaned_transactions || []).length;
+    const processableOrphanedCount = data.processable_orphaned_count || 0;
 
     const filterParts = [];
     if (filteredByCustomer > 0) filterParts.push(`${filteredByCustomer} no member match`);
     if (filteredByDate > 0) filterParts.push(`${filteredByDate} outside date range`);
     if (filteredByDuplicate > 0) filterParts.push(`${filteredByDuplicate} duplicates`);
 
-    if (filterParts.length > 0) {
+    if (isGlobalMode) {
+        const displayText = `${totalPaymentsFound} found, ${orphanedCount} orphaned (${processableOrphanedCount} processable)`;
+        document.getElementById('bulk-total-payments').textContent = displayText;
+    } else if (filterParts.length > 0) {
         const displayText = `${totalPaymentsFound} found → ${totalPaymentsMatched} matched (filtered: ${filterParts.join(', ')})`;
         document.getElementById('bulk-total-payments').textContent = displayText;
     } else {
@@ -975,11 +1209,134 @@ function displayBulkPaymentsResults(data) {
     }
 
     document.getElementById('bulk-unprocessed-payments').textContent = data.unprocessed_payments || data.total_new_payments || 0;
-    document.getElementById('bulk-api-calls').textContent = data.api_calls_made || 0;
+    document.getElementById('bulk-api-calls').textContent = data.api_calls_made || 'N/A';
+
+    // Show/hide the "Select Orphaned Only" button based on mode and availability
+    const selectOrphanedBtn = document.getElementById('select-orphaned-btn');
+    if (selectOrphanedBtn) {
+        if (isGlobalMode && processableOrphanedCount > 0) {
+            selectOrphanedBtn.style.display = 'inline-flex';
+        } else {
+            selectOrphanedBtn.style.display = 'none';
+        }
+    }
 
     const tbody = document.getElementById('bulk-payments-table-body');
     tbody.innerHTML = '';
 
+    // Handle balance_transactions mode - display orphaned payments
+    if (isGlobalMode) {
+        const orphanedPayments = data.orphaned_transactions || [];
+
+        if (orphanedPayments.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-600">No orphaned payments found in the selected date range.</td></tr>';
+            return;
+        }
+
+        orphanedPayments.forEach((payment) => {
+            const row = document.createElement('tr');
+            const isProcessable = payment.processable;
+            row.className = isProcessable ? 'bg-white hover:bg-amber-50 border-b border-black' : 'bg-white opacity-60 border-b border-black';
+
+            const paymentId = payment.payment_id;
+            const processingMode = payment.processing_mode || null;
+
+            // Cell 1: Checkbox
+            const checkboxCell = document.createElement('td');
+            checkboxCell.className = 'px-2 py-2';
+            if (isProcessable) {
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'bulk-payment-checkbox';
+                cb.setAttribute('data-payment-id', paymentId);
+                cb.setAttribute('data-processing-mode', processingMode || '');
+                cb.setAttribute('data-matching-invoice', '');
+                cb.addEventListener('change', bulkUpdateSelectedCount);
+                checkboxCell.appendChild(cb);
+            } else {
+                const dash = document.createElement('span');
+                dash.className = 'text-black';
+                dash.textContent = '—';
+                checkboxCell.appendChild(dash);
+            }
+            row.appendChild(checkboxCell);
+
+            // Cell 2: Member/Customer info
+            const memberCell = document.createElement('td');
+            memberCell.className = 'px-2 py-2';
+            const orphanDiv = document.createElement('div');
+            orphanDiv.className = 'font-medium text-amber-600';
+            orphanDiv.textContent = '⚠️ No Member Match';
+            const custDiv = document.createElement('div');
+            custDiv.className = 'text-xs text-black';
+            custDiv.textContent = `Mollie: ${payment.customer_id || 'Unknown'}`;
+            memberCell.appendChild(orphanDiv);
+            memberCell.appendChild(custDiv);
+            row.appendChild(memberCell);
+
+            // Cell 3: Payment ID
+            const idCell = document.createElement('td');
+            idCell.className = 'px-2 py-2';
+            const idCode = document.createElement('code');
+            idCode.className = 'text-xs bg-white px-1 border-2 border-black';
+            idCode.textContent = paymentId;
+            idCell.appendChild(idCode);
+            row.appendChild(idCell);
+
+            // Cell 4: Status
+            const statusCell = document.createElement('td');
+            statusCell.className = 'px-2 py-2';
+            const statusSpan = document.createElement('span');
+            statusSpan.className = 'px-2 py-1 text-white text-xs font-bold border-2 border-black rounded';
+            statusSpan.style.backgroundColor = payment.status === 'paid' ? '#28a745' : '#6c757d';
+            statusSpan.textContent = payment.status;
+            statusCell.appendChild(statusSpan);
+            row.appendChild(statusCell);
+
+            // Cell 5: Amount
+            const amountCell = document.createElement('td');
+            amountCell.className = 'px-2 py-2 font-mono';
+            amountCell.textContent = payment.amount;
+            row.appendChild(amountCell);
+
+            // Cell 6: Date
+            const dateCell = document.createElement('td');
+            dateCell.className = 'px-2 py-2 text-xs';
+            dateCell.textContent = payment.paid_at ? new Date(payment.paid_at).toLocaleDateString() : 'N/A';
+            row.appendChild(dateCell);
+
+            // Cell 7: Mode badge
+            const modeCell = document.createElement('td');
+            modeCell.className = 'px-2 py-2';
+            if (isProcessable && processingMode) {
+                const modeSpan = document.createElement('span');
+                modeSpan.className = 'px-2 py-0.5 bg-amber-400 text-black text-xs font-bold border border-black rounded cursor-help';
+                modeSpan.setAttribute('title', 'Orphaned payment - creates BT linked to auto-created Customer');
+                modeSpan.textContent = 'BT Only (Orphan)';
+                modeCell.appendChild(modeSpan);
+            } else {
+                const dashSpan = document.createElement('span');
+                dashSpan.className = 'text-gray-400';
+                dashSpan.textContent = payment.reason || '—';
+                modeCell.appendChild(dashSpan);
+            }
+            row.appendChild(modeCell);
+
+            // Cell 8: Description (instead of Processed badge for orphans)
+            const descCell = document.createElement('td');
+            descCell.className = 'px-2 py-2 text-xs';
+            descCell.textContent = payment.description ? payment.description.substring(0, 30) + '...' : '-';
+            descCell.setAttribute('title', payment.description || '');
+            row.appendChild(descCell);
+
+            tbody.appendChild(row);
+        });
+
+        bulkUpdateSelectedCount();
+        return;
+    }
+
+    // Original customer-based mode display
     const customersList = data.customers || data.members || [];
 
     if (customersList.length === 0) {
@@ -1141,6 +1498,34 @@ function bulkSelectAllUnprocessed() {
     }
 
     bulkUpdateSelectedCount();
+}
+
+function bulkSelectOrphanedOnly() {
+    // First deselect all
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+
+    // Then select only orphaned (bt_only_orphaned mode)
+    let count = 0;
+    document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
+        const mode = cb.dataset.processingMode;
+        if (mode === 'bt_only_orphaned') {
+            cb.checked = true;
+            count++;
+        }
+    });
+
+    if (count === 0) {
+        alert('No processable orphaned payments found.\n\nOrphaned payments must be:\n• Status: paid\n• Currency: EUR\n• Have a Mollie customer ID');
+        return;
+    }
+
+    bulkUpdateSelectedCount();
+    frappe.show_alert({
+        message: __('Selected {0} orphaned payments', [count]),
+        indicator: 'orange'
+    });
 }
 
 function bulkDeselectAll() {
@@ -1378,6 +1763,437 @@ function displayBulkProcessingResults(data) {
             alert(`Processing complete!\n\nProcessed: ${data.processed}\nSkipped: ${data.skipped}\nErrors: ${data.errors}\n\nClick OK to refresh the payment list.`);
             bulkRetrieveAllMemberPayments();
         }, 1000);
+    }
+}
+
+// ============================================================================
+// HISTORICAL PAYMENT RECOVERY - JavaScript Functions
+// ============================================================================
+
+let recoveryGapsData = null;
+let currentRecoveryFilter = 'all';
+
+function scanIncompletePayments() {
+    const btn = document.getElementById('scan-gaps-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>Scanning...';
+
+    // Hide previous results
+    document.getElementById('recovery-summary').style.display = 'none';
+    document.getElementById('recovery-selection').style.display = 'none';
+    document.getElementById('recovery-actions').style.display = 'none';
+    document.getElementById('recovery-results').style.display = 'none';
+
+    const formData = new FormData();
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.scan_incomplete_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-search mr-2"></i>Scan for Incomplete Payments';
+
+        const result = data.message || data;
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        recoveryGapsData = result;
+        displayRecoverySummary(result);
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-search mr-2"></i>Scan for Incomplete Payments';
+        alert('Error scanning: ' + error.message);
+    });
+}
+
+function displayRecoverySummary(data) {
+    // Update summary stats
+    document.getElementById('recovery-total-bt').textContent = data.total_bank_transactions || 0;
+    document.getElementById('recovery-complete').textContent = data.complete || 0;
+
+    const incomplete = (data.total_bank_transactions || 0) - (data.complete || 0);
+    document.getElementById('recovery-incomplete').textContent = incomplete;
+
+    // Update completion rate
+    const rate = data.completion_rate || 0;
+    document.getElementById('recovery-rate').textContent = rate + '%';
+    document.getElementById('recovery-progress-bar').style.width = rate + '%';
+
+    // Update gap type counts
+    const gapsByType = data.gaps_by_type || {};
+    document.getElementById('recovery-missing-sinv').textContent = (gapsByType.missing_invoice || []).length;
+    document.getElementById('recovery-missing-pe').textContent = (gapsByType.missing_payment_entry || []).length;
+    document.getElementById('recovery-missing-both').textContent = (gapsByType.missing_both || []).length;
+    document.getElementById('recovery-missing-link').textContent = (gapsByType.missing_link || []).length;
+
+    // Update filter button counts
+    document.getElementById('filter-count-all').textContent = (data.gap_details || []).length;
+    document.getElementById('filter-count-invoice').textContent = (gapsByType.missing_invoice || []).length;
+    document.getElementById('filter-count-pe').textContent = (gapsByType.missing_payment_entry || []).length;
+    document.getElementById('filter-count-both').textContent = (gapsByType.missing_both || []).length;
+    document.getElementById('filter-count-link').textContent = (gapsByType.missing_link || []).length;
+
+    // Show summary
+    document.getElementById('recovery-summary').style.display = 'block';
+
+    // If there are gaps, show selection section
+    if (data.has_gaps && (data.gap_details || []).length > 0) {
+        displayRecoveryGapsTable(data.gap_details);
+        document.getElementById('recovery-selection').style.display = 'block';
+        document.getElementById('recovery-actions').style.display = 'block';
+    } else {
+        frappe.show_alert({
+            message: __('All payments are complete! No recovery needed.'),
+            indicator: 'green'
+        });
+    }
+}
+
+function displayRecoveryGapsTable(gaps, filter = 'all') {
+    const tbody = document.getElementById('recovery-gaps-table');
+    tbody.innerHTML = '';
+
+    // Apply filter
+    let filteredGaps = gaps;
+    if (filter !== 'all' && recoveryGapsData && recoveryGapsData.gaps_by_type) {
+        filteredGaps = recoveryGapsData.gaps_by_type[filter] || [];
+    }
+
+    if (filteredGaps.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-600">No gaps found for this filter.</td></tr>';
+        return;
+    }
+
+    filteredGaps.forEach((gap) => {
+        const row = document.createElement('tr');
+        row.className = 'bg-white hover:bg-amber-50 border-b border-black';
+        row.setAttribute('data-payment-id', gap.payment_id);
+        row.setAttribute('data-gap-type', getGapType(gap.missing));
+
+        // Checkbox
+        const checkboxCell = document.createElement('td');
+        checkboxCell.className = 'px-2 py-2';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'recovery-checkbox';
+        cb.setAttribute('data-payment-id', gap.payment_id);
+        cb.addEventListener('change', updateRecoverySelectedCount);
+        checkboxCell.appendChild(cb);
+        row.appendChild(checkboxCell);
+
+        // Payment ID
+        const idCell = document.createElement('td');
+        idCell.className = 'px-2 py-2';
+        const idCode = document.createElement('code');
+        idCode.className = 'text-xs bg-white px-1 border border-black';
+        idCode.textContent = gap.payment_id;
+        idCell.appendChild(idCode);
+        row.appendChild(idCell);
+
+        // Member
+        const memberCell = document.createElement('td');
+        memberCell.className = 'px-2 py-2 text-xs';
+        memberCell.textContent = gap.member || 'Unknown';
+        row.appendChild(memberCell);
+
+        // Has BT
+        const btCell = document.createElement('td');
+        btCell.className = 'px-2 py-2 text-center';
+        btCell.innerHTML = '<span class="text-green-600 font-bold">✓</span>';  // All gaps have BT
+        row.appendChild(btCell);
+
+        // Has PE
+        const peCell = document.createElement('td');
+        peCell.className = 'px-2 py-2 text-center';
+        const hasPE = !gap.missing.includes('Payment Entry');
+        peCell.innerHTML = hasPE
+            ? '<span class="text-green-600 font-bold">✓</span>'
+            : '<span class="text-red-600 font-bold">✗</span>';
+        row.appendChild(peCell);
+
+        // Has SINV
+        const sinvCell = document.createElement('td');
+        sinvCell.className = 'px-2 py-2 text-center';
+        const hasSINV = !gap.missing.includes('Sales Invoice') && !gap.missing.includes('Sales Invoice Link');
+        sinvCell.innerHTML = hasSINV
+            ? '<span class="text-green-600 font-bold">✓</span>'
+            : '<span class="text-red-600 font-bold">✗</span>';
+        row.appendChild(sinvCell);
+
+        // Missing
+        const missingCell = document.createElement('td');
+        missingCell.className = 'px-2 py-2 text-xs';
+        const missingBadges = gap.missing.map(m => {
+            const colors = {
+                'Sales Invoice': 'bg-red-600 text-white',
+                'Payment Entry': 'bg-orange-500 text-white',
+                'Bank Transaction → Payment Entry Link': 'bg-blue-600 text-white',
+                'Sales Invoice Link': 'bg-blue-600 text-white'
+            };
+            const colorClass = colors[m] || 'bg-gray-600 text-white';
+            return `<span class="px-1 py-0.5 ${colorClass} text-xs font-bold border border-black rounded mr-1">${m.replace('Bank Transaction → Payment Entry Link', 'BT→PE Link')}</span>`;
+        }).join('');
+        missingCell.innerHTML = missingBadges;
+        row.appendChild(missingCell);
+
+        tbody.appendChild(row);
+    });
+
+    updateRecoverySelectedCount();
+}
+
+function getGapType(missing) {
+    if (missing.includes('Sales Invoice') && missing.includes('Payment Entry')) {
+        return 'missing_both';
+    } else if (missing.includes('Sales Invoice') || missing.includes('Sales Invoice Link')) {
+        return 'missing_invoice';
+    } else if (missing.includes('Payment Entry')) {
+        return 'missing_payment_entry';
+    } else if (missing.includes('Bank Transaction → Payment Entry Link')) {
+        return 'missing_link';
+    }
+    return 'unknown';
+}
+
+function filterRecoveryGaps(filterType) {
+    currentRecoveryFilter = filterType;
+
+    // Update active button styling
+    document.querySelectorAll('.recovery-filter-btn').forEach(btn => {
+        btn.classList.remove('btn-brutal--primary', 'active');
+    });
+    document.querySelector(`.recovery-filter-btn[data-filter="${filterType}"]`).classList.add('btn-brutal--primary', 'active');
+
+    // Re-display table with filter
+    if (recoveryGapsData && recoveryGapsData.gap_details) {
+        displayRecoveryGapsTable(recoveryGapsData.gap_details, filterType);
+    }
+}
+
+function selectAllRecoveryPayments() {
+    document.querySelectorAll('.recovery-checkbox').forEach(cb => {
+        cb.checked = true;
+    });
+    document.getElementById('recovery-select-all').checked = true;
+    updateRecoverySelectedCount();
+}
+
+function deselectAllRecoveryPayments() {
+    document.querySelectorAll('.recovery-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('recovery-select-all').checked = false;
+    updateRecoverySelectedCount();
+}
+
+function toggleSelectAllRecovery() {
+    const selectAll = document.getElementById('recovery-select-all').checked;
+    document.querySelectorAll('.recovery-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+    });
+    updateRecoverySelectedCount();
+}
+
+function updateRecoverySelectedCount() {
+    const count = document.querySelectorAll('.recovery-checkbox:checked').length;
+    document.getElementById('recovery-selected-count').textContent = count;
+
+    // Enable/disable execute button based on selection and preview
+    const executeBtn = document.getElementById('execute-recovery-btn');
+    const previewShown = document.getElementById('recovery-preview').style.display !== 'none';
+    executeBtn.disabled = !(count > 0 && previewShown);
+}
+
+function getSelectedRecoveryPaymentIds() {
+    const ids = [];
+    document.querySelectorAll('.recovery-checkbox:checked').forEach(cb => {
+        ids.push(cb.dataset.paymentId);
+    });
+    return ids;
+}
+
+function previewRecovery() {
+    const selectedIds = getSelectedRecoveryPaymentIds();
+    if (selectedIds.length === 0) {
+        alert('Please select at least one payment to preview.');
+        return;
+    }
+
+    const btn = document.getElementById('preview-recovery-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>Generating Preview...';
+
+    const formData = new FormData();
+    formData.append('payment_ids', JSON.stringify(selectedIds));
+    formData.append('max_payments', selectedIds.length);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.preview_payment_recovery', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-eye mr-2"></i>Preview What Will Be Created';
+
+        const result = data.message || data;
+        if (result.error) {
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        displayRecoveryPreview(result);
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-eye mr-2"></i>Preview What Will Be Created';
+        alert('Error generating preview: ' + error.message);
+    });
+}
+
+function displayRecoveryPreview(data) {
+    const summary = data.would_create_summary || {};
+
+    document.getElementById('preview-bt-count').textContent = summary.bank_transactions || 0;
+    document.getElementById('preview-pe-count').textContent = summary.payment_entries || 0;
+    document.getElementById('preview-sinv-count').textContent = summary.sales_invoices || 0;
+    document.getElementById('preview-link-count').textContent = summary.links || 0;
+
+    document.getElementById('recovery-preview').style.display = 'block';
+
+    // Enable execute button
+    document.getElementById('execute-recovery-btn').disabled = false;
+
+    frappe.show_alert({
+        message: __('Preview generated. Review what will be created, then click Execute.'),
+        indicator: 'blue'
+    });
+}
+
+function executeRecovery() {
+    const selectedIds = getSelectedRecoveryPaymentIds();
+    if (selectedIds.length === 0) {
+        alert('Please select at least one payment to recover.');
+        return;
+    }
+
+    // Get preview counts for confirmation message
+    const btCount = document.getElementById('preview-bt-count').textContent || 0;
+    const peCount = document.getElementById('preview-pe-count').textContent || 0;
+    const sinvCount = document.getElementById('preview-sinv-count').textContent || 0;
+    const linkCount = document.getElementById('preview-link-count').textContent || 0;
+
+    const confirmMsg = `Execute Payment Recovery?\n\nThis will create:\n` +
+        `• ${btCount} Bank Transaction(s)\n` +
+        `• ${peCount} Payment Entry/ies\n` +
+        `• ${sinvCount} Sales Invoice(s)\n` +
+        `• ${linkCount} Reconciliation Link(s)\n\n` +
+        `Total ${selectedIds.length} payment(s) will be processed.\n\n` +
+        `Continue?`;
+
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    const btn = document.getElementById('execute-recovery-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>Executing Recovery...';
+
+    const resultsDiv = document.getElementById('recovery-results');
+    resultsDiv.style.display = 'block';
+    resultsDiv.textContent = 'Processing payments...';
+
+    const formData = new FormData();
+    formData.append('payment_ids', JSON.stringify(selectedIds));
+    formData.append('max_payments', selectedIds.length);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payment_processing.execute_payment_recovery', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-play mr-2"></i>Execute Recovery';
+
+        const result = data.message || data;
+        if (result.error) {
+            resultsDiv.textContent = 'Error: ' + result.error;
+            return;
+        }
+
+        displayRecoveryResults(result);
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-play mr-2"></i>Execute Recovery';
+        resultsDiv.textContent = 'Error executing recovery: ' + error.message;
+    });
+}
+
+function displayRecoveryResults(data) {
+    const resultsDiv = document.getElementById('recovery-results');
+
+    let output = `Payment Recovery Complete\n`;
+    output += `=========================\n\n`;
+    output += `Total Processed: ${data.total_requested || 0}\n`;
+    output += `Completed: ${data.completed || 0}\n`;
+    output += `Skipped: ${data.skipped || 0}\n`;
+    output += `Errors: ${data.errors || 0}\n\n`;
+
+    if (data.execution_summary) {
+        const docs = data.execution_summary.documents_created || {};
+        output += `Documents Created:\n`;
+        output += `  Bank Transactions: ${docs.bank_transactions || 0}\n`;
+        output += `  Payment Entries: ${docs.payment_entries || 0}\n`;
+        output += `  Sales Invoices: ${docs.sales_invoices || 0}\n\n`;
+    }
+
+    if (data.results && data.results.length > 0) {
+        output += `Detailed Results:\n`;
+        output += `-----------------\n`;
+        data.results.forEach((r, i) => {
+            output += `\n${i + 1}. ${r.payment_id}\n`;
+            output += `   Status: ${r.status}\n`;
+            if (r.bank_transaction) output += `   Bank Transaction: ${r.bank_transaction}\n`;
+            if (r.payment_entry) output += `   Payment Entry: ${r.payment_entry}\n`;
+            if (r.sales_invoice) output += `   Sales Invoice: ${r.sales_invoice}\n`;
+            if (r.actions_taken && r.actions_taken.length > 0) {
+                output += `   Actions: ${r.actions_taken.join(', ')}\n`;
+            }
+            if (r.error) output += `   Error: ${r.error}\n`;
+            if (r.reason) output += `   Reason: ${r.reason}\n`;
+        });
+    }
+
+    resultsDiv.textContent = output;
+
+    if (data.completed > 0) {
+        frappe.show_alert({
+            message: __('Recovery complete! {0} payment(s) processed.', [data.completed]),
+            indicator: 'green'
+        });
+
+        // Refresh the scan after a delay
+        setTimeout(() => {
+            if (confirm('Recovery complete! Refresh scan results to see updated status?')) {
+                scanIncompletePayments();
+            }
+        }, 1500);
     }
 }
 </script>

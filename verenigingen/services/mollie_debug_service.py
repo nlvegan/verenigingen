@@ -2919,8 +2919,10 @@ class MollieDebugService(StatelessService):
                 payment_mode_info = payment_modes.get(payment_id, {})
                 # Handle case where payment_mode_info might be a boolean or other non-dict type
                 matching_invoice = None
+                processing_mode = None
                 if isinstance(payment_mode_info, dict):
                     matching_invoice = payment_mode_info.get("matching_invoice")
+                    processing_mode = payment_mode_info.get("mode")
 
                 # Normalize invoice name (can be dict or string from frontend)
                 invoice_name = None
@@ -2930,12 +2932,19 @@ class MollieDebugService(StatelessService):
                     else:
                         invoice_name = matching_invoice
 
-                # Process using orchestrator (discovery mode: don't create invoices)
-                processing_result = orchestrator.process_payment(
-                    payment_id=payment_id,
-                    invoice_name=invoice_name,
-                    create_missing_invoice=False,  # Discovery mode
-                )
+                # Route based on processing mode
+                if processing_mode == "bt_only_orphaned":
+                    # Orphaned payment - create BT only, no member required
+                    processing_result = orchestrator.process_orphaned_payment(
+                        payment_id=payment_id,
+                    )
+                else:
+                    # Standard processing using orchestrator (discovery mode: don't create invoices)
+                    processing_result = orchestrator.process_payment(
+                        payment_id=payment_id,
+                        invoice_name=invoice_name,
+                        create_missing_invoice=False,  # Discovery mode
+                    )
 
                 # Convert orchestrator result to legacy format
                 payment_result = {

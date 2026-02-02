@@ -607,6 +607,165 @@ class MolliePaymentOrchestrator:
         """
         return self.bt_creator.link_payment_entry(bt_name, pe_name)
 
+    def process_orphaned_payment(
+        self,
+        payment_id: str,
+        payment: Optional[Any] = None,
+    ) -> PaymentProcessingResult:
+        """
+        Process an orphaned payment (no member match) - creates Bank Transaction only.
+
+        This handles payments that cannot be matched to a member but still need
+        to be recorded for accounting purposes. It:
+        1. Finds or creates a Customer from Mollie customer data
+        2. Creates Bank Transaction linked to that Customer
+        3. Does NOT create Payment Entry or Sales Invoice
+
+        Args:
+            payment_id: Mollie payment ID
+            payment: Optional pre-fetched Mollie payment object
+
+        Returns:
+            PaymentProcessingResult with processing outcome
+        """
+        result = PaymentProcessingResult(payment_id=payment_id)
+
+        try:
+            # Check if BT already exists (idempotency)
+            existing_bt = frappe.db.get_value(
+                "Bank Transaction",
+                {"reference_number": payment_id},
+                "name",
+            )
+            if existing_bt:
+                result.status = "already_processed"
+                result.bank_transaction = existing_bt
+                result.skipped_reason = "Bank Transaction already exists"
+                return result
+
+            # Fetch payment from Mollie if not provided
+            if not payment:
+                payment = self.mollie_client.sdk_client.payments.get(payment_id)
+
+            # Validate payment status
+            if payment.status != "paid":
+                result.status = "skipped"
+                result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
+                return result
+
+            # Get Mollie customer ID
+            mollie_customer_id = getattr(payment, "customer_id", None)
+            if not mollie_customer_id:
+                result.status = "error"
+                result.error = "Payment has no Mollie customer ID"
+                return result
+
+            # Find or create Customer from Mollie data
+            customer_name = self._find_or_create_customer_from_mollie(mollie_customer_id, payment, result)
+
+            # Get BT configuration
+            config = self.bt_creator.get_mollie_bank_account_config()
+            if config.get("error"):
+                result.status = "error"
+                result.error = f"Bank account config error: {config['error']}"
+                return result
+
+            # Create Bank Transaction
+            bt_name = self.bt_creator.create_from_mollie_payment(
+                payment=payment,
+                bank_account=config["bank_account"],
+                company=config["company"],
+                additional_description=f"Orphaned payment (no member match)",
+                party_type="Customer" if customer_name else None,
+                party=customer_name,
+            )
+
+            if bt_name:
+                result.bank_transaction = bt_name
+                result.status = "success"
+                result.actions_taken.append(f"Created Bank Transaction: {bt_name}")
+                if customer_name:
+                    result.actions_taken.append(f"Linked to Customer: {customer_name}")
+            else:
+                result.status = "error"
+                result.error = "Failed to create Bank Transaction"
+
+        except Exception as e:
+            result.status = "error"
+            result.error = str(e)
+            frappe.log_error(
+                f"Error processing orphaned payment {payment_id}: {e}",
+                "Mollie Orphaned Payment Error",
+            )
+
+        return result
+
+    def _find_or_create_customer_from_mollie(
+        self,
+        mollie_customer_id: str,
+        payment: Any,
+        result: PaymentProcessingResult,
+    ) -> Optional[str]:
+        """
+        Find existing Customer by Mollie customer ID or create a new one.
+
+        Args:
+            mollie_customer_id: Mollie customer ID
+            payment: Mollie payment object (for additional data)
+            result: Result object to update with actions
+
+        Returns:
+            Customer name if found/created, None otherwise
+        """
+        # Try to find existing Customer with this Mollie customer ID
+        existing_customer = frappe.db.get_value(
+            "Customer",
+            {"custom_mollie_customer_id": mollie_customer_id},
+            "name",
+        )
+        if existing_customer:
+            result.actions_taken.append(f"Found existing Customer: {existing_customer}")
+            return existing_customer
+
+        # Try to get customer details from Mollie
+        try:
+            mollie_customer = self.mollie_client.sdk_client.customers.get(mollie_customer_id)
+            customer_name = getattr(mollie_customer, "name", None)
+            customer_email = getattr(mollie_customer, "email", None)
+
+            if not customer_name:
+                # Use email prefix or customer ID as fallback name
+                if customer_email:
+                    customer_name = customer_email.split("@")[0].replace(".", " ").title()
+                else:
+                    customer_name = f"Mollie Customer {mollie_customer_id}"
+
+            # Create new Customer
+            customer = frappe.new_doc("Customer")
+            customer.customer_name = f"{customer_name} (Orphaned)"
+            customer.customer_type = "Individual"
+            customer.customer_group = (
+                frappe.db.get_single_value("Selling Settings", "customer_group") or "All Customer Groups"
+            )
+            customer.territory = (
+                frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
+            )
+            customer.custom_mollie_customer_id = mollie_customer_id
+
+            # Add email if available
+            if customer_email:
+                customer.append("email_ids", {"email_id": customer_email, "is_primary": 1})
+
+            customer.insert(ignore_permissions=True)
+            result.actions_taken.append(f"Created Customer: {customer.name} from Mollie data")
+
+            return customer.name
+
+        except Exception as e:
+            frappe.logger().warning(f"Could not fetch/create customer from Mollie {mollie_customer_id}: {e}")
+            result.actions_taken.append(f"Warning: Could not create Customer ({e})")
+            return None
+
     def process_payments_batch(
         self,
         payment_ids: List[str],

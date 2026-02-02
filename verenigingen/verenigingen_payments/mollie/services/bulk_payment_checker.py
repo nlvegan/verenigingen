@@ -1065,24 +1065,39 @@ class BulkPaymentChecker:
                     currency = payment.amount["currency"] if payment.amount else "Unknown"
                     amount = payment.amount["value"] if payment.amount else "Unknown"
 
-                    # If we can't match to a member/donor, mark as orphaned
+                    # If we can't match to a member/donor, mark as orphaned but still processable
                     if not member_name:
-                        result["orphaned_transactions"].append(
-                            {
-                                "payment_id": payment_id,
-                                "status": payment.status,
-                                "amount": f"{currency} {amount}",
-                                "description": getattr(payment, "description", "No description"),
-                                "customer_id": getattr(payment, "customer_id", "No customer"),
-                                "subscription_id": getattr(payment, "subscription_id", None),
-                                "payment_type": payment_type,
-                                "paid_at": str(getattr(payment, "paid_at", None)),
-                                "reason": "Cannot match to any member or donor",
-                            }
+                        mollie_customer_id = getattr(payment, "customer_id", None)
+                        # Orphaned payments can still be processed if paid and EUR
+                        is_orphan_processable = (
+                            payment.status == "paid" and currency == "EUR" and mollie_customer_id
                         )
+
+                        orphan_info = {
+                            "payment_id": payment_id,
+                            "status": payment.status,
+                            "amount": f"{currency} {amount}",
+                            "amount_value": amount,
+                            "currency": currency,
+                            "description": getattr(payment, "description", "No description"),
+                            "customer_id": mollie_customer_id or "No customer",
+                            "subscription_id": getattr(payment, "subscription_id", None),
+                            "payment_type": payment_type,
+                            "paid_at": str(getattr(payment, "paid_at", None)),
+                            "created_at": str(getattr(payment, "created_at", None)),
+                            "reason": "Cannot match to any member or donor",
+                            "processable": is_orphan_processable,
+                            "processing_mode": "bt_only_orphaned" if is_orphan_processable else None,
+                        }
+
+                        result["orphaned_transactions"].append(orphan_info)
+
+                        if is_orphan_processable:
+                            result["total_new_payments"] += 1
+
                         frappe.logger().warning(
                             f"⚠️ Orphaned payment {payment_id}: {currency} {amount}, "
-                            f"type: {payment_type}, cannot match to member"
+                            f"type: {payment_type}, processable: {is_orphan_processable}"
                         )
                     else:
                         # Check if processable
@@ -1109,16 +1124,19 @@ class BulkPaymentChecker:
 
             # Generate summary
             orphaned_count = len(result["orphaned_transactions"])
+            processable_orphaned = sum(1 for o in result["orphaned_transactions"] if o.get("processable"))
+            result["processable_orphaned_count"] = processable_orphaned
+
             result["summary"] = (
                 f"Checked {result['total_payments_found']} payments from balance transactions "
                 f"(last {days_back} days). Found {result['total_new_payments']} new/unprocessed. "
-                f"Orphaned (no member match): {orphaned_count}. "
+                f"Orphaned (no member match): {orphaned_count} ({processable_orphaned} processable). "
                 f"Errors: {result['errors']}"
             )
 
             if orphaned_count > 0:
                 frappe.logger().warning(
-                    f"⚠️ {orphaned_count} orphaned payments found that cannot be matched to members"
+                    f"⚠️ {orphaned_count} orphaned payments found ({processable_orphaned} processable for BT-only import)"
                 )
 
             frappe.logger().info(f"✅ Balance transaction check complete: {result['summary']}")

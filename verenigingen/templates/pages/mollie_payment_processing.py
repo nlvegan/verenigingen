@@ -67,6 +67,218 @@ def has_payment_processing_access():
     )
 
 
+def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, payment_status_filter: str):
+    """
+    Retrieve ALL payments from Mollie globally and identify orphaned ones.
+
+    Uses the global payments.list() endpoint (regular API key) to find all payments,
+    then checks which ones can be matched to members.
+
+    Args:
+        days_back: Number of days back to check
+        max_payments: Maximum payments to retrieve
+        payment_status_filter: Filter by payment status
+
+    Returns:
+        Dict with payments grouped by member match status
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+    from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
+    from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+        get_bank_transaction_creator,
+    )
+
+    result = {
+        "retrieval_mode": "global_payments",
+        "total_payments_found": 0,
+        "total_new_payments": 0,
+        "orphaned_transactions": [],
+        "customers": [],  # Payments that matched to members
+        "errors": 0,
+        "error_details": [],
+        "processable_orphaned_count": 0,
+        "started_at": frappe.utils.now(),
+        "completed_at": None,
+        "summary": "",
+    }
+
+    try:
+        mollie_client = MollieClient()
+        dues_processor = DuesPaymentProcessor()
+        bt_creator = get_bank_transaction_creator()
+
+        # Calculate date cutoff
+        from_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+
+        # Get global payments list
+        client = mollie_client.sdk_client
+        params = {"limit": min(250, max_payments)}
+
+        all_payments = []
+        total_fetched = 0
+
+        # Paginate through payments
+        while total_fetched < max_payments:
+            payment_list = client.payments.list(**params)
+            batch = list(payment_list)
+
+            if not batch:
+                break
+
+            for payment in batch:
+                # Check date filter
+                payment_date = getattr(payment, "paid_at", None) or getattr(payment, "created_at", None)
+                if payment_date:
+                    if isinstance(payment_date, str):
+                        payment_date = datetime.fromisoformat(payment_date.replace("Z", "+00:00"))
+                    if payment_date.tzinfo is None:
+                        payment_date = payment_date.replace(tzinfo=timezone.utc)
+
+                    if payment_date < from_date:
+                        continue  # Skip payments older than cutoff
+
+                # Apply status filter
+                if payment_status_filter and payment_status_filter != "all":
+                    if payment.status != payment_status_filter:
+                        continue
+
+                all_payments.append(payment)
+                total_fetched += 1
+
+                if total_fetched >= max_payments:
+                    break
+
+            # Check if there are more pages
+            if payment_list.has_next():
+                params["from"] = batch[-1].id
+            else:
+                break
+
+        result["total_payments_found"] = len(all_payments)
+
+        # Check which payments are already processed (batch query for efficiency)
+        payment_ids = [p.id for p in all_payments]
+        existing_bts = {}
+        existing_pes = {}
+
+        if payment_ids:
+            # Batch check Bank Transactions
+            placeholders = ", ".join(["%s"] * len(payment_ids))
+            bt_results = frappe.db.sql(
+                f"""
+                SELECT reference_number, name FROM `tabBank Transaction`
+                WHERE reference_number IN ({placeholders}) AND docstatus != 2
+                """,
+                tuple(payment_ids),
+                as_dict=True,
+            )
+            existing_bts = {bt["reference_number"]: bt["name"] for bt in bt_results}
+
+            # Batch check Payment Entries
+            pe_results = frappe.db.sql(
+                f"""
+                SELECT reference_no, name FROM `tabPayment Entry`
+                WHERE reference_no IN ({placeholders}) AND docstatus != 2
+                """,
+                tuple(payment_ids),
+                as_dict=True,
+            )
+            existing_pes = {pe["reference_no"]: pe["name"] for pe in pe_results}
+
+        # Process each payment
+        member_payments = {}  # Group by member
+
+        for payment in all_payments:
+            payment_id = payment.id
+            already_processed = payment_id in existing_bts or payment_id in existing_pes
+
+            # Try to find member for this payment
+            member_name = dues_processor.find_member_for_payment(payment)
+
+            # Extract payment details
+            currency = payment.amount["currency"] if payment.amount else "Unknown"
+            amount = payment.amount["value"] if payment.amount else "Unknown"
+            mollie_customer_id = getattr(payment, "customer_id", None)
+
+            payment_info = {
+                "payment_id": payment_id,
+                "id": payment_id,  # Alias for compatibility
+                "status": payment.status,
+                "amount": f"{currency} {amount}",
+                "amount_value": amount,
+                "currency": currency,
+                "description": getattr(payment, "description", "No description"),
+                "customer_id": mollie_customer_id or "No customer",
+                "subscription_id": getattr(payment, "subscription_id", None),
+                "payment_type": dues_processor.identify_payment_type(payment),
+                "paid_at": str(getattr(payment, "paid_at", None)),
+                "created_at": str(getattr(payment, "created_at", None)),
+                "already_processed": already_processed,
+                "bank_transaction": existing_bts.get(payment_id),
+                "payment_entry": existing_pes.get(payment_id),
+            }
+
+            if member_name:
+                # Payment matches a member
+                if member_name not in member_payments:
+                    member_doc = frappe.db.get_value(
+                        "Member", member_name, ["name", "full_name"], as_dict=True
+                    )
+                    member_payments[member_name] = {
+                        "member": member_name,
+                        "member_name": member_name,
+                        "full_name": member_doc.full_name if member_doc else member_name,
+                        "payments": [],
+                    }
+
+                # Determine processing mode
+                is_processable = payment.status == "paid" and not already_processed and currency == "EUR"
+                payment_info["processable"] = is_processable
+                payment_info["processing_mode"] = "bt_pe_reconcile" if is_processable else None
+
+                member_payments[member_name]["payments"].append(payment_info)
+
+                if is_processable:
+                    result["total_new_payments"] += 1
+            else:
+                # Orphaned payment - no member match
+                is_orphan_processable = (
+                    payment.status == "paid"
+                    and not already_processed
+                    and currency == "EUR"
+                    and mollie_customer_id
+                )
+
+                payment_info["processable"] = is_orphan_processable
+                payment_info["processing_mode"] = "bt_only_orphaned" if is_orphan_processable else None
+                payment_info["reason"] = "Cannot match to any member"
+
+                result["orphaned_transactions"].append(payment_info)
+
+                if is_orphan_processable:
+                    result["total_new_payments"] += 1
+                    result["processable_orphaned_count"] += 1
+
+        # Convert member_payments dict to list
+        result["customers"] = list(member_payments.values())
+
+        result["completed_at"] = frappe.utils.now()
+        result["summary"] = (
+            f"Retrieved {result['total_payments_found']} payments (last {days_back} days). "
+            f"{len(result['customers'])} members with payments, "
+            f"{len(result['orphaned_transactions'])} orphaned ({result['processable_orphaned_count']} processable). "
+            f"Total unprocessed: {result['total_new_payments']}"
+        )
+
+    except Exception as e:
+        result["error"] = str(e)
+        frappe.log_error(f"Global payments retrieval error: {e}", "Mollie Payment Processing")
+
+    return result
+
+
 # =============================================================================
 # MEMBERSHIP DUES PAYMENT PROCESSOR API ENDPOINTS
 # =============================================================================
@@ -74,7 +286,7 @@ def has_payment_processing_access():
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def retrieve_customer_payments_for_processing(customer_id, limit=250):
+def retrieve_customer_payments_for_processing(customer_id: str, limit: int = 250):
     """
     Retrieve all payment transactions for a customer ID with processing status.
 
@@ -101,7 +313,7 @@ def retrieve_customer_payments_for_processing(customer_id, limit=250):
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def batch_process_dues_payments(payment_ids, customer_id=None):
+def batch_process_dues_payments(payment_ids: str, customer_id: str = None):
     """
     Process selected membership dues payments in batch.
 
@@ -171,7 +383,12 @@ def batch_process_dues_payments(payment_ids, customer_id=None):
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_status_filter=None):
+def bulk_retrieve_all_member_payments(
+    days_back: int = 30,
+    max_payments: int = 5000,
+    payment_status_filter: str = None,
+    retrieval_mode: str = "customer",
+):
     """
     Bulk retrieve payments for all members with Mollie customer IDs.
 
@@ -182,6 +399,7 @@ def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_s
         days_back: Number of days back to check (default: 30)
         max_payments: Maximum total payments to retrieve (default: 5000)
         payment_status_filter: Optional filter ('paid', 'pending', 'all')
+        retrieval_mode: 'customer' (iterate members) or 'balance_transactions' (finds orphans)
 
     Returns:
         Dict with retrieval results including api_calls_made count
@@ -213,6 +431,15 @@ def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_s
         except (ValueError, TypeError):
             max_payments = 5000
 
+        # Validate retrieval_mode
+        if retrieval_mode not in ["customer", "global_payments"]:
+            retrieval_mode = "customer"
+
+        # Use global_payments mode to find all payments including orphans
+        if retrieval_mode == "global_payments":
+            return _retrieve_global_payments_with_orphans(days_back, max_payments, payment_status_filter)
+
+        # Default: use MollieDebugService for customer-based retrieval
         service = MollieDebugService()
         return service.bulk_retrieve_all_member_payments(days_back, max_payments, payment_status_filter)
 
@@ -223,7 +450,9 @@ def bulk_retrieve_all_member_payments(days_back=30, max_payments=5000, payment_s
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def bulk_process_member_payments(payment_ids, docstatus=0, payment_modes=None, create_bank_transactions=None):
+def bulk_process_member_payments(
+    payment_ids: str, docstatus: int = 0, payment_modes: str = None, create_bank_transactions: str = None
+):
     """
     Bulk process selected payments with intelligent per-payment mode selection.
 
@@ -382,3 +611,229 @@ def process_payment_batch_job(batch_num, payment_ids, docstatus, payment_modes, 
         payment_modes=payment_modes,
         job_id=tracking_id,
     )
+
+
+# =============================================================================
+# HISTORICAL PAYMENT RECOVERY API ENDPOINTS
+# =============================================================================
+
+
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def scan_incomplete_payments():
+    """
+    Scan for payments that are partially processed (missing documents).
+
+    Analyzes all Bank Transactions to find gaps where:
+    - Bank Transaction exists but Payment Entry is missing
+    - Bank Transaction exists but Sales Invoice is missing
+    - Bank Transaction and Payment Entry exist but are not linked
+
+    Returns:
+        Dict with gap analysis including statistics and detailed list
+    """
+    try:
+        if not has_payment_processing_access():
+            frappe.throw(_("Access denied"))
+
+        from verenigingen.utils.payment_processing_recovery import analyze_payment_gaps
+
+        result = analyze_payment_gaps()
+
+        # Enhance the result with additional UI-friendly data
+        result["has_gaps"] = result["total_bank_transactions"] > result["complete"]
+        result["completion_rate"] = (
+            round(result["complete"] / result["total_bank_transactions"] * 100, 1)
+            if result["total_bank_transactions"] > 0
+            else 100
+        )
+
+        # Group gaps by missing document type for easier filtering
+        gaps_by_type = {
+            "missing_invoice": [],
+            "missing_payment_entry": [],
+            "missing_both": [],
+            "missing_link": [],
+        }
+
+        for gap in result.get("gap_details", []):
+            missing = gap.get("missing", [])
+            if "Sales Invoice" in missing and "Payment Entry" in missing:
+                gaps_by_type["missing_both"].append(gap)
+            elif "Sales Invoice" in missing:
+                gaps_by_type["missing_invoice"].append(gap)
+            elif "Payment Entry" in missing:
+                gaps_by_type["missing_payment_entry"].append(gap)
+            elif "Bank Transaction → Payment Entry Link" in missing or "Sales Invoice Link" in missing:
+                gaps_by_type["missing_link"].append(gap)
+
+        result["gaps_by_type"] = gaps_by_type
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Scan incomplete payments error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def preview_payment_recovery(payment_ids: str = None, max_payments: int = 100):
+    """
+    Preview what documents would be created to complete partial payments.
+
+    Args:
+        payment_ids: Optional JSON list of specific payment IDs to preview.
+                    If None, previews all incomplete payments.
+        max_payments: Maximum number of payments to preview (default: 100)
+
+    Returns:
+        Dict with preview of what would be created for each payment
+    """
+    try:
+        if not has_payment_processing_access():
+            frappe.throw(_("Access denied"))
+
+        # Parse payment_ids if provided
+        if payment_ids and isinstance(payment_ids, str):
+            import html
+
+            try:
+                payment_ids = frappe.parse_json(html.unescape(payment_ids))
+            except (ValueError, TypeError):
+                payment_ids = None
+
+        from verenigingen.utils.payment_processing_recovery import complete_partial_payments
+
+        result = complete_partial_payments(
+            payment_ids=payment_ids,
+            dry_run=True,
+            max_payments=int(max_payments),
+        )
+
+        # Add summary statistics for UI
+        if result.get("results"):
+            would_create = {
+                "bank_transactions": 0,
+                "payment_entries": 0,
+                "sales_invoices": 0,
+                "links": 0,
+            }
+            for item in result["results"]:
+                for doc_type in item.get("would_create", []):
+                    if "Bank Transaction" in doc_type:
+                        would_create["bank_transactions"] += 1
+                    elif "Payment Entry" in doc_type:
+                        would_create["payment_entries"] += 1
+                    elif "Sales Invoice" in doc_type:
+                        would_create["sales_invoices"] += 1
+                    elif "Link" in doc_type:
+                        would_create["links"] += 1
+
+            result["would_create_summary"] = would_create
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Preview payment recovery error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def execute_payment_recovery(payment_ids: str = None, max_payments: int = 50):
+    """
+    Execute payment recovery to create missing documents.
+
+    Creates missing Bank Transactions, Payment Entries, and Sales Invoices
+    for partially processed payments.
+
+    Args:
+        payment_ids: Optional JSON list of specific payment IDs to process.
+                    If None, processes all incomplete payments.
+        max_payments: Maximum number of payments to process (default: 50)
+
+    Returns:
+        Dict with processing results including created documents
+
+    Security: Enforces smaller batch size than preview for safety
+    """
+    try:
+        if not has_payment_processing_access():
+            frappe.throw(_("Access denied"))
+
+        # Parse payment_ids if provided
+        if payment_ids and isinstance(payment_ids, str):
+            import html
+
+            try:
+                payment_ids = frappe.parse_json(html.unescape(payment_ids))
+            except (ValueError, TypeError):
+                payment_ids = None
+
+        # Validate payment IDs if provided
+        if payment_ids:
+            try:
+                validate_mollie_payment_ids(payment_ids)
+            except ValueError as e:
+                frappe.throw(str(e))
+
+        # Enforce reasonable batch size for live execution
+        max_payments = min(int(max_payments), 100)
+
+        from verenigingen.utils.payment_processing_recovery import complete_partial_payments
+
+        result = complete_partial_payments(
+            payment_ids=payment_ids,
+            dry_run=False,
+            max_payments=max_payments,
+        )
+
+        # Add execution summary
+        result["execution_summary"] = {
+            "documents_created": {
+                "bank_transactions": sum(1 for r in result.get("results", []) if r.get("bank_transaction")),
+                "payment_entries": sum(1 for r in result.get("results", []) if r.get("payment_entry")),
+                "sales_invoices": sum(1 for r in result.get("results", []) if r.get("sales_invoice")),
+            }
+        }
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Execute payment recovery error: {str(e)}")
+        return {"error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False, methods=["POST"])
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def get_payment_status(payment_id: str):
+    """
+    Get detailed processing status for a single payment.
+
+    Args:
+        payment_id: Mollie payment ID (tr_xxx format)
+
+    Returns:
+        Dict with complete status information for the payment
+    """
+    try:
+        if not has_payment_processing_access():
+            frappe.throw(_("Access denied"))
+
+        if not payment_id or not isinstance(payment_id, str):
+            frappe.throw(_("Invalid payment_id"))
+
+        # Validate format
+        try:
+            validate_mollie_payment_ids([payment_id])
+        except ValueError as e:
+            frappe.throw(str(e))
+
+        from verenigingen.utils.payment_processing_recovery import get_payment_processing_status
+
+        return get_payment_processing_status(payment_id)
+
+    except Exception as e:
+        frappe.log_error(f"Get payment status error: {str(e)}")
+        return {"error": str(e)}
