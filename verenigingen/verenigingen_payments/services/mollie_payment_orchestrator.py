@@ -23,6 +23,22 @@ from frappe.utils import getdate
 from verenigingen.services.billing.invoice_matcher import InvoiceMatchResult, find_matching_invoice
 
 
+def is_payment_successful(payment) -> bool:
+    """
+    Check if a Mollie payment is in a successful state.
+
+    Centralizes payment status checking to ensure consistent handling
+    across all processing methods.
+
+    Args:
+        payment: Mollie payment object
+
+    Returns:
+        True if payment status is 'paid', False otherwise
+    """
+    return getattr(payment, "status", None) == "paid"
+
+
 @dataclass
 class ProcessingStatus:
     """
@@ -353,7 +369,7 @@ class MolliePaymentOrchestrator:
                 payment = self.mollie_client.sdk_client.payments.get(payment_id)
 
             # Validate payment status
-            if payment.status != "paid":
+            if not is_payment_successful(payment):
                 result.status = "skipped"
                 result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
                 return result
@@ -461,6 +477,16 @@ class MolliePaymentOrchestrator:
                     result.actions_taken.append(
                         f"Linked BT {result.bank_transaction} to PE {result.payment_entry}"
                     )
+                else:
+                    # Log linking failure for troubleshooting - this indicates a reconciliation issue
+                    frappe.log_error(
+                        f"Failed to link BT {result.bank_transaction} to PE {result.payment_entry} "
+                        f"for payment {payment_id}",
+                        "Mollie BT-PE Link Failure",
+                    )
+                    result.actions_taken.append(
+                        f"Warning: Failed to link BT {result.bank_transaction} to PE {result.payment_entry}"
+                    )
 
             # Determine final status
             if result.bank_transaction or result.payment_entry:
@@ -499,7 +525,10 @@ class MolliePaymentOrchestrator:
         # Get configuration
         config = self.bt_creator.get_mollie_bank_account_config()
         if config.get("error"):
-            frappe.logger().error(f"Bank account config error: {config['error']}")
+            frappe.log_error(
+                f"Bank account config error: {config['error']}",
+                "Mollie Bank Account Config Error",
+            )
             return None
 
         # Get customer for party linking
@@ -583,7 +612,10 @@ class MolliePaymentOrchestrator:
                 result.actions_taken.append(f"Ensured Fiscal Year: {fiscal_year}")
         except Exception as fy_error:
             result.actions_taken.append(f"Cannot create invoice: missing fiscal year for {payment_date}")
-            frappe.logger().warning(f"Could not ensure fiscal year for {payment_date}: {fy_error}")
+            frappe.log_error(
+                f"Could not ensure fiscal year for {payment_date}: {fy_error}",
+                "Mollie Fiscal Year Error",
+            )
             return None
 
         # Safe to create
@@ -648,7 +680,7 @@ class MolliePaymentOrchestrator:
                 payment = self.mollie_client.sdk_client.payments.get(payment_id)
 
             # Validate payment status
-            if payment.status != "paid":
+            if not is_payment_successful(payment):
                 result.status = "skipped"
                 result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
                 return result
@@ -745,7 +777,7 @@ class MolliePaymentOrchestrator:
                 payment = self.mollie_client.sdk_client.payments.get(payment_id)
 
             # Validate payment status
-            if payment.status != "paid":
+            if not is_payment_successful(payment):
                 result.status = "skipped"
                 result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
                 return result
@@ -876,7 +908,10 @@ class MolliePaymentOrchestrator:
                 raise  # Re-raise if we still can't find it
 
         except Exception as e:
-            frappe.logger().warning(f"Could not fetch/create customer from Mollie {mollie_customer_id}: {e}")
+            frappe.log_error(
+                f"Could not fetch/create customer from Mollie {mollie_customer_id}: {e}",
+                "Mollie Customer Creation Error",
+            )
             result.actions_taken.append(f"Warning: Could not create Customer ({e})")
             return None
 
