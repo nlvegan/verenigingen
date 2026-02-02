@@ -2933,10 +2933,13 @@ class MollieDebugService(StatelessService):
                         invoice_name = matching_invoice
 
                 # Route based on processing mode
-                if processing_mode == "bt_only_orphaned":
-                    # Orphaned payment - create BT only, no member required
+                if processing_mode in ("bt_only_orphaned", "bt_only_anonymous"):
+                    # Orphaned/anonymous payment - create BT only, no member required
+                    # bt_only_orphaned: has Mollie customer ID, can create Customer
+                    # bt_only_anonymous: no customer ID, creates unlinked BT
                     processing_result = orchestrator.process_orphaned_payment(
                         payment_id=payment_id,
+                        allow_anonymous=True,
                     )
                 elif processing_mode == "bt_only":
                     # BT only mode - has member but no matching invoice

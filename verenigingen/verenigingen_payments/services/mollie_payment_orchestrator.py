@@ -663,19 +663,22 @@ class MolliePaymentOrchestrator:
         self,
         payment_id: str,
         payment: Optional[Any] = None,
+        allow_anonymous: bool = True,
     ) -> PaymentProcessingResult:
         """
         Process an orphaned payment (no member match) - creates Bank Transaction only.
 
         This handles payments that cannot be matched to a member but still need
         to be recorded for accounting purposes. It:
-        1. Finds or creates a Customer from Mollie customer data
-        2. Creates Bank Transaction linked to that Customer
+        1. Attempts to find or create a Customer from Mollie customer data (if available)
+        2. Creates Bank Transaction (linked to Customer if found, otherwise unlinked)
         3. Does NOT create Payment Entry or Sales Invoice
 
         Args:
             payment_id: Mollie payment ID
             payment: Optional pre-fetched Mollie payment object
+            allow_anonymous: If True, allows creating BT without Customer link when
+                           no Mollie customer ID exists (default: True)
 
         Returns:
             PaymentProcessingResult with processing outcome
@@ -705,15 +708,21 @@ class MolliePaymentOrchestrator:
                 result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
                 return result
 
-            # Get Mollie customer ID
+            # Get Mollie customer ID and try to find/create Customer
             mollie_customer_id = getattr(payment, "customer_id", None)
-            if not mollie_customer_id:
-                result.status = "error"
-                result.error = "Payment has no Mollie customer ID"
-                return result
+            customer_name = None
 
-            # Find or create Customer from Mollie data
-            customer_name = self._find_or_create_customer_from_mollie(mollie_customer_id, payment, result)
+            if mollie_customer_id:
+                # Try to find or create Customer from Mollie data
+                customer_name = self._find_or_create_customer_from_mollie(mollie_customer_id, payment, result)
+            elif not allow_anonymous:
+                # No customer ID and anonymous not allowed
+                result.status = "error"
+                result.error = "Payment has no Mollie customer ID and anonymous processing is disabled"
+                return result
+            else:
+                # Anonymous payment - no customer ID available
+                result.actions_taken.append("Anonymous payment (no Mollie customer ID)")
 
             # Get BT configuration
             config = self.bt_creator.get_mollie_bank_account_config()
@@ -722,12 +731,17 @@ class MolliePaymentOrchestrator:
                 result.error = f"Bank account config error: {config['error']}"
                 return result
 
+            # Build description based on available info
+            description_parts = ["Orphaned payment (no member match)"]
+            if not customer_name:
+                description_parts.append("NEEDS MANUAL REVIEW")
+
             # Create Bank Transaction
             bt_name = self.bt_creator.create_from_mollie_payment(
                 payment=payment,
                 bank_account=config["bank_account"],
                 company=config["company"],
-                additional_description=f"Orphaned payment (no member match)",
+                additional_description=" | ".join(description_parts),
                 party_type="Customer" if customer_name else None,
                 party=customer_name,
             )
@@ -738,6 +752,8 @@ class MolliePaymentOrchestrator:
                 result.actions_taken.append(f"Created Bank Transaction: {bt_name}")
                 if customer_name:
                     result.actions_taken.append(f"Linked to Customer: {customer_name}")
+                else:
+                    result.actions_taken.append("No party link - requires manual reconciliation")
             else:
                 result.status = "error"
                 result.error = "Failed to create Bank Transaction"

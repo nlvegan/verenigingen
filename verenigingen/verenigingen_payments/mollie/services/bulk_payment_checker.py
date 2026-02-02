@@ -1068,10 +1068,21 @@ class BulkPaymentChecker:
                     # If we can't match to a member/donor, mark as orphaned but still processable
                     if not member_name:
                         mollie_customer_id = getattr(payment, "customer_id", None)
-                        # Orphaned payments can still be processed if paid and EUR
-                        is_orphan_processable = (
-                            payment.status == "paid" and currency == "EUR" and mollie_customer_id
-                        )
+                        # Orphaned payments can be processed if paid and EUR
+                        # Allow processing even without customer_id (anonymous payments)
+                        is_orphan_processable = payment.status == "paid" and currency == "EUR"
+
+                        # Determine processing mode based on available data
+                        if is_orphan_processable:
+                            if mollie_customer_id:
+                                processing_mode = "bt_only_orphaned"
+                                reason = "Cannot match to any member (has Mollie customer)"
+                            else:
+                                processing_mode = "bt_only_anonymous"
+                                reason = "Anonymous payment (no member, no Mollie customer)"
+                        else:
+                            processing_mode = None
+                            reason = "Cannot match to any member or donor"
 
                         orphan_info = {
                             "payment_id": payment_id,
@@ -1085,9 +1096,9 @@ class BulkPaymentChecker:
                             "payment_type": payment_type,
                             "paid_at": str(getattr(payment, "paid_at", None)),
                             "created_at": str(getattr(payment, "created_at", None)),
-                            "reason": "Cannot match to any member or donor",
+                            "reason": reason,
                             "processable": is_orphan_processable,
-                            "processing_mode": "bt_only_orphaned" if is_orphan_processable else None,
+                            "processing_mode": processing_mode,
                         }
 
                         result["orphaned_transactions"].append(orphan_info)

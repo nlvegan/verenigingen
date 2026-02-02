@@ -1510,14 +1510,14 @@ function bulkSelectOrphanedOnly() {
     let count = 0;
     document.querySelectorAll('.bulk-payment-checkbox').forEach(cb => {
         const mode = cb.dataset.processingMode;
-        if (mode === 'bt_only_orphaned') {
+        if (mode === 'bt_only_orphaned' || mode === 'bt_only_anonymous') {
             cb.checked = true;
             count++;
         }
     });
 
     if (count === 0) {
-        alert('No processable orphaned payments found.\n\nOrphaned payments must be:\n• Status: paid\n• Currency: EUR\n• Have a Mollie customer ID');
+        alert('No processable orphaned payments found.\n\nOrphaned payments must be:\n• Status: paid\n• Currency: EUR');
         return;
     }
 

@@ -244,16 +244,26 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
                     result["total_new_payments"] += 1
             else:
                 # Orphaned payment - no member match
+                # Allow processing even without customer_id (anonymous payments)
                 is_orphan_processable = (
-                    payment.status == "paid"
-                    and not already_processed
-                    and currency == "EUR"
-                    and mollie_customer_id
+                    payment.status == "paid" and not already_processed and currency == "EUR"
                 )
 
+                # Determine processing mode based on available data
+                if is_orphan_processable:
+                    if mollie_customer_id:
+                        processing_mode = "bt_only_orphaned"
+                        reason = "Cannot match to any member (has Mollie customer)"
+                    else:
+                        processing_mode = "bt_only_anonymous"
+                        reason = "Anonymous payment (no member, no Mollie customer)"
+                else:
+                    processing_mode = None
+                    reason = "Cannot match to any member"
+
                 payment_info["processable"] = is_orphan_processable
-                payment_info["processing_mode"] = "bt_only_orphaned" if is_orphan_processable else None
-                payment_info["reason"] = "Cannot match to any member"
+                payment_info["processing_mode"] = processing_mode
+                payment_info["reason"] = reason
 
                 result["orphaned_transactions"].append(payment_info)
 
