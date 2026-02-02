@@ -2509,12 +2509,15 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
             consolidated_desc = "CONSOLIDATED MIXED INVOICE: " + "; ".join(item_descriptions)
 
             # Clear existing items and create single consolidated line
+            from .eboekhouden_improved_item_naming import get_or_create_generic_item
+
+            generic_item = get_or_create_generic_item(company)
             si.items = []
             si.append(
                 "items",
                 {
-                    "item_code": "EBH-SERVICE",
-                    "item_name": "E-Boekhouden Service Item",
+                    "item_code": generic_item,
+                    "item_name": "Consolidated E-Boekhouden Item",
                     "description": consolidated_desc[:500],  # Limit description length
                     "qty": -1 if calculated_total < 0 else 1,
                     "rate": abs(calculated_total),
@@ -3154,12 +3157,15 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
             consolidated_desc = "CONSOLIDATED MIXED INVOICE: " + "; ".join(item_descriptions)
 
             # Clear existing items and create single consolidated line
+            from .eboekhouden_improved_item_naming import get_or_create_generic_item
+
+            generic_item = get_or_create_generic_item(company)
             pi.items = []
             pi.append(
                 "items",
                 {
-                    "item_code": "EBH-SERVICE",
-                    "item_name": "E-Boekhouden Service Item",
+                    "item_code": generic_item,
+                    "item_name": "Consolidated E-Boekhouden Item",
                     "description": consolidated_desc[:500],  # Limit description length
                     "qty": -1 if calculated_total < 0 else 1,
                     "rate": abs(calculated_total),
