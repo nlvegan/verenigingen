@@ -30,6 +30,7 @@ def setup_critical_operation_rules():
         "critical_operation_rule.json",
         "critical_operation_rule_ponto_debug.json",
         "critical_operation_rule_balance_transactions.json",
+        "critical_operation_rule_payment_recovery.json",
     ]
 
     created_count = 0
