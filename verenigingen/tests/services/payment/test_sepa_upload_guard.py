@@ -579,3 +579,252 @@ class TestXMLCanonicalization(FrappeTestCase):
 
         self.assertIsInstance(result, str)
         self.assertEqual(len(result), 64, "Should return valid SHA256 hash")
+
+
+class TestPhantomHashAdminConcurrency(FrappeTestCase):
+    """
+    Tests for concurrent phantom hash administration operations.
+
+    These tests verify that:
+    1. Concurrent calls to mark_phantom_hash_abandoned() return idempotent results
+    2. Concurrent calls to retry_phantom_attachment() return idempotent results
+    3. Row locks prevent race conditions between operations
+    """
+
+    def setUp(self):
+        """Set up test fixtures"""
+        super().setUp()
+        self.guard = get_sepa_upload_guard()
+
+        # Create a test batch for phantom entry tests
+        self.test_batch_name = f"DD-PHANTOM-TEST-{frappe.utils.random_string(6)}"
+
+        # Check if Direct Debit Batch exists
+        if not frappe.db.exists("DocType", "Direct Debit Batch"):
+            self.skipTest("Direct Debit Batch DocType not available")
+
+    def _create_phantom_entry(self, batch_name: str = None) -> str:
+        """
+        Helper to create a phantom upload log entry for testing.
+
+        Args:
+            batch_name: Optional batch name, defaults to test batch
+
+        Returns:
+            Name of the created log entry
+        """
+        batch_name = batch_name or self.test_batch_name
+        file_hash = hashlib.sha256(f"test-content-{batch_name}".encode()).hexdigest()
+
+        log_entry = frappe.get_doc({
+            "doctype": "SEPA Batch Upload Log",
+            "batch_name": batch_name,
+            "file_hash": file_hash,
+            "upload_time": frappe.utils.now_datetime(),
+            "uploaded_by": "Administrator",
+            "file_size": 1024,
+            "batch_status": "Pending Upload",
+            "bank_status": "Rejected",
+            "bank_error_message": "Attachment failed: Test phantom entry",
+            "is_phantom": 1,
+            "hash_freed": 0,
+        })
+        log_entry.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return log_entry.name
+
+    def test_abandon_idempotency(self):
+        """
+        Calling mark_phantom_hash_abandoned twice should return success both times.
+
+        First call performs the abandonment, second call returns idempotent success.
+        """
+        from verenigingen.api.sepa_phantom_hash_admin import mark_phantom_hash_abandoned
+
+        # Create phantom entry
+        log_name = self._create_phantom_entry()
+
+        # First abandonment
+        result1 = mark_phantom_hash_abandoned(
+            log_name=log_name,
+            reason="Test abandonment - first call for idempotency test"
+        )
+
+        self.assertTrue(result1.get("success"))
+        self.assertFalse(result1.get("idempotent", False))
+
+        # Second abandonment should return idempotent success
+        result2 = mark_phantom_hash_abandoned(
+            log_name=log_name,
+            reason="Test abandonment - second call for idempotency test"
+        )
+
+        self.assertTrue(result2.get("success"))
+        self.assertTrue(result2.get("idempotent"))
+
+    def test_abandon_preserves_audit_trail(self):
+        """
+        Abandoning a phantom entry should preserve the record with audit fields.
+        """
+        from verenigingen.api.sepa_phantom_hash_admin import mark_phantom_hash_abandoned
+
+        # Create phantom entry
+        log_name = self._create_phantom_entry()
+        original_hash = frappe.db.get_value("SEPA Batch Upload Log", log_name, "file_hash")
+
+        # Abandon the entry
+        result = mark_phantom_hash_abandoned(
+            log_name=log_name,
+            reason="Audit trail test - verifying record preservation"
+        )
+
+        self.assertTrue(result.get("success"))
+
+        # Verify record still exists with audit fields
+        log_entry = frappe.get_doc("SEPA Batch Upload Log", log_name)
+
+        self.assertEqual(log_entry.bank_status, "Abandoned")
+        self.assertEqual(log_entry.is_phantom, 0)
+        self.assertEqual(log_entry.hash_freed, 1)
+        self.assertEqual(log_entry.abandoned_by, frappe.session.user)
+        self.assertIsNotNone(log_entry.abandoned_time)
+        self.assertIn("Audit trail test", log_entry.abandoned_reason)
+        # Original hash should still be stored for audit
+        self.assertEqual(log_entry.file_hash, original_hash)
+
+    def test_freed_hash_allows_reupload(self):
+        """
+        After a phantom entry is abandoned (hash_freed=1), the same hash should be
+        allowed for a new upload.
+        """
+        from verenigingen.api.sepa_phantom_hash_admin import mark_phantom_hash_abandoned
+
+        # Create phantom entry with specific content using factory method
+        test_content = f"reupload-test-{frappe.utils.random_string(8)}".encode()
+        file_hash = self.guard._compute_file_hash(test_content)
+        log_name = self._create_phantom_entry_with_hash(file_hash, len(test_content))
+
+        # Abandon the entry to free the hash
+        result = mark_phantom_hash_abandoned(
+            log_name=log_name,
+            reason="Freeing hash for reupload test"
+        )
+        self.assertTrue(result.get("success"))
+
+        # Now the same content should be allowed for upload
+        check_result = self.guard.check_upload_allowed(test_content, "NEW-BATCH-001")
+
+        self.assertTrue(
+            check_result.success,
+            f"Freed hash should allow reupload. Got: {check_result.message}"
+        )
+
+    def _create_phantom_entry_with_hash(self, file_hash: str, file_size: int) -> str:
+        """
+        Factory method to create a phantom entry with a specific hash.
+
+        Args:
+            file_hash: The specific file hash to use
+            file_size: Size of the file in bytes
+
+        Returns:
+            Name of the created log entry
+        """
+        log_entry = frappe.get_doc({
+            "doctype": "SEPA Batch Upload Log",
+            "batch_name": self.test_batch_name,
+            "file_hash": file_hash,
+            "upload_time": frappe.utils.now_datetime(),
+            "uploaded_by": "Administrator",
+            "file_size": file_size,
+            "batch_status": "Pending Upload",
+            "bank_status": "Rejected",
+            "bank_error_message": "Attachment failed: Test phantom entry",
+            "is_phantom": 1,
+            "hash_freed": 0,
+        })
+        log_entry.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return log_entry.name
+
+    def test_concurrent_abandon_operations_safe(self):
+        """
+        Simulated concurrent abandon operations should be safe - only one succeeds
+        in performing the operation, others get idempotent success.
+
+        Note: This is a simplified sequential test. True concurrent testing
+        requires threading which has limitations in Frappe test context.
+        """
+        from verenigingen.api.sepa_phantom_hash_admin import mark_phantom_hash_abandoned
+
+        # Create phantom entry
+        log_name = self._create_phantom_entry()
+
+        # Simulate rapid sequential calls (approximates concurrent behavior)
+        results = []
+        for i in range(3):
+            result = mark_phantom_hash_abandoned(
+                log_name=log_name,
+                reason=f"Concurrent test call {i+1}"
+            )
+            results.append(result)
+
+        # All should succeed (first actual, rest idempotent)
+        for result in results:
+            self.assertTrue(result.get("success"))
+
+        # Only first should NOT be idempotent
+        self.assertFalse(results[0].get("idempotent", False))
+        for result in results[1:]:
+            self.assertTrue(result.get("idempotent"))
+
+    def test_row_lock_prevents_parallel_modifications(self):
+        """
+        Test that the FOR UPDATE row lock is being acquired.
+
+        We verify this indirectly by checking that the _acquire_row_lock function
+        returns the expected data structure.
+        """
+        from verenigingen.api.sepa_phantom_hash_admin import _acquire_row_lock
+
+        # Create phantom entry
+        log_name = self._create_phantom_entry()
+
+        # Start transaction and acquire lock
+        frappe.db.begin()
+        try:
+            locked_row = _acquire_row_lock(log_name)
+
+            # Verify lock returns expected fields
+            self.assertIsNotNone(locked_row)
+            self.assertEqual(locked_row.get("name"), log_name)
+            self.assertEqual(locked_row.get("is_phantom"), 1)
+            self.assertEqual(locked_row.get("bank_status"), "Rejected")
+            self.assertIn("hash_freed", locked_row)
+
+        finally:
+            frappe.db.rollback()
+
+    def test_truncate_error_message(self):
+        """Test that error messages are truncated to prevent sensitive info leakage."""
+        from verenigingen.api.sepa_phantom_hash_admin import _truncate_error_message
+
+        # Test normal message
+        short_msg = "Simple error"
+        self.assertEqual(_truncate_error_message(short_msg), "Simple error")
+
+        # Test multiline message (should take first line only)
+        multiline = "Error on line 1\nTraceback follows\n  at file.py:123"
+        self.assertEqual(_truncate_error_message(multiline), "Error on line 1")
+
+        # Test very long message (should truncate)
+        long_msg = "A" * 300
+        result = _truncate_error_message(long_msg)
+        self.assertLessEqual(len(result), 200)
+        self.assertTrue(result.endswith("..."))
+
+        # Test empty message
+        self.assertEqual(_truncate_error_message(""), "")
+        self.assertEqual(_truncate_error_message(None), "")

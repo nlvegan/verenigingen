@@ -7,6 +7,10 @@ investigation and resolution to prevent blocking legitimate re-uploads.
 
 Security: All endpoints require System Manager or Accounts Manager role.
 
+Thread Safety:
+    All mutation operations use SELECT ... FOR UPDATE to acquire row locks,
+    preventing race conditions between concurrent workers.
+
 Author: Verenigingen Development Team
 """
 
@@ -26,6 +30,58 @@ STATUS_PENDING = "Pending"
 STATUS_REJECTED = "Rejected"
 STATUS_ABANDONED = "Abandoned"
 STATUS_RESOLVED = "Resolved"
+
+# Maximum length for error messages stored in bank_error_message field
+# Prevents sensitive info leakage from full stack traces
+MAX_ERROR_MESSAGE_LENGTH = 200
+
+
+def _truncate_error_message(error: str) -> str:
+    """
+    Truncate error message to prevent sensitive info leakage.
+
+    Takes only the first line and limits total length.
+
+    Args:
+        error: Full error message or exception string
+
+    Returns:
+        Truncated error message safe for storage
+    """
+    if not error:
+        return ""
+    # Take first line only (no stack traces)
+    first_line = str(error).split("\n")[0].strip()
+    # Truncate to max length
+    if len(first_line) > MAX_ERROR_MESSAGE_LENGTH:
+        return first_line[: MAX_ERROR_MESSAGE_LENGTH - 3] + "..."
+    return first_line
+
+
+def _acquire_row_lock(log_name: str) -> Optional[Dict]:
+    """
+    Acquire exclusive row lock on upload log entry using SELECT ... FOR UPDATE.
+
+    This prevents race conditions where two concurrent workers might both
+    read and operate on the same row.
+
+    Args:
+        log_name: Name of the SEPA Batch Upload Log entry
+
+    Returns:
+        Dict with row data if found, None if row doesn't exist
+    """
+    result = frappe.db.sql(
+        """
+        SELECT name, bank_status, is_phantom, file_hash, batch_name, hash_freed
+        FROM `tabSEPA Batch Upload Log`
+        WHERE name = %s
+        FOR UPDATE
+        """,
+        (log_name,),
+        as_dict=True,
+    )
+    return result[0] if result else None
 
 
 @frappe.whitelist()
@@ -173,12 +229,16 @@ def mark_phantom_hash_abandoned(
     """
     Mark a phantom hash entry as abandoned after manual investigation.
 
-    This frees up the hash for future uploads. Use this when:
+    This frees up the hash for future uploads by setting hash_freed=1.
+    The log entry is preserved for audit trail purposes.
+
+    Use this when:
     - The original batch was cancelled or recreated
     - The issue was resolved manually outside the system
     - After confirming no duplicate upload risk
 
-    Idempotent: Returns success if already abandoned/deleted.
+    Thread-safe: Uses SELECT ... FOR UPDATE to acquire row lock.
+    Idempotent: Returns success if already abandoned.
 
     Args:
         log_name: Name of the SEPA Batch Upload Log entry
@@ -192,55 +252,82 @@ def mark_phantom_hash_abandoned(
     if not reason or len(reason.strip()) < 10:
         frappe.throw(_("Reason must be at least 10 characters for audit purposes."))
 
-    # Use transaction with lock to prevent concurrent operations
+    # Use transaction with row lock to prevent concurrent operations
     frappe.db.begin()
     try:
-        # Check if entry still exists (idempotency)
-        if not frappe.db.exists("SEPA Batch Upload Log", log_name):
+        # Acquire exclusive row lock (blocks other workers)
+        locked_row = _acquire_row_lock(log_name)
+
+        # Check if entry exists (idempotency)
+        if not locked_row:
             frappe.db.rollback()
             return {
                 "success": True,
-                "message": _("Entry already deleted (idempotent success)."),
-                "deleted_entry": log_name,
+                "message": _("Entry not found (idempotent success)."),
+                "log_name": log_name,
                 "idempotent": True,
             }
 
-        log_entry = frappe.get_doc("SEPA Batch Upload Log", log_name)
-
-        # Check if already resolved (idempotency)
-        if log_entry.bank_status == STATUS_ABANDONED:
+        # Check if already abandoned (idempotency)
+        if locked_row.get("bank_status") == STATUS_ABANDONED:
             frappe.db.rollback()
             return {
                 "success": True,
                 "message": _("Entry already abandoned (idempotent success)."),
-                "deleted_entry": log_name,
+                "log_name": log_name,
+                "idempotent": True,
+            }
+
+        # Check if hash already freed (idempotency)
+        if locked_row.get("hash_freed"):
+            frappe.db.rollback()
+            return {
+                "success": True,
+                "message": _("Hash already freed (idempotent success)."),
+                "log_name": log_name,
                 "idempotent": True,
             }
 
         # Verify this is a phantom entry
-        if not log_entry.is_phantom:
+        if not locked_row.get("is_phantom"):
             frappe.db.rollback()
             frappe.throw(_("This entry is not a phantom hash (is_phantom=0)."))
 
-        # Log the abandonment before deletion (for audit trail)
-        file_hash = log_entry.file_hash
+        file_hash = locked_row.get("file_hash", "")
+
+        # Update the log entry - keep for audit, mark as abandoned, free the hash
+        frappe.db.set_value(
+            "SEPA Batch Upload Log",
+            log_name,
+            {
+                "bank_status": STATUS_ABANDONED,
+                "is_phantom": 0,
+                "hash_freed": 1,
+                "abandoned_by": frappe.session.user,
+                "abandoned_time": frappe.utils.now(),
+                "abandoned_reason": reason[:500],  # Limit reason length
+                "bank_error_message": (
+                    f"ABANDONED: {_truncate_error_message(reason)} "
+                    f"[by {frappe.session.user} at {frappe.utils.now()}]"
+                ),
+            },
+            update_modified=True,
+        )
+        frappe.db.commit()
+
         frappe.logger().info(
             f"Phantom hash entry {log_name} abandoned by {frappe.session.user}. "
             f"Reason: {reason}. Hash {file_hash[:16]}... freed for re-upload."
         )
 
-        # Delete the log entry to free up the hash
-        frappe.delete_doc("SEPA Batch Upload Log", log_name, ignore_permissions=True)
-        frappe.db.commit()
-
         return {
             "success": True,
-            "message": _("Phantom hash entry abandoned and deleted. Hash is now available for re-upload."),
-            "deleted_entry": log_name,
-            "freed_hash": file_hash[:16] + "...",
+            "message": _("Phantom hash entry abandoned. Hash is now available for re-upload."),
+            "log_name": log_name,
+            "freed_hash": file_hash[:16] + "..." if file_hash else None,
         }
 
-    except Exception as e:
+    except Exception:
         frappe.db.rollback()
         raise
 
@@ -256,8 +343,8 @@ def retry_phantom_attachment(
     This attempts to regenerate and attach the SEPA XML file for the
     associated batch. The hash reservation remains in place.
 
+    Thread-safe: Uses SELECT ... FOR UPDATE to acquire row lock.
     Idempotent: Returns success if already resolved.
-    Thread-safe: Uses transaction with status checks.
 
     Args:
         log_name: Name of the SEPA Batch Upload Log entry
@@ -267,18 +354,19 @@ def retry_phantom_attachment(
     """
     frappe.only_for(["System Manager", "Accounts Manager"])
 
-    # Use transaction to prevent race conditions
+    # Use transaction with row lock to prevent race conditions
     frappe.db.begin()
     try:
+        # Acquire exclusive row lock (blocks other workers)
+        locked_row = _acquire_row_lock(log_name)
+
         # Check if entry exists
-        if not frappe.db.exists("SEPA Batch Upload Log", log_name):
+        if not locked_row:
             frappe.db.rollback()
             frappe.throw(_("Log entry '{0}' not found.").format(log_name))
 
-        log_entry = frappe.get_doc("SEPA Batch Upload Log", log_name)
-
         # Check if already resolved (idempotency)
-        if log_entry.bank_status == STATUS_RESOLVED:
+        if locked_row.get("bank_status") == STATUS_RESOLVED:
             frappe.db.rollback()
             return {
                 "success": True,
@@ -287,33 +375,46 @@ def retry_phantom_attachment(
                 "idempotent": True,
             }
 
+        # Check if hash already freed (shouldn't retry freed hashes)
+        if locked_row.get("hash_freed"):
+            frappe.db.rollback()
+            frappe.throw(_("Cannot retry: hash has been freed. Entry was abandoned."))
+
         # Verify this is a phantom entry
-        if not log_entry.is_phantom:
+        if not locked_row.get("is_phantom"):
             frappe.db.rollback()
             frappe.throw(_("This entry is not a phantom hash (is_phantom=0)."))
 
+        batch_name = locked_row.get("batch_name")
+
         # Get the batch
-        if not log_entry.batch_name:
+        if not batch_name:
             frappe.db.rollback()
             frappe.throw(_("No batch associated with this entry."))
 
         try:
-            batch = frappe.get_doc("Direct Debit Batch", log_entry.batch_name)
+            batch = frappe.get_doc("Direct Debit Batch", batch_name)
         except frappe.DoesNotExistError:
             frappe.db.rollback()
-            frappe.throw(_("Batch '{0}' no longer exists.").format(log_entry.batch_name))
+            frappe.throw(_("Batch '{0}' no longer exists.").format(batch_name))
 
         # Check if batch already has a file
         if batch.sepa_file:
             # Update log to reflect file exists and clear phantom flag
-            log_entry.bank_status = STATUS_RESOLVED
-            log_entry.is_phantom = 0
-            log_entry.bank_error_message = (
-                f"RESOLVED: File already attached to batch. "
-                f"Updated by {frappe.session.user} at {frappe.utils.now()}"
+            frappe.db.set_value(
+                "SEPA Batch Upload Log",
+                log_name,
+                {
+                    "bank_status": STATUS_RESOLVED,
+                    "is_phantom": 0,
+                    "bank_error_message": (
+                        f"RESOLVED: File already attached to batch. "
+                        f"[by {frappe.session.user} at {frappe.utils.now()}]"
+                    ),
+                    "file_name": batch.sepa_file.split("/")[-1] if batch.sepa_file else None,
+                },
+                update_modified=True,
             )
-            log_entry.file_name = batch.sepa_file.split("/")[-1] if batch.sepa_file else None
-            log_entry.save(ignore_permissions=True)
             frappe.db.commit()
 
             return {
@@ -323,11 +424,17 @@ def retry_phantom_attachment(
                 "log_updated": True,
             }
 
-        # Mark as in-progress to prevent concurrent retries
-        log_entry.bank_error_message = (
-            f"Retry in progress by {frappe.session.user} at {frappe.utils.now()}..."
+        # Mark as in-progress to prevent concurrent retries (within lock)
+        frappe.db.set_value(
+            "SEPA Batch Upload Log",
+            log_name,
+            {
+                "bank_error_message": (
+                    f"[RETRY_IN_PROGRESS] by {frappe.session.user} at {frappe.utils.now()}"
+                ),
+            },
+            update_modified=True,
         )
-        log_entry.save(ignore_permissions=True)
         frappe.db.commit()
 
         # Attempt to regenerate the file (outside transaction for performance)
@@ -361,23 +468,31 @@ def retry_phantom_attachment(
                 if os.path.exists(temp_file_path):
                     os.remove(temp_file_path)
 
-            # Update batch and log entry in transaction
+            # Update batch and log entry in transaction with lock
             frappe.db.begin()
+
+            # Re-acquire lock to ensure consistency
+            _acquire_row_lock(log_name)
+
             batch.db_set("sepa_file", file_url)
             batch.db_set("sepa_file_generated", 1)
             if batch.status == "Approved":
                 batch.db_set("status", "Generated")
 
-            # Reload log entry and update (may have been modified)
-            log_entry.reload()
-            log_entry.bank_status = STATUS_RESOLVED
-            log_entry.is_phantom = 0
-            log_entry.bank_error_message = (
-                f"RESOLVED: Attachment retried successfully by {frappe.session.user} "
-                f"at {frappe.utils.now()}"
+            frappe.db.set_value(
+                "SEPA Batch Upload Log",
+                log_name,
+                {
+                    "bank_status": STATUS_RESOLVED,
+                    "is_phantom": 0,
+                    "bank_error_message": (
+                        f"RESOLVED: Attachment retried successfully "
+                        f"[by {frappe.session.user} at {frappe.utils.now()}]"
+                    ),
+                    "file_name": f"sepa-{batch.name}.xml",
+                },
+                update_modified=True,
             )
-            log_entry.file_name = f"sepa-{batch.name}.xml"
-            log_entry.save(ignore_permissions=True)
             frappe.db.commit()
 
             frappe.logger().info(
@@ -393,18 +508,27 @@ def retry_phantom_attachment(
             }
 
         except Exception as e:
-            # Update log entry with failure message
+            # Update log entry with truncated failure message
+            error_msg = _truncate_error_message(str(e))
             frappe.db.begin()
             try:
-                log_entry.reload()
-                log_entry.bank_error_message = (
-                    f"Retry failed by {frappe.session.user} at {frappe.utils.now()}: {str(e)}"
+                _acquire_row_lock(log_name)
+                frappe.db.set_value(
+                    "SEPA Batch Upload Log",
+                    log_name,
+                    {
+                        "bank_error_message": (
+                            f"Retry failed: {error_msg} "
+                            f"[by {frappe.session.user} at {frappe.utils.now()}]"
+                        ),
+                    },
+                    update_modified=True,
                 )
-                log_entry.save(ignore_permissions=True)
                 frappe.db.commit()
             except Exception:
                 frappe.db.rollback()
 
+            # Log full error server-side (not in DB)
             frappe.log_error(
                 f"Retry attachment failed for phantom entry {log_name}: {str(e)}\n"
                 f"Traceback: {frappe.get_traceback()}",
@@ -413,11 +537,11 @@ def retry_phantom_attachment(
 
             return {
                 "success": False,
-                "message": _("Retry failed: {0}").format(str(e)),
-                "error": str(e),
+                "message": _("Retry failed: {0}").format(error_msg),
+                "error": error_msg,
             }
 
-    except Exception as e:
+    except Exception:
         frappe.db.rollback()
         raise
 

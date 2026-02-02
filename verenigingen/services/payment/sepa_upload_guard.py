@@ -151,6 +151,9 @@ class SEPAUploadGuard(StatelessService):
         """
         Find an existing upload log entry by file hash.
 
+        Excludes entries where hash_freed=1 (abandoned phantom entries),
+        allowing the same content to be re-uploaded after manual investigation.
+
         Args:
             file_hash: SHA256 hash to search for
 
@@ -159,7 +162,10 @@ class SEPAUploadGuard(StatelessService):
         """
         existing = frappe.db.get_value(
             self.UPLOAD_LOG_DOCTYPE,
-            filters={"file_hash": file_hash},
+            filters={
+                "file_hash": file_hash,
+                "hash_freed": 0,  # Ignore freed hashes (abandoned phantom entries)
+            },
             fieldname=["batch_name", "upload_time"],
             as_dict=True,
         )

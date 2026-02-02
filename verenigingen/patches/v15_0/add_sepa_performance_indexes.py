@@ -101,6 +101,19 @@ def execute():
             "columns": ["parent", "usage_date", "sequence_type"],
             "description": "Optimize sequence type determination",
         },
+        # SEPA Batch Upload Log indexes (phantom hash management)
+        {
+            "table": "tabSEPA Batch Upload Log",
+            "index_name": "idx_sepa_upload_is_phantom",
+            "columns": ["is_phantom", "bank_status"],
+            "description": "Optimize phantom entry queries for admin tools",
+        },
+        {
+            "table": "tabSEPA Batch Upload Log",
+            "index_name": "idx_sepa_upload_hash_freed",
+            "columns": ["file_hash", "hash_freed"],
+            "description": "Optimize duplicate detection excluding freed hashes",
+        },
     ]
 
     print("Starting SEPA performance index migration...")
