@@ -1572,7 +1572,19 @@ function bulkUpdateSelectedCount() {
     document.getElementById('bulk-selected-count').querySelector('span').textContent = count;
 }
 
+// Debounce flag to prevent duplicate submissions
+let bulkProcessingInProgress = false;
+
 function bulkProcessSelectedPayments() {
+    // Prevent duplicate submissions
+    if (bulkProcessingInProgress) {
+        frappe.show_alert({
+            message: __('Processing already in progress. Please wait...'),
+            indicator: 'orange'
+        });
+        return;
+    }
+
     const checkboxes = document.querySelectorAll('.bulk-payment-checkbox:checked');
     if (checkboxes.length === 0) {
         alert('Please select at least one payment to process');
@@ -1621,8 +1633,16 @@ function bulkProcessSelectedPayments() {
         return;
     }
 
+    // Set debounce flag and disable button
+    bulkProcessingInProgress = true;
+    const processBtn = document.querySelector('button[onclick="bulkProcessSelectedPayments()"]');
+    if (processBtn) {
+        processBtn.disabled = true;
+        processBtn.textContent = 'Processing...';
+    }
+
     document.getElementById('bulk-processing-results').style.display = 'block';
-    document.getElementById('bulk-processing-results').textContent = 'Processing payments...';
+    document.getElementById('bulk-processing-results').textContent = 'Processing payments... (please wait, do not click again)';
 
     const formData = new FormData();
     formData.append('payment_ids', JSON.stringify(paymentIds));
@@ -1683,6 +1703,15 @@ function bulkProcessSelectedPayments() {
         document.getElementById('bulk-processing-results').textContent = errorText;
         document.getElementById('bulk-processing-results').style.display = 'block';
         console.error('Bulk processing error:', error);
+    })
+    .finally(() => {
+        // Reset debounce flag and re-enable button
+        bulkProcessingInProgress = false;
+        const processBtn = document.querySelector('button[onclick="bulkProcessSelectedPayments()"]');
+        if (processBtn) {
+            processBtn.disabled = false;
+            processBtn.textContent = 'Process Selected Payments';
+        }
     });
 }
 

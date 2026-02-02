@@ -172,6 +172,8 @@ def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
     """
     Find payments that are partially processed (missing one or more documents).
 
+    Uses the orchestrator's status check for consistency with process_payment().
+
     Args:
         payment_ids: Optional list of payment IDs to check. If None, checks all recent payments.
 
@@ -210,18 +212,26 @@ def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
         """
         )
 
+    # Use orchestrator's status check for consistency with process_payment()
+    from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
+        get_payment_orchestrator,
+    )
+
+    orchestrator = get_payment_orchestrator()
+
     for payment_id in payment_ids:
-        status = get_payment_processing_status(payment_id)
+        # Use orchestrator's status check - same logic as process_payment() uses
+        status = orchestrator.get_processing_status(payment_id)
         result["total_checked"] += 1
 
-        if status["status"] == "complete":
+        if status.status == "complete":
             result["complete"] += 1
-        elif status["status"] == "partial":
+        elif status.status == "partial":
             result["partial"] += 1
-            result["incomplete_payments"].append(status)
+            result["incomplete_payments"].append(status.to_dict())
         else:
             result["unprocessed"] += 1
-            result["incomplete_payments"].append(status)
+            result["incomplete_payments"].append(status.to_dict())
 
     return result
 
