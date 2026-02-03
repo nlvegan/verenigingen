@@ -780,9 +780,8 @@
                     <div class="pt-6 border-t border-gray-200" id="bank-setup-form" style="display: none;">
                         <h4 class="text-lg font-semibold text-gray-900 mb-4">{{ _("Set Up Bank Details") }}</h4>
 
-                        <form method="post" action="/api/method/verenigingen.templates.pages.bank_details.update_bank_details" id="bank-details-form" class="space-y-6">
+                        <form method="post" id="bank-details-form" class="space-y-6" onsubmit="return submitBankDetailsForm(event)">
                             <input type="hidden" name="csrf_token" value="{{ frappe.session.csrf_token }}">
-                            <input type="hidden" name="enable_direct_debit" value="1">
 
                             <div>
                                 <label for="iban" class="block text-sm font-medium text-gray-700 mb-2">
@@ -1543,6 +1542,69 @@ function downloadReceipt(paymentId) {
             }
         }
     });
+}
+
+// SEPA Direct Debit setup form submission
+function submitBankDetailsForm(event) {
+    event.preventDefault();
+
+    const form = document.getElementById('bank-details-form');
+    const iban = document.getElementById('iban').value.trim();
+    const accountHolderName = document.getElementById('account_holder_name').value.trim();
+
+    // Basic validation
+    if (!iban) {
+        showMessage(__("Please enter your IBAN"), 'error');
+        return false;
+    }
+    if (!accountHolderName) {
+        showMessage(__("Please enter the account holder name"), 'error');
+        return false;
+    }
+
+    // Show loading state
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>' + __("Setting up...");
+    submitBtn.disabled = true;
+
+    frappe.call({
+        method: 'verenigingen.api.member.sepa_api.setup_sepa_direct_debit',
+        args: {
+            iban: iban,
+            account_holder_name: accountHolderName
+        },
+        callback: function(r) {
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+
+            if (r.message && r.message.success) {
+                showMessage(r.message.message || __("SEPA Direct Debit set up successfully!"), 'success');
+                hideBankSetupForm();
+
+                // Reload the page to show updated mandate info
+                if (r.message.redirect) {
+                    setTimeout(function() {
+                        window.location.href = r.message.redirect;
+                    }, 1500);
+                } else {
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1500);
+                }
+            } else {
+                const errorMsg = r.message && r.message.error ? r.message.error : __("Failed to set up SEPA Direct Debit");
+                showMessage(errorMsg, 'error');
+            }
+        },
+        error: function(r) {
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+            showMessage(__("An error occurred. Please try again or contact support."), 'error');
+        }
+    });
+
+    return false;
 }
 
 // Export functions

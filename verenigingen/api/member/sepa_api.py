@@ -278,3 +278,152 @@ def validate_mandate_creation(member, iban, mandate_id):
         if result.errors:
             response["errors"] = result.errors
         return response
+
+
+@frappe.whitelist(allow_guest=False)
+@critical_api(operation_type=OperationType.FINANCIAL)
+def setup_sepa_direct_debit(iban: str = None, account_holder_name: str = None):
+    """
+    Set up SEPA Direct Debit for the current member.
+
+    Creates or updates bank details and creates a new SEPA mandate.
+
+    Args:
+        iban: International Bank Account Number
+        account_holder_name: Name on the bank account
+
+    Returns:
+        Dict with success status and mandate details
+    """
+    from frappe.utils import today
+
+    from verenigingen.utils.member_utils import (
+        get_current_user_member_name_required,
+        validate_member_ownership,
+    )
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
+
+    # Get form data if not provided as parameters
+    if not iban:
+        iban = frappe.local.form_dict.get("iban", "")
+    if not account_holder_name:
+        account_holder_name = frappe.local.form_dict.get("account_holder_name", "")
+
+    # Clean input
+    iban = iban.replace(" ", "").upper().strip() if iban else ""
+    account_holder_name = account_holder_name.strip() if account_holder_name else ""
+
+    # Validate required fields
+    if not iban:
+        return {"success": False, "error": _("IBAN is required")}
+    if not account_holder_name:
+        return {"success": False, "error": _("Account holder name is required")}
+
+    # Validate IBAN format
+    validation_result = validate_iban(iban)
+    if not validation_result.get("valid"):
+        return {"success": False, "error": validation_result.get("message", _("Invalid IBAN format"))}
+
+    # Get and validate member
+    member_name = get_current_user_member_name_required()
+    validate_member_ownership(member_name, _("You can only update your own bank details"))
+
+    member = frappe.get_doc("Member", member_name)
+
+    # Derive BIC for Dutch IBANs
+    bic = derive_bic_from_iban(iban) or ""
+
+    try:
+        # Update member bank details
+        member.iban = iban
+        member.bic = bic
+        member.bank_account_name = account_holder_name
+        member.payment_method = "SEPA Direct Debit"
+        member.save()
+
+        # Check for existing active mandate with same IBAN
+        existing_mandate = frappe.get_all(
+            "SEPA Mandate",
+            filters={"member": member_name, "iban": iban, "status": "Active", "is_active": 1},
+            fields=["name", "mandate_id"],
+            limit=1,
+        )
+
+        if existing_mandate:
+            # Mandate already exists for this IBAN
+            return {
+                "success": True,
+                "message": _("Bank details updated. Your existing SEPA mandate remains active."),
+                "mandate_id": existing_mandate[0].mandate_id,
+                "redirect": "/payment_dashboard?success=bank_details_updated",
+            }
+
+        # Deactivate any other active mandates for this member
+        old_mandates = frappe.get_all(
+            "SEPA Mandate",
+            filters={"member": member_name, "status": "Active", "is_active": 1},
+            fields=["name"],
+        )
+        for old in old_mandates:
+            old_doc = frappe.get_doc("SEPA Mandate", old.name)
+            old_doc.status = "Cancelled"
+            old_doc.is_active = 0
+            old_doc.save()
+
+        # Generate unique mandate ID
+        mandate_id = _generate_sepa_mandate_id(member_name)
+
+        # Create new SEPA mandate
+        mandate = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": mandate_id,
+                "member": member_name,
+                "account_holder_name": account_holder_name,
+                "iban": iban,
+                "bic": bic,
+                "status": "Active",
+                "is_active": 1,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "sign_date": today(),
+                "first_collection_date": frappe.utils.add_days(today(), 5),
+                "used_for_memberships": 1,
+                "frequency": "Monthly",
+            }
+        )
+        mandate.insert()
+
+        frappe.db.commit()
+
+        frappe.logger().info(
+            f"SEPA mandate {mandate_id} created for member {member_name} by user {frappe.session.user}"
+        )
+
+        return {
+            "success": True,
+            "message": _("SEPA Direct Debit has been set up successfully. Your mandate is now active."),
+            "mandate_id": mandate_id,
+            "mandate_name": mandate.name,
+            "redirect": "/payment_dashboard?success=sepa_mandate_created",
+        }
+
+    except Exception as e:
+        frappe.log_error(f"SEPA setup failed for member {member_name}: {str(e)}", "SEPA Setup Error")
+        return {"success": False, "error": _("Failed to set up SEPA Direct Debit: {0}").format(str(e))}
+
+
+def _generate_sepa_mandate_id(member_name: str) -> str:
+    """Generate a unique SEPA mandate ID."""
+    from frappe.utils import today
+
+    # Format: SEPA-YYYYMMDD-XXXX where XXXX is a sequence number
+    date_part = today().replace("-", "")
+
+    # Get count of mandates created today
+    today_count = frappe.db.count(
+        "SEPA Mandate",
+        filters={"creation": [">=", today()]},
+    )
+
+    return f"SEPA-{date_part}-{str(today_count + 1).zfill(4)}"
