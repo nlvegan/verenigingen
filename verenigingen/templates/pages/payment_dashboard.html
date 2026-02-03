@@ -530,12 +530,14 @@
                                     <span class="text-sm font-medium">{{ _(current_schedule.contribution_mode) if current_schedule.contribution_mode else '-' }}</span>
                                 </div>
                                 <div class="flex justify-between">
-                                    <span class="text-sm text-gray-600">{{ _("Billing Frequency") }}</span>
-                                    <span class="text-sm font-medium">{{ _(current_schedule.billing_frequency) }}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-sm text-gray-600">{{ _("Monthly Amount") }}</span>
-                                    <span class="text-sm font-medium">{{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"}) }}</span>
+                                    <span class="text-sm text-gray-600">{{ _("Dues Rate") }}</span>
+                                    <span class="text-sm font-medium">
+                                        {% set frequency_label = {"Monthly": _("month"), "Quarterly": _("quarter"), "Semi-Annual": _("6 months"), "Annual": _("year")}.get(current_schedule.billing_frequency, current_schedule.billing_frequency) %}
+                                        {{ frappe.format_value(current_schedule.dues_rate, {"fieldtype": "Currency"}) }} / {{ frequency_label }}
+                                        {% if current_schedule.billing_frequency != "Monthly" %}
+                                            <span class="text-gray-500">({{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"}) }}/{{ _("month") }})</span>
+                                        {% endif %}
+                                    </span>
                                 </div>
                                 <div class="flex justify-between">
                                     <span class="text-sm text-gray-600">{{ _("Next Invoice Date") }}</span>
