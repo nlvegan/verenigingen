@@ -414,5 +414,53 @@
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
     "alert_on_execution": 1
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "refresh_user_info",
+    "operation_name": "refresh_user_info",
+    "operation_type": "financial",
+    "description": "Refresh Ponto user/organization info and activation status",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Ponto Settings page - fetch user info and payment activation status from Ponto API",
+    "required_roles": "System Manager\nVerenigingen Administrator\nVerenigingen Staff\nTreasurer",
+    "rate_limit_calls": 30,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "ponto_settings_refresh_user_info",
+    "operation_name": "ponto_settings_refresh_user_info",
+    "operation_type": "financial",
+    "description": "Module-prefixed endpoint for Ponto user info refresh",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Ponto Settings page module prefix for user info refresh",
+    "required_roles": "System Manager\nVerenigingen Administrator",
+    "rate_limit_calls": 30,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_refresh_user_info",
+    "operation_name": "api_refresh_user_info",
+    "operation_type": "financial",
+    "description": "API-prefixed endpoint for Ponto user info refresh",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Ponto Settings page API prefix for user info refresh",
+    "required_roles": "System Manager\nVerenigingen Administrator",
+    "rate_limit_calls": 30,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]
