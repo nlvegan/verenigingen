@@ -4,11 +4,15 @@ CSV Import Background Processor
 Reusable utility for processing large CSV imports in background jobs with:
 - Batch processing to prevent timeouts
 - Real-time progress tracking
-- Email notifications on completion
 - Comprehensive error handling and recovery
 
 This module can be used by any DocType that needs to import large datasets
 without blocking the UI or hitting request timeouts.
+
+Note: This processor does NOT send notifications. Import status is tracked
+on the import document itself (import_status, progress_percentage, etc.).
+If specific import DocTypes need notifications, they should implement them
+in their own finalize_callback, respecting Email Configuration settings.
 
 Author: Verenigingen Development Team
 """
@@ -82,7 +86,10 @@ class CSVImportBackgroundProcessor:
     1. Processing records in configurable batches
     2. Updating progress in real-time
     3. Handling errors without stopping the entire import
-    4. Sending notifications on completion
+
+    Note: This processor does NOT send notifications. Status is tracked on
+    the import document. If notifications are needed, implement them in
+    your finalize_callback with proper Email Configuration checks.
     """
 
     def __init__(self, import_doc_name: str, doctype: str):
@@ -200,9 +207,6 @@ class CSVImportBackgroundProcessor:
                 else:
                     self._default_finalize(created_count, updated_count, skipped_count, error_log)
 
-                # Send completion notification
-                self._send_completion_notification(created_count, updated_count, skipped_count)
-
             # Context manager handles cleanup; return success result
             return {
                 "success": True,
@@ -220,9 +224,6 @@ class CSVImportBackgroundProcessor:
 
             # Update import doc with failure status
             self._update_status("Failed", error=error_msg)
-
-            # Send failure notification
-            self._send_failure_notification(error_msg)
 
             return {"success": False, "error": str(e)}
 
@@ -305,68 +306,6 @@ class CSVImportBackgroundProcessor:
 
         self.import_doc.save(ignore_permissions=True)
         frappe.db.commit()
-
-    def _send_completion_notification(self, created: int, updated: int, skipped: int):
-        """Send in-app notification on successful completion."""
-        from verenigingen.utils.notification_helpers import create_system_notification
-
-        try:
-            if not self.import_doc.owner:
-                return
-
-            message = _(
-                """
-                <p>Your CSV import has completed successfully.</p>
-                <ul>
-                    <li>Created: {0}</li>
-                    <li>Updated: {1}</li>
-                    <li>Skipped: {2}</li>
-                </ul>
-                <p><a href="/app/{3}/{4}">View Import Document</a></p>
-            """
-            ).format(created, updated, skipped, self.doctype.lower().replace(" ", "-"), self.import_doc_name)
-
-            create_system_notification(
-                recipients=[self.import_doc.owner],
-                subject=_("CSV Import Completed: {0}").format(self.import_doc_name),
-                message=message,
-                notification_type="Alert",
-                document_type=self.doctype,
-                document_name=self.import_doc_name,
-            )
-        except Exception as e:
-            frappe.logger().error(f"Failed to send completion notification: {str(e)}")
-
-    def _send_failure_notification(self, error_msg: str):
-        """Send in-app notification on import failure."""
-        from verenigingen.utils.notification_helpers import create_system_notification
-
-        try:
-            if not self.import_doc.owner:
-                return
-
-            message = _(
-                """
-                <p>Your CSV import has failed.</p>
-                <p><strong>Error:</strong> {0}</p>
-                <p><a href="/app/{1}/{2}">View Import Document</a></p>
-            """
-            ).format(
-                error_msg[:500],  # Limit error message length
-                self.doctype.lower().replace(" ", "-"),
-                self.import_doc_name,
-            )
-
-            create_system_notification(
-                recipients=[self.import_doc.owner],
-                subject=_("CSV Import Failed: {0}").format(self.import_doc_name),
-                message=message,
-                notification_type="Alert",
-                document_type=self.doctype,
-                document_name=self.import_doc_name,
-            )
-        except Exception as e:
-            frappe.logger().error(f"Failed to send failure notification: {str(e)}")
 
 
 @frappe.whitelist()

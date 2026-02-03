@@ -192,7 +192,10 @@ doc_events = {
     "Expense Claim": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim",
         "on_update_after_submit": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_update",
-        "on_submit": "verenigingen.utils.expense_handlers.update_member_expense_history",
+        "on_submit": [
+            "verenigingen.utils.expense_handlers.update_member_expense_history",
+            "verenigingen.utils.expense_handlers.notify_expense_approvers",
+        ],
         "on_cancel": [
             "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_removal",
             "verenigingen.utils.expense_handlers.on_expense_claim_cancel",

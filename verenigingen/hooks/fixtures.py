@@ -23,24 +23,17 @@ fixtures = [
     # =========================================================================
     # NOTIFICATIONS
     # =========================================================================
-    {
-        "doctype": "Notification",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                    "Member Application Approved",
-                    "Member Application Rejected",
-                    "SEPA Mandate Created",
-                    "Member Status Changed to Active",
-                    "Invoice Payment Overdue",
-                    "New Membership Application Submitted",
-                    "Expense Submitted for Approval",
-                ],
-            ]
-        ],
-    },
+    # NOTE: Frappe Notifications are NOT included in fixtures.
+    # All notifications are handled by custom code that respects Email Configuration:
+    # - Member approval/rejection: member_subscribers.py, membership_application_review.py
+    # - SEPA mandate: sepa_notifications.py
+    # - Member status change: member_subscribers.py
+    # - Invoice overdue: payment_processing.py
+    # - New application (admin): application_notifications.py
+    # - Expense approval: expense_handlers.py
+    #
+    # This ensures the Email Configuration DocType is the single source of truth
+    # for all notification settings (enable/disable, cooldowns, recipients).
     # =========================================================================
     # WORKFLOWS
     # =========================================================================
