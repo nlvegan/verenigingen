@@ -54,13 +54,8 @@
   "grace_period_notification_days",
   "max_fee_adjustments_per_year",
   "auto_submit_membership_invoices",
-  "mollie_subscription_description_template",
-  "ponto_payment_description_template",
   "column_break_membership",
   "max_rate_change_percent",
-  "membership_payment_account",
-  "dues_income_account",
-  "dues_payments_receivable_account",
   "maximum_fee_multiplier",
   "max_reasonable_dues_rate",
   "billing_periods_section",
@@ -232,27 +227,6 @@
    "fieldname": "kor_exemption_applied",
    "fieldtype": "Check",
    "label": "Small Business Scheme (KOR) Applied"
-  },
-  {
-   "description": "Account for accepting membership payments",
-   "fieldname": "membership_payment_account",
-   "fieldtype": "Link",
-   "label": "Membership Dues Payment Account",
-   "options": "Account"
-  },
-  {
-   "description": "Default receivable account for membership dues invoices. If not set, will use Company default receivable account.",
-   "fieldname": "dues_payments_receivable_account",
-   "fieldtype": "Link",
-   "label": "Dues Payments Receivable Account",
-   "options": "Account"
-  },
-  {
-   "description": "Income/Revenue account for membership dues. This should be a Profit & Loss account with type 'Income Account'.",
-   "fieldname": "dues_income_account",
-   "fieldtype": "Link",
-   "label": "Dues Income Account",
-   "options": "Account"
   },
   {
    "default": "0",
@@ -486,20 +460,6 @@
    "fieldname": "auto_submit_membership_invoices",
    "fieldtype": "Check",
    "label": "Auto-Submit Membership Invoices"
-  },
-  {
-   "default": "Contribution payment for member MEMBER_ID",
-   "description": "Template for Mollie subscription description. Use MEMBER_ID as placeholder for member ID (e.g., 'Contribution payment for member MEMBER_ID')",
-   "fieldname": "mollie_subscription_description_template",
-   "fieldtype": "Data",
-   "label": "Mollie Subscription Description Template"
-  },
-  {
-   "default": "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END",
-   "description": "Template for Ponto payment request description. Available placeholders: MEMBER_ID (member ID number), MEMBER_NAME (full name), COVERAGE_START (coverage period start date), COVERAGE_END (coverage period end date)",
-   "fieldname": "ponto_payment_description_template",
-   "fieldtype": "Data",
-   "label": "Ponto Payment Description Template"
   },
   {
    "fieldname": "monitoring_section",
