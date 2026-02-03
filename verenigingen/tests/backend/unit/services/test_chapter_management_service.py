@@ -115,13 +115,16 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def test_chapter_management_disabled_returns_empty_list(self):
         """Test that disabled chapter management returns empty lists for board memberships"""
-        # Temporarily disable chapter management
-        settings = frappe.get_single("Verenigingen Settings")
-        original_value = settings.enable_chapter_management
+        # Temporarily disable chapter management using db_set to avoid validation
+        # (validation requires dues_income_account which may not be set in tests)
+        original_value = frappe.db.get_single_value(
+            "Verenigingen Settings", "enable_chapter_management"
+        )
 
         try:
-            settings.enable_chapter_management = 0
-            settings.save()
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "enable_chapter_management", 0
+            )
             frappe.db.commit()
 
             member = self.create_test_member(first_name="Test", last_name="Member")
@@ -132,8 +135,9 @@ class TestChapterManagementService(EnhancedTestCase):
 
         finally:
             # Restore original setting
-            settings.enable_chapter_management = original_value
-            settings.save()
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "enable_chapter_management", original_value
+            )
             frappe.db.commit()
 
     def test_service_respects_permissions(self):

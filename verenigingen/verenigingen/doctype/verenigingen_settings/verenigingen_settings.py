@@ -53,22 +53,16 @@ class VerenigingenSettings(Document):
                 frappe.throw(_("Grace period notification days must be between 1 and 30 days"))
 
     def validate_chapter_dues_accounts(self):
-        """Validate chapter dues allocation account configuration"""
-        # Check if any allocation accounts are configured
+        """Validate chapter dues allocation account configuration.
+
+        Note: dues_income_account (source) was moved to Verenigingen Payments Settings.
+        This validation only checks the chapter/national split accounts in this DocType.
+        """
         has_chapter_account = getattr(self, "chapter_dues_income_account", None)
         has_national_account = getattr(self, "national_dues_income_account", None)
-        has_source_account = getattr(self, "dues_income_account", None)
 
-        # Source account is always required for dues functionality
-        if not has_source_account:
-            frappe.throw(_("Dues Income Account (source) is required"))
-
-        # Chapter and national accounts are optional - if not set, dues_income_account is used
-        # No validation needed for optional accounts
-
-        # Validate accounts are different if both optional accounts are configured
+        # Validate accounts are different if both are configured
         if has_chapter_account and has_national_account:
-            # Check that chapter and national accounts are different
             if has_chapter_account == has_national_account:
                 frappe.throw(
                     _(
@@ -121,7 +115,9 @@ class VerenigingenSettings(Document):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def get_income_account_query(doctype, txt, searchfield, start, page_len, filters):
+def get_income_account_query(
+    doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict
+):
     """Filter for income accounts only"""
     company = filters.get("company") or frappe.defaults.get_global_default("company")
 
