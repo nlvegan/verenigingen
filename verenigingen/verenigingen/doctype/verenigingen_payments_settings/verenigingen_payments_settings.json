@@ -1,440 +1,437 @@
 {
-  "actions": [],
-  "app": "verenigingen",
-  "creation": "2025-09-08 12:00:00.000000",
-  "doctype": "DocType",
-  "editable_grid": 1,
-  "engine": "InnoDB",
-  "field_order": [
-    "financial_settings_tab",
-    "financial_section",
-    "company_account_holder",
-    "company_iban",
-    "company_bic",
-    "column_break_financial",
-    "default_cash_account",
-    "mollie_bank_account",
-    "ponto_bank_account_parent",
-    "ing_checkout_bank_account",
-    "dues_accounts_section",
-    "membership_payment_account",
-    "dues_income_account",
-    "dues_payments_receivable_account",
-    "payment_description_section",
-    "mollie_subscription_description_template",
-    "ponto_payment_description_template",
-    "batch_processing_section",
-    "sepa_mandate_naming_pattern",
-    "creditor_id",
-    "sepa_mandate_starting_counter",
-    "batch_creation_days",
-    "financial_admin_emails",
-    "batch_optimization_config",
-    "column_break_batch",
-    "last_batch_creation_run",
-    "contact_email",
-    "sepa_strict_period_mode",
-    "enable_auto_batch_creation",
-    "sepa_allowed_ips",
-    "invoicing_section",
-    "send_email",
-    "send_invoice",
-    "email_template",
-    "column_break_invoicing",
-    "membership_print_format",
-    "inv_print_format",
-    "default_item_group",
-    "membership_webhook_secret",
-    "automate_membership_payment_entries",
-    "sepa_settings_tab",
-    "sepa_section",
-    "enable_sepa_direct_debit",
-    "webhook_section",
-    "webhook_user",
-    "ing_checkout_webhook_secret",
-    "payment_classification_section",
-    "dues_keywords",
-    "donation_keywords",
-    "order_keywords"
-  ],
-  "fields": [
-    {
-      "fieldname": "financial_settings_tab",
-      "fieldtype": "Tab Break",
-      "label": "Financial & SEPA Settings"
-    },
-    {
-      "fieldname": "financial_section",
-      "fieldtype": "Section Break",
-      "label": "Financial Settings"
-    },
-    {
-      "description": "Legal name of the account holder as registered with the bank. This name will appear on member bank statements.",
-      "fieldname": "company_account_holder",
-      "fieldtype": "Data",
-      "label": "Bank Account Holder Name"
-    },
-    {
-      "description": "Bank account number (IBAN) where direct debit payments will be collected. Example: NL91ABNA0417164300",
-      "fieldname": "company_iban",
-      "fieldtype": "Data",
-      "label": "Company IBAN"
-    },
-    {
-      "description": "Bank Identifier Code (BIC/SWIFT). Optional - can be automatically derived from Dutch IBANs. Example: ABNANL2A",
-      "fieldname": "company_bic",
-      "fieldtype": "Data",
-      "label": "Company BIC/SWIFT (Optional)"
-    },
-    {
-      "fieldname": "column_break_financial",
-      "fieldtype": "Column Break"
-    },
-    {
-      "description": "Default cash account for payment processing",
-      "fieldname": "default_cash_account",
-      "fieldtype": "Link",
-      "label": "Default Cash Account",
-      "options": "Account"
-    },
-    {
-      "description": "Bank account for Mollie payment processing. If not set, will look for an account named 'Mollie' or fall back to company default bank account.",
-      "fieldname": "mollie_bank_account",
-      "fieldtype": "Link",
-      "label": "Mollie Bank Account",
-      "options": "Account"
-    },
-    {
-      "description": "Parent account group under which Ponto bank accounts will be created. Default: Bankrekeningen",
-      "fieldname": "ponto_bank_account_parent",
-      "fieldtype": "Link",
-      "label": "Ponto Bank Account Parent Group",
-      "options": "Account"
-    },
-    {
-      "description": "Bank account for ING Checkout (Pay.nl) payment processing. Required for iDEAL and Direct Debit payments.",
-      "fieldname": "ing_checkout_bank_account",
-      "fieldtype": "Link",
-      "label": "ING Checkout Bank Account",
-      "options": "Account"
-    },
-    {
-      "fieldname": "dues_accounts_section",
-      "fieldtype": "Section Break",
-      "label": "Membership Dues Accounts"
-    },
-    {
-      "description": "Account for accepting membership payments",
-      "fieldname": "membership_payment_account",
-      "fieldtype": "Link",
-      "label": "Membership Dues Payment Account",
-      "options": "Account"
-    },
-    {
-      "description": "Income/Revenue account for membership dues. This should be a Profit & Loss account with type 'Income Account'.",
-      "fieldname": "dues_income_account",
-      "fieldtype": "Link",
-      "label": "Dues Income Account",
-      "options": "Account"
-    },
-    {
-      "description": "Default receivable account for membership dues invoices. If not set, will use Company default receivable account.",
-      "fieldname": "dues_payments_receivable_account",
-      "fieldtype": "Link",
-      "label": "Dues Payments Receivable Account",
-      "options": "Account"
-    },
-    {
-      "fieldname": "payment_description_section",
-      "fieldtype": "Section Break",
-      "label": "Payment Description Templates"
-    },
-    {
-      "default": "Contribution payment for member MEMBER_ID",
-      "description": "Template for Mollie subscription description. Use MEMBER_ID as placeholder for member ID (e.g., 'Contribution payment for member MEMBER_ID')",
-      "fieldname": "mollie_subscription_description_template",
-      "fieldtype": "Data",
-      "label": "Mollie Subscription Description Template"
-    },
-    {
-      "default": "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END",
-      "description": "Template for Ponto payment request description. Available placeholders: MEMBER_ID (member ID number), MEMBER_NAME (full name), COVERAGE_START (coverage period start date), COVERAGE_END (coverage period end date)",
-      "fieldname": "ponto_payment_description_template",
-      "fieldtype": "Data",
-      "label": "Ponto Payment Description Template"
-    },
-    {
-      "fieldname": "batch_processing_section",
-      "fieldtype": "Section Break",
-      "label": "SEPA Batch Processing"
-    },
-    {
-      "default": "MANDATE-.YY.-.MM.-.####",
-      "description": "Naming pattern for SEPA Mandate References (mandate_id) communicated to banks. Use Frappe naming series format with dots. Example: MANDATE-.YY.-.MM.-.####",
-      "fieldname": "sepa_mandate_naming_pattern",
-      "fieldtype": "Data",
-      "label": "SEPA Mandate Naming Pattern"
-    },
-    {
-      "description": "SEPA Creditor Identifier (Incassant ID) issued by your bank for direct debit authorization. Format: NL + 2 check digits + ZZZ + up to 11 alphanumeric characters (18 chars total). Example: NL60ZZZ12345678002",
-      "fieldname": "creditor_id",
-      "fieldtype": "Data",
-      "label": "SEPA Creditor ID (Incassant ID)"
-    },
-    {
-      "default": "1",
-      "description": "Starting number for SEPA mandate counter. Set this to control where numbering begins (e.g., 1000 to start from MANDATE-25-01-1000).",
-      "fieldname": "sepa_mandate_starting_counter",
-      "fieldtype": "Int",
-      "label": "SEPA Mandate Starting Counter"
-    },
-    {
-      "default": "1",
-      "depends_on": "eval:doc.enable_auto_batch_creation",
-      "description": "Comma-separated list of days of the month (1-31) when batches should be created. Example: '1,15' for 1st and 15th of each month",
-      "fieldname": "batch_creation_days",
-      "fieldtype": "Data",
-      "label": "Batch Creation Days"
-    },
-    {
-      "depends_on": "eval:doc.enable_auto_batch_creation",
-      "description": "Comma-separated list of email addresses for SEPA batch notifications. Example: 'treasurer@org.com,finance@org.com'",
-      "fieldname": "financial_admin_emails",
-      "fieldtype": "Data",
-      "label": "Financial Admin Emails"
-    },
-    {
-      "depends_on": "eval:doc.enable_auto_batch_creation",
-      "description": "JSON configuration for batch optimization parameters",
-      "fieldname": "batch_optimization_config",
-      "fieldtype": "Long Text",
-      "label": "Batch Optimization Configuration"
-    },
-    {
-      "fieldname": "column_break_batch",
-      "fieldtype": "Column Break"
-    },
-    {
-      "description": "Timestamp of the last automated batch creation",
-      "fieldname": "last_batch_creation_run",
-      "fieldtype": "Datetime",
-      "label": "Last Batch Creation Run",
-      "read_only": 1
-    },
-    {
-      "description": "General contact email for notifications and communications",
-      "fieldname": "contact_email",
-      "fieldtype": "Data",
-      "label": "Contact Email",
-      "options": "Email"
-    },
-    {
-      "default": "0",
-      "description": "Enable strict period mode for SEPA batch processing - prevents overlapping payment periods",
-      "fieldname": "sepa_strict_period_mode",
-      "fieldtype": "Check",
-      "label": "SEPA Strict Period Mode"
-    },
-    {
-      "default": "0",
-      "description": "Automatically create SEPA Direct Debit batches on specified days",
-      "fieldname": "enable_auto_batch_creation",
-      "fieldtype": "Check",
-      "label": "Enable Automatic Batch Creation"
-    },
-    {
-      "description": "Comma-separated list of IP addresses allowed for SEPA operations (for security)",
-      "fieldname": "sepa_allowed_ips",
-      "fieldtype": "Text",
-      "label": "SEPA Allowed IP Addresses"
-    },
-    {
-      "fieldname": "invoicing_section",
-      "fieldtype": "Section Break",
-      "label": "Invoicing & Communications"
-    },
-    {
-      "default": "0",
-      "fieldname": "send_email",
-      "fieldtype": "Check",
-      "label": "Send Membership Acknowledgement"
-    },
-    {
-      "default": "0",
-      "depends_on": "eval:doc.send_email",
-      "fieldname": "send_invoice",
-      "fieldtype": "Check",
-      "label": "Send Invoice with Email"
-    },
-    {
-      "depends_on": "eval:doc.send_email",
-      "fieldname": "email_template",
-      "fieldtype": "Link",
-      "label": "Email Template",
-      "mandatory_depends_on": "eval:doc.send_email",
-      "options": "Email Template"
-    },
-    {
-      "fieldname": "column_break_invoicing",
-      "fieldtype": "Column Break"
-    },
-    {
-      "depends_on": "eval:doc.send_email",
-      "fieldname": "membership_print_format",
-      "fieldtype": "Link",
-      "label": "Membership Print Format",
-      "options": "Print Format"
-    },
-    {
-      "depends_on": "eval: doc.send_invoice",
-      "fieldname": "inv_print_format",
-      "fieldtype": "Link",
-      "label": "Invoice Print Format",
-      "mandatory_depends_on": "eval: doc.send_invoice",
-      "options": "Print Format"
-    },
-    {
-      "description": "Default item group for membership items",
-      "fieldname": "default_item_group",
-      "fieldtype": "Link",
-      "label": "Default Item Group",
-      "options": "Item Group"
-    },
-    {
-      "fieldname": "membership_webhook_secret",
-      "fieldtype": "Password",
-      "label": "Membership Webhook Secret",
-      "read_only": 1
-    },
-    {
-      "default": "0",
-      "description": "Skip automatic Payment Entry creation for Membership payments. Warning: May cause accounting issues.",
-      "fieldname": "automate_membership_payment_entries",
-      "fieldtype": "Check",
-      "label": "Skip Automatic Membership Payment Entries"
-    },
-    {
-      "fieldname": "sepa_settings_tab",
-      "fieldtype": "Tab Break",
-      "label": "Payment Methods"
-    },
-    {
-      "fieldname": "sepa_section",
-      "fieldtype": "Section Break",
-      "label": "SEPA Direct Debit"
-    },
-    {
-      "default": "0",
-      "description": "Enable SEPA Direct Debit as a payment method. Requires Company IBAN and SEPA Creditor ID to be configured.",
-      "fieldname": "enable_sepa_direct_debit",
-      "fieldtype": "Check",
-      "label": "Enable SEPA Direct Debit"
-    },
-    {
-      "fieldname": "webhook_section",
-      "fieldtype": "Section Break",
-      "label": "Webhook Settings"
-    },
-    {
-      "fieldname": "webhook_user",
-      "fieldtype": "Link",
-      "label": "Webhook User",
-      "options": "User",
-      "description": "User account for webhook operations. Should have minimal permissions."
-    },
-    {
-      "description": "Webhook secret for ING Checkout (Pay.nl) webhook verification. Configure this in the Pay.nl admin panel.",
-      "fieldname": "ing_checkout_webhook_secret",
-      "fieldtype": "Password",
-      "label": "ING Checkout Webhook Secret"
-    },
-    {
-      "fieldname": "payment_classification_section",
-      "fieldtype": "Section Break",
-      "label": "Payment Classification Keywords",
-      "description": "Configure keywords used to classify incoming Mollie payments by type"
-    },
-    {
-      "fieldname": "dues_keywords",
-      "fieldtype": "Small Text",
-      "label": "Membership Dues Keywords",
-      "description": "Comma-separated keywords to identify membership dues payments (e.g., contributie)",
-      "default": "contributie"
-    },
-    {
-      "fieldname": "donation_keywords",
-      "fieldtype": "Small Text",
-      "label": "Donation Keywords",
-      "description": "Comma-separated keywords to identify donation payments (e.g., donation, donatie)",
-      "default": "donation, donatie"
-    },
-    {
-      "fieldname": "order_keywords",
-      "fieldtype": "Small Text",
-      "label": "Order Keywords",
-      "description": "Comma-separated keywords to identify shop/WooCommerce order payments (e.g., bestelling, order)",
-      "default": "bestelling, order"
-    }
-  ],
-  "icon": "fa fa-cog",
-  "idx": 0,
-  "is_single": 1,
-  "issingle": 1,
-  "links": [],
-  "modified": "2026-01-05 12:00:00.000000",
-  "modified_by": "Administrator",
-  "module": "Verenigingen",
-  "name": "Verenigingen Payments Settings",
-  "naming_rule": "Set by user",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "role": "System Manager",
-      "share": 1,
-      "write": 1
-    },
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "role": "Verenigingen Administrator",
-      "share": 1,
-      "write": 1
-    },
-    {
-      "email": 1,
-      "print": 1,
-      "read": 1,
-      "role": "Verenigingen Financial Manager",
-      "share": 1,
-      "write": 1
-    },
-    {
-      "create": 0,
-      "delete": 0,
-      "email": 0,
-      "export": 0,
-      "print": 0,
-      "read": 1,
-      "role": "Verenigingen Webhook User",
-      "share": 0,
-      "write": 0
-    }
-  ],
-  "quick_entry": 1,
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "states": [],
-  "track_changes": 1,
-  "track_seen": 1,
-  "track_views": 1
+ "actions": [],
+ "creation": "2025-09-08 12:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "financial_settings_tab",
+  "financial_section",
+  "company_account_holder",
+  "company_iban",
+  "company_bic",
+  "column_break_financial",
+  "default_cash_account",
+  "mollie_bank_account",
+  "ponto_bank_account_parent",
+  "ing_checkout_bank_account",
+  "dues_accounts_section",
+  "membership_payment_account",
+  "dues_income_account",
+  "dues_payments_receivable_account",
+  "invoicing_section",
+  "send_email",
+  "send_invoice",
+  "email_template",
+  "column_break_invoicing",
+  "membership_print_format",
+  "inv_print_format",
+  "default_item_group",
+  "membership_webhook_secret",
+  "automate_membership_payment_entries",
+  "sepa_settings_tab",
+  "sepa_section",
+  "enable_sepa_direct_debit",
+  "webhook_section",
+  "webhook_user",
+  "ing_checkout_webhook_secret",
+  "payment_description_section",
+  "mollie_subscription_description_template",
+  "ponto_payment_description_template",
+  "payment_classification_section",
+  "dues_keywords",
+  "donation_keywords",
+  "order_keywords",
+  "sepa_tab",
+  "batch_processing_section",
+  "sepa_mandate_naming_pattern",
+  "creditor_id",
+  "sepa_mandate_starting_counter",
+  "batch_creation_days",
+  "financial_admin_emails",
+  "batch_optimization_config",
+  "column_break_batch",
+  "last_batch_creation_run",
+  "contact_email",
+  "sepa_strict_period_mode",
+  "enable_auto_batch_creation",
+  "sepa_allowed_ips"
+ ],
+ "fields": [
+  {
+   "fieldname": "financial_settings_tab",
+   "fieldtype": "Tab Break",
+   "label": "Financial Settings"
+  },
+  {
+   "fieldname": "financial_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Settings"
+  },
+  {
+   "description": "Legal name of the account holder as registered with the bank. This name will appear on member bank statements.",
+   "fieldname": "company_account_holder",
+   "fieldtype": "Data",
+   "label": "Bank Account Holder Name"
+  },
+  {
+   "description": "Bank account number (IBAN) where direct debit payments will be collected. Example: NL91ABNA0417164300",
+   "fieldname": "company_iban",
+   "fieldtype": "Data",
+   "label": "Company IBAN"
+  },
+  {
+   "description": "Bank Identifier Code (BIC/SWIFT). Optional - can be automatically derived from Dutch IBANs. Example: ABNANL2A",
+   "fieldname": "company_bic",
+   "fieldtype": "Data",
+   "label": "Company BIC/SWIFT (Optional)"
+  },
+  {
+   "fieldname": "column_break_financial",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Default cash account for payment processing",
+   "fieldname": "default_cash_account",
+   "fieldtype": "Link",
+   "label": "Default Cash Account",
+   "options": "Account"
+  },
+  {
+   "description": "Bank account for Mollie payment processing. If not set, will look for an account named 'Mollie' or fall back to company default bank account.",
+   "fieldname": "mollie_bank_account",
+   "fieldtype": "Link",
+   "label": "Mollie Bank Account",
+   "options": "Account"
+  },
+  {
+   "description": "Parent account group under which Ponto bank accounts will be created. Default: Bankrekeningen",
+   "fieldname": "ponto_bank_account_parent",
+   "fieldtype": "Link",
+   "label": "Ponto Bank Account Parent Group",
+   "options": "Account"
+  },
+  {
+   "description": "Bank account for ING Checkout (Pay.nl) payment processing. Required for iDEAL and Direct Debit payments.",
+   "fieldname": "ing_checkout_bank_account",
+   "fieldtype": "Link",
+   "label": "ING Checkout Bank Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "dues_accounts_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Dues Accounts"
+  },
+  {
+   "description": "Account for accepting membership payments",
+   "fieldname": "membership_payment_account",
+   "fieldtype": "Link",
+   "label": "Membership Dues Payment Account",
+   "options": "Account"
+  },
+  {
+   "description": "Income/Revenue account for membership dues. This should be a Profit & Loss account with type 'Income Account'.",
+   "fieldname": "dues_income_account",
+   "fieldtype": "Link",
+   "label": "Dues Income Account",
+   "options": "Account"
+  },
+  {
+   "description": "Default receivable account for membership dues invoices. If not set, will use Company default receivable account.",
+   "fieldname": "dues_payments_receivable_account",
+   "fieldtype": "Link",
+   "label": "Dues Payments Receivable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "payment_description_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Description Templates"
+  },
+  {
+   "default": "Contribution payment for member MEMBER_ID",
+   "description": "Template for Mollie subscription description. Use MEMBER_ID as placeholder for member ID (e.g., 'Contribution payment for member MEMBER_ID')",
+   "fieldname": "mollie_subscription_description_template",
+   "fieldtype": "Data",
+   "label": "Mollie Subscription Description Template"
+  },
+  {
+   "default": "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END",
+   "description": "Template for Ponto payment request description. Available placeholders: MEMBER_ID (member ID number), MEMBER_NAME (full name), COVERAGE_START (coverage period start date), COVERAGE_END (coverage period end date)",
+   "fieldname": "ponto_payment_description_template",
+   "fieldtype": "Data",
+   "label": "Ponto Payment Description Template"
+  },
+  {
+   "fieldname": "batch_processing_section",
+   "fieldtype": "Section Break",
+   "label": "SEPA Batch Processing"
+  },
+  {
+   "default": "MANDATE-.YY.-.MM.-.####",
+   "description": "Naming pattern for SEPA Mandate References (mandate_id) communicated to banks. Use Frappe naming series format with dots. Example: MANDATE-.YY.-.MM.-.####",
+   "fieldname": "sepa_mandate_naming_pattern",
+   "fieldtype": "Data",
+   "label": "SEPA Mandate Naming Pattern"
+  },
+  {
+   "description": "SEPA Creditor Identifier (Incassant ID) issued by your bank for direct debit authorization. Format: NL + 2 check digits + ZZZ + up to 11 alphanumeric characters (18 chars total). Example: NL60ZZZ12345678002",
+   "fieldname": "creditor_id",
+   "fieldtype": "Data",
+   "label": "SEPA Creditor ID (Incassant ID)"
+  },
+  {
+   "default": "1",
+   "description": "Starting number for SEPA mandate counter. Set this to control where numbering begins (e.g., 1000 to start from MANDATE-25-01-1000).",
+   "fieldname": "sepa_mandate_starting_counter",
+   "fieldtype": "Int",
+   "label": "SEPA Mandate Starting Counter"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "Comma-separated list of days of the month (1-31) when batches should be created. Example: '1,15' for 1st and 15th of each month",
+   "fieldname": "batch_creation_days",
+   "fieldtype": "Data",
+   "label": "Batch Creation Days"
+  },
+  {
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "Comma-separated list of email addresses for SEPA batch notifications. Example: 'treasurer@org.com,finance@org.com'",
+   "fieldname": "financial_admin_emails",
+   "fieldtype": "Data",
+   "label": "Financial Admin Emails"
+  },
+  {
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "JSON configuration for batch optimization parameters",
+   "fieldname": "batch_optimization_config",
+   "fieldtype": "Long Text",
+   "label": "Batch Optimization Configuration"
+  },
+  {
+   "fieldname": "column_break_batch",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Timestamp of the last automated batch creation",
+   "fieldname": "last_batch_creation_run",
+   "fieldtype": "Datetime",
+   "label": "Last Batch Creation Run",
+   "read_only": 1
+  },
+  {
+   "description": "General contact email for notifications and communications",
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
+  },
+  {
+   "default": "0",
+   "description": "Enable strict period mode for SEPA batch processing - prevents overlapping payment periods",
+   "fieldname": "sepa_strict_period_mode",
+   "fieldtype": "Check",
+   "label": "SEPA Strict Period Mode"
+  },
+  {
+   "default": "0",
+   "description": "Automatically create SEPA Direct Debit batches on specified days",
+   "fieldname": "enable_auto_batch_creation",
+   "fieldtype": "Check",
+   "label": "Enable Automatic Batch Creation"
+  },
+  {
+   "description": "Comma-separated list of IP addresses allowed for SEPA operations (for security)",
+   "fieldname": "sepa_allowed_ips",
+   "fieldtype": "Text",
+   "label": "SEPA Allowed IP Addresses"
+  },
+  {
+   "fieldname": "invoicing_section",
+   "fieldtype": "Section Break",
+   "label": "Invoicing & Communications"
+  },
+  {
+   "default": "0",
+   "fieldname": "send_email",
+   "fieldtype": "Check",
+   "label": "Send Membership Acknowledgement"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.send_email",
+   "fieldname": "send_invoice",
+   "fieldtype": "Check",
+   "label": "Send Invoice with Email"
+  },
+  {
+   "depends_on": "eval:doc.send_email",
+   "fieldname": "email_template",
+   "fieldtype": "Link",
+   "label": "Email Template",
+   "mandatory_depends_on": "eval:doc.send_email",
+   "options": "Email Template"
+  },
+  {
+   "fieldname": "column_break_invoicing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.send_email",
+   "fieldname": "membership_print_format",
+   "fieldtype": "Link",
+   "label": "Membership Print Format",
+   "options": "Print Format"
+  },
+  {
+   "depends_on": "eval: doc.send_invoice",
+   "fieldname": "inv_print_format",
+   "fieldtype": "Link",
+   "label": "Invoice Print Format",
+   "mandatory_depends_on": "eval: doc.send_invoice",
+   "options": "Print Format"
+  },
+  {
+   "description": "Default item group for membership items",
+   "fieldname": "default_item_group",
+   "fieldtype": "Link",
+   "label": "Default Item Group",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "membership_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Membership Webhook Secret",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Skip automatic Payment Entry creation for Membership payments. Warning: May cause accounting issues.",
+   "fieldname": "automate_membership_payment_entries",
+   "fieldtype": "Check",
+   "label": "Skip Automatic Membership Payment Entries"
+  },
+  {
+   "fieldname": "sepa_settings_tab",
+   "fieldtype": "Tab Break",
+   "label": "Payment Methods"
+  },
+  {
+   "fieldname": "sepa_section",
+   "fieldtype": "Section Break",
+   "label": "SEPA Direct Debit"
+  },
+  {
+   "default": "0",
+   "description": "Enable SEPA Direct Debit as a payment method. Requires Company IBAN and SEPA Creditor ID to be configured.",
+   "fieldname": "enable_sepa_direct_debit",
+   "fieldtype": "Check",
+   "label": "Enable SEPA Direct Debit"
+  },
+  {
+   "fieldname": "webhook_section",
+   "fieldtype": "Section Break",
+   "label": "Webhook Settings"
+  },
+  {
+   "description": "User account for webhook operations. Should have minimal permissions.",
+   "fieldname": "webhook_user",
+   "fieldtype": "Link",
+   "label": "Webhook User",
+   "options": "User"
+  },
+  {
+   "description": "Webhook secret for ING Checkout (Pay.nl) webhook verification. Configure this in the Pay.nl admin panel.",
+   "fieldname": "ing_checkout_webhook_secret",
+   "fieldtype": "Password",
+   "label": "ING Checkout Webhook Secret"
+  },
+  {
+   "description": "Configure keywords used to classify incoming Mollie payments by type",
+   "fieldname": "payment_classification_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Classification Keywords"
+  },
+  {
+   "default": "contributie",
+   "description": "Comma-separated keywords to identify membership dues payments (e.g., contributie)",
+   "fieldname": "dues_keywords",
+   "fieldtype": "Small Text",
+   "label": "Membership Dues Keywords"
+  },
+  {
+   "default": "donation, donatie",
+   "description": "Comma-separated keywords to identify donation payments (e.g., donation, donatie)",
+   "fieldname": "donation_keywords",
+   "fieldtype": "Small Text",
+   "label": "Donation Keywords"
+  },
+  {
+   "default": "bestelling, order",
+   "description": "Comma-separated keywords to identify shop/WooCommerce order payments (e.g., bestelling, order)",
+   "fieldname": "order_keywords",
+   "fieldtype": "Small Text",
+   "label": "Order Keywords"
+  },
+  {
+   "fieldname": "sepa_tab",
+   "fieldtype": "Tab Break",
+   "label": "SEPA"
+  }
+ ],
+ "icon": "fa fa-cog",
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-02-03 13:32:01.843639",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Verenigingen Payments Settings",
+ "naming_rule": "Set by user",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Financial Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Webhook User"
+  }
+ ],
+ "quick_entry": 1,
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "track_seen": 1,
+ "track_views": 1
 }
