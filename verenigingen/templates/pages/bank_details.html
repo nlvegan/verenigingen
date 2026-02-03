@@ -839,7 +839,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 // Step 2: Create subscription with calculated start date
-                const descriptionTemplate = '{{ frappe.db.get_single_value("Verenigingen Settings", "mollie_subscription_description_template") or "Contribution payment for member MEMBER_ID" }}';
+                const descriptionTemplate = '{{ frappe.db.get_single_value("Verenigingen Payments Settings", "mollie_subscription_description_template") or "Contribution payment for member MEMBER_ID" }}';
                 const description = descriptionTemplate.replace('MEMBER_ID', '{{ member.member_id }}');
 
                 const interval = activeDuesSchedule.billing_frequency === 'Monthly' ? '1 month' :
