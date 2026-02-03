@@ -432,12 +432,16 @@ def get_payment_schedule(member=None) -> OperationResult[Dict[str, Any]]:
         months = Membership.BILLING_FREQUENCY_MONTHS.get(billing_frequency, 1)  # Default to monthly
 
         # dues_rate is already the amount per billing period (e.g., €45/quarter)
-        # No need to multiply by months - that was incorrectly treating dues_rate as monthly
         payment_amount = flt(dues_schedule.dues_rate, 2)
 
-        current_date = getdate(today())
+        # Start from next_invoice_date if set, otherwise use today
+        start_date = (
+            getdate(dues_schedule.next_invoice_date) if dues_schedule.next_invoice_date else getdate(today())
+        )
+
+        # Generate schedule starting from next_invoice_date
         for i in range(0, 12, int(months)):
-            payment_date = add_months(current_date, i)
+            payment_date = add_months(start_date, i)
 
             # Skip if payment date is in the past
             if payment_date < getdate(today()):
@@ -447,11 +451,19 @@ def get_payment_schedule(member=None) -> OperationResult[Dict[str, Any]]:
             if dues_schedule.last_invoice_date and payment_date > getdate(dues_schedule.last_invoice_date):
                 break
 
+            # Build user-friendly description
+            frequency_label = {
+                "Monthly": _("Monthly"),
+                "Quarterly": _("Quarterly"),
+                "Semi-Annual": _("Semi-Annual"),
+                "Annual": _("Annual"),
+            }.get(billing_frequency, billing_frequency)
+
             schedule.append(
                 {
                     "date": str(payment_date),
                     "amount": payment_amount,
-                    "description": f"{dues_schedule.contribution_mode} - {billing_frequency} Payment",
+                    "description": _("{0} Dues").format(frequency_label),
                     "status": "Scheduled",
                 }
             )
