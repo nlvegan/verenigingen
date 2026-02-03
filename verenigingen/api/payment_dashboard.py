@@ -431,12 +431,12 @@ def get_payment_schedule(member=None) -> OperationResult[Dict[str, Any]]:
         billing_frequency = dues_schedule.billing_frequency
         months = Membership.BILLING_FREQUENCY_MONTHS.get(billing_frequency, 1)  # Default to monthly
 
-        # Calculate amount based on billing frequency
-        dues_rate = flt(dues_schedule.dues_rate, 2)
-        payment_amount = dues_rate * months
+        # dues_rate is already the amount per billing period (e.g., €45/quarter)
+        # No need to multiply by months - that was incorrectly treating dues_rate as monthly
+        payment_amount = flt(dues_schedule.dues_rate, 2)
 
         current_date = getdate(today())
-        for i in range(0, 12, months):
+        for i in range(0, 12, int(months)):
             payment_date = add_months(current_date, i)
 
             # Skip if payment date is in the past
