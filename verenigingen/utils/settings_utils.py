@@ -12,6 +12,7 @@ Key Features:
 - Consistent error handling across all settings
 - Type hints and comprehensive documentation
 - Fallback mechanisms for missing settings
+- Returns Frappe Document objects (supports attribute access)
 
 Usage:
     from verenigingen.utils.settings_utils import (
@@ -21,14 +22,16 @@ Usage:
         get_mollie_settings
     )
 
+    # All getters return Document objects supporting attribute access
     settings = get_verenigingen_settings()
     if settings:
-        default_company = settings.get("company")
+        default_company = settings.company  # Attribute access
 
     # For payment/SEPA/financial settings
     pay_settings = get_payments_settings()
     if pay_settings:
-        iban = pay_settings.get("company_iban")
+        iban = pay_settings.company_iban  # Attribute access
+        income_account = pay_settings.dues_income_account
 """
 
 from typing import Any, Dict, Optional
@@ -37,7 +40,7 @@ import frappe
 from frappe import _
 
 
-def get_verenigingen_settings() -> Optional[Dict[str, Any]]:
+def get_verenigingen_settings() -> Optional[Any]:
     """
     Get Verenigingen Settings with caching and error handling.
 
@@ -45,7 +48,8 @@ def get_verenigingen_settings() -> Optional[Dict[str, Any]]:
     they are created automatically to ensure system stability.
 
     Returns:
-        Dict with settings (guaranteed to exist)
+        Frappe Document object with settings (supports attribute access like
+        settings.company). Returns None only in catastrophic database failures.
 
     Error Handling:
         Creates settings if missing, logs errors but continues.
@@ -53,6 +57,11 @@ def get_verenigingen_settings() -> Optional[Dict[str, Any]]:
 
     Performance:
         Uses frappe.get_single() for settings retrieval.
+
+    Usage:
+        settings = get_verenigingen_settings()
+        if settings:
+            company = settings.company  # Attribute access
     """
     try:
         # Try to get existing settings
@@ -74,9 +83,9 @@ def get_verenigingen_settings() -> Optional[Dict[str, Any]]:
         settings = create_function()
 
         if settings:
-            # Clear cache and get fresh copy
+            # Clear cache and get fresh Document (not dict) for consistent return type
             frappe.cache().delete_key("single:Verenigingen Settings")
-            return frappe.get_doc("Verenigingen Settings").as_dict()
+            return frappe.get_single("Verenigingen Settings")
 
     except Exception as creation_error:
         frappe.logger().error(f"Failed to create Verenigingen Settings: {str(creation_error)}")
@@ -86,7 +95,7 @@ def get_verenigingen_settings() -> Optional[Dict[str, Any]]:
     return None
 
 
-def get_payments_settings() -> Optional[Dict[str, Any]]:
+def get_payments_settings() -> Optional[Any]:
     """
     Get Verenigingen Payments Settings with caching and error handling.
 
@@ -95,9 +104,12 @@ def get_payments_settings() -> Optional[Dict[str, Any]]:
     - SEPA Direct Debit configuration (creditor ID, mandate naming)
     - Batch processing settings
     - Invoicing and communications settings
+    - Dues account fields (dues_income_account, dues_payments_receivable_account)
+    - Payment description templates (mollie_subscription_description_template, etc.)
 
     Returns:
-        Dict with settings if found, None if error occurs
+        Frappe Document object with settings (supports attribute access like
+        settings.company_iban). Returns None only in catastrophic database failures.
 
     Error Handling:
         Creates settings if missing, logs errors but continues.
@@ -105,6 +117,12 @@ def get_payments_settings() -> Optional[Dict[str, Any]]:
 
     Performance:
         Uses frappe.get_single() for settings retrieval.
+
+    Usage:
+        settings = get_payments_settings()
+        if settings:
+            iban = settings.company_iban  # Attribute access
+            income_account = settings.dues_income_account
     """
     try:
         # Try to get existing settings
@@ -125,9 +143,9 @@ def get_payments_settings() -> Optional[Dict[str, Any]]:
         settings_doc.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # Clear cache and get fresh copy
+        # Clear cache and get fresh Document (not dict) for consistent return type
         frappe.cache().delete_key("single:Verenigingen Payments Settings")
-        return frappe.get_doc("Verenigingen Payments Settings").as_dict()
+        return frappe.get_single("Verenigingen Payments Settings")
 
     except Exception as creation_error:
         frappe.logger().error(f"Failed to create Verenigingen Payments Settings: {str(creation_error)}")
