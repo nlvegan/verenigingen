@@ -74,7 +74,7 @@
   "author": "Verenigingen Team",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "@anthropic-ai/claude-code": "^2.0.55",
+    "@anthropic-ai/claude-code": "^2.0.74",
     "frappe-ui": "^0.1.205",
     "js-yaml": "^4.1.1"
   },
