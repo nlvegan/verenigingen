@@ -201,7 +201,7 @@ def process_bank_details_update():
 
         # Redirect to member dashboard
         frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = "/member_dashboard?success=bank_details_updated"
+        frappe.local.response["location"] = "/payment_dashboard?success=bank_details_updated"
 
     except Exception as e:
         frappe.log_error(f"Bank details update failed: {str(e)}")
