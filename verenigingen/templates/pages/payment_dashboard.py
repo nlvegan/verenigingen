@@ -1,7 +1,174 @@
+from datetime import datetime
+
 import frappe
 from frappe import _
+from frappe.utils import add_months, flt, getdate, today
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_current_user_member_name, get_member_customer
+
+
+def get_current_dues_schedule(member):
+    """Get the current active dues schedule for a member"""
+    schedule = frappe.db.get_value(
+        "Membership Dues Schedule",
+        {"member": member, "status": "Active"},
+        [
+            "name",
+            "contribution_mode",
+            "billing_frequency",
+            "next_invoice_date",
+            "last_invoice_date",
+            "dues_rate",
+            "status",
+        ],
+        as_dict=True,
+    )
+
+    if schedule:
+        dues_rate = flt(schedule.dues_rate, 2) or 0
+        # Calculate monthly amount from billing frequency
+        if schedule.billing_frequency == "Monthly":
+            schedule["monthly_amount"] = dues_rate
+        elif schedule.billing_frequency == "Quarterly":
+            schedule["monthly_amount"] = flt(dues_rate / 3, 2)
+        elif schedule.billing_frequency == "Semi-Annual":
+            schedule["monthly_amount"] = flt(dues_rate / 6, 2)
+        elif schedule.billing_frequency == "Annual":
+            schedule["monthly_amount"] = flt(dues_rate / 12, 2)
+        else:
+            schedule["monthly_amount"] = dues_rate
+
+    return schedule
+
+
+def get_financial_overview(member):
+    """Get financial overview data for the member"""
+    customer = get_member_customer(member)
+    if not customer:
+        return {
+            "next_payment": None,
+            "total_paid_year": 0,
+            "yearly_progress": 0,
+            "payment_count": 0,
+        }
+
+    # Get next payment
+    next_payment = frappe.db.get_value(
+        "Sales Invoice",
+        {"customer": customer, "docstatus": 1, "outstanding_amount": [">", 0], "due_date": [">=", today()]},
+        ["name", "due_date", "outstanding_amount"],
+        order_by="due_date",
+        as_dict=True,
+    )
+
+    if next_payment:
+        next_payment["amount"] = next_payment["outstanding_amount"]
+
+    # Calculate total paid this year
+    from verenigingen.utils.payment_utils import get_total_payments_for_year
+
+    total_paid_year = get_total_payments_for_year(customer, datetime.now().year)
+
+    # Get annual target from current schedule
+    current_schedule = get_current_dues_schedule(member)
+    annual_target = 0
+    if current_schedule:
+        monthly_amount = current_schedule.get("monthly_amount", 0)
+        annual_target = monthly_amount * 12
+
+    # Calculate yearly progress
+    yearly_progress = 0
+    if annual_target > 0:
+        yearly_progress = min(100, (total_paid_year / annual_target) * 100)
+
+    return {
+        "next_payment": next_payment,
+        "total_paid_year": total_paid_year,
+        "yearly_progress": round(yearly_progress, 1),
+        "payment_count": get_payment_count_for_year(customer),
+    }
+
+
+def get_payment_count_for_year(customer):
+    """Get count of payments made this year"""
+    year_start = f"{datetime.now().year}-01-01"
+    return frappe.db.count(
+        "Payment Entry",
+        {
+            "party_type": "Customer",
+            "party": customer,
+            "docstatus": 1,
+            "posting_date": [">=", year_start],
+        },
+    )
+
+
+def get_recent_activity(member):
+    """Get recent financial activity for the member"""
+    customer = get_member_customer(member)
+    if not customer:
+        return []
+
+    activity = []
+
+    # Get recent payments
+    recent_payments = frappe.get_all(
+        "Payment Entry",
+        filters={
+            "party_type": "Customer",
+            "party": customer,
+            "docstatus": 1,
+            "posting_date": [">=", add_months(today(), -3)],
+        },
+        fields=["name", "posting_date", "paid_amount"],
+        order_by="posting_date desc",
+        limit=3,
+    )
+
+    for payment in recent_payments:
+        activity.append(
+            {
+                "title": _("Payment Made"),
+                "description": f"Payment Entry {payment.name}",
+                "date": payment.posting_date,
+                "amount": payment.paid_amount,
+                "status": "paid",
+            }
+        )
+
+    # Get recent invoices
+    recent_invoices = frappe.get_all(
+        "Sales Invoice",
+        filters={"customer": customer, "docstatus": 1, "posting_date": [">=", add_months(today(), -3)]},
+        fields=["name", "posting_date", "grand_total", "outstanding_amount"],
+        order_by="posting_date desc",
+        limit=3,
+    )
+
+    for invoice in recent_invoices:
+        status = "paid" if flt(invoice.outstanding_amount, 2) <= 0.01 else "due"
+        activity.append(
+            {
+                "title": _("Dues invoice generated"),
+                "description": f"Invoice {invoice.name}",
+                "date": invoice.posting_date,
+                "amount": invoice.grand_total,
+                "status": status,
+            }
+        )
+
+    # Sort by date
+    activity.sort(key=lambda x: getdate(x["date"]), reverse=True)
+    return activity[:5]
+
+
+def get_notification_settings(member):
+    """Get notification settings for the member"""
+    return {
+        "email_enabled": True,
+        "reminders_enabled": True,
+        "failure_enabled": True,
+    }
 
 
 def get_context(context):
@@ -128,3 +295,9 @@ def _add_bank_details_context(context):
             context.active_dues_schedule = None
     else:
         context.active_dues_schedule = None
+
+    # Add merged financial dashboard data
+    context.current_schedule = get_current_dues_schedule(context.member)
+    context.financial_overview = get_financial_overview(context.member)
+    context.recent_activity = get_recent_activity(context.member)
+    context.notification_settings = get_notification_settings(context.member)
