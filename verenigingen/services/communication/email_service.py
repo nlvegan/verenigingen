@@ -125,6 +125,18 @@ class EmailService(StatelessService):
             Dict with success status and details
         """
         try:
+            # Check Email Configuration early - before any template loading
+            # This prevents template-not-found errors when email is disabled
+            config_service = self._get_config_service()
+            if config_service and not config_service.is_email_enabled():
+                self.logger.info("Email sending disabled via Email Configuration - skipping templated email")
+                return create_service_result(
+                    success=True,
+                    data={"skipped": True, "reason": "Email disabled in configuration"},
+                    service_name="EmailService",
+                    operation="send_templated_email",
+                )
+
             # Normalize recipients to list
             if isinstance(recipients, str):
                 recipients = [recipients]
@@ -311,6 +323,24 @@ class EmailService(StatelessService):
         """
         try:
             import time
+
+            # Check Email Configuration early - before processing any emails
+            config_service = self._get_config_service()
+            if config_service and not config_service.is_email_enabled():
+                self.logger.info(
+                    f"Email sending disabled via Email Configuration - skipping batch of {len(email_batch)} emails"
+                )
+                return create_service_result(
+                    success=True,
+                    data={
+                        "skipped": True,
+                        "reason": "Email disabled in configuration",
+                        "total_emails": len(email_batch),
+                        "skipped_count": len(email_batch),
+                    },
+                    service_name="EmailService",
+                    operation="send_bulk_emails",
+                )
 
             total_emails = len(email_batch)
             sent_count = 0
