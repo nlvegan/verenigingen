@@ -140,11 +140,10 @@ class PontoPaymentLink(Document):
             Formatted description string
         """
         if not template:
-            settings = frappe.get_single("Verenigingen Settings")
+            settings = get_payments_settings()
             template = (
-                settings.ponto_payment_description_template
-                or "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END"
-            )
+                settings.ponto_payment_description_template if settings else None
+            ) or "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END"
 
         result = template
 

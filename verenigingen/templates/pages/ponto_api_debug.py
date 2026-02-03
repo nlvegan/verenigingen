@@ -52,12 +52,10 @@ def get_context(context):
         payments_settings = get_payments_settings()
         context.default_creditor_name = payments_settings.company_account_holder or ""
         context.default_creditor_iban = payments_settings.company_iban or ""
-        # ponto_payment_description_template remains in Verenigingen Settings
-        verenigingen_settings = frappe.get_single("Verenigingen Settings")
+        # ponto_payment_description_template now in Verenigingen Payments Settings
         context.description_template = (
-            verenigingen_settings.ponto_payment_description_template
-            or "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END"
-        )
+            payments_settings.ponto_payment_description_template if payments_settings else None
+        ) or "Membership dues MEMBER_NAME (MEMBER_ID) - COVERAGE_START to COVERAGE_END"
 
     except Exception:
         context.ponto_configured = False
