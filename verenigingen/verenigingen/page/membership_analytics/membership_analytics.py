@@ -264,14 +264,12 @@ def get_current_year_revenue(year):
         invoiced_amount = frappe.db.sql(invoiced_amount_query, (year_start, year_end), as_dict=True)[0].total
 
         # 2. Get direct dues payments not linked to invoices
-        # Get dues keywords and income account from settings
-        payment_settings = get_payments_settings()
+        # Get dues keywords and income account from Payments Settings
+        payments_settings = get_payments_settings()
         dues_keywords = [
-            kw.strip().lower() for kw in (payment_settings.dues_keywords or "contributie").split(",")
+            kw.strip().lower() for kw in (payments_settings.dues_keywords or "contributie").split(",")
         ]
-
-        verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        dues_income_account = verenigingen_settings.dues_income_account
+        dues_income_account = payments_settings.dues_income_account if payments_settings else None
 
         # Build direct payment query considering both keywords and GL account allocation
         # Case 1: Payment Entry with dues keywords in remarks

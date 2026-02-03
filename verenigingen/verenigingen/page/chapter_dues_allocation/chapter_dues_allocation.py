@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen.domain.chapter_dues import DuesAllocationService
 from verenigingen.verenigingen.domain.chapter_dues_validation import DuesAllocationValidator
 
@@ -48,6 +49,7 @@ def get_allocation_preview(
 
     # Get settings for account configuration
     settings = frappe.get_single("Verenigingen Settings")
+    payments_settings = get_payments_settings()
 
     # Build query conditions
     conditions = ["si.docstatus = 1", "si.custom_member_chapter IS NOT NULL"]
@@ -119,7 +121,7 @@ def get_allocation_preview(
         "accounts": {
             "chapter_account": settings.chapter_dues_income_account,
             "national_account": settings.national_dues_income_account,
-            "source_account": settings.dues_income_account,
+            "source_account": payments_settings.dues_income_account if payments_settings else None,
         },
     }
 
@@ -197,6 +199,7 @@ def generate_allocation_journal_entries(
 
     # Get settings for account access
     settings = frappe.get_single("Verenigingen Settings")
+    payments_settings = get_payments_settings()
 
     created_entries = []
 
@@ -243,7 +246,7 @@ def generate_allocation_journal_entries(
                     "custom_dues_allocation_period": company_allocation_key,
                     "accounts": [
                         {
-                            "account": settings.dues_income_account,
+                            "account": payments_settings.dues_income_account if payments_settings else None,
                             "debit_in_account_currency": company_grand_total,
                             "credit_in_account_currency": 0,
                             "user_remark": "Reverse total dues income",
