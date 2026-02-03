@@ -370,14 +370,17 @@ class InvoiceGenerator(StatelessService):
 
     def _get_income_account(self, settings: Any, company: str) -> Optional[str]:
         """Get income account with fallback logic"""
-        # Primary: Verenigingen Settings dues_income_account
-        income_account = settings.dues_income_account
+        # Primary: Verenigingen Payments Settings dues_income_account
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        payments_settings = get_payments_settings()
+        income_account = payments_settings.dues_income_account if payments_settings else None
         if income_account and frappe.db.exists("Account", income_account):
             return income_account
 
         if income_account:
             self.logger.warning(
-                f"Configured dues_income_account '{income_account}' does not exist, using company default"
+                f"Configured dues_income_account '{income_account}' in Payments Settings does not exist, using company default"
             )
 
         # Fallback: Company default income account

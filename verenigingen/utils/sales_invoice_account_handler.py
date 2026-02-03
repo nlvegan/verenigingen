@@ -3,17 +3,17 @@ Sales Invoice Account Handler
 =============================
 
 This module ensures that Sales Invoices created for membership dues use the
-correct receivable account from Verenigingen Settings instead of the Company default.
+correct receivable account from Verenigingen Payments Settings instead of the Company default.
 
 The issue:
-- Verenigingen Settings has 'dues_payments_receivable_account' for membership dues
+- Verenigingen Payments Settings has 'dues_payments_receivable_account' for membership dues
 - Company has default_receivable_account set to a general receivables account
 - Sales Invoices should use the specific dues receivable account for membership invoices
 
 The solution:
 - Hook into Sales Invoice validation to set the correct debit_to account
 - Check if the invoice is for membership (based on item or customer type)
-- Use Verenigingen Settings dues_payments_receivable_account if applicable
+- Use Verenigingen Payments Settings dues_payments_receivable_account if applicable
 """
 
 import frappe
@@ -26,7 +26,7 @@ def set_membership_receivable_account(doc, method=None):
 
     This function is called during Sales Invoice validation to ensure
     membership dues invoices use the dues_payments_receivable_account specified
-    in Verenigingen Settings rather than the Company default.
+    in Verenigingen Payments Settings rather than the Company default.
 
     Args:
         doc: Sales Invoice document
@@ -36,13 +36,15 @@ def set_membership_receivable_account(doc, method=None):
     if not doc.debit_to:
         return
 
-    # Get Verenigingen Settings
+    # Get Verenigingen Payments Settings
     try:
-        settings = frappe.get_single("Verenigingen Settings")
-        if not settings.dues_payments_receivable_account:
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        settings = get_payments_settings()
+        if not settings or not settings.dues_payments_receivable_account:
             return
     except frappe.DoesNotExistError:
-        frappe.log_error("Verenigingen Settings not found", "Sales Invoice Account Handler")
+        frappe.log_error("Verenigingen Payments Settings not found", "Sales Invoice Account Handler")
         return
     except AttributeError as e:
         frappe.log_error(
@@ -50,7 +52,9 @@ def set_membership_receivable_account(doc, method=None):
         )
         return
     except frappe.ValidationError as e:
-        frappe.log_error(f"Verenigingen Settings validation error: {str(e)}", "Sales Invoice Account Handler")
+        frappe.log_error(
+            f"Verenigingen Payments Settings validation error: {str(e)}", "Sales Invoice Account Handler"
+        )
         return
 
     # Get Company default to check if we need to override
