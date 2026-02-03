@@ -91,10 +91,14 @@ class TestInvoiceGenerator(EnhancedTestCase):
         """Test income account falls back to company default when settings account doesn't exist"""
         # Arrange
         settings = frappe.get_single("Verenigingen Settings")
-        original_account = settings.dues_income_account
+        original_account = frappe.db.get_value(
+            "Verenigingen Payments Settings", None, "dues_income_account"
+        )
 
         # Set invalid income account in settings
-        frappe.db.set_value("Verenigingen Settings", None, "dues_income_account", "Invalid-Account-999")
+        frappe.db.set_value(
+            "Verenigingen Payments Settings", None, "dues_income_account", "Invalid-Account-999"
+        )
         frappe.db.commit()
 
         try:
@@ -116,14 +120,18 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
         finally:
             # Restore original setting
-            frappe.db.set_value("Verenigingen Settings", None, "dues_income_account", original_account)
+            frappe.db.set_value(
+                "Verenigingen Payments Settings", None, "dues_income_account", original_account
+            )
             frappe.db.commit()
 
     def test_missing_income_account_fails_gracefully(self):
         """Test that missing income account (no fallback) fails with clear error"""
         # Arrange
         settings = frappe.get_single("Verenigingen Settings")
-        original_account = settings.dues_income_account
+        original_account = frappe.db.get_value(
+            "Verenigingen Payments Settings", None, "dues_income_account"
+        )
 
         # Check if company actually has a fallback account
         company_doc = frappe.get_doc("Company", settings.company)
@@ -131,7 +139,7 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
         if not has_company_fallback:
             # Perfect - no fallback exists, just clear settings account
-            frappe.db.set_value("Verenigingen Settings", None, "dues_income_account", None)
+            frappe.db.set_value("Verenigingen Payments Settings", None, "dues_income_account", None)
             frappe.db.commit()
 
             try:
@@ -150,7 +158,9 @@ class TestInvoiceGenerator(EnhancedTestCase):
 
             finally:
                 # Restore original settings
-                frappe.db.set_value("Verenigingen Settings", None, "dues_income_account", original_account)
+                frappe.db.set_value(
+                    "Verenigingen Payments Settings", None, "dues_income_account", original_account
+                )
                 frappe.db.commit()
         else:
             # Company has fallback - we need to clear both, but this is risky in tests

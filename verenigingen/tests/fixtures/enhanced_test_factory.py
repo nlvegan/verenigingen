@@ -3955,7 +3955,9 @@ class EnhancedTestCase(FrappeTestCase):
         if not hasattr(frappe.local, '_original_verenigingen_settings'):
             frappe.local._original_verenigingen_settings = {
                 'company': frappe.db.get_value("Verenigingen Settings", None, "company"),
-                'dues_income_account': frappe.db.get_value("Verenigingen Settings", None, "dues_income_account"),
+                'dues_income_account': frappe.db.get_value(
+                    "Verenigingen Payments Settings", None, "dues_income_account"
+                ),
             }
 
         # Get or create income account for test company
@@ -3966,7 +3968,9 @@ class EnhancedTestCase(FrappeTestCase):
 
         # Update Verenigingen Settings to use the test company
         frappe.db.set_value("Verenigingen Settings", None, "company", test_company, update_modified=False)
-        frappe.db.set_value("Verenigingen Settings", None, "dues_income_account", income_account, update_modified=False)
+        frappe.db.set_value(
+            "Verenigingen Payments Settings", None, "dues_income_account", income_account, update_modified=False
+        )
 
         # Also ensure default_income_account on the company for fallback paths
         current_default = frappe.db.get_value("Company", test_company, "default_income_account")
@@ -4009,7 +4013,7 @@ class EnhancedTestCase(FrappeTestCase):
                 )
             if original.get('dues_income_account'):
                 frappe.db.set_value(
-                    "Verenigingen Settings", None, "dues_income_account",
+                    "Verenigingen Payments Settings", None, "dues_income_account",
                     original['dues_income_account'], update_modified=False
                 )
             frappe.db.commit()

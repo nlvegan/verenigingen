@@ -17,7 +17,8 @@ class TestVerenigingenSettings(EnhancedTestCase):
         # Skipping for now - needs investigation of Account creation dependencies
         self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
 
-        settings = frappe.get_single("Verenigingen Settings")
+        # Note: dues_payments_receivable_account is now in Verenigingen Payments Settings
+        settings = frappe.get_single("Verenigingen Payments Settings")
 
         # Test field exists
         self.assertTrue(hasattr(settings, "dues_payments_receivable_account"))
@@ -40,7 +41,8 @@ class TestVerenigingenSettings(EnhancedTestCase):
         # Skipping for now - needs investigation of Account creation dependencies
         self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
 
-        settings = frappe.get_single("Verenigingen Settings")
+        # Note: dues_income_account is now in Verenigingen Payments Settings
+        settings = frappe.get_single("Verenigingen Payments Settings")
 
         # Test that field exists and is accessible
         self.assertTrue(hasattr(settings, "dues_income_account"))
@@ -71,10 +73,13 @@ class TestVerenigingenSettings(EnhancedTestCase):
             account_name="Dues Specific Receivable", account_type="Receivable"
         )
 
-        # Configure Verenigingen Settings
+        # Configure Verenigingen Payments Settings (dues accounts are now there)
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        payments_settings.dues_payments_receivable_account = dues_receivable_account
+        payments_settings.save()
+
+        # Get company from main settings
         settings = frappe.get_single("Verenigingen Settings")
-        settings.dues_payments_receivable_account = dues_receivable_account
-        settings.save()
 
         # Configure Company with default receivable account
         company = frappe.get_doc("Company", settings.company)
@@ -129,10 +134,13 @@ class TestVerenigingenSettings(EnhancedTestCase):
             account_name="Dues Specific Receivable 2", account_type="Receivable"
         )
 
-        # Configure settings
+        # Configure Verenigingen Payments Settings (dues accounts are now there)
+        payments_settings = frappe.get_single("Verenigingen Payments Settings")
+        payments_settings.dues_payments_receivable_account = dues_receivable_account
+        payments_settings.save()
+
+        # Get company from main settings
         settings = frappe.get_single("Verenigingen Settings")
-        settings.dues_payments_receivable_account = dues_receivable_account
-        settings.save()
 
         company = frappe.get_doc("Company", settings.company)
         company.default_receivable_account = company_default_account
