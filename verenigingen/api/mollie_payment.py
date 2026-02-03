@@ -300,3 +300,91 @@ def get_subscription_details():
     except Exception as e:
         frappe.log_error(f"Error in get_subscription_details: {str(e)}", "Mollie Subscription API")
         return {"status": "error", "message": _("Error retrieving subscription details")}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def cancel_specific_subscription(customer_id: str = None, subscription_id: str = None):
+    """
+    Cancel a specific Mollie subscription by customer ID and subscription ID.
+
+    Args:
+        customer_id: Mollie customer ID (cst_xxx)
+        subscription_id: Mollie subscription ID (sub_xxx)
+
+    Returns:
+        Dict with cancellation result
+    """
+    try:
+        # Get request data from form if not provided as params
+        if not customer_id:
+            customer_id = frappe.local.form_dict.get("customer_id")
+        if not subscription_id:
+            subscription_id = frappe.local.form_dict.get("subscription_id")
+
+        frappe.logger().info(
+            f"Cancel subscription request: customer={customer_id}, subscription={subscription_id}"
+        )
+
+        if not customer_id or not subscription_id:
+            frappe.throw(_("Customer ID and Subscription ID are required"))
+
+        # Get member record using improved utility
+        member_name = get_current_user_member_name_required()
+
+        # CRITICAL SECURITY: Validate user can only cancel their own subscriptions
+        validate_member_ownership(member_name, _("You can only cancel your own subscriptions"))
+
+        # Verify the customer ID belongs to this member
+        member = frappe.get_doc("Member", member_name)
+        authorized_customer_ids = []
+
+        # Check member record - handle comma-separated customer IDs with validation
+        if member.mollie_customer_id:
+            customer_ids = parse_mollie_customer_ids(member.mollie_customer_id, max_ids=5)
+            authorized_customer_ids.extend(customer_ids)
+
+        # Check donor records
+        donor_records = frappe.get_all(
+            "Donor",
+            filters={"member": member_name, "mollie_customer_id": ["!=", ""]},
+            fields=["mollie_customer_id"],
+        )
+        for donor in donor_records:
+            if donor.mollie_customer_id:
+                donor_customer_ids = parse_mollie_customer_ids(donor.mollie_customer_id, max_ids=5)
+                authorized_customer_ids.extend(donor_customer_ids)
+
+        if customer_id not in authorized_customer_ids:
+            frappe.throw(_("You are not authorized to cancel subscriptions for this customer"))
+
+        # Cancel the subscription using MollieDebugService
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+
+        frappe.logger().info(
+            f"User {frappe.session.user} cancelling subscription {subscription_id} for customer {customer_id}"
+        )
+
+        debug_service = MollieDebugService()
+        result = debug_service.admin_cancel_subscription(
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+            reason=f"User-initiated cancellation via payment dashboard by {frappe.session.user}",
+        )
+
+        # If cancellation was successful, clear the subscription ID from member record
+        if result.get("status") == "success":
+            # Check if this subscription ID matches the member's subscription
+            if member.mollie_subscription_id == subscription_id:
+                member.db_set("mollie_subscription_id", None)
+                member.db_set("subscription_status", "cancelled")
+                frappe.logger().info(
+                    f"Cleared mollie_subscription_id from member {member_name} after successful cancellation"
+                )
+
+        return result
+
+    except Exception as e:
+        error_msg = f"Error cancelling subscription {subscription_id}: {str(e)}"
+        frappe.log_error(error_msg, "Mollie Subscription Cancel")
+        return {"status": "error", "message": str(e)}
