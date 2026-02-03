@@ -361,34 +361,33 @@
                 <div class="financial-metric">
                     <div class="flex-1">
                         <div class="metric-label">{{ _("Active Payment Method") }}</div>
-                        <div class="flex items-center gap-2 mt-2">
-                            {% if current_mandate %}
-                            <span class="payment-badge payment-badge-success">
-                                <i class="fa fa-check mr-1"></i>SEPA
-                            </span>
-                            {% endif %}
-                            {% set has_active_mollie = false %}
-                            {% for mc in mollie_customers %}
-                                {% if mc.status == 'active' %}
-                                    {% set has_active_mollie = true %}
-                                {% endif %}
-                            {% endfor %}
-                            <span id="mollie-badge" class="payment-badge payment-badge-inactive">
-                                Mollie
-                            </span>
-                            {% if not current_mandate and not has_active_mollie %}
-                            <span class="payment-badge payment-badge-warning">
-                                {{ _("None configured") }}
-                            </span>
-                            {% endif %}
+                        {% if current_mandate %}
+                        <!-- SEPA Active -->
+                        <div class="flex items-center gap-3 mt-3">
+                            <div class="w-14 h-14 bg-success-100 rounded-xl flex items-center justify-center">
+                                <i class="fa fa-university text-success-600 text-2xl"></i>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold text-gray-900">{{ _("SEPA Direct Debit") }}</div>
+                                <div class="text-sm text-success-600"><i class="fa fa-check-circle mr-1"></i>{{ _("Active") }}</div>
+                            </div>
                         </div>
+                        {% else %}
+                        <!-- Check for active Mollie - will be updated by JS -->
+                        <div id="active-method-display" class="flex items-center gap-3 mt-3">
+                            <div class="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center">
+                                <i class="fa fa-credit-card text-gray-400 text-2xl"></i>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold text-gray-500">{{ _("None configured") }}</div>
+                                <div class="text-sm text-gray-400">{{ _("Set up a payment method") }}</div>
+                            </div>
+                        </div>
+                        {% endif %}
                         <button onclick="switchTab('payment_methods')"
                                 class="mt-3 inline-flex items-center text-primary-600 hover:text-primary-700 text-sm font-medium">
                             {{ _("Manage Methods") }} &rarr;
                         </button>
-                    </div>
-                    <div class="metric-icon bg-primary-100">
-                        <i class="fa fa-credit-card text-primary-600"></i>
                     </div>
                 </div>
             </div>
@@ -448,17 +447,9 @@
             </div>
         </div>
 
-        <!-- Quick Actions (2 cards) -->
-        <div class="quick-actions mb-8">
-            <button onclick="switchTab('payment_methods')" class="quick-action text-left">
-                <div class="quick-action-icon bg-primary-100">
-                    <i class="fa fa-university text-primary-600"></i>
-                </div>
-                <div class="quick-action-title">{{ _("Update Bank Details") }}</div>
-                <div class="quick-action-description">{{ _("Update your IBAN or payment method") }}</div>
-            </button>
-
-            <a href="/membership_adjustment" class="quick-action">
+        <!-- Quick Action -->
+        <div class="mb-8 flex justify-center">
+            <a href="/membership_adjustment" class="quick-action max-w-sm">
                 <div class="quick-action-icon bg-warning-100">
                     <i class="fa fa-sliders-h text-warning-600"></i>
                 </div>
@@ -582,7 +573,7 @@
                     <h3 class="text-xl font-bold text-gray-900 mb-6">{{ _("Payment Methods") }}</h3>
 
                     <!-- Payment Method Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                         <!-- SEPA Direct Debit Card -->
                         <div class="border-2 {% if current_mandate %}border-success-500{% else %}border-gray-300{% endif %} bg-white rounded-lg p-6 transition-all duration-300 hover:shadow-md">
                             <div class="flex items-start justify-between mb-4">
@@ -686,6 +677,58 @@
                                 <i class="fa fa-exclamation-triangle mr-1"></i>
                                 <span id="mollie-error-message"></span>
                             </div>
+                        </div>
+
+                        <!-- Manual Transfer Card -->
+                        <div class="border-2 border-gray-300 bg-white rounded-lg p-6 transition-all duration-300 hover:shadow-md">
+                            <div class="flex items-start justify-between mb-4">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0">
+                                        <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                            <i class="fa fa-exchange-alt text-blue-600 text-xl"></i>
+                                        </div>
+                                    </div>
+                                    <div class="ml-4">
+                                        <h4 class="text-lg font-semibold text-gray-900">{{ _("Manual Transfer") }}</h4>
+                                    </div>
+                                </div>
+                                <span class="inline-flex items-center px-3 py-1 bg-blue-500 text-white rounded-full text-xs font-semibold">
+                                    {{ _("Available") }}
+                                </span>
+                            </div>
+
+                            <p class="text-sm text-gray-600 mb-4">
+                                {{ _("Transfer manually using our bank details") }}
+                            </p>
+
+                            <div class="bg-blue-50 rounded-lg border border-blue-200 p-4 mb-4">
+                                <div class="space-y-3 text-sm">
+                                    <div>
+                                        <span class="font-medium text-gray-700">{{ _("Account Name:") }}</span>
+                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Settings", "organization_name") or _("Organization") }}</p>
+                                    </div>
+                                    <div>
+                                        <span class="font-medium text-gray-700">{{ _("IBAN:") }}</span>
+                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Settings", "bank_account_iban") or _("Contact us for details") }}</p>
+                                    </div>
+                                    {% set org_bic = frappe.db.get_single_value("Verenigingen Settings", "bank_account_bic") %}
+                                    {% if org_bic %}
+                                    <div>
+                                        <span class="font-medium text-gray-700">{{ _("BIC:") }}</span>
+                                        <p class="font-mono text-gray-900">{{ org_bic }}</p>
+                                    </div>
+                                    {% endif %}
+                                    <div>
+                                        <span class="font-medium text-gray-700">{{ _("Reference:") }}</span>
+                                        <p class="font-mono text-gray-900">{{ member_doc.member_id if member_doc else member }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p class="text-sm text-blue-800">
+                                <i class="fa fa-info-circle mr-1"></i>
+                                {{ _("Include your member ID as payment reference") }}
+                            </p>
                         </div>
                     </div>
 
@@ -1189,7 +1232,6 @@ async function loadMollieStatus() {
 function updateMollieDisplay(data) {
     const container = document.getElementById('mollie-subscriptions-container');
     const badge = document.getElementById('mollie-status-badge');
-    const topBadge = document.getElementById('mollie-badge');
     const card = document.getElementById('mollie-card');
 
     if (!data || data.status === 'no_subscription' || !data.subscriptions || data.subscriptions.length === 0) {
@@ -1197,10 +1239,6 @@ function updateMollieDisplay(data) {
         if (badge) {
             badge.className = 'inline-flex items-center px-3 py-1 bg-gray-400 text-white rounded-full text-xs font-semibold';
             badge.innerHTML = '{{ _("Disabled") }}';
-        }
-        if (topBadge) {
-            topBadge.className = 'payment-badge payment-badge-inactive';
-            topBadge.innerHTML = 'Mollie';
         }
         if (container) {
             container.innerHTML = `
@@ -1224,13 +1262,23 @@ function updateMollieDisplay(data) {
             badge.className = 'inline-flex items-center px-3 py-1 bg-success-500 text-white rounded-full text-xs font-semibold';
             badge.innerHTML = '<i class="fa fa-check mr-1"></i>{{ _("Enabled") }}';
         }
-        if (topBadge) {
-            topBadge.className = 'payment-badge payment-badge-success';
-            topBadge.innerHTML = '<i class="fa fa-check mr-1"></i>Mollie';
-        }
         if (card) {
             card.classList.remove('border-gray-300');
             card.classList.add('border-success-500');
+        }
+
+        // Update Active Payment Method card if no SEPA mandate
+        const activeMethodDisplay = document.getElementById('active-method-display');
+        if (activeMethodDisplay) {
+            activeMethodDisplay.innerHTML = `
+                <div class="w-14 h-14 bg-primary-100 rounded-xl flex items-center justify-center">
+                    <i class="fa fa-credit-card text-primary-600 text-2xl"></i>
+                </div>
+                <div>
+                    <div class="text-lg font-bold text-gray-900">{{ _("Mollie Payments") }}</div>
+                    <div class="text-sm text-success-600"><i class="fa fa-check-circle mr-1"></i>{{ _("Active") }}</div>
+                </div>
+            `;
         }
 
         // Render active subscriptions
