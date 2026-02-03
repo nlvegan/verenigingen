@@ -705,13 +705,13 @@
                                 <div class="space-y-3 text-sm">
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("Account Name:") }}</span>
-                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Settings", "organization_name") or _("Organization") }}</p>
+                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Payments Settings", "company_account_holder") or _("Organization") }}</p>
                                     </div>
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("IBAN:") }}</span>
-                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Settings", "bank_account_iban") or _("Contact us for details") }}</p>
+                                        <p class="font-mono text-gray-900">{{ frappe.db.get_single_value("Verenigingen Payments Settings", "company_iban") or _("Contact us for details") }}</p>
                                     </div>
-                                    {% set org_bic = frappe.db.get_single_value("Verenigingen Settings", "bank_account_bic") %}
+                                    {% set org_bic = frappe.db.get_single_value("Verenigingen Payments Settings", "company_bic") %}
                                     {% if org_bic %}
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("BIC:") }}</span>
