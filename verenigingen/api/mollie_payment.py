@@ -1,7 +1,7 @@
 """
 Mollie Payment API Endpoints
 
-API endpoints for creating and managing Mollie payments.
+API endpoints for creating and managing Mollie payments and subscriptions.
 """
 
 import traceback
@@ -10,9 +10,14 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import (
+    get_current_user_member_name_required,
+    validate_member_ownership,
+)
+from verenigingen.utils.mollie_data_validator import parse_mollie_customer_ids
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -94,3 +99,204 @@ def get_payment_status(payment_id: str) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(
             error=_("Failed to retrieve payment status: {0}").format(error_msg), http_status=500
         )
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+def get_subscription_details():
+    """
+    Get real-time subscription details from Mollie for the current user.
+
+    Returns subscription information including status, next payment date,
+    and mandate validity for all Mollie customer IDs associated with the member.
+    """
+    try:
+        # Get member record using improved utility with automatic error handling
+        member_name = get_current_user_member_name_required()
+
+        # CRITICAL SECURITY: Validate user can only access their own subscription details
+        validate_member_ownership(member_name, _("You can only access your own subscription details"))
+
+        member = frappe.get_doc("Member", member_name)
+
+        # Collect Mollie customer IDs from MEMBER record only (not donor)
+        # Dues pages should only check membership payment methods, not donation methods
+        # Support comma-separated customer IDs for members with multiple Mollie accounts
+        mollie_customer_ids = []
+
+        # Check member record for Mollie customer ID
+        if member.mollie_customer_id:
+            customer_ids = parse_mollie_customer_ids(member.mollie_customer_id, max_ids=5)
+            for customer_id in customer_ids:
+                mollie_customer_ids.append(
+                    {
+                        "customer_id": customer_id,
+                        "subscription_id": member.mollie_subscription_id,
+                        "source": "member",
+                        "local_status": member.subscription_status,
+                        "local_cancelled_date": member.subscription_cancelled_date,
+                    }
+                )
+
+        if not mollie_customer_ids:
+            return {"status": "no_subscription", "message": _("No Mollie customer IDs found")}
+
+        try:
+            # Query Mollie API for all customer IDs
+            all_subscriptions = []
+
+            for customer_info in mollie_customer_ids:
+                customer_id = customer_info["customer_id"]
+
+                # Use existing MollieDebugService to fetch ALL subscriptions (not just active)
+                try:
+                    from verenigingen.services.mollie_debug_service import MollieDebugService
+
+                    debug_service = MollieDebugService()
+
+                    # Fetch ALL subscriptions for this customer (active_only=False)
+                    subscriptions_result = debug_service.list_subscriptions(
+                        customer_id=customer_id,
+                        limit=250,
+                        active_only=False,  # Get both active AND canceled subscriptions
+                    )
+
+                    if subscriptions_result.get("error"):
+                        # API error - add customer-only info with error
+                        customer_only_info = {
+                            "customer_id": customer_id,
+                            "source": customer_info["source"],
+                            "subscription": None,
+                            "has_customer_only": True,
+                            "error": subscriptions_result["error"],
+                            "mandate_valid": False,
+                        }
+                        all_subscriptions.append(customer_only_info)
+                        continue
+
+                    # Check mandate validity for this customer by querying Mollie directly
+                    mandate_valid = False
+                    mandate_status = None
+
+                    try:
+                        # Query Mollie for ALL mandates for this customer
+                        client = debug_service.mollie_client.sdk_client
+                        customer_obj = client.customers.get(customer_id)
+                        mandates = customer_obj.mandates.list()
+
+                        # Check if any mandate has status="valid"
+                        for mandate in mandates:
+                            if mandate.status == "valid":
+                                mandate_valid = True
+                                mandate_status = "valid"
+                                break
+                            elif not mandate_status:  # Track first mandate status found
+                                mandate_status = mandate.status
+
+                    except Exception as mandate_error:
+                        # Log but don't fail - customer might not have mandates yet
+                        frappe.logger().debug(
+                            f"No mandates found for customer {customer_id}: {str(mandate_error)}"
+                        )
+
+                    # Process each subscription returned by the service
+                    subscriptions = subscriptions_result.get("subscriptions", [])
+
+                    if not subscriptions:
+                        # Customer exists but has no subscriptions
+                        customer_only_info = {
+                            "customer_id": customer_id,
+                            "source": customer_info["source"],
+                            "subscription": None,
+                            "has_customer_only": True,
+                            "note": "Customer found but no subscriptions",
+                            "mandate_valid": mandate_valid,
+                            "mandate_status": mandate_status,
+                        }
+                        all_subscriptions.append(customer_only_info)
+                    else:
+                        # Add each subscription to the results
+                        for sub in subscriptions:
+                            # Parse amount - MollieDebugService returns formatted string like "EUR 25.00"
+                            amount_value = 0.0
+                            currency = "EUR"
+
+                            amount_field = sub.get("amount")
+                            if isinstance(amount_field, str):
+                                parts = amount_field.split()
+                                if len(parts) >= 2:
+                                    try:
+                                        amount_value = float(parts[1] if parts[0].isalpha() else parts[0])
+                                        currency = parts[0] if parts[0].isalpha() else parts[1]
+                                    except (ValueError, IndexError):
+                                        frappe.log_error(f"Failed to parse amount string: {amount_field}")
+                            elif isinstance(amount_field, dict):
+                                amount_value = float(amount_field.get("value", 0))
+                                currency = amount_field.get("currency", "EUR")
+
+                            subscription_info = {
+                                "customer_id": customer_id,
+                                "subscription_id": sub.get("id"),
+                                "source": customer_info["source"],
+                                "subscription": {
+                                    "id": sub.get("id"),
+                                    "status": sub.get("status"),
+                                    "amount": amount_value,
+                                    "currency": currency,
+                                    "interval": sub.get("interval"),
+                                    "next_payment_date": sub.get("next_payment_date"),
+                                    "is_active": sub.get("status") == "active",
+                                    "is_canceled": sub.get("status") == "canceled",
+                                    "description": sub.get("description"),
+                                },
+                                "member_status": {
+                                    "local_status": customer_info.get("local_status"),
+                                    "cancelled_date": customer_info.get("local_cancelled_date"),
+                                },
+                                "mandate_valid": mandate_valid,
+                                "mandate_status": mandate_status,
+                            }
+                            all_subscriptions.append(subscription_info)
+
+                except Exception as mollie_error:
+                    frappe.log_error(
+                        f"Error querying Mollie subscriptions for {customer_id}: {str(mollie_error)}",
+                        "Mollie Subscription Query",
+                    )
+                    customer_only_info = {
+                        "customer_id": customer_id,
+                        "source": customer_info["source"],
+                        "subscription": None,
+                        "has_customer_only": True,
+                        "error": "Could not fetch subscription data",
+                        "mandate_valid": False,
+                    }
+                    all_subscriptions.append(customer_only_info)
+
+            return {
+                "status": "success",
+                "subscriptions": all_subscriptions,
+                "total_customers": len(mollie_customer_ids),
+            }
+
+        except Exception as subscription_error:
+            frappe.log_error(
+                f"Error fetching subscription data: {str(subscription_error)}", "Subscription Data Fetch"
+            )
+            # Fallback to stored member data
+            return {
+                "status": "fallback",
+                "subscription": {
+                    "status": member.subscription_status,
+                    "next_payment_date": member.next_payment_date,
+                },
+                "member_status": {
+                    "local_status": member.subscription_status,
+                    "cancelled_date": member.subscription_cancelled_date,
+                },
+                "message": _("Unable to fetch current data, showing last known status"),
+            }
+
+    except Exception as e:
+        frappe.log_error(f"Error in get_subscription_details: {str(e)}", "Mollie Subscription API")
+        return {"status": "error", "message": _("Error retrieving subscription details")}

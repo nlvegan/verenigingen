@@ -1186,7 +1186,7 @@ function renderMandateHistory(mandates) {
 // Load Mollie status
 async function loadMollieStatus() {
     try {
-        const response = await fetch('/api/method/verenigingen.templates.pages.bank_details.get_subscription_details', {
+        const response = await fetch('/api/method/verenigingen.api.mollie_payment.get_subscription_details', {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',

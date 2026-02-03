@@ -191,7 +191,7 @@ def get_quick_actions(member, membership, volunteer):
         actions.append(
             {
                 "title": _("Update Payment Details"),
-                "route": "/bank_details",
+                "route": "/payment_dashboard",
                 "class": "btn-primary",
                 "icon": "fa-id-card",
             }
@@ -200,7 +200,7 @@ def get_quick_actions(member, membership, volunteer):
         actions.append(
             {
                 "title": _("Update Payment Details"),
-                "route": "/bank_details",
+                "route": "/payment_dashboard",
                 "class": "btn-primary",
                 "icon": "fa-refresh",
             }
@@ -211,7 +211,7 @@ def get_quick_actions(member, membership, volunteer):
         actions.append(
             {
                 "title": _("Set Up Bank Details"),
-                "route": "/bank_details",
+                "route": "/payment_dashboard",
                 "class": "btn-primary",
                 "icon": "fa-university",
             }
@@ -220,7 +220,7 @@ def get_quick_actions(member, membership, volunteer):
         actions.append(
             {
                 "title": _("Enable Auto-Pay"),
-                "route": "/bank_details",
+                "route": "/payment_dashboard",
                 "class": "btn-secondary",
                 "icon": "fa-magic",
             }

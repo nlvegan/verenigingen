@@ -1288,3 +1288,63 @@ def deactivate_mandates_for_iban_change_api(member: str, new_iban: str) -> Opera
         return OperationResult.ok(result.data or {}, message=result.message)
     else:
         return OperationResult.fail(result.message, errors=result.errors, data=result.data)
+
+
+# =============================================================================
+# Standalone utility functions (previously in bank_details.py)
+# =============================================================================
+
+
+def get_active_sepa_mandate(member_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Get active SEPA mandate for a member.
+
+    Args:
+        member_name: Member document name
+
+    Returns:
+        Dict with mandate info if found, None otherwise
+    """
+    try:
+        mandate = frappe.get_all(
+            "SEPA Mandate",
+            filters={"member": member_name, "status": "Active", "is_active": 1},
+            fields=["name", "mandate_id", "iban", "account_holder_name", "status"],
+            limit=1,
+        )
+        return mandate[0] if mandate else None
+    except Exception:
+        return None
+
+
+def determine_mandate_action(
+    current_mandate: Optional[Dict], current_payment_method: str, enable_dd: bool, bank_details_changed: bool
+) -> str:
+    """
+    Determine what action is needed for SEPA mandate based on current state.
+
+    Args:
+        current_mandate: Current active mandate dict or None
+        current_payment_method: Current payment method string
+        enable_dd: Whether direct debit should be enabled
+        bank_details_changed: Whether bank details have changed
+
+    Returns:
+        Action string: 'create_mandate', 'replace_mandate', 'keep_mandate',
+                      'cancel_mandate', 'no_mandate', or 'no_action'
+    """
+    if enable_dd:
+        if current_mandate:
+            if bank_details_changed:
+                return "replace_mandate"  # Cancel current, create new
+            else:
+                return "keep_mandate"  # Keep existing
+        else:
+            return "create_mandate"  # Create new
+    else:
+        if current_mandate:
+            return "cancel_mandate"  # Cancel existing
+        else:
+            return "no_mandate"  # No mandate needed
+
+    return "no_action"

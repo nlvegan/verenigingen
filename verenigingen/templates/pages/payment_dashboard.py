@@ -234,9 +234,10 @@ def get_context(context):
 
 
 def _add_bank_details_context(context):
-    """Add bank details context data from bank_details.py"""
-    # Import bank details helpers
-    from verenigingen.templates.pages.bank_details import get_active_sepa_mandate, parse_mollie_customer_ids
+    """Add bank details context data"""
+    # Import helpers from their new locations
+    from verenigingen.services.payment.sepa_mandate_manager import get_active_sepa_mandate
+    from verenigingen.utils.mollie_data_validator import parse_mollie_customer_ids
 
     # Ensure CSRF token is available
     context.csrf_token = frappe.session.csrf_token

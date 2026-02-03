@@ -172,7 +172,7 @@ class SEPAMandateNotificationManager:
             "days_until_expiry": days_until_expiry,
             "iban": self._mask_iban(mandate.iban),
             "company_name": settings.company_name,
-            "renewal_link": f"{frappe.utils.get_url()}/bank_details",
+            "renewal_link": f"{frappe.utils.get_url()}/payment_dashboard",
         }
 
         # MIGRATED: Use unified EmailService instead of custom _send_email
@@ -398,7 +398,7 @@ class SEPAMandateNotificationManager:
                 "days_until_expiry": days_until_expiry,
                 "iban": self._mask_iban(mandate.iban),
                 "company_name": settings.company_name,
-                "renewal_link": f"{frappe.utils.get_url()}/bank_details",
+                "renewal_link": f"{frappe.utils.get_url()}/payment_dashboard",
             }
         )
 

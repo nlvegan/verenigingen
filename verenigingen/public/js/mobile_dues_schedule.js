@@ -600,7 +600,7 @@ class MobileDuesSchedule {
 				window.location.href = '/payment_dashboard';
 				break;
 			case 'bank-details':
-				window.location.href = '/bank_details';
+				window.location.href = '/payment_dashboard';
 				break;
 			case 'help':
 				window.location.href = '/help';
