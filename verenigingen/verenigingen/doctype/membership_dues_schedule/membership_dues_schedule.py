@@ -921,9 +921,12 @@ class MembershipDuesSchedule(Document):
             item.is_sales_item = 1
 
             # Set correct default accounts from configuration
-            # Income account from Verenigingen Settings - use the proper P&L income account
-            if settings.dues_income_account:
-                item.income_account = settings.dues_income_account
+            # Income account from Verenigingen Payments Settings - use the proper P&L income account
+            from verenigingen.utils.settings_utils import get_payments_settings
+
+            payments_settings = get_payments_settings()
+            if payments_settings and payments_settings.dues_income_account:
+                item.income_account = payments_settings.dues_income_account
 
             # Expense account from Company's default cost of goods sold account
             try:

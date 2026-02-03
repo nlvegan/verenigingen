@@ -563,13 +563,16 @@ class DuesPaymentProcessor:
         """
         # Setup phase: gather configuration (not retryable - these are config errors)
         settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.settings_utils import get_payments_settings
+
+        payments_settings = get_payments_settings()
 
         # Validate fiscal year exists before creating invoice
         if not self._validate_fiscal_year(payment_date, settings.company, f"invoice for {member_doc.name}"):
             return None
 
-        # Get income account
-        income_account = settings.dues_income_account
+        # Get income account from Payments Settings (preferred) or company default
+        income_account = payments_settings.dues_income_account if payments_settings else None
         if not income_account:
             company_doc = frappe.get_cached_doc("Company", settings.company)
             income_account = company_doc.default_income_account
