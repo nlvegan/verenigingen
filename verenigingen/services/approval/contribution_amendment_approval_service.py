@@ -319,6 +319,15 @@ class ContributionAmendmentApprovalService(StatefulService):
         # Set flag to bypass duplicate schedule validation
         schedule_doc.flags.from_amendment = True
 
+        # CRITICAL: Set new_dues_schedule BEFORE saving schedule so that the schedule's
+        # on_update hook can find the amendment via _get_amendment_request() and use the
+        # same entry_id for deduplication. This prevents duplicate fee history entries.
+        self.request.new_dues_schedule = self.request.current_dues_schedule
+
+        # Also set a flag to skip fee change recording in schedule's on_update hook
+        # since we'll record it explicitly in _update_member_fee_fields() with full context
+        schedule_doc.flags.skip_fee_change_recording = True
+
         schedule_result = secure_document_operation(
             operation="save",
             doc=schedule_doc,
@@ -336,7 +345,6 @@ class ContributionAmendmentApprovalService(StatefulService):
             text=f"Fee adjusted via amendment {self.request.name}. New amount: EUR{self.request.requested_amount:.2f}"
         )
 
-        self.request.new_dues_schedule = self.request.current_dues_schedule
         self.request.processing_notes = (
             f"Updated existing dues schedule {self.request.current_dues_schedule} with new fee amount."
         )

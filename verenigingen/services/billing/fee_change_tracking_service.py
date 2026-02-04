@@ -188,6 +188,17 @@ class FeeChangeTrackingService(StatelessService):
         if schedule_doc.is_template or not schedule_doc.member:
             return
 
+        # Skip fee change recording if explicitly requested (e.g., during amendment application
+        # where the fee change is recorded separately with full context)
+        if getattr(schedule_doc.flags, "skip_fee_change_recording", False):
+            self.logger.info(
+                f"Skipping fee change recording for schedule {schedule_doc.name} - "
+                "flag skip_fee_change_recording is set (amendment application)"
+            )
+            # Still update member dues rate even when skipping recording
+            self.update_member_dues_rate(schedule_doc)
+            return
+
         # Need old document for comparison
         if not hasattr(schedule_doc, "_doc_before_save") or schedule_doc._doc_before_save is None:
             return
