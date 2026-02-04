@@ -426,8 +426,8 @@ class BankTransactionCreator:
                 # Log detailed validation errors
                 for error in validation_result["errors"]:
                     frappe.log_error(
-                        f"Mollie GL Account validation failed: {error}",
-                        "Bank Transaction Creator Configuration Error",
+                        title="Bank Transaction Creator Configuration Error",
+                        message=f"Mollie GL Account validation failed: {error}",
                     )
 
                 # Return first error for immediate feedback
@@ -722,8 +722,8 @@ class BankTransactionCreator:
                         continue
                     else:
                         frappe.log_error(
-                            f"Race condition recovery failed for {reference_number}: {dup_error}",
-                            "Bank Transaction Race Condition Error",
+                            title="Bank Transaction Race Condition Error",
+                            message=f"Race condition recovery failed for {reference_number}: {dup_error}",
                         )
                         return None
 
@@ -744,16 +744,16 @@ class BankTransactionCreator:
                         f"❌ Failed to create Bank Transaction after {max_retries} retries due to deadlocks: {e}"
                     )
                     frappe.log_error(
-                        f"Bank Transaction creation failed after {max_retries} deadlock retries for reference {reference_number}: {e}",
-                        "Bank Transaction Deadlock Error",
+                        title="Bank Transaction Deadlock Error",
+                        message=f"Bank Transaction creation failed after {max_retries} deadlock retries for reference {reference_number}: {e}",
                     )
                     return None
 
             except Exception as e:
                 frappe.logger().error(f"❌ Failed to create Bank Transaction: {e}")
                 frappe.log_error(
-                    f"Bank Transaction creation failed for reference {reference_number}: {e}",
-                    "Bank Transaction Creation Error",
+                    title="Bank Transaction Creation Error",
+                    message=f"Bank Transaction creation failed for reference {reference_number}: {e}",
                 )
                 return None
 
@@ -863,8 +863,8 @@ class BankTransactionCreator:
             # Validation errors are non-retryable - log and fail
             frappe.logger().warning(f"Validation error linking BT {bt_name} to PE {pe_name}: {e}")
             frappe.log_error(
-                f"BT-PE link validation failed: BT={bt_name}, PE={pe_name}, error={e}",
-                "BT-PE Link Validation Error",
+                title="BT-PE Link Validation Error",
+                message=f"BT-PE link validation failed: BT={bt_name}, PE={pe_name}, error={e}",
             )
             return False
 
@@ -875,14 +875,14 @@ class BankTransactionCreator:
                     f"Failed to link BT {bt_name} to PE {pe_name} after max retries (deadlock): {e}"
                 )
                 frappe.log_error(
-                    f"BT-PE link failed after retries: BT={bt_name}, PE={pe_name}, error={e}",
-                    "BT-PE Link Deadlock Error",
+                    title="BT-PE Link Deadlock Error",
+                    message=f"BT-PE link failed after retries: BT={bt_name}, PE={pe_name}, error={e}",
                 )
             else:
                 frappe.logger().warning(f"Could not link BT {bt_name} to PE {pe_name}: {e}")
                 frappe.log_error(
-                    f"BT-PE link failed: BT={bt_name}, PE={pe_name}, error={e}",
-                    "BT-PE Link Error",
+                    title="BT-PE Link Error",
+                    message=f"BT-PE link failed: BT={bt_name}, PE={pe_name}, error={e}",
                 )
             return False
 

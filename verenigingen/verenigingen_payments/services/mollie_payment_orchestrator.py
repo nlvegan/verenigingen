@@ -217,7 +217,7 @@ class MolliePaymentOrchestrator:
                 if member:
                     status.member = member
 
-        # Check for Payment Entry
+        # Check for Payment Entry (must be submitted, docstatus=1)
         pe = None
         if bt:
             # Check if PE is linked to BT
@@ -227,12 +227,15 @@ class MolliePaymentOrchestrator:
                 "payment_entry",
             )
             if pe_link:
-                pe = pe_link
-                status.bt_pe_linked = True
+                # Verify the linked PE is submitted (not cancelled)
+                pe_docstatus = frappe.db.get_value("Payment Entry", pe_link, "docstatus")
+                if pe_docstatus == 1:
+                    pe = pe_link
+                    status.bt_pe_linked = True
 
-        # Also check for PE with matching reference (might not be linked)
+        # Also check for PE with matching reference (must be submitted, not cancelled)
         if not pe:
-            pe = frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
+            pe = frappe.db.get_value("Payment Entry", {"reference_no": payment_id, "docstatus": 1}, "name")
 
         if pe:
             status.has_payment_entry = True
@@ -442,7 +445,35 @@ class MolliePaymentOrchestrator:
                     result.actions_taken.append("No matching invoice found (create_missing_invoice=False)")
 
             elif status.sales_invoice:
-                invoice_name = status.sales_invoice
+                # Re-validate that the status-cached invoice is still payable
+                # This prevents TOCTOU issues where invoice was paid between status check and execution
+                cached_outstanding = frappe.db.get_value(
+                    "Sales Invoice", status.sales_invoice, "outstanding_amount"
+                )
+                if cached_outstanding and float(cached_outstanding) > 0:
+                    invoice_name = status.sales_invoice
+                else:
+                    # Invoice from status check is no longer payable - try to find another
+                    result.actions_taken.append(
+                        f"Invoice {status.sales_invoice} is now fully paid, searching for alternative"
+                    )
+                    match_result = self.find_matching_invoice(
+                        member_name=member_name,
+                        payment_date=payment_date,
+                        amount=payment_amount,
+                    )
+                    if match_result.found:
+                        invoice_name = match_result.invoice_name
+                        result.actions_taken.append(f"Found alternative invoice: {invoice_name}")
+                    elif create_missing_invoice:
+                        invoice_name = self._create_invoice_if_safe(
+                            member_name=member_name,
+                            payment_date=payment_date,
+                            payment_amount=payment_amount,
+                            result=result,
+                        )
+                        if invoice_name:
+                            result.actions_taken.append(f"Created new Sales Invoice: {invoice_name}")
 
             result.sales_invoice = invoice_name
 
@@ -465,12 +496,22 @@ class MolliePaymentOrchestrator:
                     payment,
                     invoice_name=invoice_name,
                     allow_invoice_creation=create_missing_invoice,
+                    # In recovery mode, require invoice - don't create orphaned PEs
+                    require_invoice=create_missing_invoice,
                 )
                 if pe_name:
                     result.payment_entry = pe_name
                     result.actions_taken.append(f"Created Payment Entry: {pe_name}")
                     status.has_payment_entry = True
                     status.payment_entry = pe_name
+                elif create_missing_invoice and not invoice_name:
+                    # Recovery mode but no invoice - this is a failure, not a success
+                    result.actions_taken.append(
+                        f"FAILED: Cannot create Payment Entry - no valid invoice for payment {payment_id}. "
+                        f"Invoice creation may have failed due to coverage overlap, missing membership type, "
+                        f"or other validation issue."
+                    )
+                    result.failed_step = "create_payment_entry"
             else:
                 result.payment_entry = status.payment_entry
                 result.actions_taken.append(f"Payment Entry exists: {status.payment_entry}")
@@ -492,15 +533,28 @@ class MolliePaymentOrchestrator:
                         f"Failed to link BT {result.bank_transaction} to PE {result.payment_entry}"
                     )
                     frappe.log_error(
-                        f"{link_error_msg} for payment {payment_id}",
-                        "Mollie BT-PE Link Failure",
+                        title="Mollie BT-PE Link Failure",
+                        message=f"{link_error_msg} for payment {payment_id}",
                     )
                     result.link_error = link_error_msg
                     result.actions_taken.append(f"Warning: {link_error_msg}")
 
             # Determine final status
-            if result.bank_transaction or result.payment_entry:
+            if result.failed_step:
+                # A step failed - partial success at best
+                result.status = "partial"
+                result.error = f"Processing incomplete: failed at step '{result.failed_step}'"
+            elif result.bank_transaction and result.payment_entry:
                 result.status = "success"
+            elif result.bank_transaction or result.payment_entry:
+                # Only partial documents created
+                result.status = "partial"
+                missing = []
+                if not result.bank_transaction:
+                    missing.append("Bank Transaction")
+                if not result.payment_entry:
+                    missing.append("Payment Entry")
+                result.error = f"Partial processing: missing {', '.join(missing)}"
             else:
                 result.status = "error"
                 result.error = "No documents created"
@@ -518,9 +572,10 @@ class MolliePaymentOrchestrator:
                 result.failed_step = "create_payment_entry"
             else:
                 result.failed_step = "link_bt_pe"
+            # Log error with short title (Error Log title field has 140 char limit)
             frappe.log_error(
-                f"Error processing payment {payment_id} at step '{result.failed_step}': {e}",
-                "Mollie Payment Orchestrator Error",
+                title="Mollie Payment Orchestrator Error",
+                message=f"Error processing payment {payment_id} at step '{result.failed_step}': {e}",
             )
 
         return result
@@ -606,11 +661,21 @@ class MolliePaymentOrchestrator:
 
         if overlap_result.has_overlap:
             if overlap_result.exact_match:
-                # Exact match found - use it instead of creating
-                result.actions_taken.append(
-                    f"Found existing invoice with exact coverage: {overlap_result.exact_match}"
+                # Exact match found - but only use it if it has outstanding amount
+                outstanding = frappe.db.get_value(
+                    "Sales Invoice", overlap_result.exact_match, "outstanding_amount"
                 )
-                return overlap_result.exact_match
+                if outstanding and float(outstanding) > 0:
+                    result.actions_taken.append(
+                        f"Found existing unpaid invoice with exact coverage: {overlap_result.exact_match}"
+                    )
+                    return overlap_result.exact_match
+                else:
+                    # Invoice exists but is already paid - need to create new one
+                    result.actions_taken.append(
+                        f"Existing invoice {overlap_result.exact_match} is already paid, creating new invoice"
+                    )
+                    # Fall through to invoice creation below
             else:
                 # Overlapping but not exact - flag for review
                 overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
@@ -762,11 +827,357 @@ class MolliePaymentOrchestrator:
             result.status = "error"
             result.error = str(e)
             frappe.log_error(
-                f"Error processing orphaned payment {payment_id}: {e}",
-                "Mollie Orphaned Payment Error",
+                title="Mollie Orphaned Payment Error",
+                message=f"Error processing orphaned payment {payment_id}: {e}",
             )
 
         return result
+
+    def process_orphaned_payment_with_invoice(
+        self,
+        payment_id: str,
+        payment: Optional[Any] = None,
+    ) -> PaymentProcessingResult:
+        """
+        Process an orphaned payment by creating SI, PE, and BT with a fallback customer.
+
+        WARNING: This creates invoices for payments that could NOT be matched to any member.
+        These invoices require manual review to:
+        - Identify the actual member (if possible)
+        - Reallocate the payment to the correct member
+        - Or write off as unidentifiable donation
+
+        The invoices are created with:
+        - A generic "Orphaned Payments" customer
+        - Clear warning remarks indicating manual review is needed
+        - No cost center (defaults to company cost center)
+
+        Args:
+            payment_id: Mollie payment ID
+            payment: Optional pre-fetched Mollie payment object
+
+        Returns:
+            PaymentProcessingResult with processing outcome
+        """
+        result = PaymentProcessingResult(payment_id=payment_id)
+
+        try:
+            # Fetch payment if not provided
+            if not payment:
+                payment = self.mollie_client.get_payment(payment_id)
+
+            if not payment:
+                result.status = "error"
+                result.error = f"Payment {payment_id} not found in Mollie"
+                return result
+
+            # Check payment status
+            if not is_payment_successful(payment):
+                result.status = "skipped"
+                result.skipped_reason = f"Payment status is '{getattr(payment, 'status', 'unknown')}'"
+                return result
+
+            # Extract payment data
+            from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+                get_payment_data_extractor,
+            )
+
+            extractor = get_payment_data_extractor()
+            payment_amount = extractor.extract_amount(payment)
+            payment_date = extractor.extract_date(payment, field_name="paid_at")
+
+            result.actions_taken.append("WARNING: Processing as ORPHANED payment - no member match found")
+
+            # Get or create orphaned payments customer
+            orphan_customer = self._get_or_create_orphan_customer()
+            if not orphan_customer:
+                result.status = "error"
+                result.error = "Could not create orphan payments customer"
+                return result
+
+            result.actions_taken.append(f"Using fallback customer: {orphan_customer}")
+
+            # Create Sales Invoice for orphan
+            invoice_name = self._create_orphan_invoice(
+                payment_id=payment_id,
+                customer=orphan_customer,
+                amount=payment_amount,
+                payment_date=payment_date,
+                payment_description=getattr(payment, "description", None),
+            )
+
+            if invoice_name:
+                result.sales_invoice = invoice_name
+                result.actions_taken.append(f"Created orphan Sales Invoice: {invoice_name}")
+            else:
+                result.status = "error"
+                result.error = "Failed to create orphan invoice"
+                return result
+
+            # Create Bank Transaction
+            status = self.get_processing_status(payment_id)
+            if not status.has_bank_transaction:
+                bt_name = self._create_orphan_bank_transaction(
+                    payment=payment,
+                    customer=orphan_customer,
+                )
+                if bt_name:
+                    result.bank_transaction = bt_name
+                    result.actions_taken.append(f"Created Bank Transaction: {bt_name}")
+            else:
+                result.bank_transaction = status.bank_transaction
+                result.actions_taken.append(f"Bank Transaction exists: {status.bank_transaction}")
+
+            # Create Payment Entry
+            pe_name = self._create_orphan_payment_entry(
+                payment_id=payment_id,
+                customer=orphan_customer,
+                invoice_name=invoice_name,
+                amount=payment_amount,
+                payment_date=payment_date,
+            )
+
+            if pe_name:
+                result.payment_entry = pe_name
+                result.actions_taken.append(f"Created Payment Entry: {pe_name}")
+            else:
+                result.status = "partial"
+                result.error = "Created invoice but failed to create Payment Entry"
+                return result
+
+            # Link BT to PE
+            if result.bank_transaction and result.payment_entry:
+                linked = self._link_bt_to_pe(result.bank_transaction, result.payment_entry)
+                if linked:
+                    result.actions_taken.append(
+                        f"Linked BT {result.bank_transaction} to PE {result.payment_entry}"
+                    )
+
+            result.status = "success"
+            result.actions_taken.append(
+                "REMINDER: This payment requires manual review to identify the member"
+            )
+
+        except Exception as e:
+            result.status = "error"
+            result.error = str(e)
+            frappe.log_error(
+                title="Mollie Orphan Invoice Error",
+                message=f"Error processing orphaned payment with invoice {payment_id}: {e}",
+            )
+
+        return result
+
+    def _get_or_create_orphan_customer(self) -> Optional[str]:
+        """Get or create the orphaned payments fallback customer."""
+        orphan_customer_name = "Orphaned Mollie Payments"
+
+        # Check if exists
+        existing = frappe.db.get_value("Customer", {"customer_name": orphan_customer_name}, "name")
+        if existing:
+            return existing
+
+        # Create it
+        try:
+            settings = frappe.get_single("Verenigingen Settings")
+            company = settings.company or frappe.defaults.get_global_default("company")
+
+            customer = frappe.new_doc("Customer")
+            customer.customer_name = orphan_customer_name
+            customer.customer_type = "Individual"
+            customer.customer_group = (
+                frappe.db.get_single_value("Selling Settings", "customer_group") or "All Customer Groups"
+            )
+            customer.territory = (
+                frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
+            )
+            # Clear warning in the customer record
+            customer.customer_details = (
+                "AUTO-CREATED: This customer is used for Mollie payments that could not be "
+                "matched to any member. Invoices assigned to this customer require manual "
+                "review to identify the actual member."
+            )
+
+            customer.insert(ignore_permissions=True)
+            frappe.logger().info(f"Created orphan customer: {customer.name}")
+            return customer.name
+
+        except Exception as e:
+            frappe.log_error(
+                title="Orphan Customer Creation Error",
+                message=f"Failed to create orphan customer: {e}",
+            )
+            return None
+
+    def _create_orphan_invoice(
+        self,
+        payment_id: str,
+        customer: str,
+        amount: float,
+        payment_date: date,
+        payment_description: Optional[str] = None,
+    ) -> Optional[str]:
+        """Create a Sales Invoice for an orphaned payment."""
+        try:
+            from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+
+            settings = frappe.get_single("Verenigingen Settings")
+            company = settings.company or frappe.defaults.get_global_default("company")
+
+            # Ensure fiscal year
+            ensure_fiscal_year_exists(payment_date, company)
+
+            # Get income account
+            from verenigingen.utils.settings_utils import get_payments_settings
+
+            payments_settings = get_payments_settings()
+            income_account = payments_settings.dues_income_account if payments_settings else None
+            if not income_account:
+                income_account = frappe.get_cached_value("Company", company, "default_income_account")
+
+            # Create invoice
+            invoice = frappe.new_doc("Sales Invoice")
+            invoice.customer = customer
+            invoice.company = company
+            invoice.posting_date = payment_date
+            invoice.due_date = payment_date
+            invoice.is_membership_invoice = 1
+
+            # Warning remarks
+            desc = payment_description or "No description"
+            invoice.remarks = (
+                f"⚠️ ORPHANED PAYMENT - MANUAL REVIEW REQUIRED ⚠️\n\n"
+                f"This invoice was auto-generated for a Mollie payment that could NOT be "
+                f"matched to any member.\n\n"
+                f"Mollie Payment ID: {payment_id}\n"
+                f"Original Description: {desc}\n\n"
+                f"ACTION NEEDED:\n"
+                f"1. Identify the actual member who made this payment\n"
+                f"2. Create a proper invoice for that member\n"
+                f"3. Reallocate the Payment Entry to the correct invoice\n"
+                f"4. Cancel this orphan invoice"
+            )
+
+            # Get or create dues item - find a valid item dynamically
+            dues_item = getattr(settings, "default_membership_dues_item", None)
+            if not dues_item or not frappe.db.exists("Item", dues_item):
+                # Try to find an existing membership dues item
+                dues_item = frappe.db.get_value(
+                    "Item",
+                    {"item_code": ["like", "%Membership Dues%"], "disabled": 0},
+                    "item_code",
+                )
+                if not dues_item:
+                    # Fallback: find any active sales item
+                    dues_item = frappe.db.get_value(
+                        "Item",
+                        {"is_sales_item": 1, "disabled": 0},
+                        "item_code",
+                    )
+                if not dues_item:
+                    raise ValueError("No valid item found for orphan invoice")
+
+            invoice.append(
+                "items",
+                {
+                    "item_code": dues_item,
+                    "qty": 1,
+                    "rate": amount,
+                    "income_account": income_account,
+                    "description": f"Orphaned payment {payment_id} - requires manual review",
+                },
+            )
+
+            invoice.insert(ignore_permissions=True)
+            invoice.submit()
+
+            return invoice.name
+
+        except Exception as e:
+            frappe.log_error(
+                title="Orphan Invoice Creation Error",
+                message=f"Failed to create orphan invoice for {payment_id}: {e}",
+            )
+            return None
+
+    def _create_orphan_bank_transaction(
+        self,
+        payment: Any,
+        customer: str,
+    ) -> Optional[str]:
+        """Create Bank Transaction for orphaned payment."""
+        config = self.bt_creator.get_mollie_bank_account_config()
+        if config.get("error"):
+            return None
+
+        from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
+            get_payment_data_extractor,
+        )
+
+        extractor = get_payment_data_extractor()
+        payment_id = extractor.extract_payment_id(payment)
+
+        return self.bt_creator.create_from_mollie_payment(
+            payment=payment,
+            bank_account=config["bank_account"],
+            company=config["company"],
+            additional_description="ORPHANED - requires member identification",
+            party_type="Customer",
+            party=customer,
+        )
+
+    def _create_orphan_payment_entry(
+        self,
+        payment_id: str,
+        customer: str,
+        invoice_name: str,
+        amount: float,
+        payment_date: date,
+    ) -> Optional[str]:
+        """Create Payment Entry for orphaned payment."""
+        try:
+            from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+            settings = frappe.get_single("Verenigingen Settings")
+            company = settings.company or frappe.defaults.get_global_default("company")
+
+            # Get Mollie clearing account
+            from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
+                get_mollie_config,
+            )
+
+            mollie_config = get_mollie_config()
+            mollie_clearing_account = mollie_config.get_clearing_account()
+
+            # Use ERPNext's get_payment_entry for proper account handling
+            payment_entry = get_payment_entry(
+                dt="Sales Invoice",
+                dn=invoice_name,
+                party_amount=amount,
+                bank_account=mollie_clearing_account,
+            )
+
+            payment_entry.posting_date = payment_date
+            payment_entry.reference_no = payment_id
+            payment_entry.reference_date = payment_date
+            payment_entry.mode_of_payment = getattr(settings, "mode_of_payment", None) or "Mollie"
+            payment_entry.paid_to = mollie_clearing_account
+            payment_entry.remarks = (
+                f"⚠️ ORPHANED PAYMENT - Mollie ID: {payment_id}\n"
+                f"This payment requires manual review to identify the member."
+            )
+
+            payment_entry.insert(ignore_permissions=True)
+            payment_entry.submit()
+
+            return payment_entry.name
+
+        except Exception as e:
+            frappe.log_error(
+                title="Orphan PE Creation Error",
+                message=f"Failed to create orphan PE for {payment_id}: {e}",
+            )
+            return None
 
     def process_bt_only_payment(
         self,
@@ -862,8 +1273,8 @@ class MolliePaymentOrchestrator:
             result.status = "error"
             result.error = str(e)
             frappe.log_error(
-                f"Error processing bt_only payment {payment_id}: {e}",
-                "Mollie BT-Only Payment Error",
+                title="Mollie BT-Only Payment Error",
+                message=f"Error processing bt_only payment {payment_id}: {e}",
             )
 
         return result
@@ -947,8 +1358,8 @@ class MolliePaymentOrchestrator:
 
         except Exception as e:
             frappe.log_error(
-                f"Could not fetch/create customer from Mollie {mollie_customer_id}: {e}",
-                "Mollie Customer Creation Error",
+                title="Mollie Customer Creation Error",
+                message=f"Could not fetch/create customer from Mollie {mollie_customer_id}: {e}",
             )
             result.actions_taken.append(f"Warning: Could not create Customer ({e})")
             return None

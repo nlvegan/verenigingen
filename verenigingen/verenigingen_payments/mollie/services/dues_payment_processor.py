@@ -62,12 +62,13 @@ class DuesPaymentProcessor:
         self.classifier = PaymentClassifier()
         self.bank_tx_creator = get_bank_transaction_creator()
 
-    def _validate_fiscal_year(self, payment_date: date, company: str, context: str) -> Optional[str]:
+    def _ensure_fiscal_year(self, payment_date: date, company: str, context: str) -> str:
         """
-        Validate that a fiscal year exists for the given date.
+        Ensure a fiscal year exists for the given date, creating it if necessary.
 
-        Centralizes the fiscal year validation pattern used before creating
-        invoices or payment entries.
+        Uses ensure_fiscal_year_exists() which auto-creates calendar year fiscal years
+        when they don't exist. This is essential for the recovery function to work
+        with historical payments from years that may not have fiscal years set up.
 
         Args:
             payment_date: The posting date to validate
@@ -75,19 +76,16 @@ class DuesPaymentProcessor:
             context: Description for error messages (e.g., "invoice", "Payment Entry")
 
         Returns:
-            Fiscal year name if valid, None if fiscal year doesn't exist
+            Fiscal year name (created if needed)
+
+        Raises:
+            Exception: If fiscal year cannot be created (permission error, etc.)
         """
-        try:
-            fiscal_year = ensure_fiscal_year_exists(payment_date, company)
-            frappe.logger().info(
-                f"Fiscal year {fiscal_year} confirmed for {context} with posting_date={payment_date}"
-            )
-            return fiscal_year
-        except Exception as fy_error:
-            frappe.logger().error(
-                f"Cannot create {context}: Missing fiscal year for {payment_date}: {fy_error}"
-            )
-            return None
+        fiscal_year = ensure_fiscal_year_exists(payment_date, company)
+        frappe.logger().info(
+            f"Fiscal year {fiscal_year} ensured for {context} with posting_date={payment_date}"
+        )
+        return fiscal_year
 
     # TODO: Consider moving to member_utils.py as get_member_doc_with_customer()
     # if this pattern is needed elsewhere in the codebase
@@ -396,13 +394,14 @@ class DuesPaymentProcessor:
                         )
                         return exact_invoice.name
                     else:
-                        # Invoice exists but is already paid - don't create duplicate
-                        frappe.logger().warning(
+                        # Invoice exists but is already paid - create new one for this payment
+                        # This handles cases where member paid twice or there's a billing issue
+                        frappe.logger().info(
                             f"[Mollie] Invoice {overlap_result.exact_match} exists for coverage "
                             f"{coverage_start} to {coverage_end} but is already paid. "
-                            f"Payment Entry will be created unallocated for manual reconciliation."
+                            f"Creating new invoice for this payment."
                         )
-                        return None
+                        # Fall through to create new invoice
                 else:
                     # Overlapping but not exact - cannot safely create invoice
                     overlapping_names = [inv["name"] for inv in overlap_result.overlapping_invoices]
@@ -439,8 +438,8 @@ class DuesPaymentProcessor:
 
         except Exception as e:
             frappe.log_error(
-                f"Error creating historical invoice for {member_name}: {str(e)}",
-                "Historical Invoice Creation Error",
+                title="Historical Invoice Creation Error",
+                message=f"Error creating historical invoice for {member_name}: {str(e)}",
             )
             return None
 
@@ -555,9 +554,8 @@ class DuesPaymentProcessor:
 
         payments_settings = get_payments_settings()
 
-        # Validate fiscal year exists before creating invoice
-        if not self._validate_fiscal_year(payment_date, settings.company, f"invoice for {member_doc.name}"):
-            return None
+        # Ensure fiscal year exists (auto-creates if needed for recovery processing)
+        self._ensure_fiscal_year(payment_date, settings.company, f"invoice for {member_doc.name}")
 
         # Get income account from Payments Settings (preferred) or company default
         income_account = payments_settings.dues_income_account if payments_settings else None
@@ -620,8 +618,8 @@ class DuesPaymentProcessor:
             if not is_deadlock_error(e):
                 frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
                 frappe.log_error(
-                    f"Sales Invoice creation failed for member {member_doc.name}: {e}",
-                    "Sales Invoice Creation Error",
+                    title="Sales Invoice Creation Error",
+                    message=f"Sales Invoice creation failed for member {member_doc.name}: {e}",
                 )
             return None
 
@@ -888,7 +886,10 @@ class DuesPaymentProcessor:
                         result["sales_invoices"] = sales_invoices
 
                 except Exception as si_error:
-                    frappe.log_error(f"Could not fetch Sales Invoice information: {si_error}")
+                    frappe.log_error(
+                        title="Sales Invoice Fetch Error",
+                        message=f"Could not fetch Sales Invoice information: {si_error}",
+                    )
 
                 frappe.logger().info(
                     f"[Mollie] Successfully processed dues payment {payment_id} for member {member_name} "
@@ -902,7 +903,8 @@ class DuesPaymentProcessor:
             result["status"] = "error"
             result["error"] = str(e)
             frappe.log_error(
-                f"Error processing dues payment {payment_id}: {e}", "Dues Payment Processing Error"
+                title="Dues Payment Processing Error",
+                message=f"Error processing dues payment {payment_id}: {e}",
             )
 
         return result
@@ -913,6 +915,7 @@ class DuesPaymentProcessor:
         payment,
         invoice_name: Optional[str] = None,
         allow_invoice_creation: bool = True,
+        require_invoice: bool = False,
     ) -> Optional[str]:
         """
         Create a Payment Entry for a membership dues payment from Mollie.
@@ -927,6 +930,8 @@ class DuesPaymentProcessor:
             invoice_name: Optional specific invoice to allocate to (skips lookup)
             allow_invoice_creation: If False, won't create invoices when none found.
                                    Used by orchestrator in discovery mode.
+            require_invoice: If True, refuses to create unallocated PE when no invoice
+                           is available. Used in recovery mode to prevent orphaned PEs.
 
         Returns:
             str: Payment Entry name if created, None otherwise
@@ -964,9 +969,8 @@ class DuesPaymentProcessor:
         # Get currency after company is determined
         currency = extractor.extract_currency(payment, company)
 
-        # Validate fiscal year exists before creating Payment Entry
-        if not self._validate_fiscal_year(payment_date, company, f"Payment Entry for {member_name}"):
-            return None
+        # Ensure fiscal year exists (auto-creates if needed for recovery processing)
+        self._ensure_fiscal_year(payment_date, company, f"Payment Entry for {member_name}")
 
         # Get Mollie clearing account - must belong to same company
         mollie_config = get_mollie_config()
@@ -1038,6 +1042,14 @@ class DuesPaymentProcessor:
 
         # Fallback: Create unallocated PE if no valid invoice
         if not invoice_name:
+            # In recovery mode (require_invoice=True), don't create orphaned PEs
+            if require_invoice:
+                frappe.logger().warning(
+                    f"[Mollie] Cannot create Payment Entry for {member_name}: no valid invoice available. "
+                    f"Payment {payment_id} requires manual intervention to create/match invoice first."
+                )
+                return None
+
             customer_account = getattr(verenigingen_settings, "dues_payments_receivable_account", None)
             if not customer_account:
                 customer_account = frappe.get_cached_value("Company", company, "default_receivable_account")
@@ -1065,8 +1077,56 @@ class DuesPaymentProcessor:
                 }
             )
 
-        payment_entry.insert()
-        payment_entry.submit()
+        try:
+            payment_entry.insert()
+            payment_entry.submit()
+        except Exception as e:
+            error_msg = str(e).lower()
+            # Handle race condition: invoice was paid between our check and insert
+            if (
+                "already been fully paid" in error_msg
+                or "cannot be greater than outstanding amount" in error_msg
+            ):
+                frappe.logger().warning(
+                    f"[Mollie] Invoice {invoice_name} was paid by another process during PE creation, "
+                    f"creating unallocated PE instead. Original error: {e}"
+                )
+                # Create unallocated PE as fallback
+                customer_account = getattr(
+                    frappe.get_single("Verenigingen Settings"), "dues_payments_receivable_account", None
+                )
+                if not customer_account:
+                    customer_account = frappe.get_cached_value(
+                        "Company", company, "default_receivable_account"
+                    )
+                if not customer_account:
+                    frappe.throw(f"Missing customer receivable account for company {company}")
+
+                payment_entry = frappe.get_doc(
+                    {
+                        "doctype": "Payment Entry",
+                        "payment_type": "Receive",
+                        "party_type": "Customer",
+                        "party": customer,
+                        "company": company,
+                        "paid_from": customer_account,
+                        "paid_to": mollie_clearing_account,
+                        "paid_amount": amount,
+                        "received_amount": amount,
+                        "reference_no": payment_id,
+                        "reference_date": payment_date,
+                        "posting_date": payment_date,
+                        "mode_of_payment": mode_of_payment,
+                        "remarks": f"Membership dues payment via Mollie for {member.full_name} (awaiting settlement). "
+                        f"Invoice {invoice_name} was paid during processing. Manual reconciliation may be required.",
+                        "custom_member": member_name,
+                    }
+                )
+                payment_entry.insert()
+                payment_entry.submit()
+            else:
+                # Re-raise unexpected errors
+                raise
 
         frappe.logger().info(
             f"[Mollie] Created Payment Entry {payment_entry.name} for member {member_name} "
@@ -1244,7 +1304,10 @@ class DuesPaymentProcessor:
                 except Exception as e:
                     # Non-deadlock error or deadlock retries exhausted
                     result = {"payment_id": payment.id, "status": "error", "error": str(e)}
-                    frappe.log_error(f"Error processing {payment.id}: {e}")
+                    frappe.log_error(
+                        title="Mollie Payment Processing Error",
+                        message=f"Error processing {payment.id}: {e}",
+                    )
 
                 if result:
                     batch_result["results"].append(result)
@@ -1263,6 +1326,9 @@ class DuesPaymentProcessor:
 
         except Exception as e:
             batch_result["error"] = str(e)
-            frappe.log_error(f"Error batch processing payments for customer {customer_id}: {e}")
+            frappe.log_error(
+                title="Mollie Batch Processing Error",
+                message=f"Error batch processing payments for customer {customer_id}: {e}",
+            )
 
         return batch_result

@@ -70,9 +70,9 @@ def get_payment_processing_status(payment_id: str) -> Dict[str, any]:
         if pe_link:
             pe = pe_link
 
-    # Also check for PE with matching reference
+    # Also check for PE with matching reference (must be submitted, not cancelled)
     if not pe:
-        pe = frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
+        pe = frappe.db.get_value("Payment Entry", {"reference_no": payment_id, "docstatus": 1}, "name")
 
     if pe:
         status["has_payment_entry"] = True
@@ -208,7 +208,7 @@ def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
             FROM `tabBank Transaction`
             WHERE reference_number LIKE 'tr_%%'
             ORDER BY creation ASC
-            LIMIT 2500
+            LIMIT 5000
         """
         )
 
@@ -239,7 +239,10 @@ def get_incomplete_payments(payment_ids: List[str] = None) -> Dict[str, any]:
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def complete_partial_payments(
-    payment_ids: List[str] = None, dry_run: bool = True, max_payments: int = None
+    payment_ids: List[str] = None,
+    dry_run: bool = True,
+    max_payments: int = None,
+    process_orphans: bool = False,
 ) -> Dict[str, any]:
     """
     Complete partially processed payments by creating missing documents.
@@ -248,6 +251,9 @@ def complete_partial_payments(
         payment_ids: List of payment IDs to complete. If None, finds all incomplete payments automatically.
         dry_run: If True, only report what would be done without making changes
         max_payments: Maximum number of payments to process. If None, processes all found payments (up to query limit).
+        process_orphans: If True, creates invoices for orphaned payments (no member match) using
+                        a fallback "Orphaned Payments" customer. These invoices are clearly marked
+                        as requiring manual review. Default: False (orphans are skipped).
 
     Returns:
         dict: Processing results
@@ -294,14 +300,19 @@ def complete_partial_payments(
     if isinstance(max_payments, str):
         max_payments = int(max_payments)
 
+    if isinstance(process_orphans, str):
+        process_orphans = process_orphans.lower() == "true"
+
     result = {
         "total_requested": 0,
         "completed": 0,
         "skipped": 0,
         "errors": 0,
+        "orphans_processed": 0,
         "results": [],
         "dry_run": dry_run,
         "max_payments": max_payments,
+        "process_orphans": process_orphans,
         "timestamp": frappe.utils.now(),
     }
 
@@ -373,6 +384,19 @@ def complete_partial_payments(
             create_missing_invoice=True,  # Recovery mode: create invoice if not found
         )
 
+        # If member not found and process_orphans is enabled, try orphan processing
+        if (
+            processing_result.status == "error"
+            and processing_result.error == "Cannot determine member for payment"
+            and process_orphans
+        ):
+            # Try to process as orphaned payment with fallback customer
+            processing_result = orchestrator.process_orphaned_payment_with_invoice(
+                payment_id=payment_id,
+            )
+            if processing_result.status == "success":
+                result["orphans_processed"] += 1
+
         # Convert orchestrator result to legacy format
         payment_result = {
             "payment_id": payment_id,
@@ -415,12 +439,13 @@ def analyze_payment_gaps() -> Dict[str, any]:
 
     Returns comprehensive statistics about missing documents.
     """
-    # Get all BT payment IDs
+    # Get all BT payment IDs (oldest first for consistent processing order)
     bt_payment_ids = frappe.db.sql_list(
         """
         SELECT DISTINCT reference_number
         FROM `tabBank Transaction`
         WHERE reference_number LIKE 'tr_%%'
+        ORDER BY creation ASC
     """
     )
 
