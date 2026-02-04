@@ -77,16 +77,15 @@ def get_context(context):
     # Ensure standard_fee is never None/empty for template rendering
     context.standard_fee = float(standard_fee) if standard_fee else DEFAULT_STANDARD_FEE
 
-    # Determine billing frequency for display
-    billing_frequency = "Monthly"
-    if membership:
-        if (
-            "kwartaal" in membership.membership_type.lower()
-            or "quarter" in membership.membership_type.lower()
-        ):
-            billing_frequency = "Quarterly"
-        elif "jaar" in membership.membership_type.lower() or "annual" in membership.membership_type.lower():
-            billing_frequency = "Annually"
+    # Determine billing frequency from active dues schedule (not string matching)
+    billing_frequency = "Monthly"  # Default
+    active_schedule_frequency = frappe.db.get_value(
+        "Membership Dues Schedule",
+        {"member": member, "status": "Active"},
+        "billing_frequency",
+    )
+    if active_schedule_frequency:
+        billing_frequency = active_schedule_frequency
     context.billing_frequency = billing_frequency
 
     # Get fee adjustment settings
