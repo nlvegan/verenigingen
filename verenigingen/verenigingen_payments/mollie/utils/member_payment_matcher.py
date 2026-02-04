@@ -33,7 +33,8 @@ class MemberPaymentMatcher:
     """
 
     # Pattern for member IDs in payment descriptions
-    MEMBER_ID_PATTERN = re.compile(r"Assoc-Member-\d{4}-\d{2}-\d{4}")
+    # Format: Assoc-Member-YYYY-MM-NNNNNN (year-month-sequence)
+    MEMBER_ID_PATTERN = re.compile(r"Assoc-Member-\d{4}-\d{2}-\d+")
 
     def __init__(self):
         self._customer_id_map: dict = {}
