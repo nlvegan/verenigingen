@@ -714,4 +714,3 @@
 ./verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py
 ./verenigingen/www/e-boekhouden-dashboard.py
 ./verenigingen/www/monitoring_dashboard.py
-./verenigingen/www/onboarding_member_setup.py

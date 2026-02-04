@@ -10,6 +10,7 @@ Services:
 - pain002_ingestion_service: Automated pain.002 bank status report ingestion
 - sepa_batch_state_machine: State machine for batch workflow enforcement
 - sepa_batch_approval_service: Two-person approval workflow for batches
+- mollie_reconciliation_service: Member-centric Mollie subscription reconciliation
 - operations_service: Payment operations (create entries, process payments) [TODO]
 """
 
@@ -17,6 +18,14 @@ from verenigingen.services.payment.alert_manager import (
     AlertManager,
     ReconciliationAlertResult,
     get_alert_manager,
+)
+from verenigingen.services.payment.mollie_reconciliation_service import (
+    MollieReconciliationService,
+    get_mollie_reconciliation_service,
+)
+from verenigingen.services.payment.mollie_webhook_service import (
+    MollieWebhookService,
+    get_mollie_webhook_service,
 )
 from verenigingen.services.payment.pain002_ingestion_service import (
     Pain002IngestionService,
@@ -63,4 +72,8 @@ __all__ = [
     "SEPABatchApprovalService",
     "ApprovalCheckResult",
     "get_sepa_batch_approval_service",
+    "MollieReconciliationService",
+    "get_mollie_reconciliation_service",
+    "MollieWebhookService",
+    "get_mollie_webhook_service",
 ]
