@@ -661,6 +661,155 @@ class VolunteerExpenseSubmissionService(StatelessService):
             },
         )
 
+    def submit_multiple_expenses_grouped(self, expenses: list) -> OperationResult:
+        """Submit multiple expenses grouped by organization for efficiency.
+
+        Groups expenses by organization (chapter/team/national) and creates
+        consolidated Expense Claims. This is more efficient than submitting
+        expenses individually.
+
+        Args:
+            expenses: List of expense data dictionaries, each containing:
+                - description (str): Expense description (required)
+                - amount (float): Expense amount (required)
+                - expense_date (str): Date of expense (required)
+                - organization_type (str): 'Chapter', 'Team', or 'National' (required)
+                - category (str): Expense category name (required)
+                - chapter (str, optional): Chapter name if organization_type='Chapter'
+                - team (str, optional): Team name if organization_type='Team'
+                - notes (str, optional): Additional notes
+                - receipt_attachment (dict, optional): Receipt file data
+
+        Returns:
+            OperationResult with:
+                - success: True if at least one claim was created
+                - metadata.created_claims: List of created claim details
+                - metadata.created_count: Total expense count across claims
+                - metadata.claim_count: Number of Expense Claims created
+                - metadata.partial: True if some groups failed
+                - errors: List of errors for failed groups
+        """
+        from collections import defaultdict
+
+        # Validate input
+        if not expenses or not isinstance(expenses, list):
+            return OperationResult.fail(_("Invalid expense data provided"))
+
+        if len(expenses) > 50:
+            return OperationResult.fail(_("Too many expenses in one submission. Maximum allowed: 50"))
+
+        # Pre-validation of all expenses
+        from verenigingen.utils.volunteer_expense_portal_utils import validate_expense_data
+
+        all_errors = []
+        total_amount = 0
+
+        for idx, expense_data in enumerate(expenses):
+            validation_errors = validate_expense_data(expense_data, idx + 1)
+            if validation_errors:
+                all_errors.extend(validation_errors)
+            else:
+                total_amount += float(expense_data.get("amount", 0))
+
+        # Check total amount limit
+        if total_amount > 10000:
+            return OperationResult.fail(
+                _("Total expense amount ({0}) exceeds the maximum allowed per submission (10,000)").format(
+                    total_amount
+                )
+            )
+
+        # Return validation errors early
+        if all_errors:
+            return OperationResult.fail(
+                _("Validation errors found in expense data"),
+                errors=all_errors,
+            )
+
+        # Group expenses by organization
+        expense_groups = defaultdict(list)
+        for expense_data in expenses:
+            org_type = expense_data.get("organization_type")
+            if org_type == "Chapter":
+                group_key = ("Chapter", expense_data.get("chapter"))
+            elif org_type == "Team":
+                group_key = ("Team", expense_data.get("team"))
+            else:  # National
+                group_key = ("National", "National")
+
+            expense_groups[group_key].append(expense_data)
+
+        # Create one Expense Claim per organization group
+        created_claims = []
+        errors = []
+
+        for group_key, group_expenses in expense_groups.items():
+            try:
+                # Use the first expense for primary data, rest as additional
+                first_expense = group_expenses[0]
+                additional = group_expenses[1:] if len(group_expenses) > 1 else None
+
+                result = self.submit_expense(first_expense, additional)
+
+                if result.success:
+                    created_claims.append(
+                        {
+                            "expense_claim_name": result.metadata.get("expense_claim_name"),
+                            "organization": f"{group_key[0]}: {group_key[1]}",
+                            "expense_count": len(group_expenses),
+                            "total_amount": sum(float(e.get("amount", 0)) for e in group_expenses),
+                        }
+                    )
+                else:
+                    errors.append(
+                        {
+                            "organization": f"{group_key[0]}: {group_key[1]}",
+                            "error": result.error_message,
+                        }
+                    )
+            except Exception as e:
+                self.logger.error(f"Error creating expense claim for {group_key}: {str(e)}")
+                errors.append(
+                    {
+                        "organization": f"{group_key[0]}: {group_key[1]}",
+                        "error": str(e),
+                    }
+                )
+
+        # Build response
+        total_expense_count = sum(claim["expense_count"] for claim in created_claims)
+
+        if created_claims and not errors:
+            # All success
+            return OperationResult.ok(
+                None,
+                message=_("Successfully submitted {0} expense(s) in {1} claim(s)").format(
+                    total_expense_count, len(created_claims)
+                ),
+                created_count=total_expense_count,
+                claim_count=len(created_claims),
+                created_claims=created_claims,
+            )
+        elif created_claims and errors:
+            # Partial success
+            return OperationResult.ok(
+                None,
+                message=_("Submitted {0} expense(s) in {1} claim(s), {2} group(s) failed").format(
+                    total_expense_count, len(created_claims), len(errors)
+                ),
+                created_count=total_expense_count,
+                claim_count=len(created_claims),
+                created_claims=created_claims,
+                partial=True,
+                errors=errors,
+            )
+        else:
+            # All failed
+            return OperationResult.fail(
+                _("Failed to submit any expenses"),
+                errors=errors,
+            )
+
 
 def get_expense_submission_service(volunteer_name: Optional[str] = None) -> VolunteerExpenseSubmissionService:
     """Factory function for expense submission service

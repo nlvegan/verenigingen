@@ -15,14 +15,9 @@
 
 {% block page_content %}
 <div class="max-w-7xl mx-auto p-8">
-    {% if error_message %}
-        <div class="p-4 rounded-lg mb-6" style="background-color: var(--brand-error-light); border: 1px solid var(--brand-error); color: var(--brand-error);">
-            <div class="flex items-center">
-                <i class="fa fa-exclamation-triangle mr-3"></i>
-                <span>{{ error_message }}</span>
-            </div>
-        </div>
-    {% else %}
+    {% include "templates/includes/expense_error_banner.html" %}
+
+    {% if not error_message %}
         <!-- Portal Header -->
         <div class="bg-primary-600 text-white p-8 rounded-xl mb-8 text-center">
             <h1 class="text-4xl font-light mb-2">{{ _("Submit Expense Claim") }}</h1>
@@ -30,24 +25,7 @@
         </div>
 
         <!-- Statistics Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
-                <h3 class="text-2xl font-bold text-gray-800 mb-2">€{{ "{:,.2f}".format(expense_stats.total_submitted) }}</h3>
-                <p class="text-gray-600 text-sm">{{ _("Total Submitted (12 months)") }}</p>
-            </div>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
-                <h3 class="text-2xl font-bold text-gray-800 mb-2">€{{ "{:,.2f}".format(expense_stats.total_approved) }}</h3>
-                <p class="text-gray-600 text-sm">{{ _("Total Approved") }}</p>
-            </div>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
-                <h3 class="text-2xl font-bold text-gray-800 mb-2">{{ expense_stats.pending_count }}</h3>
-                <p class="text-gray-600 text-sm">{{ _("Pending Approval") }}</p>
-            </div>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
-                <h3 class="text-2xl font-bold text-gray-800 mb-2">{{ expense_stats.approved_count }}</h3>
-                <p class="text-gray-600 text-sm">{{ _("Approved Expenses") }}</p>
-            </div>
-        </div>
+        {% include "templates/includes/expense_statistics_cards.html" %}
 
         {% if show_form %}
         <div id="expense-claim-app" v-cloak>

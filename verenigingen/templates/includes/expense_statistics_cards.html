@@ -1,0 +1,29 @@
+{#
+  Expense Statistics Cards Grid
+
+  Displays a 4-card grid showing volunteer expense statistics.
+
+  Required context variables:
+  - expense_stats.total_submitted: Total amount submitted (float)
+  - expense_stats.total_approved: Total amount approved (float)
+  - expense_stats.pending_count: Number of pending expenses (int)
+  - expense_stats.approved_count: Number of approved expenses (int)
+#}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">{{ "{:,.2f}".format(expense_stats.total_submitted) }}</h3>
+        <p class="text-gray-600 text-sm">{{ _("Total Submitted (12 months)") }}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">{{ "{:,.2f}".format(expense_stats.total_approved) }}</h3>
+        <p class="text-gray-600 text-sm">{{ _("Total Approved") }}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">{{ expense_stats.pending_count }}</h3>
+        <p class="text-gray-600 text-sm">{{ _("Pending Approval") }}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 p-6 text-center" style="border-left-color: var(--brand-primary)!important;">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">{{ expense_stats.approved_count }}</h3>
+        <p class="text-gray-600 text-sm">{{ _("Approved Expenses") }}</p>
+    </div>
+</div>

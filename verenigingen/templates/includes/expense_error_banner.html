@@ -1,0 +1,16 @@
+{#
+  Expense Error Banner
+
+  Displays an error message banner for expense portal pages.
+
+  Required context variables:
+  - error_message: The error message to display (string)
+#}
+{% if error_message %}
+<div class="p-4 rounded-lg mb-6" style="background-color: var(--brand-error-light); border: 1px solid var(--brand-error); color: var(--brand-error);">
+    <div class="flex items-center">
+        <i class="fa fa-exclamation-triangle mr-3"></i>
+        <span>{{ error_message }}</span>
+    </div>
+</div>
+{% endif %}
