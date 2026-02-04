@@ -199,35 +199,24 @@ class TestErrorRecovery(VereningingenTestCase):
         """Test HTTP client with all resilience features"""
 
         # ResilientHTTPClient requires base_url and uses different param names
+        # Note: circuit_breaker_threshold is now ignored (circuit breakers deprecated 2026-02)
         client = ResilientHTTPClient(
             base_url="https://api.test.com",
-            circuit_breaker_threshold=2,
+            circuit_breaker_threshold=2,  # Ignored - kept for API compat
             rate_limit=5,
             max_retries=3
         )
 
-        # Test 1: Circuit breaker integration
+        # Test 1: Error handling (circuit breakers deprecated)
+        # With circuit breakers removed, requests just fail with the underlying exception
         with patch.object(client.session, 'request') as mock_request:
             # Simulate failures
-            mock_request.side_effect = [
-                Exception("Connection error"),
-                Exception("Connection error"),
-                MagicMock(status_code=200, json=lambda: {"status": "ok"}, headers={})
-            ]
+            mock_request.side_effect = Exception("Connection error")
 
-            # First two calls should fail
-            for _ in range(2):
-                try:
-                    client.request("GET", "/endpoint")
-                except Exception:
-                    pass
-
-            # Circuit should be open after failures
-            from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import CircuitBreakerOpenException
-            with self.assertRaises((CircuitBreakerOpenException, Exception)) as context:
+            # Calls should fail with the underlying exception
+            with self.assertRaises(Exception) as context:
                 client.request("GET", "/endpoint")
-            # The exception message should indicate circuit breaker or connection issue
-            self.assertTrue("Circuit breaker" in str(context.exception) or "OPEN" in str(context.exception) or "Connection" in str(context.exception))
+            self.assertIn("Connection error", str(context.exception))
 
         # Test 2: Rate limiting integration
         client = ResilientHTTPClient(

@@ -1,8 +1,16 @@
 """
-Circuit Breaker Pattern Implementation
-Prevents cascading failures in distributed systems
+Circuit Breaker Pattern Implementation - DEPRECATED
 
-Features:
+Note: This module is deprecated as of 2026-02. Circuit breakers add complexity
+without proportional benefit at the transaction volumes typical of Dutch non-profit
+associations. Use retry with exponential backoff (via @with_retry) instead.
+
+The code remains for backwards compatibility but is no longer actively used.
+The @with_circuit_breaker decorator in __init__.py is now a pass-through.
+
+See: docs/architecture/PSP_INTEGRATION_CONSOLIDATION_PLAN.md for rationale.
+
+Original Features:
 - Three states: CLOSED, OPEN, HALF_OPEN
 - Configurable failure thresholds
 - Automatic recovery testing

@@ -3,12 +3,14 @@ Resilient HTTP Client
 Production-ready HTTP client with integrated resilience patterns
 
 Features:
-- Circuit breaker for fault tolerance
 - Rate limiting with token bucket
 - Exponential backoff retry
 - Request/response logging
 - Performance monitoring
 - Timeout management
+
+Note: Circuit breakers removed - retry with backoff is sufficient for
+non-profit transaction volumes. See architecture review 2026-02.
 """
 
 import json
@@ -23,7 +25,8 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
 from .compliance.audit_trail import AuditEventType, AuditSeverity, get_audit_trail
-from .resilience.circuit_breaker import CircuitBreaker
+
+# Note: CircuitBreaker removed - retry with backoff is sufficient
 from .resilience.rate_limiter import AdaptiveRateLimiter
 from .resilience.retry_policy import SmartRetryPolicy
 
@@ -34,7 +37,6 @@ class ResilientHTTPClient:
 
     Provides:
     - Automatic retry with exponential backoff
-    - Circuit breaker for cascading failure prevention
     - Rate limiting to respect API limits
     - Comprehensive audit logging
     - Performance monitoring
@@ -46,7 +48,7 @@ class ResilientHTTPClient:
         timeout: int = 30,
         max_retries: int = 3,
         rate_limit: int = 10,
-        circuit_breaker_threshold: int = 5,
+        circuit_breaker_threshold: int = 5,  # Kept for API compat, ignored
     ):
         """
         Initialize resilient HTTP client
@@ -56,7 +58,7 @@ class ResilientHTTPClient:
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
             rate_limit: Requests per second limit
-            circuit_breaker_threshold: Failure threshold for circuit breaker
+            circuit_breaker_threshold: Ignored (kept for backwards compatibility)
         """
         self.base_url = base_url
         self.timeout = timeout
@@ -67,11 +69,7 @@ class ResilientHTTPClient:
         self._configure_session()
 
         # Initialize resilience components
-        self.circuit_breaker = CircuitBreaker(
-            failure_threshold=circuit_breaker_threshold,
-            recovery_timeout=60,
-            expected_exception=requests.RequestException,
-        )
+        # Note: Circuit breaker removed - retry with backoff is sufficient
 
         self.rate_limiter = AdaptiveRateLimiter(
             initial_max_tokens=rate_limit * 2, initial_refill_rate=rate_limit
@@ -87,7 +85,6 @@ class ResilientHTTPClient:
             "successful_requests": 0,
             "failed_requests": 0,
             "total_latency": 0.0,
-            "circuit_breaker_trips": 0,
             "rate_limit_throttles": 0,
         }
 
@@ -170,7 +167,7 @@ class ResilientHTTPClient:
 
     def _execute_with_resilience(self, request_kwargs: Dict[str, Any]) -> requests.Response:
         """
-        Execute request with all resilience patterns
+        Execute request with resilience patterns (retry with backoff)
 
         Args:
             request_kwargs: Request parameters
@@ -181,8 +178,8 @@ class ResilientHTTPClient:
         start_time = time.time()
 
         try:
-            # Use circuit breaker
-            response = self.circuit_breaker.call(self._make_request_with_retry, request_kwargs)
+            # Execute with retry policy (circuit breaker removed)
+            response = self._make_request_with_retry(request_kwargs)
 
             # Update metrics
             self.metrics["total_requests"] += 1
@@ -204,10 +201,6 @@ class ResilientHTTPClient:
             self.metrics["total_requests"] += 1
             self.metrics["failed_requests"] += 1
             self.metrics["total_latency"] += time.time() - start_time
-
-            # Check if circuit breaker tripped
-            if self.circuit_breaker.state == "OPEN":
-                self.metrics["circuit_breaker_trips"] += 1
 
             # Log failure
             self._log_request_failure(

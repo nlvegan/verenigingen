@@ -414,7 +414,7 @@ class TestSecurityIntegration(EnhancedTestCase):
         self.assertIsNotNone(framework.audit_logger)
         self.assertIsNotNone(framework.auth_manager)
         self.assertIsNotNone(framework.rate_limiter)
-        self.assertIsNotNone(framework.csrf_protection)
+        # Note: csrf_protection removed - using Frappe's native CSRF (auth.py)
 
     def test_validation_integration(self):
         """Test validation framework integration"""

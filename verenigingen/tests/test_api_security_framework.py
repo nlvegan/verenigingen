@@ -36,7 +36,7 @@ from verenigingen.utils.security.enhanced_validation import (
 from verenigingen.utils.security.api_classifier import get_api_classifier
 from verenigingen.utils.security.security_monitoring import get_security_monitor, ThreatLevel
 from verenigingen.utils.security.audit_logging import get_audit_logger
-from verenigingen.utils.security.csrf_protection import CSRFProtection
+# Note: CSRFProtection removed - using Frappe's native CSRF (auth.py)
 # Note: rate_limiting module removed - rate limiting now handled by COR
 
 

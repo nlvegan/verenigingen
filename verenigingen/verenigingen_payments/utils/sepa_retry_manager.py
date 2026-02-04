@@ -1,8 +1,12 @@
 """
 SEPA Retry Manager with Exponential Backoff
 
-Comprehensive retry system for SEPA operations with intelligent backoff strategies,
-circuit breaker patterns, and failure recovery mechanisms.
+Comprehensive retry system for SEPA operations with intelligent backoff strategies
+and failure recovery mechanisms.
+
+Note: Circuit breaker functionality has been deprecated (2026-02). The CircuitBreaker
+class remains for API compatibility but is now a pass-through. Retry with exponential
+backoff provides sufficient resilience for non-profit transaction volumes.
 
 Implements Week 3 Day 1-2 requirements from the SEPA billing improvements project.
 """
@@ -94,51 +98,39 @@ class RetryResult:
 
 
 class CircuitBreaker:
-    """Circuit breaker pattern implementation"""
+    """
+    Circuit breaker pattern implementation - DEPRECATED
+
+    Note: Circuit breaker logic has been disabled. For non-profit transaction
+    volumes, retry with exponential backoff (handled elsewhere) is sufficient.
+    This class remains for API compatibility but is now a pass-through.
+
+    See architecture review 2026-02 for rationale.
+    """
 
     def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 300):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failure_count = 0
         self.last_failure_time = None
-        self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+        self.state = "CLOSED"  # Always CLOSED now
 
     def call(self, func: Callable, *args, **kwargs):
-        """Execute function with circuit breaker protection"""
-        if self.state == "OPEN":
-            if self._should_attempt_reset():
-                self.state = "HALF_OPEN"
-            else:
-                raise SEPAError(_("Circuit breaker is OPEN - too many recent failures"))
-
-        try:
-            result = func(*args, **kwargs)
-            self._on_success()
-            return result
-        except Exception:
-            self._on_failure()
-            raise
+        """Execute function directly (circuit breaker bypassed)"""
+        # Pass-through: just call the function without circuit breaker logic
+        return func(*args, **kwargs)
 
     def _should_attempt_reset(self) -> bool:
-        """Check if circuit breaker should attempt reset"""
-        if not self.last_failure_time:
-            return True
-
-        time_since_failure = time.time() - self.last_failure_time
-        return time_since_failure >= self.recovery_timeout
+        """Deprecated - always returns True"""
+        return True
 
     def _on_success(self):
-        """Handle successful operation"""
-        self.failure_count = 0
-        self.state = "CLOSED"
+        """Deprecated - no-op"""
+        pass
 
     def _on_failure(self):
-        """Handle failed operation"""
-        self.failure_count += 1
-        self.last_failure_time = time.time()
-
-        if self.failure_count >= self.failure_threshold:
-            self.state = "OPEN"
+        """Deprecated - no-op"""
+        pass
 
 
 class SEPARetryManager:

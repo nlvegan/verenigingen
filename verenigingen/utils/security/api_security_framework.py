@@ -40,7 +40,7 @@ from verenigingen.utils.security.authorization_policy import (
 from verenigingen.utils.security.client_ip import get_client_ip
 
 # Lazy import to avoid circular dependency - get_auth_manager imported when needed
-from verenigingen.utils.security.csrf_protection import CSRFProtection
+# NOTE: CSRFProtection removed - Frappe handles CSRF validation natively in auth.py
 from verenigingen.utils.security.environment_validator import (
     EnvironmentValidator,
     get_environment_validator,
@@ -195,7 +195,7 @@ class APISecurityFramework:
         # Legacy components (keeping for backwards compatibility)
         self.audit_logger = None  # Lazy initialization
         self.auth_manager = None  # Lazy loading to avoid circular import
-        self.csrf_protection = CSRFProtection()
+        # NOTE: CSRF protection removed - Frappe handles this natively in auth.py
 
         # Validate role profile configuration on initialization
         self._validate_role_profile_configuration()
@@ -600,88 +600,23 @@ class APISecurityFramework:
         """
         Validate CSRF token if required.
 
+        NOTE: Frappe Framework automatically validates CSRF tokens for all
+        POST/PUT/DELETE/PATCH requests in frappe/auth.py. This method exists
+        for interface compatibility but delegates entirely to Frappe's native
+        protection. See: https://frappeframework.com/docs/user/en/api/rest
+
         Args:
-            profile: Security profile for the endpoint
-            func: The function being decorated (for logging)
-            csrf_exempt: If True, skip CSRF validation (set via decorator parameter)
+            profile: Security profile for the endpoint (unused - Frappe handles this)
+            func: The function being decorated (unused)
+            csrf_exempt: If True, skip validation (unused - Frappe handles exemptions)
 
         Returns:
-            True if validation passes
-
-        Raises:
-            VPermissionError: If CSRF validation fails
+            True - Frappe handles CSRF validation natively
         """
-        if not profile.requires_csrf:
-            return True
-
-        # Skip if explicitly marked as csrf_exempt via decorator parameter
-        # This replaces the old hardcoded skip_csrf_functions list - exemptions
-        # are now declared at the endpoint level for better visibility
-        if csrf_exempt:
-            return True
-
-        # Skip CSRF validation when there's no HTTP request context (migrations, background jobs)
-        if not hasattr(frappe, "request") or not frappe.request:
-            return True
-
-        # Skip for GET requests (safe methods don't need CSRF protection)
-        if frappe.request and frappe.request.method == "GET":
-            return True
-
-        # Skip CSRF validation if explicitly disabled in site config (for testing)
-        if frappe.conf.get("disable_csrf_protection"):
-            return True
-
-        # Skip for test environment detection
-        if hasattr(frappe, "flags") and getattr(frappe.flags, "in_test", False):
-            return True
-
-        # Skip for migration context (when functions are called during migrations)
-        if hasattr(frappe, "flags") and getattr(frappe.flags, "in_migrate", False):
-            return True
-
-        # Skip CSRF validation for API key authentication
-        # API keys are not vulnerable to CSRF attacks since they're not browser-based
-        if self._is_api_key_authentication():
-            frappe.logger("verenigingen.api_security").debug(
-                "Skipping CSRF validation for API key authentication"
-            )
-            return True
-
-        # Skip for read-only operations (methods starting with 'get_', 'list_', 'check_', 'validate_')
-        # These are safe because they don't modify state
-        if func and hasattr(func, "__name__"):
-            func_name = func.__name__.lower()
-            read_only_prefixes = ["get_", "list_", "check_", "validate_", "test_", "analyze_"]
-            if any(func_name.startswith(prefix) for prefix in read_only_prefixes):
-                return True
-
-        try:
-            self.csrf_protection.validate_request()
-            return True
-        except RuntimeError as e:
-            # Handle cases where request object is not bound (migration, background jobs)
-            if "object is not bound" in str(e):
-                frappe.logger("verenigingen.api_security").debug(
-                    f"CSRF validation skipped - no request context: {str(e)}"
-                )
-                return True
-            # Re-raise other runtime errors
-            raise VPermissionError(_("CSRF validation failed: {0}").format(str(e)))
-        except Exception as e:
-            # Log with more detail for debugging
-            self._get_audit_logger().log_event(
-                AuditEventType.CSRF_VALIDATION_FAILED,
-                AuditSeverity.WARNING,
-                details={
-                    "error": str(e),
-                    "ip": getattr(frappe.local, "request_ip", "unknown"),
-                    "function": func.__name__ if func else "unknown",
-                    "method": frappe.request.method if frappe.request else "unknown",
-                    "has_csrf_header": self._safe_has_csrf_header(),
-                },
-            )
-            raise VPermissionError(_("CSRF validation failed: {0}").format(str(e)))
+        # Frappe validates CSRF automatically for state-changing methods.
+        # Custom validation was redundant and added 11 skip conditions that
+        # Frappe already handles. Removed in security simplification.
+        return True
 
     def validate_rate_limits(
         self, profile: SecurityProfile, operation_key: str, force_check: bool = False
@@ -912,10 +847,10 @@ class APISecurityFramework:
             }
         )
 
-        # CSRF token header for high security endpoints
+        # CSRF token header for high security endpoints (using Frappe's native token)
         if profile.level in [SecurityLevel.CRITICAL, SecurityLevel.HIGH]:
             try:
-                csrf_token = self.csrf_protection.generate_token()
+                csrf_token = frappe.sessions.get_csrf_token()
                 headers["X-CSRF-Token"] = csrf_token
             except Exception:
                 pass  # Don't fail the request if CSRF token generation fails
@@ -1455,7 +1390,7 @@ def get_security_framework_status():
                 "audit_logger": framework.audit_logger is not None,
                 "auth_manager": framework.auth_manager is not None,
                 "cor_rate_limiting": True,  # Now using COR-based rate limiting
-                "csrf_protection": framework.csrf_protection is not None,
+                "csrf_protection": True,  # Using Frappe's native CSRF (auth.py)
             },
         }
 
@@ -1532,7 +1467,7 @@ def validate_deployment_environment():
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def get_user_security_profile_analysis(email=None):
+def get_user_security_profile_analysis(email: str = None):
     """
     Analyze user's security profile and access levels (admin/debugging utility)
 

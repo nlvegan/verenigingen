@@ -306,7 +306,13 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         self.assertEqual(attempt_count, 2)
 
     def test_circuit_breaker_functionality(self):
-        """Test circuit breaker pattern"""
+        """Test circuit breaker pattern - DEPRECATED
+
+        Note: Circuit breakers have been deprecated (2026-02) as they add complexity
+        without proportional benefit at non-profit transaction volumes. The circuit
+        breaker is now a pass-through. This test verifies the retry manager still
+        works correctly with the deprecated circuit breaker.
+        """
         manager = SEPARetryManager()
 
         # Create operation that always fails
@@ -319,16 +325,16 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             circuit_breaker_window=1
         )
 
-        # First few calls should fail normally
+        # Operations should fail normally (circuit breaker is pass-through)
         result1 = manager.retry_operation(always_fails, config, "circuit_test")
         self.assertFalse(result1.success)
 
         result2 = manager.retry_operation(always_fails, config, "circuit_test")
         self.assertFalse(result2.success)
 
-        # Circuit should now be open and reject immediately
-        with self.assertRaises(Exception):  # Should raise circuit breaker exception
-            manager.retry_operation(always_fails, config, "circuit_test")
+        # With deprecated circuit breaker, third call also just fails (no trip)
+        result3 = manager.retry_operation(always_fails, config, "circuit_test")
+        self.assertFalse(result3.success)
 
     # ========================================================================
     # Enhanced XML Generation Tests

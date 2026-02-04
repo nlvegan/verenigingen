@@ -102,43 +102,26 @@ def with_circuit_breaker(
     circuit_config: Optional[CircuitBreakerConfig] = None,
 ):
     """
-    Decorator for adding circuit breaker protection to functions.
+    DEPRECATED: Circuit breaker decorator - now a pass-through.
 
-    Compatible with Mollie's error_recovery.py interface.
+    Circuit breakers were removed as they add complexity without proportional
+    benefit at the transaction volumes of a Dutch non-profit association.
+    For transient failures, retry with exponential backoff (via @with_retry)
+    is sufficient.
+
+    This decorator now does nothing but is kept for backwards compatibility.
+    Use @with_retry for resilience instead.
 
     Args:
-        circuit_name: Circuit identifier (defaults to function name)
-        circuit_config: Circuit breaker configuration
+        circuit_name: Ignored (kept for API compatibility)
+        circuit_config: Ignored (kept for API compatibility)
 
-    Usage:
-        @with_circuit_breaker(CircuitBreakerConfig(failure_threshold=5))
-        def call_external_api():
-            ...
-
-    Raises:
-        CircuitBreakerOpenException: When circuit is open
+    See: docs/architecture/PSP_INTEGRATION_CONSOLIDATION_PLAN.md for rationale
     """
-    if circuit_config is None:
-        circuit_config = CircuitBreakerConfig()
 
+    # Pass-through decorator - circuit breaker logic removed
     def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            name = circuit_name or func.__name__
-
-            # Get or create circuit breaker for this name
-            if name not in _circuit_breakers:
-                _circuit_breakers[name] = CircuitBreaker(
-                    name=name,
-                    failure_threshold=circuit_config.failure_threshold,
-                    recovery_timeout=circuit_config.recovery_timeout,
-                    success_threshold=circuit_config.success_threshold,
-                )
-
-            breaker = _circuit_breakers[name]
-            return breaker.call(func, *args, **kwargs)
-
-        return wrapper
+        return func
 
     return decorator
 
