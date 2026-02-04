@@ -1057,15 +1057,24 @@ class MembershipDuesSchedule(Document):
         )
 
     def after_insert(self):
-        """Handle new schedule creation"""
-        if not self.is_template and self.member:
-            self._record_schedule_fee_change("New Schedule", 0, self.dues_rate)
-            # Update member's dues_rate field
-            self.update_member_dues_rate()
-            # Update member's current_dues_schedule if this should be the current one
-            from .membership_dues_schedule_hooks import update_member_current_dues_schedule
+        """Handle new schedule creation.
 
-            update_member_current_dues_schedule(self)
+        DELEGATES TO: FeeChangeTrackingService.handle_new_schedule()
+        """
+        if self.is_template or not self.member:
+            return
+
+        from verenigingen.services.billing.fee_change_tracking_service import (
+            get_fee_change_tracking_service,
+        )
+
+        # Record fee change and update member dues_rate via centralized service
+        get_fee_change_tracking_service().handle_new_schedule(self)
+
+        # Update member's current_dues_schedule if this should be the current one
+        from .membership_dues_schedule_hooks import update_member_current_dues_schedule
+
+        update_member_current_dues_schedule(self)
 
     def on_update(self):
         """
@@ -1106,15 +1115,36 @@ class MembershipDuesSchedule(Document):
 
     def _record_schedule_fee_change(self, change_type, old_rate, new_rate):
         """
-        Record fee change using the centralized record_fee_change method with deduplication.
+        Record fee change using the centralized recording service with smart deduplication.
 
-        DELEGATES TO: FeeChangeTrackingService.record_fee_change()
+        DELEGATES TO: FeeChangeRecordingService.record()
+
+        Note: Prefer using FeeChangeTrackingService.handle_new_schedule() or
+        handle_schedule_update() for hook-based recording. This method is kept
+        for backwards compatibility.
         """
-        from verenigingen.services.billing.fee_change_tracking_service import (
-            get_fee_change_tracking_service,
+        if not self.member:
+            return
+
+        from verenigingen.services.member.financial.fee_change_recording_service import (
+            get_fee_change_recording_service,
         )
 
-        get_fee_change_tracking_service().record_fee_change(self, change_type, old_rate, new_rate)
+        reason = (
+            self.custom_amount_reason
+            if self.uses_custom_amount
+            else f"Schedule {change_type.lower()} - {self.schedule_name or self.name}"
+        )
+
+        get_fee_change_recording_service().record(
+            member=self.member,
+            old_amount=old_rate or 0,
+            new_amount=new_rate,
+            change_type=change_type,
+            reason=reason,
+            dues_schedule=self.name,
+            billing_frequency=self.billing_frequency,
+        )
 
     # ✅ ERPNext-Inspired Validation Enhancements
 

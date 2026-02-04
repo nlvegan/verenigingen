@@ -7,20 +7,19 @@ MemberFeeChangeService - Fee override change detection and recording
 This service handles fee override changes on Member records, including:
 - Detecting when membership fees are manually overridden
 - Permission validation for fee changes
-- Recording fee changes to history
+- Delegating fee change recording to FeeChangeRecordingService
 - Deferred processing to avoid save recursion
 
-Extracted from member.py:
-- handle_fee_override_changes() - lines 1317-1410 (95 LOC)
-- record_fee_change() - lines 1410-1457 (47 LOC)
-
-Total: ~142 LOC of business logic in service layer
+NOTE: The record_fee_change() method is now a thin wrapper that delegates
+to FeeChangeRecordingService.record(). The new service provides smart
+deduplication based on actual change data (member + amounts + time window)
+rather than caller-provided entry IDs.
 
 Architecture:
 - Static methods that operate on Member documents
 - Permission-validated fee override handling
 - Deferred change processing pattern
-- Integration with MemberFinancialHistoryManager
+- Delegates recording to FeeChangeRecordingService
 
 Security:
 - Explicit permission validation for fee overrides
@@ -29,8 +28,8 @@ Security:
 - No permission bypasses
 
 Dependencies:
-- member_financial_history_manager - For fee change history recording
-- MemberFeeValidationService - For fee override validation (Phase 2D-2)
+- FeeChangeRecordingService - For centralized fee change recording
+- MemberFeeValidationService - For fee override validation
 """
 
 from typing import TYPE_CHECKING, Any, Dict
@@ -185,15 +184,18 @@ class MemberFeeChangeService(StatelessService):
 
     def record_fee_change(self, member_doc: "Document", change_data: Dict[str, Any]) -> Any:
         """
-        Record fee change in history using the financial history manager.
+        Record fee change via the centralized FeeChangeRecordingService.
 
-        Builds a fee change entry from change_data and adds/updates it in the member's
-        fee change history using the MemberFinancialHistoryManager.
+        DEPRECATED: This method is maintained for backwards compatibility.
+        New code should use FeeChangeRecordingService.record() directly.
+
+        The new service provides smart deduplication based on actual change data
+        (member + amounts + time window) rather than caller-provided entry IDs.
 
         Args:
             member_doc: Member document instance
             change_data: Dictionary with keys:
-                - change_date: Date of the change
+                - change_date: Date of the change (ignored, service uses now)
                 - old_amount: Previous dues rate
                 - new_amount: New dues rate
                 - change_type: Type of change (default "Fee Adjustment")
@@ -204,62 +206,22 @@ class MemberFeeChangeService(StatelessService):
                 - amendment_request_name: Optional amendment request reference
 
         Returns:
-            Result from fee_history_manager.add_or_update_entry()
-
-        Security:
-            - Uses MemberFinancialHistoryManager for secure history updates
-            - Proper deduplication with entry_id based on amendment or schedule
-
-        Business Logic:
-            - Uses amendment_request_name for true idempotency if available
-            - Falls back to schedule_name + action for other changes
-            - Stores actual document names in Link fields (not prefixed IDs)
-            - Delegates to MemberFinancialHistoryManager for actual update
+            RecordingResult from FeeChangeRecordingService.record()
         """
-        from verenigingen.utils.member_financial_history_manager import get_fee_change_history_manager
+        from verenigingen.services.member.financial.fee_change_recording_service import (
+            get_fee_change_recording_service,
+        )
 
-        # Use amendment request name for true idempotency, fallback to schedule+action for other changes
-        amendment_name = change_data.get("amendment_request_name")
-        if amendment_name:
-            entry_id = f"amendment_{amendment_name}"
-            id_field_name = "amendment_request"
-        else:
-            # For non-amendment changes: use schedule name + action type for deduplication
-            # This prevents duplicate entries when same schedule action is processed multiple times
-            # If no schedule name, use change_date for identification
-            schedule_name = change_data.get("dues_schedule_name")
-            if not schedule_name:
-                schedule_name = change_data.get("change_date", "unknown")
-            action = change_data.get("dues_schedule_action", "manual")
-            entry_id = f"{schedule_name}_{action}"
-            id_field_name = "dues_schedule"
-
-        def build_fee_change_entry():
-            entry_data = {
-                "change_date": change_data["change_date"],
-                "old_dues_rate": change_data["old_amount"],
-                "new_dues_rate": change_data["new_amount"],
-                "change_type": change_data.get("change_type", "Fee Adjustment"),
-                "reason": change_data["reason"],
-                "changed_by": change_data["changed_by"],
-                "dues_schedule": change_data.get("dues_schedule_name", ""),
-            }
-            # Add billing frequency if provided
-            if "billing_frequency" in change_data:
-                entry_data["billing_frequency"] = change_data["billing_frequency"]
-            # Add amendment request reference if available
-            # CRITICAL: Store the actual amendment_name (not entry_id) in the Link field
-            # Link fields require valid document names, not prefixed IDs
-            # The deduplication logic uses entry_id for comparison, but storage must use document name
-            if amendment_name:
-                entry_data["amendment_request"] = amendment_name  # Store actual document name for Link field
-            return entry_data
-
-        fee_history_manager = get_fee_change_history_manager(member_doc)
-        return fee_history_manager.add_or_update_entry(
-            entry_id=entry_id,
-            entry_builder=build_fee_change_entry,
-            id_field_name=id_field_name,
+        return get_fee_change_recording_service().record(
+            member=member_doc,
+            old_amount=change_data.get("old_amount", 0),
+            new_amount=change_data.get("new_amount", 0),
+            change_type=change_data.get("change_type", "Fee Adjustment"),
+            reason=change_data.get("reason", ""),
+            amendment_request=change_data.get("amendment_request_name"),
+            dues_schedule=change_data.get("dues_schedule_name"),
+            billing_frequency=change_data.get("billing_frequency"),
+            changed_by=change_data.get("changed_by"),
         )
 
 

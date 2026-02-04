@@ -2,23 +2,22 @@
 # For license information, please see license.txt
 
 """
-FeeChangeTrackingService - Fee change history management for dues schedules.
+FeeChangeTrackingService - Schedule-based fee change detection and member dues sync.
 
-This service handles recording fee changes on member records including:
-- Recording schedule fee changes
-- Updating member dues rate
-- Tracking change types (new schedule, fee adjustment, etc.)
-- Amendment request linking
+This service detects fee changes from dues schedule updates and:
+1. Delegates recording to FeeChangeRecordingService (single source of truth)
+2. Updates member dues_rate field to stay in sync with schedule
+
+IMPORTANT: This service no longer records fee changes directly. All recording
+goes through FeeChangeRecordingService which handles smart deduplication.
+This eliminates duplicate entries when both amendment service and schedule
+hooks trigger for the same change.
 
 Extracted from membership_dues_schedule.py to reduce controller size
 and improve testability.
-
-Architecture:
-- StatelessService base class for consistent logging and error handling
-- Uses Member's record_fee_change() method for actual recording
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import frappe
 
@@ -30,106 +29,21 @@ if TYPE_CHECKING:
 
 class FeeChangeTrackingService(StatelessService):
     """
-    Service for tracking fee changes on membership dues schedules.
+    Service for detecting fee changes from dues schedules and syncing member dues_rate.
 
-    Records fee changes to member's payment history and keeps member
-    dues_rate field in sync with schedule.
+    This service:
+    - Detects changes in schedule dues_rate, status, billing_frequency
+    - Delegates fee change recording to FeeChangeRecordingService
+    - Updates member dues_rate to match schedule
 
     Example:
         service = get_fee_change_tracking_service()
-        service.record_fee_change(schedule_doc, "Fee Adjustment", 10.0, 15.0)
+        service.handle_schedule_update(schedule_doc)
         service.update_member_dues_rate(schedule_doc)
     """
 
     def __init__(self):
         super().__init__(service_name="FeeChangeTrackingService")
-
-    def record_fee_change(
-        self,
-        schedule_doc: "Document",
-        change_type: str,
-        old_rate: float,
-        new_rate: float,
-    ) -> None:
-        """
-        Record a fee change using the centralized record_fee_change method.
-
-        Creates a fee change record with deduplication on the member's
-        payment history.
-
-        Args:
-            schedule_doc: The dues schedule document
-            change_type: Type of change (e.g., "New Schedule", "Fee Adjustment")
-            old_rate: Previous dues rate
-            new_rate: New dues rate
-        """
-        if not schedule_doc.member:
-            self.logger.warning(
-                f"Cannot record fee change for schedule {schedule_doc.name}: no member assigned"
-            )
-            return
-
-        try:
-            member_doc = frappe.get_doc("Member", schedule_doc.member)
-
-            # Determine reason based on context
-            reason = (
-                schedule_doc.custom_amount_reason
-                if schedule_doc.uses_custom_amount
-                else f"{change_type} - {schedule_doc.schedule_name or schedule_doc.name}"
-            )
-
-            # Check if this change is from an amendment
-            amendment_request = self._get_amendment_request(schedule_doc.name)
-
-            # Build change data in the format expected by record_fee_change
-            change_data = {
-                "change_date": frappe.utils.now_datetime(),
-                "old_amount": old_rate or 0,
-                "new_amount": new_rate,
-                "reason": reason,
-                "changed_by": frappe.session.user or "Administrator",
-                "dues_schedule_name": schedule_doc.name,
-                "dues_schedule_action": change_type.lower().replace(" ", "_"),
-                "billing_frequency": schedule_doc.billing_frequency,
-                "change_type": change_type,
-            }
-
-            # Add amendment reference if available
-            if amendment_request:
-                change_data["amendment_request_name"] = amendment_request
-
-            # Use the centralized method with automatic deduplication
-            member_doc.record_fee_change(change_data)
-
-            self.logger.info(
-                f"Recorded fee change for member {schedule_doc.member}: "
-                f"{change_type} ({old_rate} -> {new_rate})"
-            )
-
-        except Exception as e:
-            # Shorten error message to avoid database field length limits
-            error_msg = f"Fee change recording error for {schedule_doc.name}: {str(e)[:80]}"
-            self.logger.error(error_msg)
-            frappe.log_error(error_msg, "Fee Change Recording")
-
-    def _get_amendment_request(self, schedule_name: str) -> Optional[str]:
-        """
-        Get amendment request linked to this schedule.
-
-        Args:
-            schedule_name: Name of the dues schedule
-
-        Returns:
-            Amendment request name if found, None otherwise
-        """
-        if frappe.db.exists("Contribution Amendment Request", {"new_dues_schedule": schedule_name}):
-            return frappe.db.get_value(
-                "Contribution Amendment Request",
-                {"new_dues_schedule": schedule_name},
-                "name",
-            )
-        return None
 
     def update_member_dues_rate(self, schedule_doc: "Document") -> None:
         """
@@ -179,24 +93,13 @@ class FeeChangeTrackingService(StatelessService):
         """
         Handle fee tracking when a schedule is updated.
 
-        Checks for changes in dues rate, status, and billing frequency
-        and records appropriate fee changes.
+        Detects changes in dues rate, status, and billing frequency and
+        delegates recording to FeeChangeRecordingService.
 
         Args:
             schedule_doc: The updated dues schedule document
         """
         if schedule_doc.is_template or not schedule_doc.member:
-            return
-
-        # Skip fee change recording if explicitly requested (e.g., during amendment application
-        # where the fee change is recorded separately with full context)
-        if getattr(schedule_doc.flags, "skip_fee_change_recording", False):
-            self.logger.info(
-                f"Skipping fee change recording for schedule {schedule_doc.name} - "
-                "flag skip_fee_change_recording is set (amendment application)"
-            )
-            # Still update member dues rate even when skipping recording
-            self.update_member_dues_rate(schedule_doc)
             return
 
         # Need old document for comparison
@@ -205,36 +108,56 @@ class FeeChangeTrackingService(StatelessService):
 
         old_doc = schedule_doc._doc_before_save
 
+        # Import the centralized recording service
+        from verenigingen.services.member.financial.fee_change_recording_service import (
+            get_fee_change_recording_service,
+        )
+
+        recording_service = get_fee_change_recording_service()
+
+        # Determine reason based on context
+        reason = (
+            schedule_doc.custom_amount_reason
+            if schedule_doc.uses_custom_amount
+            else f"Schedule update - {schedule_doc.schedule_name or schedule_doc.name}"
+        )
+
         # Check for dues rate change
         if old_doc.dues_rate != schedule_doc.dues_rate:
-            self.record_fee_change(schedule_doc, "Fee Adjustment", old_doc.dues_rate, schedule_doc.dues_rate)
+            recording_service.record(
+                member=schedule_doc.member,
+                old_amount=old_doc.dues_rate or 0,
+                new_amount=schedule_doc.dues_rate,
+                change_type="Fee Adjustment",
+                reason=reason,
+                dues_schedule=schedule_doc.name,
+                billing_frequency=schedule_doc.billing_frequency,
+            )
             self.update_member_dues_rate(schedule_doc)
 
         # Check for status change
         if old_doc.status != schedule_doc.status:
             if schedule_doc.status == "Cancelled":
-                self.record_fee_change(
-                    schedule_doc,
-                    "Schedule Cancelled",
-                    schedule_doc.dues_rate,
-                    schedule_doc.dues_rate,
+                recording_service.record(
+                    member=schedule_doc.member,
+                    old_amount=schedule_doc.dues_rate,
+                    new_amount=0,  # Cancelled means no more dues
+                    change_type="Schedule Cancelled",
+                    reason=f"Schedule {schedule_doc.name} cancelled",
+                    dues_schedule=schedule_doc.name,
                 )
             elif old_doc.status == "Paused" and schedule_doc.status == "Active":
-                self.record_fee_change(
-                    schedule_doc,
-                    "Schedule Resumed",
-                    schedule_doc.dues_rate,
-                    schedule_doc.dues_rate,
+                recording_service.record(
+                    member=schedule_doc.member,
+                    old_amount=0,  # Was paused (effectively 0)
+                    new_amount=schedule_doc.dues_rate,
+                    change_type="Schedule Resumed",
+                    reason=f"Schedule {schedule_doc.name} resumed",
+                    dues_schedule=schedule_doc.name,
                 )
 
-        # Check for billing frequency change
-        if old_doc.billing_frequency != schedule_doc.billing_frequency:
-            self.record_fee_change(
-                schedule_doc,
-                "Billing Frequency Change",
-                schedule_doc.dues_rate,
-                schedule_doc.dues_rate,
-            )
+        # Billing frequency changes are informational, not actual fee changes
+        # The recording service will skip them since old_amount == new_amount
 
     def handle_new_schedule(self, schedule_doc: "Document") -> None:
         """
@@ -248,7 +171,25 @@ class FeeChangeTrackingService(StatelessService):
         if schedule_doc.is_template or not schedule_doc.member:
             return
 
-        self.record_fee_change(schedule_doc, "New Schedule", 0, schedule_doc.dues_rate)
+        from verenigingen.services.member.financial.fee_change_recording_service import (
+            get_fee_change_recording_service,
+        )
+
+        reason = (
+            schedule_doc.custom_amount_reason
+            if schedule_doc.uses_custom_amount
+            else f"New schedule - {schedule_doc.schedule_name or schedule_doc.name}"
+        )
+
+        get_fee_change_recording_service().record(
+            member=schedule_doc.member,
+            old_amount=0,
+            new_amount=schedule_doc.dues_rate,
+            change_type="New Schedule",
+            reason=reason,
+            dues_schedule=schedule_doc.name,
+            billing_frequency=schedule_doc.billing_frequency,
+        )
         self.update_member_dues_rate(schedule_doc)
 
 

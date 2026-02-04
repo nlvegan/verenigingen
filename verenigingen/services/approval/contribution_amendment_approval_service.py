@@ -319,14 +319,11 @@ class ContributionAmendmentApprovalService(StatefulService):
         # Set flag to bypass duplicate schedule validation
         schedule_doc.flags.from_amendment = True
 
-        # CRITICAL: Set new_dues_schedule BEFORE saving schedule so that the schedule's
-        # on_update hook can find the amendment via _get_amendment_request() and use the
-        # same entry_id for deduplication. This prevents duplicate fee history entries.
+        # Set new_dues_schedule before saving for reference
         self.request.new_dues_schedule = self.request.current_dues_schedule
 
-        # Also set a flag to skip fee change recording in schedule's on_update hook
-        # since we'll record it explicitly in _update_member_fee_fields() with full context
-        schedule_doc.flags.skip_fee_change_recording = True
+        # NOTE: No skip_fee_change_recording flag needed - FeeChangeRecordingService
+        # handles deduplication automatically based on member + amounts + time window
 
         schedule_result = secure_document_operation(
             operation="save",
@@ -353,19 +350,19 @@ class ContributionAmendmentApprovalService(StatefulService):
         """Update member record with new fee override fields."""
         member_doc.reload()
 
-        # Record fee change in history
-        dues_schedule_ref = self.request.new_dues_schedule or ""
-        member_doc.record_fee_change(
-            {
-                "change_date": now_datetime(),
-                "old_amount": actual_current_rate,
-                "new_amount": self.request.requested_amount,
-                "reason": f"Amendment {self.request.name}: {self.request.reason}",
-                "changed_by": frappe.session.user,
-                "dues_schedule_name": dues_schedule_ref,
-                "dues_schedule_action": f"Applied via {dues_schedule_ref}",
-                "amendment_request_name": self.request.name,
-            }
+        # Record fee change using centralized service with smart deduplication
+        from verenigingen.services.member.financial.fee_change_recording_service import (
+            get_fee_change_recording_service,
+        )
+
+        get_fee_change_recording_service().record(
+            member=member_doc,
+            old_amount=actual_current_rate,
+            new_amount=self.request.requested_amount,
+            change_type="Fee Adjustment",
+            reason=f"Amendment {self.request.name}: {self.request.reason}",
+            amendment_request=self.request.name,
+            dues_schedule=self.request.new_dues_schedule or "",
         )
 
         member_doc.dues_rate = self.request.requested_amount
@@ -436,17 +433,19 @@ class ContributionAmendmentApprovalService(StatefulService):
             if self.request.requested_amount:
                 actual_current_rate = getattr(member_doc, "dues_rate", 0) or 0
 
-                # Record fee change in history
-                member_doc.record_fee_change(
-                    {
-                        "change_date": now_datetime(),
-                        "old_amount": actual_current_rate,
-                        "new_amount": self.request.requested_amount,
-                        "reason": f"Membership type change amendment {self.request.name}: {self.request.reason}",
-                        "changed_by": frappe.session.user,
-                        "dues_schedule_action": f"Updated schedule {self.request.new_dues_schedule}",
-                        "amendment_request_name": self.request.name,
-                    }
+                # Record fee change via centralized service (handles deduplication)
+                from verenigingen.services.member.financial.fee_change_recording_service import (
+                    get_fee_change_recording_service,
+                )
+
+                get_fee_change_recording_service().record(
+                    member=member_doc,
+                    old_amount=actual_current_rate,
+                    new_amount=self.request.requested_amount,
+                    change_type="Fee Adjustment",
+                    reason=f"Membership type change amendment {self.request.name}: {self.request.reason}",
+                    amendment_request=self.request.name,
+                    dues_schedule=self.request.new_dues_schedule or "",
                 )
 
                 member_doc.reload()
