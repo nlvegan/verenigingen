@@ -3,15 +3,13 @@ Financial Dashboard for Mollie Backend
 Provides comprehensive financial insights and reporting
 """
 
-import decimal
-import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, get_datetime, now_datetime
+from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
@@ -20,8 +18,22 @@ from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
 from ..clients.payments_client import PaymentsClient
 from ..clients.settlements_client import SettlementsClient
+from ..core.models.settlement import Settlement
 from ..services.mollie_configuration_service import get_mollie_config
+from ..utils.financial_calculation_utils import (
+    convert_decimal_dict_to_float,
+    find_gap_periods,
+    prorate_amount_by_days,
+    safe_decimal_from_dict,
+)
 from ..utils.payment_data_extractor import MollieObjectType, get_payment_data_extractor
+from ..utils.timezone_utils import (
+    filter_items_by_date_range,
+    get_period_date_range,
+    parse_mollie_datetime,
+    parse_period_key_to_date_range,
+    safe_datetime_to_isoformat,
+)
 from ..workflows.reconciliation_engine import ReconciliationEngine
 
 
@@ -56,40 +68,6 @@ class FinancialDashboard:
         self._settlements_cache = None
         # Cache for payments data to prevent redundant API calls
         self._payments_cache = None
-
-    def _safe_datetime_to_isoformat(self, dt_value):
-        """
-        Safely convert a datetime value to ISO format string.
-        Handles both datetime objects and string values from Mollie API.
-
-        Args:
-            dt_value: datetime object, string, or None
-
-        Returns:
-            str: ISO format string or None if input is None/invalid
-        """
-        if dt_value is None:
-            return None
-
-        # If it's already a string, return as-is (assuming it's already in ISO format)
-        if isinstance(dt_value, str):
-            return dt_value
-
-        # If it's a datetime object, convert to ISO format
-        if isinstance(dt_value, datetime):
-            # Use timezone utilities to ensure proper handling
-            from ..utils.timezone_utils import ensure_timezone_naive
-
-            try:
-                # Convert to timezone-naive datetime for consistent formatting
-                dt_naive = ensure_timezone_naive(dt_value)
-                return dt_naive.isoformat() if dt_naive else None
-            except Exception as e:
-                frappe.logger().warning(f"Failed to convert datetime to ISO format: {e}")
-                return None
-
-        # For other types, try to convert to string
-        return str(dt_value) if dt_value is not None else None
 
     def _get_settlements_data(self) -> List[Dict]:
         """Get settlements data with caching to prevent redundant API calls"""
@@ -131,28 +109,20 @@ class FinancialDashboard:
         """Calculate revenue from cached payments data for a specific period"""
         total_revenue = Decimal("0")
 
-        for payment in payments_data:
-            # Check payment date
-            payment_date = None
-            if payment.get("createdAt"):
-                try:
-                    payment_date = datetime.fromisoformat(payment["createdAt"].replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    continue
+        # Filter payments by date range
+        filtered_payments = filter_items_by_date_range(
+            payments_data, start_date, end_date, date_field="createdAt"
+        )
 
-            if payment_date and start_date <= payment_date <= end_date:
-                # Include paid payments and pending ones
-                status = payment.get("status", "")
-                if status in ["paid", "pending", "authorized"]:
-                    amount_data = payment.get("amount", {})
-                    if amount_data and "value" in amount_data:
-                        try:
-                            payment_amount = Decimal(amount_data["value"])
-                            # Only include EUR for now
-                            if amount_data.get("currency") == "EUR":
-                                total_revenue += payment_amount
-                        except (ValueError, TypeError):
-                            continue
+        for payment in filtered_payments:
+            # Include paid payments and pending ones
+            status = payment.get("status", "")
+            if status in ["paid", "pending", "authorized"]:
+                amount_data = payment.get("amount", {})
+                # Only include EUR for now
+                if amount_data and amount_data.get("currency") == "EUR":
+                    payment_amount = safe_decimal_from_dict(payment, "amount", "value")
+                    total_revenue += payment_amount
 
         return total_revenue
 
@@ -181,19 +151,9 @@ class FinancialDashboard:
                     # Use settlement periods to determine coverage
                     if hasattr(settlement, "periods") and settlement.periods:
                         for period_key, period_data in settlement.periods.items():
-                            # Parse period key (format: YYYY-MM)
                             try:
-                                year, month = period_key.split("-")
-                                period_start = datetime(int(year), int(month), 1, tzinfo=timezone.utc)
-                                # Period end is last day of month
-                                if int(month) == 12:
-                                    period_end = datetime(
-                                        int(year) + 1, 1, 1, tzinfo=timezone.utc
-                                    ) - timedelta(days=1)
-                                else:
-                                    period_end = datetime(
-                                        int(year), int(month) + 1, 1, tzinfo=timezone.utc
-                                    ) - timedelta(days=1)
+                                # Use utility to parse period key
+                                period_start, period_end = parse_period_key_to_date_range(period_key)
 
                                 # Check if this period overlaps with our date range
                                 if period_start <= end_date and period_end >= start_date:
@@ -205,36 +165,33 @@ class FinancialDashboard:
                                         # Use settlement's revenue for this period
                                         if hasattr(period_data, "revenue") and period_data.revenue:
                                             for revenue_item in period_data.revenue:
-                                                if (
-                                                    "amountNet" in revenue_item
-                                                    and "value" in revenue_item["amountNet"]
-                                                ):
-                                                    try:
-                                                        amount = Decimal(revenue_item["amountNet"]["value"])
+                                                amount = safe_decimal_from_dict(
+                                                    revenue_item, "amountNet", "value"
+                                                )
+                                                if amount > 0:
+                                                    # If partial period overlap, prorate the amount
+                                                    period_days = (period_end - period_start).days + 1
+                                                    overlap_days = (overlap_end - overlap_start).days + 1
 
-                                                        # If partial period overlap, prorate the amount
-                                                        period_days = (period_end - period_start).days + 1
-                                                        overlap_days = (overlap_end - overlap_start).days + 1
-
-                                                        if overlap_days < period_days:
-                                                            amount = amount * (overlap_days / period_days)
-
-                                                        settled_revenue += amount
-                                                        settled_periods.append(
-                                                            {
-                                                                "start": overlap_start,
-                                                                "end": overlap_end,
-                                                                "amount": amount,
-                                                            }
+                                                    if overlap_days < period_days:
+                                                        amount = prorate_amount_by_days(
+                                                            amount, period_days, overlap_days
                                                         )
-                                                    except (ValueError, TypeError):
-                                                        continue
+
+                                                    settled_revenue += amount
+                                                    settled_periods.append(
+                                                        {
+                                                            "start": overlap_start,
+                                                            "end": overlap_end,
+                                                            "amount": amount,
+                                                        }
+                                                    )
 
                             except (ValueError, AttributeError):
                                 continue
 
             # Step 3: Find unsettled periods (gaps in settlement coverage)
-            unsettled_periods = self._find_unsettled_periods(settled_periods, start_date, end_date)
+            unsettled_periods = find_gap_periods(settled_periods, start_date, end_date)
 
             # Step 4: Calculate revenue from unsettled periods using individual payments
             unsettled_revenue = Decimal("0")
@@ -266,38 +223,6 @@ class FinancialDashboard:
             total_revenue = self._calculate_revenue_from_payments(payments_data, start_date, end_date)
 
         return total_revenue
-
-    def _find_unsettled_periods(
-        self, settled_periods: List[Dict], start_date: datetime, end_date: datetime
-    ) -> List[Dict]:
-        """Find date gaps that are not covered by settlements"""
-        if not settled_periods:
-            return [{"start": start_date, "end": end_date}]
-
-        # Sort settled periods by start date
-        sorted_periods = sorted(settled_periods, key=lambda p: p["start"])
-        unsettled = []
-
-        current_date = start_date
-
-        for period in sorted_periods:
-            # Gap before this settled period?
-            if current_date < period["start"]:
-                unsettled.append(
-                    {"start": current_date, "end": min(period["start"] - timedelta(days=1), end_date)}
-                )
-
-            # Move current date past this settled period
-            current_date = max(current_date, period["end"] + timedelta(days=1))
-
-            if current_date > end_date:
-                break
-
-        # Gap after all settled periods?
-        if current_date <= end_date:
-            unsettled.append({"start": current_date, "end": end_date})
-
-        return unsettled
 
     def get_dashboard_summary(self) -> Dict:
         """
@@ -412,19 +337,10 @@ class FinancialDashboard:
             # Parse settlement data
             for item in response:
                 # Process all settlements, not just those with settledAt
-                settlement_date = None
-
                 # Try to get settled date, fall back to created date
-                if item.get("settledAt"):
-                    try:
-                        settlement_date = datetime.fromisoformat(item["settledAt"].replace("Z", "+00:00"))
-                    except (ValueError, TypeError) as e:
-                        frappe.logger().warning(f"Failed to parse settledAt date: {e}")
-                elif item.get("createdAt"):
-                    try:
-                        settlement_date = datetime.fromisoformat(item["createdAt"].replace("Z", "+00:00"))
-                    except (ValueError, TypeError) as e:
-                        frappe.logger().warning(f"Failed to parse createdAt date: {e}")
+                settlement_date = parse_mollie_datetime(item.get("settledAt"))
+                if settlement_date is None:
+                    settlement_date = parse_mollie_datetime(item.get("createdAt"))
 
                 if not settlement_date:
                     continue
@@ -482,10 +398,10 @@ class FinancialDashboard:
                     "created_at": next_settlement.created_at,
                     "settled_at": next_settlement.settled_at,
                     # Add parsed datetime for easier frontend handling - safe timezone conversion
-                    "created_at_datetime": self._safe_datetime_to_isoformat(
+                    "created_at_datetime": safe_datetime_to_isoformat(
                         getattr(next_settlement, "created_at_datetime", None)
                     ),
-                    "settled_at_datetime": self._safe_datetime_to_isoformat(
+                    "settled_at_datetime": safe_datetime_to_isoformat(
                         getattr(next_settlement, "settled_at_datetime", None)
                     ),
                 }
@@ -499,10 +415,9 @@ class FinancialDashboard:
                     ),
                 }
 
-            # Convert decimals
-            metrics["current_month"]["total_amount"] = float(metrics["current_month"]["total_amount"])
-            metrics["current_month"]["average_amount"] = float(metrics["current_month"]["average_amount"])
-            metrics["last_30_days"]["total_amount"] = float(metrics["last_30_days"]["total_amount"])
+            # Convert decimals for JSON serialization
+            convert_decimal_dict_to_float(metrics["current_month"], keys=["total_amount", "average_amount"])
+            convert_decimal_dict_to_float(metrics["last_30_days"], keys=["total_amount"])
 
         except Exception as e:
             metrics["error"] = str(e)
@@ -521,15 +436,10 @@ class FinancialDashboard:
             # Use timezone-aware datetime to match Mollie API responses
             now = datetime.now(timezone.utc)
 
-            # Calculate date ranges (all timezone-aware)
-            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            week_start = (now - timedelta(days=now.weekday())).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )  # Monday of this week
-            quarter_start_month = ((now.month - 1) // 3) * 3 + 1
-            quarter_start = now.replace(
-                month=quarter_start_month, day=1, hour=0, minute=0, second=0, microsecond=0
-            )
+            # Calculate date ranges using utility functions
+            week_start, _ = get_period_date_range("week", now)
+            month_start, _ = get_period_date_range("month", now)
+            quarter_start, _ = get_period_date_range("quarter", now)
 
             frappe.logger().info(
                 f"Revenue analysis date ranges - Week: {week_start}, Month: {month_start}, Quarter: {quarter_start}"
@@ -625,15 +535,11 @@ class FinancialDashboard:
                     * 100
                 )
 
-            # Convert decimals
-            breakdown["current_month"]["transaction_fees"] = float(
-                breakdown["current_month"]["transaction_fees"]
+            # Convert decimals for JSON serialization
+            convert_decimal_dict_to_float(
+                breakdown["current_month"],
+                keys=["transaction_fees", "chargeback_fees", "refund_costs", "total_costs"],
             )
-            breakdown["current_month"]["chargeback_fees"] = float(
-                breakdown["current_month"]["chargeback_fees"]
-            )
-            breakdown["current_month"]["refund_costs"] = float(breakdown["current_month"]["refund_costs"])
-            breakdown["current_month"]["total_costs"] = float(breakdown["current_month"]["total_costs"])
 
         except Exception as e:
             breakdown["error"] = str(e)
@@ -701,9 +607,8 @@ class FinancialDashboard:
             insights = self.chargebacks_client.get_chargeback_prevention_insights()
             metrics["risk_level"] = insights["risk_level"]
 
-            # Convert decimals
-            metrics["current_month"]["total_amount"] = float(metrics["current_month"]["total_amount"])
-            metrics["current_month"]["net_loss"] = float(metrics["current_month"]["net_loss"])
+            # Convert decimals for JSON serialization
+            convert_decimal_dict_to_float(metrics["current_month"], keys=["total_amount", "net_loss"])
 
         except Exception as e:
             metrics["error"] = str(e)
@@ -731,18 +636,9 @@ class FinancialDashboard:
 
             # Get payments for last 30 days from cached data
             all_payments = self._get_payments_data()
-            payments = []
 
-            # Filter payments for last 30 days
-            for payment in all_payments:
-                payment_date = None
-                if payment.get("createdAt"):
-                    try:
-                        payment_date = datetime.fromisoformat(payment["createdAt"].replace("Z", "+00:00"))
-                        if thirty_days_ago <= payment_date <= now:
-                            payments.append(payment)
-                    except (ValueError, TypeError):
-                        continue
+            # Filter payments for last 30 days using utility function
+            payments = filter_items_by_date_range(all_payments, thirty_days_ago, now, date_field="createdAt")
 
             total_count = len(payments)
             successful_count = 0
@@ -853,22 +749,12 @@ class FinancialDashboard:
         Returns:
             Dict with financial report data
         """
-        # Determine date range
+        # Determine date range using utility function
         now = datetime.now(timezone.utc)
-        if period == "day":
-            start_date = now.replace(hour=0, minute=0, second=0)
-        elif period == "week":
-            start_date = now - timedelta(days=7)
-        elif period == "month":
-            start_date = now.replace(day=1)
-        elif period == "quarter":
-            quarter_start_month = ((now.month - 1) // 3) * 3 + 1
-            start_date = now.replace(month=quarter_start_month, day=1)
-        else:  # year
-            start_date = now.replace(month=1, day=1)
+        start_date, end_date = get_period_date_range(period, now)
 
         report = {
-            "period": {"type": period, "start": start_date.isoformat(), "end": now.isoformat()},
+            "period": {"type": period, "start": start_date.isoformat(), "end": end_date.isoformat()},
             "summary": {
                 "total_revenue": Decimal("0"),
                 "total_costs": Decimal("0"),
@@ -903,12 +789,12 @@ class FinancialDashboard:
             )
 
             # Add VAT summary
-            report["vat_summary"] = self.invoices_client.calculate_vat_summary(start_date, now)
+            report["vat_summary"] = self.invoices_client.calculate_vat_summary(start_date, end_date)
 
-            # Convert decimals
-            report["summary"]["total_revenue"] = float(report["summary"]["total_revenue"])
-            report["summary"]["total_costs"] = float(report["summary"]["total_costs"])
-            report["summary"]["net_income"] = float(report["summary"]["net_income"])
+            # Convert decimals for JSON serialization
+            convert_decimal_dict_to_float(
+                report["summary"], keys=["total_revenue", "total_costs", "net_income"]
+            )
 
         except Exception as e:
             report["error"] = str(e)
