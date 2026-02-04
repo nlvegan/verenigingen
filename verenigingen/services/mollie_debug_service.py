@@ -2556,6 +2556,10 @@ class MollieDebugService(StatelessService):
         Uses global payments endpoint with pagination for optimal performance.
         Makes 1 API call per 250 payments instead of 1 per member (N+1 problem).
 
+        Matches payments to ALL members (regardless of status) for complete
+        bookkeeping/audit trail. Uses centralized MemberPaymentMatcher for
+        consistent matching with global_payments mode.
+
         Args:
             days_back: Number of days back to check (default: 30)
             max_payments: Maximum total payments to retrieve (default: 5000)
@@ -2571,6 +2575,10 @@ class MollieDebugService(StatelessService):
                 - api_calls_made: Number of API calls to Mollie
         """
         from datetime import datetime, timedelta
+
+        from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
+            get_member_payment_matcher,
+        )
 
         result = {
             "test_mode": self.mollie_client.is_test_mode(),
@@ -2589,26 +2597,20 @@ class MollieDebugService(StatelessService):
             "total_payments_after_filtering": 0,  # After deduplication
             "total_filtered_by_duplicate": 0,
             "total_filtered_by_date": 0,  # Payments outside date range
-            "total_filtered_by_customer": 0,  # Payments without matching customer_id
+            "total_filtered_by_member": 0,  # Payments without matching member (renamed for clarity)
             "early_termination": False,  # True if stopped due to old payments
         }
 
         try:
-            # Find all active members with Mollie customer IDs
-            members = frappe.get_all(
-                "Member",
-                filters={"mollie_customer_id": ["!=", ""], "status": "Active"},
-                fields=["name", "full_name", "mollie_customer_id", "email"],
-            )
+            # Use centralized matcher for consistent member matching
+            matcher = get_member_payment_matcher()
+            members = matcher.get_all_members_with_mollie_id()
 
             result["total_members"] = len(members)
 
-            # Build customer ID lookup map for fast filtering
-            customer_id_to_member = {m.mollie_customer_id: m for m in members}
-
             self.logger.info(
-                f"Bulk payment retrieval: Found {len(members)} active members with Mollie IDs. "
-                f"Using global payments endpoint with pagination."
+                f"Bulk payment retrieval: Found {len(members)} members with Mollie IDs "
+                f"(all statuses). Using global payments endpoint with pagination."
             )
 
             # Calculate date range
@@ -2619,18 +2621,9 @@ class MollieDebugService(StatelessService):
             # Get raw Mollie client
             client = self.mollie_client.sdk_client
 
-            # Initialize member results dict
+            # Initialize member results dict keyed by member name (not customer_id)
+            # This handles cases where member is found via description parsing
             member_results = {}
-            for member in members:
-                member_results[member.mollie_customer_id] = {
-                    "member": member.name,
-                    "full_name": member.full_name,
-                    "customer_id": member.mollie_customer_id,
-                    "payments": [],
-                    "payment_count": 0,
-                    "unprocessed_count": 0,
-                    "error": None,
-                }
 
             # Get bank transaction creator for idempotency checks (outside loop for efficiency)
             from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import (
@@ -2682,12 +2675,12 @@ class MollieDebugService(StatelessService):
                             continue
                         seen_payment_ids.add(payment.id)
 
-                        # Extract customer ID
-                        customer_id = getattr(payment, "customer_id", None)
+                        # Use centralized matcher to find member
+                        member_info = matcher.find_member_for_payment(payment)
 
-                        # Skip if payment doesn't belong to any of our members
-                        if not customer_id or customer_id not in customer_id_to_member:
-                            result["total_filtered_by_customer"] += 1
+                        # Skip if payment doesn't belong to any member
+                        if not member_info:
+                            result["total_filtered_by_member"] += 1
                             continue
 
                         # Parse payment date
@@ -2733,7 +2726,6 @@ class MollieDebugService(StatelessService):
                             # Check for matching unpaid dues invoice (for intelligent processing)
                             matching_invoice = None
                             processing_mode = None
-                            member_info = customer_id_to_member.get(customer_id)
 
                             if (
                                 payment.status == "paid"
@@ -2743,7 +2735,7 @@ class MollieDebugService(StatelessService):
                             ):
                                 try:
                                     matching_invoice = invoice_checker.check_invoice_match_for_payment(
-                                        sdk_payment=payment, member_name=member_info.name
+                                        sdk_payment=payment, member_name=member_info["name"]
                                     )
                                     processing_mode = "bt_pe_reconcile" if matching_invoice else "bt_only"
                                 except Exception as e:
@@ -2774,8 +2766,21 @@ class MollieDebugService(StatelessService):
                                 "processing_mode": processing_mode,
                             }
 
-                            # Add to member's payment list
-                            member_result = member_results[customer_id]
+                            # Get or create member result entry (keyed by member name)
+                            member_name = member_info["name"]
+                            if member_name not in member_results:
+                                member_results[member_name] = {
+                                    "member": member_name,
+                                    "full_name": member_info.get("full_name", member_name),
+                                    "customer_id": member_info.get("mollie_customer_id"),
+                                    "member_status": member_info.get("status"),
+                                    "payments": [],
+                                    "payment_count": 0,
+                                    "unprocessed_count": 0,
+                                    "error": None,
+                                }
+
+                            member_result = member_results[member_name]
                             member_result["payments"].append(payment_info)
                             member_result["payment_count"] += 1
                             result["total_payments"] += 1
@@ -2797,7 +2802,7 @@ class MollieDebugService(StatelessService):
                     break
 
             # Convert member_results dict to list
-            for customer_id, member_result in member_results.items():
+            for member_name, member_result in member_results.items():
                 if member_result["payment_count"] > 0 or member_result["error"]:
                     result["members"].append(member_result)
                     result["members_checked"] += 1

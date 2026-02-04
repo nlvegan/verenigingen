@@ -74,6 +74,9 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
     Uses the global payments.list() endpoint (regular API key) to find all payments,
     then checks which ones can be matched to members.
 
+    Uses centralized MemberPaymentMatcher for consistent matching with customer mode.
+    Counting and filtering logic is aligned with bulk_retrieve_all_member_payments.
+
     Args:
         days_back: Number of days back to check
         max_payments: Maximum payments to retrieve
@@ -82,17 +85,24 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
     Returns:
         Dict with payments grouped by member match status
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
     from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
+    from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
+        get_member_payment_matcher,
+    )
     from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
         get_bank_transaction_creator,
     )
 
     result = {
         "retrieval_mode": "global_payments",
-        "total_payments_found": 0,
+        "total_payments_found": 0,  # Raw count from Mollie API before filtering
+        "total_payments_after_filtering": 0,  # After all filters applied
+        "total_filtered_by_duplicate": 0,
+        "total_filtered_by_date": 0,
+        "total_filtered_by_status": 0,
         "total_new_payments": 0,
         "orphaned_transactions": [],
         "customers": [],  # Payments that matched to members
@@ -102,15 +112,19 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
         "started_at": frappe.utils.now(),
         "completed_at": None,
         "summary": "",
+        "early_termination": False,
     }
 
     try:
         mollie_client = MollieClient()
         dues_processor = DuesPaymentProcessor()
         bt_creator = get_bank_transaction_creator()
+        matcher = get_member_payment_matcher()
 
-        # Calculate date cutoff
-        from_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+        # Calculate date cutoff (use created_at for consistency with customer mode)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+        start_date_str = start_date.strftime("%Y-%m-%d")
 
         # Get global payments list
         client = mollie_client.sdk_client
@@ -118,6 +132,8 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
 
         all_payments = []
         total_fetched = 0
+        seen_payment_ids = set()  # Track duplicates
+        consecutive_old_payments = 0  # For early termination
 
         # Paginate through payments
         while total_fetched < max_payments:
@@ -128,35 +144,48 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
                 break
 
             for payment in batch:
-                # Check date filter
-                payment_date = getattr(payment, "paid_at", None) or getattr(payment, "created_at", None)
-                if payment_date:
-                    if isinstance(payment_date, str):
-                        payment_date = datetime.fromisoformat(payment_date.replace("Z", "+00:00"))
-                    if payment_date.tzinfo is None:
-                        payment_date = payment_date.replace(tzinfo=timezone.utc)
+                total_fetched += 1
+                result["total_payments_found"] += 1  # Count raw API results
 
-                    if payment_date < from_date:
-                        continue  # Skip payments older than cutoff
+                # Deduplicate
+                if payment.id in seen_payment_ids:
+                    result["total_filtered_by_duplicate"] += 1
+                    continue
+                seen_payment_ids.add(payment.id)
+
+                # Check date filter using created_at (consistent with customer mode)
+                if hasattr(payment, "created_at") and payment.created_at:
+                    payment_date_str = payment.created_at[:10]  # YYYY-MM-DD
+
+                    if payment_date_str < start_date_str:
+                        result["total_filtered_by_date"] += 1
+                        consecutive_old_payments += 1
+                        # Early termination after 50 consecutive old payments
+                        if consecutive_old_payments >= 50:
+                            result["early_termination"] = True
+                            break
+                        continue
+                    else:
+                        consecutive_old_payments = 0
 
                 # Apply status filter
                 if payment_status_filter and payment_status_filter != "all":
                     if payment.status != payment_status_filter:
+                        result["total_filtered_by_status"] += 1
                         continue
 
                 all_payments.append(payment)
-                total_fetched += 1
+                result["total_payments_after_filtering"] += 1
 
-                if total_fetched >= max_payments:
-                    break
+            # Check for early termination
+            if result["early_termination"]:
+                break
 
             # Check if there are more pages
             if payment_list.has_next():
                 params["from"] = batch[-1].id
             else:
                 break
-
-        result["total_payments_found"] = len(all_payments)
 
         # Check which payments are already processed (batch query for efficiency)
         payment_ids = [p.id for p in all_payments]
@@ -194,8 +223,8 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
             payment_id = payment.id
             already_processed = payment_id in existing_bts or payment_id in existing_pes
 
-            # Try to find member for this payment
-            member_name = dues_processor.find_member_for_payment(payment)
+            # Use centralized matcher for consistent member matching
+            member_info = matcher.find_member_for_payment(payment)
 
             # Extract payment details
             currency = payment.amount["currency"] if payment.amount else "Unknown"
@@ -220,16 +249,16 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
                 "payment_entry": existing_pes.get(payment_id),
             }
 
-            if member_name:
+            if member_info:
                 # Payment matches a member
+                member_name = member_info["name"]
                 if member_name not in member_payments:
-                    member_doc = frappe.db.get_value(
-                        "Member", member_name, ["name", "full_name"], as_dict=True
-                    )
                     member_payments[member_name] = {
                         "member": member_name,
                         "member_name": member_name,
-                        "full_name": member_doc.full_name if member_doc else member_name,
+                        "full_name": member_info.get("full_name", member_name),
+                        "member_status": member_info.get("status"),
+                        "customer_id": member_info.get("mollie_customer_id"),
                         "payments": [],
                     }
 
@@ -274,10 +303,18 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
         # Convert member_payments dict to list
         result["customers"] = list(member_payments.values())
 
+        # Calculate total matched to members (for parity with customer mode)
+        total_member_payments = sum(len(c.get("payments", [])) for c in result["customers"])
+        result["total_matched_to_members"] = total_member_payments
+        result["total_orphaned"] = len(result["orphaned_transactions"])
+
         result["completed_at"] = frappe.utils.now()
         result["summary"] = (
-            f"Retrieved {result['total_payments_found']} payments (last {days_back} days). "
-            f"{len(result['customers'])} members with payments, "
+            f"Retrieved {result['total_payments_found']} payments (raw), "
+            f"{result['total_payments_after_filtering']} after filtering "
+            f"(date: {result['total_filtered_by_date']}, status: {result['total_filtered_by_status']}, "
+            f"dups: {result['total_filtered_by_duplicate']}). "
+            f"{len(result['customers'])} members with {total_member_payments} payments, "
             f"{len(result['orphaned_transactions'])} orphaned ({result['processable_orphaned_count']} processable). "
             f"Total unprocessed: {result['total_new_payments']}"
         )

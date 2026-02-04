@@ -139,42 +139,30 @@ class DuesPaymentProcessor:
         """
         Find the Member record associated with a Mollie payment.
 
+        Uses the centralized MemberPaymentMatcher for consistent matching
+        across all payment processing modes. Matches by:
+        1. customer_id lookup (all members, regardless of status)
+        2. Description parsing (Assoc-Member-XXXX-XX-XXXX pattern)
+
+        Note: subscription_id is NOT used because subscriptions change over time
+        and historical payments would have outdated subscription IDs.
+
         Args:
             payment: Mollie payment object
 
         Returns:
             str: Member name if found, None otherwise
         """
-        customer_id = getattr(payment, "customer_id", None)
-        subscription_id = getattr(payment, "subscription_id", None)
-        description = getattr(payment, "description", "")
+        from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
+            get_member_payment_matcher,
+        )
 
-        # Method 1: Direct subscription_id match
-        if subscription_id:
-            member_name = frappe.db.get_value("Member", {"mollie_subscription_id": subscription_id}, "name")
-            if member_name:
-                frappe.logger().info(f"[Mollie] Found member {member_name} by subscription_id")
-                return member_name
+        matcher = get_member_payment_matcher()
+        member = matcher.find_member_for_payment(payment)
 
-        # Method 2: Customer ID match
-        if customer_id:
-            member_name = frappe.db.get_value("Member", {"mollie_customer_id": customer_id}, "name")
-            if member_name:
-                frappe.logger().info(f"[Mollie] Found member {member_name} by customer_id")
-                return member_name
-
-        # Method 3: Parse member ID from description
-        if description and isinstance(description, str):
-            # Try to extract member ID pattern (e.g., "Assoc-Member-2024-01-0001")
-            member_id_pattern = r"Assoc-Member-\d{4}-\d{2}-\d{4}"
-            match = re.search(member_id_pattern, description)
-            if match:
-                potential_member_id = match.group(0)
-                if frappe.db.exists("Member", potential_member_id):
-                    frappe.logger().info(
-                        f"[Mollie] Found member {potential_member_id} by parsing description"
-                    )
-                    return potential_member_id
+        if member:
+            frappe.logger().info(f"[Mollie] Found member {member['name']} for payment {payment.id}")
+            return member["name"]
 
         frappe.logger().warning(f"[Mollie] No member found for payment {payment.id}")
         return None

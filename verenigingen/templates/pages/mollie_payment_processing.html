@@ -483,10 +483,10 @@
                             <div>
                                 <label class="block text-sm font-medium mb-1">{{ _("Retrieval Mode") }}</label>
                                 <select id="bulk-retrieval-mode" class="w-full px-3 py-2 border-2 border-black rounded-md bg-white">
-                                    <option value="customer" selected>{{ _("Customer-based (iterate members)") }}</option>
-                                    <option value="global_payments">{{ _("Global Payments (finds orphans)") }}</option>
+                                    <option value="customer" selected>{{ _("Existing Members Only") }}</option>
+                                    <option value="global_payments">{{ _("Full Import") }}</option>
                                 </select>
-                                <p class="brutal-help">{{ _("Global mode retrieves all payments and identifies orphans") }}</p>
+                                <p class="brutal-help">{{ _("Both include all member statuses (Active, Terminated, etc.). Full Import also shows orphaned payments (donations, unmatched).") }}</p>
                             </div>
                         </div>
 
