@@ -18970,22 +18970,6 @@
   },
   {
     "doctype": "Critical Operation Rule",
-    "name": "analyze_specific_query",
-    "operation_name": "analyze_specific_query",
-    "operation_type": "reporting",
-    "description": "Execute analyze specific query operation",
-    "enabled": 1,
-    "security_level": "low",
-    "business_context": "Database analysis utility for examining specific query performance",
-    "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-    "rate_limit_calls": 180,
-    "rate_limit_period_seconds": 3600,
-    "rate_limit_scope": "per_user",
-    "audit_level": "disabled",
-    "alert_on_execution": 0
-  },
-  {
-    "doctype": "Critical Operation Rule",
     "name": "analyze_batch_anomalies",
     "operation_name": "analyze_batch_anomalies",
     "operation_type": "reporting",

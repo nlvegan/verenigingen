@@ -6,13 +6,12 @@ recommends indexes, and identifies slow query patterns.
 """
 
 import re
-import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import frappe
-from frappe.utils import get_datetime, now_datetime
+from frappe.utils import now_datetime
 
 from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import get_logger
@@ -113,7 +112,7 @@ class QueryAnalyzer:
                 if stat["table_rows"] > 10000:  # Tables with many rows
                     queries.append(
                         {
-                            "query": "SELECT * FROM `{stat['table_name']}` WHERE ...",
+                            "query": f"SELECT * FROM `{stat['table_name']}` WHERE ...",
                             "execution_time_ms": stat["table_rows"] / 10,  # Simulated
                             "rows_examined": stat["table_rows"],
                             "timestamp": now_datetime(),
@@ -244,7 +243,7 @@ class QueryAnalyzer:
                         {
                             "type": "index",
                             "priority": "high",
-                            "description": "Frequent slow query pattern ({stats['count']} occurrences) may benefit from index",
+                            "description": f"Frequent slow query pattern ({stats['count']} occurrences) may benefit from index",
                             "pattern": pattern,
                             "estimated_improvement": "50-90% reduction in query time",
                         }
@@ -310,7 +309,7 @@ class QueryAnalyzer:
                         {
                             "type": "index",
                             "priority": "high",
-                            "description": "Table {table_stat['table_name']} has {table_stat['table_rows']:,} rows but low index coverage",
+                            "description": f"Table {table_stat['table_name']} has {table_stat['table_rows']:,} rows but low index coverage",
                             "table": table_stat["table_name"],
                             "estimated_improvement": "Significant improvement for queries on this table",
                         }
@@ -322,7 +321,7 @@ class QueryAnalyzer:
                         {
                             "type": "partitioning",
                             "priority": "medium",
-                            "description": "Table {table_stat['table_name']} is {table_stat['size_mb']}MB - consider partitioning",
+                            "description": f"Table {table_stat['table_name']} is {table_stat['size_mb']}MB - consider partitioning",
                             "table": table_stat["table_name"],
                             "estimated_improvement": "Better query performance and maintenance",
                         }
@@ -398,12 +397,8 @@ class QueryAnalyzer:
         ]
 
         try:
-            # Get table list
-            table_filter = f"AND t.table_name = '{table_name}'" if table_name else ""
-
-            # Get columns that might need indexes
-            potential_columns = frappe.db.sql(
-                f"""
+            # Build parameterized query
+            query = """
                 SELECT
                     c.table_name,
                     c.column_name,
@@ -415,14 +410,18 @@ class QueryAnalyzer:
                     ON c.table_name = t.table_name
                     AND c.table_schema = t.table_schema
                 WHERE c.table_schema = DATABASE()
-                AND c.table_name LIKE 'tab%'
-                AND c.column_key = ''  -- No existing index
-                AND t.table_rows > 1000  -- Only tables with significant data
-                {table_filter}
-                ORDER BY t.table_rows DESC
-            """,
-                as_dict=True,
-            )
+                AND c.table_name LIKE 'tab%%'
+                AND c.column_key = ''
+                AND t.table_rows > 1000
+            """
+            params = []
+            if table_name:
+                query += " AND t.table_name = %s"
+                params.append(table_name)
+            query += " ORDER BY t.table_rows DESC"
+
+            # Get columns that might need indexes
+            potential_columns = frappe.db.sql(query, params, as_dict=True)
 
             # Check each column against patterns
             for col_info in potential_columns:
@@ -436,8 +435,8 @@ class QueryAnalyzer:
                                     "columns": [col_info["column_name"]],
                                     "index_type": pattern_info["type"],
                                     "reason": pattern_info["reason"],
-                                    "create_sql": "CREATE INDEX idx_{col_info['table_name']}_{col_info['column_name']} ON `{col_info['table_name']}` (`{col_info['column_name']}`)",
-                                    "impact": "Improve query performance on {col_info['table_rows']:,} rows",
+                                    "create_sql": f"CREATE INDEX idx_{col_info['table_name']}_{col_info['column_name']} ON `{col_info['table_name']}` (`{col_info['column_name']}`)",
+                                    "impact": f"Improve query performance on {col_info['table_rows']:,} rows",
                                 }
                             )
                         break
@@ -459,7 +458,7 @@ class QueryAnalyzer:
             # Check cardinality
             try:
                 cardinality = frappe.db.sql(
-                    """
+                    f"""
                     SELECT COUNT(DISTINCT `{col_info['column_name']}`) as cardinality
                     FROM `{col_info['table_name']}`
                     LIMIT 1
@@ -501,7 +500,7 @@ class QueryAnalyzer:
 
         script_lines = [
             "-- Index Creation Script for Verenigingen",
-            "-- Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"-- Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "-- IMPORTANT: Review each index before creating",
             "-- Run during maintenance window",
             "",
@@ -512,8 +511,8 @@ class QueryAnalyzer:
         for rec in recommendations:
             script_lines.extend(
                 [
-                    "-- {rec['reason']}",
-                    "-- Impact: {rec.get('estimated_impact', 'Unknown')}",
+                    f"-- {rec['reason']}",
+                    f"-- Impact: {rec.get('estimated_impact', 'Unknown')}",
                     rec["sql"] + ";",
                     "",
                 ]
@@ -522,57 +521,6 @@ class QueryAnalyzer:
         script_lines.append("SET SQL_NOTES=@OLD_SQL_NOTES;")
 
         return "\n".join(script_lines)
-
-    def analyze_query_explain_plan(self, query: str) -> Dict[str, Any]:
-        """
-        Analyze the execution plan of a specific query
-
-        Args:
-            query: SQL query to analyze
-
-        Returns:
-            Execution plan analysis
-        """
-        analysis = {"query": query, "execution_plan": [], "warnings": [], "suggestions": []}
-
-        try:
-            # Get EXPLAIN output
-            explain_result = frappe.db.sql(f"EXPLAIN {query}", as_dict=True)
-
-            for row in explain_result:
-                plan_step = {
-                    "table": row.get("table"),
-                    "type": row.get("type"),
-                    "possible_keys": row.get("possible_keys"),
-                    "key": row.get("key"),
-                    "rows": row.get("rows"),
-                    "extra": row.get("Extra", ""),
-                }
-
-                analysis["execution_plan"].append(plan_step)
-
-                # Analyze for issues
-                if row.get("type") == "ALL":
-                    analysis["warnings"].append("Full table scan on {row.get('table')}")
-                    analysis["suggestions"].append("Add index to {row.get('table')} to avoid full scan")
-
-                if row.get("key") is None and row.get("possible_keys"):
-                    analysis["warnings"].append("Index exists but not used for {row.get('table')}")
-                    analysis["suggestions"].append("Consider query restructuring or index hints")
-
-                if "Using filesort" in row.get("Extra", ""):
-                    analysis["warnings"].append("Query requires filesort")
-                    analysis["suggestions"].append("Add index on ORDER BY columns")
-
-                if "Using temporary" in row.get("Extra", ""):
-                    analysis["warnings"].append("Query uses temporary table")
-                    analysis["suggestions"].append("Optimize GROUP BY or DISTINCT operations")
-
-        except Exception as e:
-            analysis["error"] = f"Failed to analyze query: {str(e)}"
-            self.logger.error(f"Query analysis failed: {str(e)}")
-
-        return analysis
 
 
 # API functions
@@ -589,8 +537,11 @@ def analyze_database_performance(hours=24):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
-def get_index_recommendations(table_name=None):
+def get_index_recommendations(table_name: str | None = None):
     """Get index recommendations for tables"""
+
+    if table_name and not re.match(r"^tab[A-Za-z0-9_ ]+$", table_name):
+        return {"success": False, "error": "Invalid table name. Must be a Frappe table (tab*)."}
 
     analyzer = QueryAnalyzer()
     recommendations = analyzer.recommend_indexes(table_name)
@@ -612,18 +563,6 @@ def get_index_recommendations(table_name=None):
         }
 
     return {"success": True, "message": "No index recommendations found", "recommendations": []}
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
-def analyze_specific_query(query):
-    """Analyze execution plan for a specific query"""
-
-    if not query or not query.strip().upper().startswith("SELECT"):
-        return {"success": False, "error": "Please provide a valid SELECT query"}
-
-    analyzer = QueryAnalyzer()
-    return analyzer.analyze_query_explain_plan(query)
 
 
 @frappe.whitelist()
