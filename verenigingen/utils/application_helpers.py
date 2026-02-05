@@ -992,105 +992,68 @@ def get_membership_type_fee_info(membership_type):
 
 
 def get_membership_fee_info(membership_type):
-    """Get membership fee information"""
-    try:
-        membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+    """Get membership fee information.
 
-        # Get standard amount and billing frequency from template
-        standard_amount = 0
-        billing_frequency = "Annual"  # Default
-        if membership_type_doc.dues_schedule_template:
-            try:
-                template = frappe.get_doc(
-                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
-                )
-                standard_amount = template.dues_rate or template.suggested_amount or 0
-                # Get billing frequency from template (source of truth)
-                billing_frequency = template.billing_frequency or "Annual"
-            except Exception:
-                pass
-
-        # Fallback to minimum_amount if no template amount available
-        if not standard_amount:
-            standard_amount = membership_type_doc.minimum_amount
-
-        return {
-            "success": True,
-            "membership_type": membership_type,
-            "standard_amount": standard_amount,
-            "currency": _get_membership_type_currency(membership_type_doc),
-            "description": membership_type_doc.description,
-            "billing_frequency": billing_frequency,
-        }
-
-    except Exception as e:
-        return {"success": False, "error": str(e), "message": "Error retrieving membership fee information"}
+    Thin wrapper around get_membership_type_fee_info() that returns only
+    the fields needed by the fee info endpoint.
+    """
+    info = get_membership_type_fee_info(membership_type)
+    if not info.get("success"):
+        return info
+    return {
+        "success": True,
+        "membership_type": info["membership_type"],
+        "standard_amount": info["amount"],
+        "currency": info["currency"],
+        "description": info["description"],
+        "billing_frequency": info["billing_frequency"],
+    }
 
 
 def get_membership_type_details(membership_type):
-    """Get detailed membership type information"""
-    try:
-        membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+    """Get detailed membership type information.
 
-        # Get base amount and billing frequency from template
-        base_amount = 0
-        billing_frequency = "Annual"  # Default
-        if membership_type_doc.dues_schedule_template:
-            try:
-                template = frappe.get_doc(
-                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
-                )
-                base_amount = template.dues_rate or template.suggested_amount or 0
-                # Get billing frequency from template (source of truth)
-                billing_frequency = template.billing_frequency or "Annual"
-            except Exception:
-                pass
+    Thin wrapper around get_membership_type_fee_info() that adds the
+    legacy suggested_amounts format with Supporter/Patron/Benefactor tiers
+    and min/max bounds.
+    """
+    info = get_membership_type_fee_info(membership_type)
+    if not info.get("success"):
+        return info
 
-        # Fallback to minimum_amount if no template amount available
-        if not base_amount:
-            base_amount = membership_type_doc.minimum_amount
+    amount = info["amount"]
 
-        base_amount = float(base_amount)
-
-        # Calculate suggested amounts (if custom amounts allowed)
-        suggested_amounts = []
-
-        # Standard amount
-        suggested_amounts.append(
-            {"amount": base_amount, "label": "Standard", "description": "Standard membership fee"}
-        )
-
-        # Supporter amounts
-        for multiplier, label in [(1.5, "Supporter"), (2.0, "Patron"), (3.0, "Benefactor")]:
-            suggested_amounts.append(
+    # Legacy tier format: Standard/Supporter/Patron/Benefactor at 1x/1.5x/2x/3x
+    legacy_tiers = []
+    if amount > 0:
+        for multiplier, label, desc in [
+            (1.0, "Standard", "Standard membership fee"),
+            (1.5, "Supporter", f"Support our mission with {int((1.5 - 1) * 100)}% extra"),
+            (2.0, "Patron", f"Support our mission with {int((2.0 - 1) * 100)}% extra"),
+            (3.0, "Benefactor", f"Support our mission with {int((3.0 - 1) * 100)}% extra"),
+        ]:
+            legacy_tiers.append(
                 {
-                    "amount": base_amount * multiplier,
+                    "amount": amount * multiplier,
                     "label": label,
-                    "description": f"Support our mission with {int((multiplier - 1) * 100)}% extra",
+                    "description": desc,
                 }
             )
 
-        return {
-            "success": True,
-            "name": membership_type_doc.name,
-            "membership_type_name": membership_type_doc.membership_type_name,
-            "description": membership_type_doc.description,
-            "amount": base_amount,  # Use template-based amount, not minimum_amount
-            "currency": _get_membership_type_currency(membership_type_doc),
-            "billing_frequency": billing_frequency,
-            "allow_custom_amount": True,  # Enable custom amounts for all membership types
-            # minimum_amount usage here is correct - it's for validation bounds
-            "minimum_amount": membership_type_doc.minimum_amount * 0.5,  # 50% of constraint floor
-            "maximum_amount": base_amount * 5,  # 5x standard amount
-            "custom_amount_note": "You can adjust your contribution amount. Minimum is 50% of standard fee.",
-            "suggested_amounts": suggested_amounts,
-        }
-
-    except Exception as e:
-        return {"success": False, "error": str(e), "message": "Error retrieving membership type details"}
-
-
-# Legacy get_member_custom_amount_data function removed - use contribution system instead
+    return {
+        "success": True,
+        "name": info["membership_type"],
+        "membership_type_name": info["membership_type_name"],
+        "description": info["description"],
+        "amount": amount,
+        "currency": info["currency"],
+        "billing_frequency": info["billing_frequency"],
+        "allow_custom_amount": True,
+        "minimum_amount": info["minimum_amount"] * 0.5,  # 50% of constraint floor
+        "maximum_amount": info["maximum_amount"],
+        "custom_amount_note": "You can adjust your contribution amount. Minimum is 50% of standard fee.",
+        "suggested_amounts": legacy_tiers,
+    }
 
 
 def get_amount_impact_message(selected_amount, standard_amount, percentage):
@@ -1106,67 +1069,46 @@ def get_amount_impact_message(selected_amount, standard_amount, percentage):
 
 
 def suggest_membership_amounts(membership_type_name):
-    """Suggest membership amounts based on type"""
+    """Suggest membership amounts based on type.
+
+    Uses get_membership_type_fee_info() for base data, then adds strict
+    validation and formatted suggestion tiers.
+    """
     try:
-        membership_type = frappe.get_doc("Membership Type", membership_type_name)
-        if not membership_type.dues_schedule_template:
-            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-        # Validate suggested amount - allow zero if minimum_amount is also zero (free membership)
-        if template.suggested_amount is None:
-            frappe.throw(f"Dues Schedule Template '{template.name}' must have a suggested_amount configured")
+        info = get_membership_type_fee_info(membership_type_name)
+        if not info.get("success"):
+            return info
 
-        if template.suggested_amount < 0:
-            frappe.throw(
-                f"Dues Schedule Template '{template.name}' cannot have negative suggested_amount: {template.suggested_amount}"
-            )
+        if not info.get("has_template"):
+            frappe.throw(f"Membership Type '{membership_type_name}' must have a dues schedule template")
 
-        # Allow zero amounts only if the membership type minimum is also zero (free membership)
-        if template.suggested_amount == 0:
-            membership_type_minimum = getattr(membership_type, "minimum_amount", None)
-            if membership_type_minimum is None or membership_type_minimum > 0:
+        base_amount = info["amount"]
+        currency = info["currency"]
+
+        # Strict validation: suggest_membership_amounts requires a positive amount
+        if base_amount <= 0:
+            membership_type_minimum = info.get("minimum_amount", 0)
+            if membership_type_minimum > 0:
                 frappe.throw(
-                    f"Dues Schedule Template '{template.name}' has zero suggested_amount but Membership Type '{membership_type.name}' minimum_amount is {membership_type_minimum}. For free memberships, both must be zero."
+                    f"Dues Schedule Template for '{membership_type_name}' has zero suggested_amount "
+                    f"but minimum_amount is {membership_type_minimum}. For free memberships, both must be zero."
                 )
-        base_amount = float(template.suggested_amount)
-        currency = _get_membership_type_currency(membership_type)
 
-        suggestions = [
-            {
-                "amount": base_amount,
-                "label": _("Standard"),
-                "description": _("Standard membership fee"),
-                "percentage": 100,
-                "is_default": True,
-            },
-            {
-                "amount": base_amount * 1.25,
-                "label": _("Supporter"),
-                "description": _("Support our mission with 25% extra"),
-                "percentage": 125,
-            },
-            {
-                "amount": base_amount * 1.5,
-                "label": _("Advocate"),
-                "description": _("Help us grow with 50% extra"),
-                "percentage": 150,
-            },
-            {
-                "amount": base_amount * 2,
-                "label": _("Champion"),
-                "description": _("Be a champion with 100% extra"),
-                "percentage": 200,
-            },
-        ]
-
-        # Format amounts
-        for suggestion in suggestions:
-            suggestion["formatted_amount"] = frappe.utils.fmt_money(suggestion["amount"], currency=currency)
-            suggestion["impact_message"] = get_amount_impact_message(
-                suggestion["amount"], base_amount, suggestion["percentage"]
+        # Use canonical suggested_amounts and add impact messages
+        suggestions = []
+        for tier in info.get("suggested_amounts", []):
+            tier_copy = dict(tier)
+            tier_copy["impact_message"] = get_amount_impact_message(
+                tier["amount"], base_amount, tier["percentage"]
             )
+            suggestions.append(tier_copy)
 
-        return {"success": True, "base_amount": base_amount, "currency": currency, "suggestions": suggestions}
+        return {
+            "success": True,
+            "base_amount": base_amount,
+            "currency": currency,
+            "suggestions": suggestions,
+        }
 
     except Exception as e:
         return {"success": False, "error": str(e), "suggestions": []}
