@@ -902,6 +902,95 @@ def create_volunteer_record(member):
         return None
 
 
+def get_membership_type_fee_info(membership_type):
+    """Canonical source of truth for membership type fee information.
+
+    Loads the membership type and its dues schedule template, resolves the
+    base amount, currency, and billing frequency, and computes suggested
+    contribution tiers. All fee query endpoints delegate to this function.
+
+    Args:
+        membership_type: Name of the Membership Type document.
+
+    Returns:
+        dict with keys:
+            success (bool), membership_type (str), membership_type_name (str),
+            description (str), amount (float), currency (str),
+            billing_frequency (str), minimum_amount (float),
+            maximum_amount (float), suggested_amounts (list[dict]),
+            allow_custom_amount (bool), has_template (bool)
+    """
+    try:
+        membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+
+        # Resolve amount from dues schedule template
+        amount = 0
+        billing_frequency = "Annual"
+        has_template = bool(membership_type_doc.dues_schedule_template)
+
+        if has_template:
+            try:
+                template = frappe.get_doc(
+                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                )
+                amount = template.dues_rate or template.suggested_amount or 0
+                billing_frequency = template.billing_frequency or "Annual"
+            except Exception:
+                pass
+
+        # Fallback to minimum_amount if template has no amount
+        if not amount:
+            amount = membership_type_doc.minimum_amount or 0
+
+        amount = float(amount)
+        currency = _get_membership_type_currency(membership_type_doc)
+
+        # Compute suggested contribution tiers
+        suggested_amounts = []
+        if amount > 0:
+            for multiplier, label, description in [
+                (1.0, _("Standard"), _("Standard membership fee")),
+                (1.25, _("Supporter"), _("Support our mission with 25% extra")),
+                (1.5, _("Advocate"), _("Help us grow with 50% extra")),
+                (2.0, _("Champion"), _("Be a champion with 100% extra")),
+            ]:
+                tier_amount = amount * multiplier
+                suggested_amounts.append(
+                    {
+                        "amount": tier_amount,
+                        "label": label,
+                        "description": description,
+                        "percentage": int(multiplier * 100),
+                        "is_default": multiplier == 1.0,
+                        "formatted_amount": frappe.utils.fmt_money(tier_amount, currency=currency),
+                    }
+                )
+
+        return {
+            "success": True,
+            "membership_type": membership_type_doc.name,
+            "membership_type_name": getattr(
+                membership_type_doc, "membership_type_name", membership_type_doc.name
+            ),
+            "description": membership_type_doc.description,
+            "amount": amount,
+            "currency": currency,
+            "billing_frequency": billing_frequency,
+            "minimum_amount": float(membership_type_doc.minimum_amount or 0),
+            "maximum_amount": amount * 5 if amount > 0 else 0,
+            "suggested_amounts": suggested_amounts,
+            "allow_custom_amount": True,
+            "has_template": has_template,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Error retrieving membership type fee information",
+        }
+
+
 def get_membership_fee_info(membership_type):
     """Get membership fee information"""
     try:
