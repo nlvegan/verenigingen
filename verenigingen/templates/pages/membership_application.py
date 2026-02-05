@@ -58,46 +58,26 @@ def get_context(context):
 
 
 def get_dues_schedule_template_values(membership_type_name):
-    """Get billing and contribution values from dues schedule template"""
+    """Get billing and contribution values from dues schedule template.
+
+    Delegates core fee resolution to the canonical get_membership_type_fee_info()
+    and supplements with template-specific fields (invoice_days, custom amounts).
+    """
+    from verenigingen.utils.application_helpers import get_membership_type_fee_info
+
     try:
-        mt_doc = frappe.get_doc("Membership Type", membership_type_name)
+        info = get_membership_type_fee_info(membership_type_name)
+        if not info.get("success"):
+            frappe.throw(
+                f"Membership Type '{membership_type_name}' must have either a dues schedule template "
+                f"with suggested_amount/dues_rate or minimum_amount configured"
+            )
 
-        # Get template-based suggested amount, not minimum_amount
-        # Use None to distinguish "not set" from "explicitly set to 0"
-        suggested_contribution = None
-        if mt_doc.dues_schedule_template:
-            try:
-                template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
-                # Check dues_rate first, then suggested_amount (use explicit None checks to allow 0)
-                if template.dues_rate is not None:
-                    suggested_contribution = template.dues_rate
-                elif template.suggested_amount is not None:
-                    suggested_contribution = template.suggested_amount
-                else:
-                    frappe.log_error(
-                        f"Dues schedule template '{mt_doc.dues_schedule_template}' has no dues_rate or suggested_amount configured",
-                        "Membership Application Template Configuration",
-                    )
-            except Exception as e:
-                frappe.log_error(
-                    f"Error accessing dues schedule template '{mt_doc.dues_schedule_template}': {str(e)}",
-                    "Membership Application Template Access",
-                )
-
-        # Fallback to minimum_amount only if no template value available
-        if suggested_contribution is None:
-            if mt_doc.minimum_amount is not None:
-                suggested_contribution = mt_doc.minimum_amount
-            else:
-                frappe.throw(
-                    f"Membership Type '{membership_type_name}' must have either a dues schedule template with suggested_amount/dues_rate or minimum_amount configured"
-                )
-
-        # Default values
+        # Base values from canonical source
         values = {
-            "billing_frequency": "Annual",
+            "billing_frequency": info["billing_frequency"],
             "minimum_contribution": 0,
-            "suggested_contribution": suggested_contribution,
+            "suggested_contribution": info["amount"],
             "maximum_contribution": 0,
             "fee_slider_max_multiplier": 10.0,
             "allow_custom_amounts": True,
@@ -105,36 +85,17 @@ def get_dues_schedule_template_values(membership_type_name):
             "invoice_days_before": 30,
         }
 
-        # Get values from template if available
-        if mt_doc.dues_schedule_template:
+        # Supplement with template-specific fields the canonical function doesn't provide
+        if info.get("has_template"):
             try:
+                mt_doc = frappe.get_doc("Membership Type", membership_type_name)
                 template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
-                # Validate template configuration
-                billing_frequency = template.billing_frequency if template.billing_frequency else "Annual"
-                minimum_contribution = template.minimum_amount if template.minimum_amount else 0
-
-                # Check suggested contribution with explicit validation
-                template_suggested = None
-                if template.dues_rate:
-                    template_suggested = template.dues_rate
-                elif template.suggested_amount:
-                    template_suggested = template.suggested_amount
-                else:
-                    template_suggested = suggested_contribution
-
-                invoice_days = template.invoice_days_before if template.invoice_days_before else 30
-                allow_custom = (
-                    bool(template.uses_custom_amount) if hasattr(template, "uses_custom_amount") else True
+                values["minimum_contribution"] = template.minimum_amount if template.minimum_amount else 0
+                values["invoice_days_before"] = (
+                    template.invoice_days_before if template.invoice_days_before else 30
                 )
-
-                values.update(
-                    {
-                        "billing_frequency": billing_frequency,
-                        "minimum_contribution": minimum_contribution,
-                        "suggested_contribution": template_suggested,
-                        "invoice_days_before": invoice_days,
-                        "allow_custom_amounts": allow_custom,
-                    }
+                values["allow_custom_amounts"] = (
+                    bool(template.uses_custom_amount) if hasattr(template, "uses_custom_amount") else True
                 )
             except Exception:
                 pass
@@ -220,27 +181,26 @@ def get_membership_types_with_contributions():
 @frappe.whitelist()
 @public_api
 def get_membership_type_details(membership_type_name: str):
-    """Get detailed contribution options for a specific membership type"""
+    """Get detailed contribution options for a specific membership type."""
     if not membership_type_name:
         return {"error": "Membership type name is required"}
 
     try:
+        from verenigingen.utils.application_helpers import get_membership_type_fee_info
+
+        info = get_membership_type_fee_info(membership_type_name)
+        if not info.get("success"):
+            return {"error": info.get("error", "Unknown error")}
+
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
-        template_values = get_dues_schedule_template_values(membership_type_name)
-
-        # Get suggested contribution from template values or minimum amount
-        amount = template_values.get("suggested_contribution", 0)
-        if not amount:
-            amount = mt_doc.minimum_amount if mt_doc.minimum_amount else 0
-
         return {
             "success": True,
             "membership_type": {
-                "name": mt_doc.name,
-                "membership_type_name": mt_doc.membership_type_name,
-                "description": mt_doc.description,
-                "amount": amount,  # Use template-based amount or minimum_amount
-                "billing_frequency": template_values.get("billing_frequency", "Annual"),
+                "name": info["membership_type"],
+                "membership_type_name": info["membership_type_name"],
+                "description": info["description"],
+                "amount": info["amount"],
+                "billing_frequency": info["billing_frequency"],
                 "contribution_options": (
                     mt_doc.get_contribution_options() if hasattr(mt_doc, "get_contribution_options") else {}
                 ),
