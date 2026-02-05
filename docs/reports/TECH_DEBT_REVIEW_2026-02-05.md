@@ -75,22 +75,139 @@ Canonical location: `api/member/sepa_api.py`
 
 ---
 
-## 3. Permission Bypass Audit
+## 3. Permission Bypass Audit (COMPLETED)
 
-### Identified Patterns
-The following patterns were identified during the review:
+### Comprehensive Security Audit
 
-| Pattern | Count | Risk Level |
-|---------|-------|------------|
-| `ignore_permissions=True` | 782+ | Medium-High |
-| System context operations | ~50 | Low (legitimate) |
-| Webhook handlers | ~20 | Medium |
+Full security audit completed on 2026-02-05. See detailed report:
+**`docs/security/IGNORE_PERMISSIONS_AUDIT_REPORT.md`**
 
-### Recommendations
-1. Audit each `ignore_permissions=True` usage
-2. Replace with proper permission checks where possible
-3. Document legitimate system context operations
-4. Add security wrappers for webhook handlers
+### Summary by Risk Level
+
+| Category | File Count | Notes |
+|----------|------------|-------|
+| **LOW RISK** | 84 | Tests, patches, setup, fixtures |
+| **MEDIUM RISK** | 64 | Background jobs, webhooks, admin utilities |
+| **HIGH RISK** | 35 | API endpoints, services, user-facing code |
+
+### Remediation Completed (Priority 1)
+
+#### 1. Web Form Security - `periodic_donation_agreement_form.py`
+- **Issue**: Form data parameter could allow creating agreements for other donors
+- **Fixed**: Donor now always derived from authenticated user, never from form data
+- **Added**: Rate limiting (5 submissions/hour per user)
+- **Added**: Audit logging for all submissions
+- **Added**: Security justification comments for `ignore_permissions=True`
+
+#### 2. Chapter Validation API - `api/chapter_validation.py`
+- **Issue**: `ignore_permissions=True` on chapter save without permission check
+- **Fixed**: Added `chapter.check_permission("write")` before save
+- **Fixed**: Removed `ignore_permissions=True` from save operation
+
+#### 3. ING Checkout Payment API - `ing_checkout/api/payment.py`
+- **Issue**: No permission check on reference document
+- **Fixed**: Added `ref_doc.check_permission("read")` before creating payment
+- **Updated**: Security justification comments
+
+#### 4. Mollie Sync API - `mollie/api/sync.py`
+- **Issue**: 5 sync endpoints lacked role restrictions - any authenticated user could trigger
+- **Fixed**: Added `frappe.only_for()` to all sync endpoints:
+  - `sync_payment_status`: Accounts Manager, System Manager, Verenigingen Administrator
+  - `sync_subscription_status`: Accounts Manager, System Manager, Verenigingen Administrator
+  - `sync_customer_payments`: Accounts Manager, System Manager, Verenigingen Administrator
+  - `sync_member_subscriptions`: Accounts Manager, System Manager, Verenigingen Administrator
+  - `bulk_sync_recent_payments`: System Manager only (bulk operations)
+
+### Remediation Completed (Priority 2-7)
+
+#### Priority 2: Services ✅
+- `document_portal_service.py`: Authorization via `can_upload_to()` - documented
+- `member_merge_service.py`: `@critical_api` + `check_permission()` - documented
+- `department_sync_service.py`: Hook-triggered system sync - already documented
+- `field_sync_service.py`: Hook-triggered field sync - documented
+- `member_cleanup_service.py`: Cascade cleanup - already documented
+
+#### Priority 3: Payment Services ✅
+- All Mollie webhook services verified: authenticated via HMAC signature validation
+- `payment_service.py`, `webhook_service.py`, `subscription_service.py`: Security comments added
+- `payment_entry_factory.py`: Factory called from authenticated webhooks - acceptable
+
+#### Priority 5-7: System Operations ✅
+- `permissions.py`: Role assignment for board positions - documented
+- `dues_schedule_repository.py`: Audit comment insert - documented
+- `fraud_detection.py`: Security alert creation - acceptable
+
+### Remaining Work
+
+#### Short-Term (Week 2-4)
+- [x] Add CI check to flag new `ignore_permissions=True` additions ✅ **COMPLETED 2026-02-05**
+  - Created: `scripts/validation/security/permission_bypass_validator.py`
+  - GitHub Action: `.github/workflows/security-permission-check.yml`
+  - Pre-commit hook added to `.pre-commit-config.yaml`
+- [x] Standardize direct database update patterns ✅ **COMPLETED 2026-02-05**
+  - Migrated `frappe.db.set_value()` to `doc.db_set()` where appropriate
+  - Added `# Security:` comments explaining each bypass reason
+  - Removed unnecessary `frappe.db.commit()` calls
+- [ ] Consider migrating more files to `secure_document_operation()` pattern
+
+#### Long-Term (Month 2-3)
+- [ ] Periodic security audit of new code
+- [ ] Complete migration to service layer pattern
+
+### Service Layer Bypass Audit ✅ **COMPLETED 2026-02-05**
+
+Audited 47+ instances across ~30 files where code bypasses the service layer.
+
+**Root Cause Analysis** - The dual-write patterns exist for legitimate reasons:
+
+| Pattern | Reason | Valid? |
+|---------|--------|--------|
+| `db_set` in `after_insert` | In-memory changes don't persist after insert | ✅ |
+| `db_set` in validation hooks | Full `save()` causes infinite recursion | ✅ |
+| `db_set` for reference links | Avoids triggering unrelated hooks | ✅ |
+| `db_set` in bulk operations | Performance and transaction control | ✅ |
+
+**Files Standardized:**
+
+| File | Changes |
+|------|---------|
+| `member.py` | 4 locations: customer link, status update, address display |
+| `membership_dues_schedule_hooks.py` | 4 locations: cross-document sync |
+| `volunteer.py` | 1 location: member-volunteer link |
+| `membership_application_review.py` | 1 location: user-member link |
+
+**Improvements Made:**
+1. Replaced `frappe.db.set_value("Member", self.name, ...)` with `self.db_set(...)`
+2. Added `# Security:` comments explaining each bypass necessity
+3. Removed unnecessary explicit `frappe.db.commit()` calls (let transaction boundaries handle it)
+4. Documented the "dual-write anti-pattern" is actually necessary in Frappe hooks
+
+**Validator Status (Final):**
+- HIGH risk: 3 (all docstring false positives)
+- MEDIUM risk: 18 (10 false positives + 8 fix scripts)
+- LOW risk: 259 (acceptable - tests, patches)
+- Documented: 207
+
+**MEDIUM Risk Documentation Session (2026-02-05):**
+Files documented in this batch:
+- `audit_logging.py` (4 locations) - audit log creation/cleanup
+- `email_group_sync.py` (4 locations) - email group management
+- `sepa_utilities.py` - SEPA batch logging
+- `mollie/audit.py` - payment audit logging
+- `mollie_relationship_manager.py` (2 locations) - customer linking
+- `dues_schedule_repository.py` - audit comments
+- `workspace_reports_organizer.py` (4 locations) - workspace setup
+- `execute_workspace_reorg.py` - workspace hierarchy fix
+- `import_helpers.py` - error log attachments
+- `member_import_cleanup.py` (2 locations) - cleanup operations
+- `member_history_integrity.py` - audit comments
+- `create_missing_item.py` - item creation utility
+- `user_role_profile_calculator.py` - role audit logging
+- `address_matching/optimized_matcher.py` - cache DocType creation
+- `search_kostprijs.py` - test data creation
+- `find_9999_account.py` - account fix utility
+- `final_test_report.py` - test user creation
+- `e_boekhouden` utilities (3 files) - migration operations
 
 ---
 
@@ -112,10 +229,17 @@ The service layer architecture is partially implemented:
 - Direct member operations still bypass service layer in some places
 - Some DocType methods directly manipulate data instead of using services
 
-### Test Coverage Gaps
-- SEPA integration tests need expansion
-- Payment reconciliation edge cases
-- Multi-chapter membership scenarios
+### Test Coverage Gaps ✅ COMPLETED (2026-02-05)
+
+All identified test coverage gaps have been addressed:
+
+| Area | Test File | Coverage |
+|------|-----------|----------|
+| SEPA integration | `test_sepa_return_processing.py` | R-transaction codes, pain.002 parsing, business scenarios |
+| Payment reconciliation | `test_reconciliation_edge_cases.py` | Partial payments, duplicates, amount tolerance, fuzzy matching |
+| Multi-chapter membership | `test_multi_chapter_membership.py` | Primary chapter, transfers, history, financial impact |
+
+**Location:** `verenigingen/tests/backend/comprehensive/`
 
 ---
 

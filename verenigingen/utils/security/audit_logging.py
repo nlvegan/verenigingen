@@ -260,7 +260,10 @@ class SEPAAuditLogger:
                 }
             )
 
-            # Insert without triggering additional validation
+            # Security: Audit log creation requires ignore_permissions.
+            # Audit logs must be created regardless of user permissions to ensure
+            # complete audit trail. The audit service itself enforces who can
+            # trigger auditable events through the security decorator framework.
             audit_doc.insert(ignore_permissions=True)
             frappe.db.commit()
 
@@ -301,7 +304,9 @@ class SEPAAuditLogger:
                 }
             )
 
-            # Insert without triggering additional validation
+            # Security: Audit log creation requires ignore_permissions.
+            # API audit logs capture security events and must be recorded
+            # regardless of user permissions to maintain compliance trail.
             audit_doc.insert(ignore_permissions=True)
             frappe.db.commit()
 
@@ -682,6 +687,9 @@ class SEPAAuditLogger:
             deleted_count = 0
             if old_logs:
                 for log_name in old_logs:
+                    # Security: Audit log cleanup is a system maintenance operation.
+                    # Only logs past retention period are deleted. Cleanup is triggered
+                    # by scheduled job, not user action. Preserves compliance requirements.
                     frappe.delete_doc("SEPA Audit Log", log_name, ignore_permissions=True)
                     deleted_count += 1
 
@@ -705,6 +713,8 @@ class SEPAAuditLogger:
             deleted_count = 0
             if old_logs:
                 for log_name in old_logs:
+                    # Security: Same pattern as SEPA logs - scheduled cleanup of
+                    # expired audit records based on retention policy.
                     frappe.delete_doc("API Audit Log", log_name, ignore_permissions=True)
                     deleted_count += 1
 

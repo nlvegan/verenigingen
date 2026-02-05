@@ -90,6 +90,9 @@ def persist_full_error_log(
                 "is_private": 1,
             }
         )
+        # Security: Error log file attachment during import processing.
+        # Import jobs run in background without user context. Error logs
+        # are private files attached to the import document for debugging.
         file_doc.insert(ignore_permissions=True)
         frappe.db.commit()
 

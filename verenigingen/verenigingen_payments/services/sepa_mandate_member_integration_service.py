@@ -345,7 +345,7 @@ class SEPAMandateMemberIntegrationService:
                 }
             )
 
-            # Insert with ignore_permissions=True (audit logs need to bypass user perms)
+            # Security: Audit log insert - system records all SEPA operations regardless of user perms
             # Note: Removed ignore_mandatory=True - audit schema should define required fields properly
             audit_log.insert(ignore_permissions=True)
 

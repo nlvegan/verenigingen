@@ -65,6 +65,7 @@ class EBoekhoudenAccountMapping(Document):
                 samples = samples[-5:]  # Keep last 5
                 self.sample_descriptions = "\n".join(samples)
 
+        # Security: Controller method - internal usage counter update
         self.save(ignore_permissions=True)
 
 
@@ -186,6 +187,7 @@ def create_default_mappings():
         ):
             doc = frappe.new_doc("E-Boekhouden Account Mapping")
             doc.update(mapping_data)
+            # Security: Admin utility creating default mappings - internal setup function
             doc.insert(ignore_permissions=True)
             created += 1
 

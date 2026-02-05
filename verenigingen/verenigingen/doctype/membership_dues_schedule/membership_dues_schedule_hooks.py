@@ -33,8 +33,11 @@ def update_member_current_dues_schedule(doc, method=None):
             )
 
             new_current = other_active[0].name if other_active else None
+            # Security: Cross-document update in hook context.
+            # Must use db.set_value to update Member from Dues Schedule hook.
+            # Full save() would trigger Member hooks causing potential recursion.
+            # Transaction commit handled by calling code (doc_events).
             frappe.db.set_value("Member", doc.member, "current_dues_schedule", new_current)
-            # Don't commit here - let the calling transaction handle it
 
             frappe.logger().info(
                 f"Updated Member {doc.member} current_dues_schedule from {doc.name} to {new_current}"
@@ -80,8 +83,11 @@ def update_member_current_dues_schedule(doc, method=None):
 
         # Update if needed
         if should_be_current and current_data.current_dues_schedule != doc.name:
+            # Security: Cross-document update in hook context.
+            # Uses db.set_value to update Member from Dues Schedule hook.
+            # Row-level locking (FOR UPDATE) prevents race conditions.
+            # Transaction commit handled by calling code (doc_events).
             frappe.db.set_value("Member", doc.member, "current_dues_schedule", doc.name)
-            # Don't commit here - let the calling transaction handle it
 
             frappe.logger().info(f"Updated Member {doc.member} current_dues_schedule to {doc.name}")
 
@@ -163,12 +169,15 @@ def check_and_update_all_members_current_schedule(batch_size=100):
                 correct_schedule = schedules_by_member.get(member.name)
 
                 if correct_schedule and member.current_dues_schedule != correct_schedule:
-                    # Schedule exists and needs updating
+                    # Security: Bulk sync operation updating reference field.
+                    # Uses db.set_value for performance (many members) and to avoid
+                    # triggering validation hooks on each member individually.
+                    # Transaction managed by run_bulk_sync_with_transaction() wrapper.
                     frappe.db.set_value("Member", member.name, "current_dues_schedule", correct_schedule)
                     members_updated += 1
 
                 elif not correct_schedule and member.current_dues_schedule:
-                    # No active schedule but member has one set - clear it
+                    # Security: Same pattern - clearing stale reference in bulk.
                     frappe.db.set_value("Member", member.name, "current_dues_schedule", None)
                     members_updated += 1
 

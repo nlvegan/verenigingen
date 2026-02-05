@@ -89,6 +89,9 @@ def fix_9999_under_assets():
             account_doc.account_type = "Equity"
             account_doc.root_type = "Equity"
             account_doc.parent_account = equity_parent
+            # Security: Chart of accounts fix utility.
+            # Corrects misconfigured 9999 account from E-Boekhouden import.
+            # Admin-only utility for fixing accounting master data.
             account_doc.save(ignore_permissions=True)
 
             print("✅ Fixed account 9999:")

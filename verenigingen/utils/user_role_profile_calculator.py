@@ -198,7 +198,9 @@ def _create_profile_change_audit_log(
                 "status": "Success",
                 "content": change_message,
             }
-        ).insert(ignore_permissions=True)
+        ).insert(
+            ignore_permissions=True
+        )  # Security: System audit comment for role changes
 
     except Exception as e:
         # Don't fail the profile change if audit logging fails

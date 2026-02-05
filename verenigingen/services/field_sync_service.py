@@ -180,6 +180,8 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
             setattr(target_doc, target_field, source_value)
 
         # Save target document
+        # Security: Hook-triggered sync - user has permission on source document, sync maintains consistency
+        # (ignore_permissions needed as user may not have direct permission on target DocType)
         target_doc.save(ignore_permissions=True)
 
         # Log success

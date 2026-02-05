@@ -285,6 +285,7 @@ class PontoSettings(Document):
                     f"{current_currency} -> {correct_currency}"
                 )
                 gl_account.account_currency = correct_currency
+                # Security: Admin settings method - currency fix for Ponto bank sync
                 gl_account.save(ignore_permissions=True)
                 return True
 
@@ -316,6 +317,7 @@ class PontoSettings(Document):
             # Clean up any existing duplicates first (by IBAN)
             duplicates_removed = self.cleanup_duplicate_mappings()
             if duplicates_removed:
+                # Security: @high_security_api decorator - admin settings cleanup
                 self.save(ignore_permissions=True)
                 frappe.db.commit()
 

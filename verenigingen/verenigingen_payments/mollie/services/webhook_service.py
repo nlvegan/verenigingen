@@ -654,6 +654,7 @@ class WebhookService:
                     },
                 )
 
+                # SECURITY: ignore_permissions acceptable - webhook authenticated via HMAC signature
                 donation.save(ignore_permissions=True)
                 frappe.logger().info(f"✅ Added payment history for {mollie_data['payment_id']}")
 
@@ -696,6 +697,7 @@ class WebhookService:
                 for field, value in updates.items():
                     setattr(donation, field, value)
 
+                # SECURITY: ignore_permissions acceptable - webhook authenticated via HMAC signature
                 donation.save(ignore_permissions=True)
                 frappe.logger().info(f"✅ Updated donation {donation.name} with: {list(updates.keys())}")
 

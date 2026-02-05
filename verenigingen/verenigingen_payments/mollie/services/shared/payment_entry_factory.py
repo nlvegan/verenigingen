@@ -389,6 +389,7 @@ class PaymentEntryFactory:
                             f"Cleanup: {'Successful' if cleanup_success else 'Failed - manual intervention required'}"
                         ),
                     }
+                    # Security: Comment creation for audit trail during webhook processing
                 ).insert(ignore_permissions=True)
         except Exception as comment_error:
             self.logger.warning(f"Could not add comment to {context.target_name}: {comment_error}")
@@ -666,6 +667,7 @@ class PaymentEntryFactory:
                 existing_customer = frappe.db.get_value("Customer", {"custom_member": member_name}, "name")
                 if existing_customer:
                     # Link it back to the member
+                    # Security: Link existing customer during authenticated webhook - data integrity operation
                     member_doc.customer = existing_customer
                     member_doc.flags.ignore_permissions = True
                     member_doc.save()
@@ -705,10 +707,11 @@ class PaymentEntryFactory:
                     }
                 )
 
+                # Security: Customer creation during authenticated Mollie webhook - system creates customer for payment
                 customer_doc.flags.ignore_permissions = True
                 customer_doc.insert()
 
-                # Link customer back to member
+                # Security: Link customer to member during webhook - required for payment flow
                 member_doc.customer = customer_doc.name
                 member_doc.flags.ignore_permissions = True
                 member_doc.save()
@@ -737,6 +740,7 @@ class PaymentEntryFactory:
             # Check if customer already exists
             existing_customer = frappe.db.get_value("Customer", {"custom_member": member_doc.name}, "name")
             if existing_customer:
+                # Security: Link existing customer during authenticated webhook - fallback path
                 member_doc.customer = existing_customer
                 member_doc.flags.ignore_permissions = True
                 member_doc.save()
@@ -770,9 +774,11 @@ class PaymentEntryFactory:
                 }
             )
 
+            # Security: Customer creation during authenticated webhook - fallback without lock
             customer_doc.flags.ignore_permissions = True
             customer_doc.insert()
 
+            # Security: Link customer to member during webhook - fallback path
             member_doc.customer = customer_doc.name
             member_doc.flags.ignore_permissions = True
             member_doc.save()

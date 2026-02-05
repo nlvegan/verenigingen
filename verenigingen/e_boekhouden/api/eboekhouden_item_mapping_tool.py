@@ -136,6 +136,7 @@ def create_mapping(company, account_code, account_name, item_code, transaction_t
                 item.stock_uom = "Nos"
                 item.is_stock_item = 0
                 item.description = f"Created for E-boekhouden account {account_code} - {account_name}"
+                # Security: Item creation protected by @high_security_api decorator
                 item.insert(ignore_permissions=True)
 
             item_code = item_name
@@ -148,6 +149,7 @@ def create_mapping(company, account_code, account_name, item_code, transaction_t
         mapping.item_code = item_code
         mapping.transaction_type = transaction_type
         mapping.is_active = 1
+        # Security: Mapping creation protected by @high_security_api decorator
         mapping.insert(ignore_permissions=True)
 
         frappe.db.commit()

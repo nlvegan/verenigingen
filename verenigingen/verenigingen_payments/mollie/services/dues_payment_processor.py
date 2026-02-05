@@ -214,6 +214,7 @@ class DuesPaymentProcessor:
             # Save IBAN to Member if not already set
             if not member.iban:
                 member.iban = clean_iban
+                # Security: IBAN update from authenticated Mollie webhook - bank data from verified payment
                 member.save(ignore_permissions=True)
                 frappe.logger().info(
                     f"[Mollie] Saved IBAN {clean_iban} to Member {member_name} from Mollie payment"

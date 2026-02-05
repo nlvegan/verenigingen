@@ -75,6 +75,8 @@ def create_missing_item():
                 )
                 print(f"Added defaults - Income: {income_account}, Expense: {expense_account}")
 
+        # Security: Item creation utility for setting up missing master data.
+        # Called by administrators during system setup or migration.
         item.save(ignore_permissions=True)
         print(f"Successfully created item: {item_code}")
 

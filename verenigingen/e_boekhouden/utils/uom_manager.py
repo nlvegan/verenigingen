@@ -173,6 +173,7 @@ class UOMManager:
                 if uom_name in symbols:
                     uom.symbol = symbols[uom_name]
 
+                # Security: UOM setup during eBoekhouden import - system configuration
                 uom.insert(ignore_permissions=True)
                 frappe.db.commit()
 
@@ -223,6 +224,8 @@ class UOMManager:
             uom.uom_name = clean_name
             uom.enabled = 1
             uom.custom_eboekhouden_uom = 1  # Mark as E-Boekhouden import
+            # Security: UOM creation during E-Boekhouden data migration.
+            # Creates master data (Units of Measure) from external accounting system.
             uom.insert(ignore_permissions=True)
 
             frappe.db.commit()
@@ -268,6 +271,7 @@ class UOMManager:
                 conversion.from_uom = from_uom
                 conversion.to_uom = to_uom
                 conversion.value = conversion_factor
+                # Security: UOM conversion setup during eBoekhouden import - system configuration
                 conversion.insert(ignore_permissions=True)
                 frappe.db.commit()
 

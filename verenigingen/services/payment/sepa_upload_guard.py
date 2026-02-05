@@ -294,6 +294,7 @@ class SEPAUploadGuard(StatelessService):
                     "file_size": len(file_content),
                 }
             )
+            # Security: Audit log entry for SEPA upload - system tracks all uploads with user context
             log_entry.insert(ignore_permissions=True)
             frappe.db.commit()
 
@@ -393,6 +394,7 @@ class SEPAUploadGuard(StatelessService):
                     "file_size": len(file_content),
                 }
             )
+            # Security: Audit log entry for SEPA upload - atomic operation with transaction isolation
             log_entry.insert(ignore_permissions=True)
             frappe.db.commit()
 

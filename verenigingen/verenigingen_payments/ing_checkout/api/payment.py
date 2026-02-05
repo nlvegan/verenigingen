@@ -88,6 +88,11 @@ def create_ideal_payment(
         if not frappe.db.exists(reference_doctype, reference_name):
             frappe.throw(_("Reference document not found: {0} {1}").format(reference_doctype, reference_name))
 
+        # SECURITY: Verify user has permission to access reference document
+        # This prevents users from creating payments for documents they cannot access
+        ref_doc = frappe.get_doc(reference_doctype, reference_name)
+        ref_doc.check_permission("read")
+
         # Get settings
         from verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings import (
             get_ing_checkout_settings,
@@ -167,8 +172,11 @@ def create_ideal_payment(
         transaction.return_url = return_url
         transaction.raw_request = frappe.as_json(order_data)
         transaction.raw_response = frappe.as_json(response)
-        # SECURITY JUSTIFICATION: API endpoint creates transaction for tracking.
-        # User has already been authenticated by Frappe for whitelisted methods.
+        # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here because:
+        # 1. User is authenticated (whitelisted method without allow_guest)
+        # 2. Permission validated on reference document (ref_doc.check_permission above)
+        # 3. Transaction is a tracking record for user's own payment request
+        # 4. @standard_api decorator provides audit logging
         transaction.save(ignore_permissions=True)
 
         frappe.logger().info(

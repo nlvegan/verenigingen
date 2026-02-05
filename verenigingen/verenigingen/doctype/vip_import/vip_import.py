@@ -292,8 +292,7 @@ def _create_member(row: Dict) -> Document:
     # Skip volunteer auto-creation during bulk import
     member.flags.bulk_member_operations = True
 
-    # Bulk import operation - permissions validated at API level via @critical_api decorator
-    # User must have VIP Import create/submit permission to reach this code path
+    # Security: Bulk import - @critical_api decorator + VIP Import create/submit permission required
     member.insert(ignore_permissions=True)
     return member
 
@@ -362,6 +361,7 @@ def _create_volunteer(row: Dict, member: Document, import_batch_name: Optional[s
         if row.get("vip_user_id") and not existing_volunteer.vip_user_id:
             existing_volunteer.vip_user_id = str(row["vip_user_id"])
             existing_volunteer.flags.bulk_member_operations = True
+            # Security: Bulk import - @critical_api decorator + VIP Import create/submit permission required
             existing_volunteer.save(ignore_permissions=True)
         return existing_volunteer
 
@@ -413,8 +413,7 @@ def _create_volunteer(row: Dict, member: Document, import_batch_name: Optional[s
     volunteer.flags.bulk_member_operations = True
     volunteer.flags.skip_volunteer_account_creation = True
 
-    # Bulk import operation - permissions validated at API level via @critical_api decorator
-    # User must have VIP Import create/submit permission to reach this code path
+    # Security: Bulk import - @critical_api decorator + VIP Import create/submit permission required
     volunteer.insert(ignore_permissions=True)
 
     # Update member's volunteer_record link (safe - we hold the lock on member row)
@@ -493,8 +492,7 @@ def _update_volunteer(
     if changed:
         volunteer.flags.bulk_member_operations = True
         volunteer.flags.skip_volunteer_account_creation = True
-        # Bulk import operation - permissions validated at API level via @critical_api decorator
-        # User must have VIP Import create/submit permission to reach this code path
+        # Security: Bulk import - @critical_api decorator + VIP Import create/submit permission required
         volunteer.save(ignore_permissions=True)
 
     # Update member's volunteer_record link with race condition protection

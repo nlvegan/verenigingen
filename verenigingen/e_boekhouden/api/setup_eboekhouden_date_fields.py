@@ -10,7 +10,11 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def setup_date_range_fields():
-    """Add custom fields to E-Boekhouden Settings to store date range"""
+    """
+    Add custom fields to E-Boekhouden Settings to store date range.
+
+    Security: All Custom Field inserts protected by @high_security_api decorator.
+    """
 
     fields_added = []
 
@@ -27,6 +31,7 @@ def setup_date_range_fields():
                 "insert_after": "default_fiscal_year",
                 "description": "Earliest transaction date in E-Boekhouden (auto-detected)",
             }
+            # Security: Setup function protected by @high_security_api
         ).insert(ignore_permissions=True)
         fields_added.append("data_earliest_date")
 
@@ -43,6 +48,7 @@ def setup_date_range_fields():
                 "insert_after": "data_earliest_date",
                 "description": "Latest transaction date in E-Boekhouden (auto-detected)",
             }
+            # Security: Setup function protected by @high_security_api
         ).insert(ignore_permissions=True)
         fields_added.append("data_latest_date")
 
@@ -59,6 +65,7 @@ def setup_date_range_fields():
                 "insert_after": "data_latest_date",
                 "description": "When the date range was last analyzed",
             }
+            # Security: Setup function protected by @high_security_api
         ).insert(ignore_permissions=True)
         fields_added.append("date_range_last_updated")
 
@@ -73,6 +80,7 @@ def setup_date_range_fields():
                 "label": "E-Boekhouden Data Information",
                 "insert_after": "default_cost_center",
             }
+            # Security: Setup function protected by @high_security_api
         ).insert(ignore_permissions=True)
         fields_added.append("data_info_section")
 

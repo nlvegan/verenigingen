@@ -69,6 +69,7 @@ def analyze_member_doctype_performance():
             timing_data["after_insert_time"] = time.time() - after_insert_start
 
             # Clean up (cascade delete Customer record first)
+            # Security: Test cleanup in admin-only API protected by @standard_api + frappe.only_for()
             try:
                 if hasattr(member_doc, "customer") and member_doc.customer:
                     frappe.delete_doc("Customer", member_doc.customer, ignore_permissions=True)

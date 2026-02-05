@@ -44,6 +44,7 @@ class PontoSyncLog(Document):
         """Mark sync as started."""
         self.status = "In Progress"
         self.start_time = now_datetime()
+        # Security: Sync log updating its own status - system audit record
         self.save(ignore_permissions=True)
 
     def complete_sync(
@@ -77,6 +78,7 @@ class PontoSyncLog(Document):
         if bank_transactions:
             self.bank_transactions = json.dumps(bank_transactions)
 
+        # Security: Sync log updating its own completion status - system audit record
         self.save(ignore_permissions=True)
 
     def fail_sync(self, error_message: str, error_details: Optional[Dict] = None):
@@ -94,6 +96,7 @@ class PontoSyncLog(Document):
         if error_details:
             self.error_details = json.dumps(error_details, indent=2)
 
+        # Security: Sync log updating its own failure status - system audit record
         self.save(ignore_permissions=True)
 
     def _build_error_summary(self, errors: List[Dict]) -> str:
@@ -153,6 +156,7 @@ def create_sync_log(
     log.account_id = account_id
     log.ponto_sync_id = ponto_sync_id
     log.status = "Pending"
+    # Security: System audit log creation - must record sync operations regardless of user permissions
     log.insert(ignore_permissions=True)
     return log
 

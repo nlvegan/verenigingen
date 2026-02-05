@@ -163,9 +163,12 @@ def update_publication_status(chapter_name, published) -> OperationResult[Dict[s
                 message=_("Chapter should have an introduction before publishing"),
             )
 
+        # SECURITY: Verify user has write permission on chapter before updating
+        chapter.check_permission("write")
+
         # Update publication status
         chapter.published = int(published)
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # Removed ignore_permissions - permission checked above
 
         status_text = _("published") if published else _("unpublished")
 

@@ -64,6 +64,8 @@ class MollieRelationshipManager:
         """Link Mollie customer to member record."""
         member = frappe.get_doc("Member", member_name)
         member.mollie_customer_id = customer_id
+        # Security: Linking Mollie customer ID is triggered by webhook (HMAC authenticated)
+        # or during payment flow initialization. No user context in webhook processing.
         member.save(ignore_permissions=True)
 
         # Update cache
@@ -73,6 +75,7 @@ class MollieRelationshipManager:
         """Link Mollie customer to donor record."""
         donor = frappe.get_doc("Donor", donor_name)
         donor.mollie_customer_id = customer_id
+        # Security: Same pattern - Mollie customer linking from authenticated webhook.
         donor.save(ignore_permissions=True)
 
         # Update cache

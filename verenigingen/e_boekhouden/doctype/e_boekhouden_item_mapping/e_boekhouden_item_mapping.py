@@ -150,6 +150,7 @@ def create_default_mappings(company):
                 item.item_group = "Services" if account.root_type in ["Income", "Expense"] else "Products"
                 item.stock_uom = "Nos"
                 item.is_stock_item = 0
+                # Security: @critical_api decorator - admin migration utility creating items
                 item.insert(ignore_permissions=True)
 
             # Create mapping
@@ -166,6 +167,7 @@ def create_default_mappings(company):
                 else "Both"
             )
             mapping.is_active = 1
+            # Security: @critical_api decorator - admin migration utility creating mappings
             mapping.insert(ignore_permissions=True)
             created_count += 1
 

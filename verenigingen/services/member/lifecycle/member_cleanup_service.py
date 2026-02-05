@@ -298,6 +298,7 @@ class MemberCleanupService(StatelessService):
                 member_name=member_doc.name,
                 justification="System operation during member deletion - clearing custom_member link",
             )
+            # Security: System cascade cleanup - audited via _log_permission_bypass_audit above
             customer.save(ignore_permissions=True)
             return
 
@@ -322,6 +323,7 @@ class MemberCleanupService(StatelessService):
                 member_name=member_doc.name,
                 justification="System operation during member deletion - removing Dynamic Link entries",
             )
+            # Security: System cascade cleanup - audited via _log_permission_bypass_audit above
             customer.save(ignore_permissions=True)
 
     def _unlink_member_from_address(self, member_doc: "Document", address_name: str) -> None:
@@ -367,6 +369,7 @@ class MemberCleanupService(StatelessService):
                 member_name=member_doc.name,
                 justification="System operation during member deletion - removing Address link entries",
             )
+            # Security: System cascade cleanup - audited via _log_permission_bypass_audit above
             address.save(ignore_permissions=True)
 
 

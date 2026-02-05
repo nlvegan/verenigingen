@@ -516,6 +516,7 @@ def find_or_create_group_account(
                 "disabled": 0,
             }
         )
+        # Security: Account hierarchy setup - protected by @critical_api at entry points
         group_account.insert(ignore_permissions=True)
 
         created_groups[cache_key] = group_account.name

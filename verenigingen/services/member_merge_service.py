@@ -381,7 +381,20 @@ class MemberMergeService(StatelessService):
         4. Member itself
 
         Note: Does NOT delete User, Employee, Volunteer, Contact records
+
+        Security:
+            - Permission verified before calling this method (source.check_permission("write"))
+            - @critical_api decorator on public API ensures audit logging
+            - Child record deletes use ignore_permissions=True for cascade cleanup
+            - Final member delete uses ignore_permissions=False to re-verify
         """
+        # SECURITY JUSTIFICATION: ignore_permissions=True on child record deletes because:
+        # 1. Write permission on source member already verified (line 308)
+        # 2. @critical_api decorator provides audit logging
+        # 3. These are child/linked records of the source member being deleted
+        # 4. User may not have direct Dues Schedule/Membership permissions
+        # 5. Final Member delete at line 419 uses ignore_permissions=False for re-verification
+
         # Delete Membership Dues Schedules first
         dues_repo = DuesScheduleRepository()
         dues_schedules = dues_repo.get_schedules_for_members([source.name], fields=["name"])
@@ -410,6 +423,7 @@ class MemberMergeService(StatelessService):
                         f"Cannot delete Customer {source.customer} - has invoices. Keeping Customer."
                     )
                 else:
+                    # Security: See justification at line 391 - cascade delete with verified permissions
                     frappe.delete_doc("Customer", source.customer, force=True, ignore_permissions=True)
             except Exception as e:
                 self.logger.error(f"Failed to delete Customer {source.customer}: {str(e)}")
@@ -442,6 +456,8 @@ class MemberMergeService(StatelessService):
                         },
                     )
 
+            # SECURITY: ignore_permissions acceptable - permission verified on both
+            # members at start of merge, and contact belongs to target member
             contact.save(ignore_permissions=True)
 
         except Exception as e:

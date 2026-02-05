@@ -140,6 +140,7 @@ def get_payments_settings() -> Optional[Any]:
                 "doctype": "Verenigingen Payments Settings",
             }
         )
+        # Security: System auto-creates singleton settings on first access - essential for operation
         settings_doc.insert(ignore_permissions=True)
         frappe.db.commit()
 

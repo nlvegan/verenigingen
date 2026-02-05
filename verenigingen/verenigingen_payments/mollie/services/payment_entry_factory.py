@@ -245,10 +245,11 @@ class _LegacyPaymentEntryFactory:
                 }
             )
 
+            # Security: Customer creation during authenticated Mollie webhook - system creates customer for payment processing
             customer_doc.flags.ignore_permissions = True
             customer_doc.insert()
 
-            # Link customer back to member
+            # Security: Link customer to member during webhook - required for payment flow integrity
             member_doc.customer = customer_doc.name
             member_doc.flags.ignore_permissions = True
             member_doc.save()

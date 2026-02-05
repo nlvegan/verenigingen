@@ -613,8 +613,7 @@ def auto_create_ledger_mapping(ledger_id, transaction_type, company, debug_info)
                 account_doc.account_type = account_type
                 account_doc.parent_account = parent_account
                 account_doc.eboekhouden_grootboek_nummer = ledger_code
-                # Note: Using ignore_permissions for automated ledger mapping creation
-                # This is needed because eBoekhouden API integration runs in system context
+                # Security: Automated ledger mapping during eBoekhouden API sync - system context
                 # Audit: All creations are logged in debug_info and E-Boekhouden Ledger Mapping records
                 account_doc.insert(ignore_permissions=True)
                 account_name = account_doc.name
@@ -715,8 +714,7 @@ def auto_create_ledger_mapping(ledger_id, transaction_type, company, debug_info)
             mapping.ledger_code = ledger_code
             mapping.ledger_name = ledger_name
             mapping.erpnext_account = account_name
-            # Note: Using ignore_permissions for automated ledger mapping creation
-            # This is needed because eBoekhouden API integration runs in system context
+            # Security: Automated ledger mapping during eBoekhouden API sync - system context
             # Audit: Ledger mapping records serve as audit trail for auto-created accounts
             mapping.insert(ignore_permissions=True)
 

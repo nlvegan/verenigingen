@@ -117,6 +117,7 @@ def clean_duplicate_assignments(volunteer_id, dry_run=True):
             volunteer.append("assignment_history", assignment.as_dict())
 
         # Save without triggering assignment history updates
+        # Security: Admin CLI utility (bench execute) - requires direct server access
         volunteer._updating_assignment_history = True
         try:
             volunteer.save(ignore_permissions=True)

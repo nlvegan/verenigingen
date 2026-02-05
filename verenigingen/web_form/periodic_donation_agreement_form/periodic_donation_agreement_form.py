@@ -1,6 +1,12 @@
 """
 Periodic Donation Agreement Web Form Handler
 Handles the creation of periodic donation agreements through web forms
+
+Security Features:
+- Authentication required (guest access blocked)
+- Rate limiting to prevent abuse (5 submissions per hour per user)
+- Donor derived from authenticated user, not form data
+- Audit logging of all form submissions
 """
 
 import frappe
@@ -8,6 +14,47 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from verenigingen.services.communication.email_service import get_email_service
+
+# Rate limiting configuration
+RATE_LIMIT_SUBMISSIONS_PER_HOUR = 5
+RATE_LIMIT_CACHE_PREFIX = "agreement_form_rate_limit"
+
+
+def check_rate_limit():
+    """Check if user has exceeded rate limit for agreement submissions.
+
+    Returns:
+        bool: True if within limit, raises exception if exceeded
+    """
+    if frappe.session.user == "Guest":
+        return True  # Guest check happens elsewhere
+
+    cache_key = f"{RATE_LIMIT_CACHE_PREFIX}:{frappe.session.user}"
+    current_count = frappe.cache().get(cache_key) or 0
+
+    if current_count >= RATE_LIMIT_SUBMISSIONS_PER_HOUR:
+        frappe.log_error(
+            f"Rate limit exceeded for user {frappe.session.user} on agreement form",
+            "Agreement Form Rate Limit",
+        )
+        frappe.throw(
+            _("You have submitted too many agreements recently. Please try again later."),
+            frappe.RateLimitExceededError,
+        )
+
+    return True
+
+
+def increment_rate_limit():
+    """Increment rate limit counter after successful submission."""
+    if frappe.session.user == "Guest":
+        return
+
+    cache_key = f"{RATE_LIMIT_CACHE_PREFIX}:{frappe.session.user}"
+    current_count = frappe.cache().get(cache_key) or 0
+
+    # Set count with 1 hour expiry
+    frappe.cache().set(cache_key, current_count + 1, expires_in_sec=3600)
 
 
 def get_context(context):
@@ -48,6 +95,10 @@ def get_or_create_donor_for_user():
     donor_doc.donor_name = user.full_name or user.email
     donor_doc.donor_email = user.email
     donor_doc.donor_type = "Individual"
+    # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here because:
+    # 1. User is authenticated (Guest blocked at get_context)
+    # 2. Donor is linked to authenticated user's email (line 49)
+    # 3. Users cannot create donors for others (email derived from session)
     donor_doc.insert(ignore_permissions=True)
 
     return {
@@ -84,18 +135,29 @@ def validate_bsn(bsn):
 
 @frappe.whitelist()
 def process_agreement_form(data):
-    """Process the periodic donation agreement form submission"""
+    """Process the periodic donation agreement form submission
+
+    Security: This endpoint is authenticated-only (no allow_guest).
+    The donor is always resolved from the logged-in user, never from
+    untrusted form data, to prevent users creating agreements for others.
+    Rate limited to prevent abuse.
+    """
     try:
+        # SECURITY: Check rate limit before processing
+        check_rate_limit()
+
         # Parse data
         form_data = frappe.parse_json(data) if isinstance(data, str) else data
 
         # Validate required fields
         validate_agreement_form_data(form_data)
 
-        # Get donor
-        donor = form_data.get("donor")
-        if not donor:
-            donor = get_or_create_donor_for_user()["name"]
+        # SECURITY: Always derive donor from authenticated user, never from form data
+        # This prevents authenticated users from creating agreements for other donors
+        user_donor = get_or_create_donor_for_user()
+        if not user_donor:
+            frappe.throw(_("Unable to find or create your donor profile"))
+        donor = user_donor["name"]
 
         # Update donor with BSN if provided and consented
         if form_data.get("bsn_for_agreement") and form_data.get("bsn_consent"):
@@ -117,6 +179,15 @@ def process_agreement_form(data):
 
         # Send confirmation
         send_agreement_submission_confirmation(agreement)
+
+        # SECURITY: Increment rate limit counter after successful submission
+        increment_rate_limit()
+
+        # Audit log for compliance
+        frappe.log_error(
+            f"Agreement form submitted: {agreement.name} by user {frappe.session.user}",
+            "Agreement Form Audit",
+        )
 
         return {
             "success": True,
@@ -200,6 +271,11 @@ def create_sepa_mandate_for_agreement(donor, iban, account_holder):
 
         mandate.bic = derive_bic_from_iban(iban)
 
+    # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here because:
+    # 1. User is authenticated (enforced by @frappe.whitelist without allow_guest)
+    # 2. Donor ownership verified (derived from authenticated user in process_agreement_form)
+    # 3. SEPA mandate is linked to user's own donor record
+    # 4. Rate limiting prevents abuse
     mandate.insert(ignore_permissions=True)
 
     return mandate.name
@@ -240,6 +316,7 @@ def create_agreement_from_form(donor, form_data, sepa_mandate=None):
     agreement.donor_signature_received = 0  # Not yet, just submitted
     agreement.agreement_date = frappe.utils.today()
 
+    # Security: Authenticated user creating agreement for own donor record - rate limited, Draft status
     agreement.insert(ignore_permissions=True)
 
     return agreement

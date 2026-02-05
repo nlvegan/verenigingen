@@ -472,6 +472,7 @@ class DDSecurityAuditLogger:
                 log_details["data"] = details
 
             log_entry.details = frappe.as_json(log_details)
+            # Security: System audit log - must record all DD operations regardless of user permissions
             log_entry.insert(ignore_permissions=True)
 
         except Exception as e:
@@ -523,6 +524,7 @@ class DDSecurityAuditLogger:
                 log_details["data"] = details
 
             event.details = frappe.as_json(log_details)
+            # Security: Security event logging - must record all events regardless of user permissions
             event.insert(ignore_permissions=True)
 
         except Exception as e:
@@ -569,6 +571,7 @@ class DDConflictResolutionManager:
                 }
             )
 
+            # Security: Conflict report logging - must record for security audit regardless of user perms
             log_entry.insert(ignore_permissions=True)
 
             frappe.logger("dd_security").info(

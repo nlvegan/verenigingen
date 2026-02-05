@@ -1419,6 +1419,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                                                 bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
                                                 if bt_doc.docstatus == 1:
                                                     bt_doc.cancel()
+                                                # Security: Migration overwrite - protected by @critical_api + admin role checks
                                                 frappe.delete_doc(
                                                     "Bank Transaction",
                                                     bt_ref.parent,
@@ -1457,6 +1458,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                                         bt_doc = frappe.get_doc("Bank Transaction", bt_ref.parent)
                                         if bt_doc.docstatus == 1:
                                             bt_doc.cancel()
+                                        # Security: Migration overwrite - protected by @critical_api + admin role checks
                                         frappe.delete_doc(
                                             "Bank Transaction",
                                             bt_ref.parent,
@@ -1477,6 +1479,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                             frappe.logger().info(f"Cancelled {doctype} {docname} before deletion")
 
                         # Delete the document
+                        # Security: Migration overwrite - protected by @critical_api + admin role checks
                         frappe.delete_doc(doctype, docname, force=True, ignore_permissions=True)
                         frappe.logger().info(
                             f"Deleted {doctype} {docname} for mutation {mutation_id} overwrite"

@@ -61,6 +61,7 @@ def fix_workspace_content(workspace_name, dry_run=True, force_enable=False):
         backup_content = workspace.content
 
         try:
+            # Security: Admin CLI utility with safety guard (force_enable=True required)
             workspace.content = json.dumps(fixed_content)
             workspace.flags.ignore_permissions = True
             workspace.flags.ignore_links = True
@@ -75,7 +76,8 @@ def fix_workspace_content(workspace_name, dry_run=True, force_enable=False):
 
         except Exception as e:
             print(f"❌ Error updating workspace: {str(e)}")
-            # Restore original content
+            # Restore original content (error recovery)
+            # Security: Rollback on error - same admin context as main operation
             workspace.content = backup_content
             workspace.save(ignore_permissions=True)
             frappe.db.commit()
@@ -128,6 +130,7 @@ def restore_content_backup(backup_file, dry_run=True):
         print(f"   Items count: {backup_data['items_count']}")
 
         if not dry_run:
+            # Security: Admin CLI utility for restore - explicit user action required
             workspace = frappe.get_doc("Workspace", workspace_name)
             workspace.content = content
             workspace.flags.ignore_permissions = True
@@ -174,6 +177,7 @@ def update_content_card_names(workspace_name, card_mapping, dry_run=True):
 
             updated_count += 1
 
+    # Security: Admin CLI utility - explicit user action required (bench execute)
     if updated_count > 0 and not dry_run:
         workspace.content = json.dumps(content)
         workspace.flags.ignore_permissions = True

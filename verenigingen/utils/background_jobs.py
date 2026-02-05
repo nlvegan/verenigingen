@@ -479,6 +479,7 @@ def refresh_member_financial_history_optimized(member_doc, payment_entry: str = 
         result = load_payment_history_batch_optimized(member_doc)
 
         # Save with optimized flags
+        # Security: Background job for payment history sync - system operation
         member_doc.flags.ignore_version = True
         member_doc.flags.ignore_links = True
         member_doc.flags.ignore_validate_update_after_submit = True

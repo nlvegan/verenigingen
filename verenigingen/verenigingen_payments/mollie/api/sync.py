@@ -31,7 +31,14 @@ def sync_payment_status(payment_id: str) -> Dict[str, Any]:
 
     Returns:
         Sync result with updated payment information
+
+    Security:
+        Restricted to Accounts Manager, System Manager, and Verenigingen Administrator
+        to prevent unauthorized financial sync operations.
     """
+    # SECURITY: Restrict financial sync operations to authorized roles
+    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+
     try:
         if not payment_id:
             raise MollieIntegrationError("Payment ID is required")
@@ -65,6 +72,9 @@ def sync_subscription_status(customer_id: str, subscription_id: str) -> Dict[str
     """
     Synchronize subscription status with Mollie.
 
+    Security:
+        Restricted to Accounts Manager, System Manager, and Verenigingen Administrator.
+
     Args:
         customer_id: Mollie customer ID
         subscription_id: Mollie subscription ID
@@ -72,6 +82,9 @@ def sync_subscription_status(customer_id: str, subscription_id: str) -> Dict[str
     Returns:
         Sync result with updated subscription information
     """
+    # SECURITY: Restrict financial sync operations to authorized roles
+    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+
     try:
         if not customer_id or not subscription_id:
             raise MollieIntegrationError("Customer ID and Subscription ID are required")
@@ -112,7 +125,13 @@ def sync_customer_payments(customer_id: str, limit: int = 50) -> Dict[str, Any]:
 
     Returns:
         Sync result with payment information
+
+    Security:
+        Restricted to Accounts Manager, System Manager, and Verenigingen Administrator.
     """
+    # SECURITY: Restrict financial sync operations to authorized roles
+    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+
     try:
         if not customer_id:
             raise MollieIntegrationError("Customer ID is required")
@@ -182,7 +201,13 @@ def sync_member_subscriptions(member_id: str) -> Dict[str, Any]:
 
     Returns:
         Sync result with subscription information
+
+    Security:
+        Restricted to Accounts Manager, System Manager, and Verenigingen Administrator.
     """
+    # SECURITY: Restrict financial sync operations to authorized roles
+    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+
     try:
         if not member_id:
             raise MollieIntegrationError("Member ID is required")
@@ -250,7 +275,13 @@ def bulk_sync_recent_payments(hours: int = 24) -> Dict[str, Any]:
 
     Returns:
         Bulk sync results
+
+    Security:
+        Restricted to System Manager only due to bulk operation scope.
     """
+    # SECURITY: Restrict bulk operations to system administrators only
+    frappe.only_for(["System Manager"])
+
     try:
         # Security check - limit bulk operations to reasonable timeframes
         if hours > 168:  # 1 week
@@ -352,6 +383,7 @@ def _update_local_subscription_records(subscription_status: Dict[str, Any]) -> D
                 member = frappe.get_doc("Member", member_record.name)
                 member.subscription_status = subscription_status["status"]
                 member.next_payment_date = subscription_status.get("next_payment_date")
+                # Security: Admin sync endpoint protected by frappe.only_for() role check - updates Mollie-sourced subscription data
                 member.save(ignore_permissions=True)
                 updates["updated_records"] += 1
 
@@ -377,6 +409,7 @@ def _update_member_subscription_status(member, subscription_status: Dict[str, An
         if old_status != new_status:
             _handle_subscription_status_change(member, old_status, new_status, subscription_status)
 
+        # Security: Called from admin sync endpoints protected by role-based access - updates authoritative Mollie data
         member.save(ignore_permissions=True)
 
         return {

@@ -31,6 +31,7 @@ def log_auth_error(error_type, details, user=None):
             f"Authentication Monitor: {error_type}\n{details}\nUser: {repr(user)}\nTime: {datetime.now()}"
         )
         error_log.method = "auth_monitoring"
+        # Security: System monitoring - must log auth errors regardless of user permissions
         error_log.save(ignore_permissions=True)
 
     except Exception as e:

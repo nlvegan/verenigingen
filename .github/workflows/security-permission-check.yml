@@ -1,0 +1,161 @@
+name: Security Permission Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'verenigingen/**/*.py'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'verenigingen/**/*.py'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  permission-bypass-check:
+    name: Check Permission Bypasses
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for baseline comparison
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Get Changed Files
+        id: changed-files
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # For PRs, compare against base branch
+            git diff --name-only origin/${{ github.base_ref }}...HEAD -- '*.py' > changed_files.txt
+          else
+            # For pushes, compare against previous commit
+            git diff --name-only HEAD~1 -- '*.py' > changed_files.txt || echo "" > changed_files.txt
+          fi
+
+          echo "Changed Python files:"
+          cat changed_files.txt
+
+          # Count files
+          FILE_COUNT=$(wc -l < changed_files.txt | tr -d ' ')
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Run Permission Bypass Validator
+        id: validator
+        if: steps.changed-files.outputs.file_count != '0'
+        run: |
+          echo "🔍 Running permission bypass validation..."
+
+          # Run validator on changed files
+          python scripts/validation/security/permission_bypass_validator.py \
+            --verbose \
+            $(cat changed_files.txt | tr '\n' ' ') \
+            > validation_output.txt 2>&1 || VALIDATION_EXIT=$?
+
+          # Display output
+          cat validation_output.txt
+
+          # Save for PR comment
+          echo "VALIDATION_OUTPUT<<EOF" >> $GITHUB_ENV
+          cat validation_output.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # Set result
+          if [ "${VALIDATION_EXIT:-0}" -eq 0 ]; then
+            echo "result=success" >> $GITHUB_OUTPUT
+          else
+            echo "result=failure" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Skip Check (No Python Files)
+        if: steps.changed-files.outputs.file_count == '0'
+        run: |
+          echo "ℹ️ No Python files changed. Skipping permission bypass check."
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && (success() || failure())
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const validationOutput = process.env.VALIDATION_OUTPUT || 'No Python files to check.';
+            const result = '${{ steps.validator.outputs.result }}' || 'skipped';
+
+            const statusEmoji = result === 'success' ? '✅' : result === 'failure' ? '❌' : 'ℹ️';
+            const statusText = result === 'success' ? 'PASSED' : result === 'failure' ? 'FAILED' : 'SKIPPED';
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Permission Bypass Security Check')
+            );
+
+            const commentBody = `## 🔒 Permission Bypass Security Check
+
+            ${statusEmoji} **Status: ${statusText}**
+
+            <details>
+            <summary>Click to see validation details</summary>
+
+            \`\`\`
+            ${validationOutput.substring(0, 60000)}
+            \`\`\`
+
+            </details>
+
+            ---
+            **What is this check?**
+            This workflow detects new \`ignore_permissions=True\` usages and ensures they have security justification comments.
+
+            **Risk Levels:**
+            - 🚨 **HIGH**: API endpoints, services, user-facing code - requires justification
+            - ⚠️ **MEDIUM**: Background jobs, webhooks - should have justification
+            - ℹ️ **LOW**: Tests, patches, setup - acceptable without justification
+
+            **How to fix?**
+            Add a security justification comment before the permission bypass:
+            \`\`\`python
+            # Security: <explain why permission bypass is safe here>
+            doc.save(ignore_permissions=True)
+            \`\`\`
+            `;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+            }
+
+      - name: Upload Validation Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: permission-bypass-report
+          path: validation_output.txt
+          retention-days: 30
+          if-no-files-found: ignore

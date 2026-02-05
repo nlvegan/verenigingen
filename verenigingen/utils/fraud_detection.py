@@ -522,6 +522,7 @@ class FraudPreventionService:
                     f"Recommendations: {', '.join(risk_assessment['recommendations'])}",
                 }
             )
+            # Security: System creates fraud alert - required for security monitoring regardless of user perms
             alert.insert(ignore_permissions=True)
 
             # Send email to fraud team

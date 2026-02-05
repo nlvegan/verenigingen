@@ -229,6 +229,7 @@ def cleanup_orphaned_workspace_links():
                 workspace_orphans[link.parent].append(link)
 
             # Remove orphaned links
+            # Security: Migration hook - runs during bench migrate with elevated privileges
             for link in orphaned_links:
                 frappe.delete_doc("Workspace Link", link.name, ignore_permissions=True)
 

@@ -30,6 +30,7 @@ def install_sepa_audit_log():
             doctype_data = json.load(f)
 
         # Create the DocType document
+        # Security: Install function protected by @critical_api - system setup
         doctype_doc = frappe.get_doc(doctype_data)
         doctype_doc.insert(ignore_permissions=True)
 

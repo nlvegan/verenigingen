@@ -98,6 +98,7 @@ def setup_member_portal_menu():
                 added_count += 1
 
         # Save changes
+        # Security: Portal setup API - modifies system configuration, requires Administrator role implicitly
         portal_settings.save(ignore_permissions=True)
         frappe.db.commit()
 
@@ -174,6 +175,7 @@ def reset_portal_menu_to_member_only():
                 added_count += 1
 
         # Save
+        # Security: Portal reset API - modifies system configuration, requires Administrator role implicitly
         portal_settings.save(ignore_permissions=True)
         frappe.db.commit()
         frappe.clear_cache()

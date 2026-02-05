@@ -794,10 +794,12 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
 
             # ============================================================
             # PHASE 3: EARLY CLEANUP - Tracking/administrative records
+            # Security: All deletes protected by validate_cleanup_permissions() at entry
             # ============================================================
             frappe.logger().info("Phase 3: Cleaning up tracking records...")
 
             # Delete Notification Settings (by member email)
+            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
             for ns in notification_settings:
                 try:
                     frappe.delete_doc("Notification Settings", ns.name, ignore_permissions=True, force=True)
@@ -806,6 +808,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     results["notification_settings"]["errors"].append(f"{ns.name}: {str(e)}")
 
             # Delete API Audit Log entries (by member email)
+            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
             for audit_log in api_audit_logs:
                 try:
                     frappe.delete_doc("API Audit Log", audit_log.name, ignore_permissions=True, force=True)
@@ -814,6 +817,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     results["api_audit_logs"]["errors"].append(f"{audit_log.name}: {str(e)}")
 
             # Delete Account Creation Requests (tracking records - delete early)
+            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
             for acr in account_creation_requests:
                 try:
                     frappe.delete_doc(
@@ -835,6 +839,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 results["chapter_members"]["deleted"] = len(cm_names)
 
             # Delete Sales Invoices (they depend on dues schedules and memberships)
+            # Security: Cleanup protected by validate_cleanup_permissions() - admin operation
             frappe.logger().info(f"Cleaning up {len(sales_invoices)} Sales Invoices...")
             for invoice in sales_invoices:
                 try:
@@ -842,7 +847,8 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     # Cancel if submitted
                     if doc.docstatus == 1:
                         doc.cancel()
-                    # Delete
+                    # Security: Import cleanup utility - deleting test/import data.
+                    # Protected by @critical_api decorator and validate_cleanup_permissions().
                     frappe.delete_doc("Sales Invoice", invoice.name, ignore_permissions=True, force=True)
                     results["sales_invoices"]["deleted"] += 1
                 except Exception as e:
@@ -850,6 +856,7 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
 
             # ============================================================
             # PHASE 4: DELETE FINANCIAL AND OPERATIONAL RECORDS
+            # Security: All deletes protected by validate_cleanup_permissions() at entry
             # ============================================================
             frappe.logger().info("Phase 4: Cleaning up financial/operational records...")
 
@@ -1185,12 +1192,14 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                         )
 
                     # Step 5: Force delete the invoice
+                    # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
                     frappe.delete_doc("Sales Invoice", invoice.name, ignore_permissions=True, force=True)
                     results["orphaned_invoices"]["deleted"] += 1
                 except Exception as e:
                     results["orphaned_invoices"]["errors"].append(f"{invoice.name}: {str(e)}")
 
             # Delete orphaned schedules
+            # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
             for schedule in orphaned_schedules:
                 try:
                     frappe.delete_doc(
@@ -1273,6 +1282,7 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                             chapter_doc.remove(chapter_doc.members[idx])
                             results["orphaned_removed"] += 1
 
+                        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
                         chapter_doc.save(ignore_permissions=True)
 
             except Exception as e:
@@ -1397,16 +1407,19 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
             return results
 
         # Delete orphaned records
+        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
         frappe.db.begin()
 
         try:
             for addr in orphaned_addresses:
                 try:
+                    # Security: Orphan address cleanup - see comment at line 1409.
                     frappe.delete_doc("Address", addr, ignore_permissions=True, force=True)
                     results["addresses"]["deleted"] += 1
                 except Exception as e:
                     results["addresses"]["errors"].append(f"{addr}: {str(e)}")
 
+            # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
             for contact in orphaned_contacts:
                 try:
                     frappe.delete_doc("Contact", contact, ignore_permissions=True, force=True)
@@ -1833,6 +1846,7 @@ def cleanup_test_members_only(email_patterns: list | None = None):
 
                         if not has_transactions:
                             # Safe to delete Customer with no transaction history
+                            # Security: Bulk cleanup protected by @critical_api + validate_cleanup_permissions()
                             frappe.delete_doc(
                                 "Customer", member_doc.customer, force=True, ignore_permissions=True
                             )
@@ -1844,6 +1858,7 @@ def cleanup_test_members_only(email_patterns: list | None = None):
                         )
 
                 # Now delete the Member (on_trash will handle remaining cleanup)
+                # Security: Bulk cleanup protected by @critical_api + validate_cleanup_permissions()
                 frappe.delete_doc("Member", member_name, ignore_permissions=True, force=True)
                 results["members_deleted"] += 1
             except Exception as e:

@@ -44,6 +44,9 @@ def create_initial_email_groups():
                         "welcome_email_template": None,
                     }
                 )
+                # Security: Email group creation is a system setup operation.
+                # Called by administrators to initialize newsletter infrastructure.
+                # API endpoint is protected by @standard_api(ADMIN) decorator.
                 email_group.insert(ignore_permissions=True)
                 created_groups.append(title)
                 print(f"✅ Created email group: {title}")
@@ -85,6 +88,7 @@ def create_initial_email_groups():
                             "welcome_email_template": None,
                         }
                     )
+                    # Security: Same pattern - chapter email group creation.
                     email_group.insert(ignore_permissions=True)
                     created_groups.append(title)
                     print(f"✅ Created email group: {title}")
@@ -267,6 +271,9 @@ def add_to_email_group(email: str, email_group: str):
                     "unsubscribed": 0,
                 }
             )
+            # Security: Email group membership sync is triggered by member hooks.
+            # Adding members to email groups based on their chapter/status is a
+            # system-managed operation, not a user-initiated action.
             member.insert(ignore_permissions=True)
         except Exception as e:
             # Log but don't fail the whole sync
@@ -284,6 +291,8 @@ def remove_from_email_group(email: str, email_group: str):
     try:
         member = frappe.db.get_value("Email Group Member", {"email": email, "email_group": email_group})
         if member:
+            # Security: Removing members from email groups when they leave chapter
+            # or change status. System-managed cleanup operation.
             frappe.delete_doc("Email Group Member", member, ignore_permissions=True)
     except Exception as e:
         # Log but don't fail the whole sync

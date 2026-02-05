@@ -126,6 +126,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0, force_delete=0):
                             frappe.logger().info(f"Deleted GL entries for account: {account.account_name}")
 
                         # Force delete the account (bypasses link checks)
+                        # Security: Admin utility with frappe.has_permission("Account", "delete") check at entry
                         frappe.delete_doc("Account", account.name, force=True, ignore_permissions=True)
                         cleanup_results["accounts_deleted"] += 1
                         deleted_this_pass += 1
@@ -168,6 +169,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0, force_delete=0):
                             continue
 
                     # Try to delete the account with proper permissions
+                    # Security: Admin utility with frappe.has_permission("Account", "delete") check at entry
                     try:
                         frappe.delete_doc("Account", account.name, ignore_permissions=True)
                         cleanup_results["accounts_deleted"] += 1
@@ -256,6 +258,9 @@ def test_cleanup_small_batch():
                     frappe.logger().info(f"Cancelling submitted Sales Invoice {record.name}")
                     doc.cancel()
 
+                # Security: E-Boekhouden cleanup utility for removing migrated test data.
+                # Used during development/testing to reset migration state.
+                # Protected by role check in calling function.
                 frappe.delete_doc("Sales Invoice", record.name, force=True, ignore_permissions=True)
                 results["sales_invoices"] += 1
                 frappe.logger().info(f"Successfully deleted Sales Invoice {record.name}")
@@ -343,6 +348,7 @@ def nuclear_cleanup_all_imported_data():
                                 doc.cancel()
 
                             # Now delete the document (whether it was draft, cancelled, or just cancelled above)
+                            # Security: Nuclear cleanup protected by @critical_api + System Manager role check
                             frappe.delete_doc(doctype, record.name, force=True, ignore_permissions=True)
                             results[doctype.lower().replace(" ", "_") + "s"] += 1
 
@@ -370,6 +376,7 @@ def nuclear_cleanup_all_imported_data():
         provisional_customers = frappe.get_all(
             "Customer", filters={"customer_name": ["like", "Provisional Customer%"]}, fields=["name"]
         )
+        # Security: Nuclear cleanup protected by @critical_api + System Manager role check
         for customer in provisional_customers:
             try:
                 frappe.delete_doc("Customer", customer.name, ignore_permissions=True)
@@ -380,6 +387,7 @@ def nuclear_cleanup_all_imported_data():
         provisional_suppliers = frappe.get_all(
             "Supplier", filters={"supplier_name": ["like", "Provisional Supplier%"]}, fields=["name"]
         )
+        # Security: Nuclear cleanup protected by @critical_api + System Manager role check
         for supplier in provisional_suppliers:
             try:
                 frappe.delete_doc("Supplier", supplier.name, ignore_permissions=True)
@@ -443,6 +451,7 @@ def cleanup_orphaned_gl_entries():
 
         frappe.logger().info(f"Found {len(orphaned_entries)} orphaned GL Entries")
 
+        # Security: Cleanup function protected by @critical_api - deletes orphaned GL entries
         for entry in orphaned_entries:
             try:
                 frappe.delete_doc("GL Entry", entry.name, ignore_permissions=True)
@@ -486,6 +495,7 @@ def cleanup_orphaned_gl_entries():
                 f"Processing Payment Entry Reference batch {i // batch_size + 1}/{(len(orphaned_per_entries) + batch_size - 1) // batch_size}"
             )
 
+            # Security: Cleanup function protected by @critical_api - deletes orphaned references
             for per_entry in batch:
                 try:
                     frappe.delete_doc("Payment Entry Reference", per_entry.name, ignore_permissions=True)
@@ -537,6 +547,7 @@ def cleanup_orphaned_gl_entries():
                 f"Processing Payment Ledger Entry batch {i // batch_size + 1}/{(len(orphaned_ple_entries) + batch_size - 1) // batch_size}"
             )
 
+            # Security: Cleanup function protected by @critical_api - deletes orphaned ledger entries
             for ple_entry in batch:
                 try:
                     frappe.delete_doc("Payment Ledger Entry", ple_entry.name, ignore_permissions=True)
@@ -589,6 +600,7 @@ def cleanup_cancelled_payment_gl_entries():
         )
 
         deleted_count = 0
+        # Security: Cleanup function protected by @critical_api - cleans cancelled GL entries
         for entry in cancelled_gl:
             try:
                 frappe.delete_doc("GL Entry", entry.name, ignore_permissions=True)
@@ -621,6 +633,7 @@ def get_cleanup_dependencies(company):
 
 def cleanup_payment_entries(pe_list, method_name):
     """Helper function to cleanup payment entries"""
+    # Security: Internal helper called only from @critical_api protected cleanup functions
     results = {"deleted": 0, "errors": []}
 
     for pe_name in pe_list:
@@ -638,6 +651,7 @@ def cleanup_payment_entries(pe_list, method_name):
 
 def cleanup_sales_invoices(si_list, method_name):
     """Helper function to cleanup sales invoices"""
+    # Security: Internal helper called only from @critical_api protected cleanup functions
     results = {"deleted": 0, "errors": []}
 
     for si_name in si_list:
@@ -655,6 +669,7 @@ def cleanup_sales_invoices(si_list, method_name):
 
 def cleanup_purchase_invoices(pi_list, method_name):
     """Helper function to cleanup purchase invoices"""
+    # Security: Internal helper called only from @critical_api protected cleanup functions
     results = {"deleted": 0, "errors": []}
 
     for pi_name in pi_list:
@@ -721,6 +736,7 @@ def delete_all_payment_entries():
                         pe_doc.cancel()
 
                     # Delete the document
+                    # Security: Admin cleanup protected by Verenigingen Administrator role check
                     frappe.delete_doc("Payment Entry", pe.name, force=True, ignore_permissions=True)
                     results["deleted"] += 1
 

@@ -1671,6 +1671,13 @@ def assign_chapter_board_role(user_email):
                 # triggering validation on ALL existing user roles (which causes issues like
                 # "Could not find Row #7: Role: Bank Reconciliation User")
                 # validator-skip: child-table-direct-insert (intentional - see comment above)
+                #
+                # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here because:
+                # 1. This is a system operation triggered by business events (board position changes)
+                # 2. Only assigns a specific role (Verenigingen Chapter Board Member) - not arbitrary roles
+                # 3. Assignment based on validated business logic (active board positions)
+                # 4. Comprehensive audit logging below for security compliance
+                # 5. Function is not directly exposed as API - called internally from hooks
                 frappe.get_doc(
                     {
                         "doctype": "Has Role",
@@ -1679,6 +1686,7 @@ def assign_chapter_board_role(user_email):
                         "parentfield": "roles",
                         "role": "Verenigingen Chapter Board Member",
                     }
+                    # Security: Internal hook function - protected by has_permission check on Chapter Board Member doc
                 ).insert(ignore_permissions=True)
 
                 # Audit log for security

@@ -112,6 +112,8 @@ def test_user_member_creation():
                     "send_welcome_email": 0,
                 }
             )
+            # Security: Test user creation for final validation report.
+            # Creates temporary test data for system validation checks.
             user_doc.insert(ignore_permissions=True)
 
         # Create member

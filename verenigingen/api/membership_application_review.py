@@ -627,7 +627,10 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
         # Check if user already exists (quick check)
         if frappe.db.exists("User", member.email):
             frappe.logger().info(f"User already exists for {member.email}, linking to member")
-            # Actually link the user to the member record
+            # Security: Simple reference link to existing User.
+            # Uses db.set_value to link Member to User without triggering
+            # Member validation hooks. The user already exists and is valid.
+            # Explicit commit ensures link persists before verification check.
             frappe.db.set_value("Member", member.name, "user", member.email)
             frappe.db.commit()
 

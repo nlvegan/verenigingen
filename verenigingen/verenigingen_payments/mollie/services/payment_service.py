@@ -649,7 +649,13 @@ class PaymentService:
             return True  # Default to test mode for safety
 
     def _update_donor_payment_info(self, donor, payment: Payment):
-        """Update donor record with payment information."""
+        """Update donor record with payment information.
+
+        Security:
+            Uses ignore_permissions=True because this is called from:
+            1. Webhook processing (authenticated via HMAC signature validation)
+            2. Payment creation flows where donor is already loaded with validation
+        """
         donor.append(
             "payment_history",
             {
@@ -661,6 +667,7 @@ class PaymentService:
                 "description": payment.description,
             },
         )
+        # SECURITY: ignore_permissions acceptable - authenticated webhook or validated payment flow
         donor.save(ignore_permissions=True)
 
     def _update_member_payment_info(self, member, payment: Payment):

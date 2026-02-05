@@ -69,6 +69,8 @@ def search_kostprijs_reference():
             cust.customer_name = "Test Customer"
             cust.customer_group = "All Customer Groups"
             cust.territory = "All Territories"
+            # Security: Test customer creation for development/debugging utility.
+            # This file is a debug script for searching cost price items.
             cust.save(ignore_permissions=True)
             customer = cust.name
 

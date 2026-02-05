@@ -79,6 +79,7 @@ def delete_all_draft_invoices():
 
         for invoice in batch:
             try:
+                # Security: @critical_api + validate_cleanup_permissions() - dev mode, System Manager, delete perms required
                 frappe.delete_doc("Sales Invoice", invoice.name, force=True, ignore_permissions=True)
                 deleted += 1
                 if deleted % 50 == 0:
@@ -146,6 +147,7 @@ def delete_all_cancelled_invoices():
 
         for invoice in batch:
             try:
+                # Security: @critical_api + validate_cleanup_permissions() - dev mode, System Manager, delete perms required
                 frappe.delete_doc("Sales Invoice", invoice.name, force=True, ignore_permissions=True)
                 deleted += 1
                 if deleted % 50 == 0:

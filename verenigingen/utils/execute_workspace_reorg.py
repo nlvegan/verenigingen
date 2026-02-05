@@ -180,6 +180,8 @@ def fix_reports_hierarchy():
             "idx": insert_idx,
         }
     )
+    # Security: Workspace hierarchy fix - admin utility to repair workspace structure.
+    # Called via @frappe.whitelist() by system administrators.
     reports_parent_doc.insert(ignore_permissions=True)
 
     frappe.db.commit()

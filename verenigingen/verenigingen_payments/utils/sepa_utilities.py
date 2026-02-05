@@ -224,7 +224,9 @@ class BatchLoggingUtilities:
                     "log_level": level,
                     "timestamp": frappe.utils.now(),
                 }
-            ).insert(ignore_permissions=True)
+            ).insert(
+                ignore_permissions=True
+            )  # Security: SEPA batch audit logging
 
         except Exception as e:
             # Fallback to system logging if batch log fails

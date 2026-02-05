@@ -592,7 +592,9 @@ def log_migration_activity(operation: str, doctype: str, docname: str, details: 
 
         # Create log entry if Activity Log doctype exists
         if frappe.db.exists("DocType", "Activity Log"):
-            frappe.get_doc(log_entry).insert(ignore_permissions=True)  # Logging needs this
+            # Security: Activity log creation during migration operations.
+            # Logs must be created regardless of user permissions for audit trail.
+            frappe.get_doc(log_entry).insert(ignore_permissions=True)
 
     except Exception:
         # Don't fail migration if logging fails

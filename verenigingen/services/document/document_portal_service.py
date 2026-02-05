@@ -555,12 +555,19 @@ class DocumentPortalService(StatelessService):
                 }
 
             # 4. Delete the associated file
+            # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here because:
+            # 1. Authorization verified above via can_upload_to() check
+            # 2. Security event logging for denied attempts
+            # 3. User may not have direct File doctype permission but has org-level access
+            # 4. Service layer handles permission model, not Frappe's doctype permissions
+            # Security: Portal service handles org-level access - can_delete verified above (line 538)
             if doc.document_file:
                 file_doc = frappe.db.get_value("File", {"file_url": doc.document_file}, "name")
                 if file_doc:
                     frappe.delete_doc("File", file_doc, ignore_permissions=True)
 
             # 5. Delete the Organization Document
+            # SECURITY: Same justification as file delete above
             doc_display_name = doc.document_name  # Store for message before deletion
             frappe.delete_doc("Organization Document", document_name, ignore_permissions=True)
 

@@ -77,6 +77,7 @@ class INGCheckoutMandate(Document):
         # Store raw response
         self.raw_response = frappe.as_json(webhook_data)
 
+        # Security: Webhook callback from ING Checkout - updates mandate status
         self.save(ignore_permissions=True)
 
     def execute_debit(self, amount: float, description: str, process_date: str = None):
@@ -115,6 +116,7 @@ class INGCheckoutMandate(Document):
 
         # Update last collection date
         self.last_collection_date = process_date or today()
+        # Security: Controller method called from authorized debit operation
         self.save(ignore_permissions=True)
 
         return result
@@ -138,6 +140,7 @@ class INGCheckoutMandate(Document):
             # (mandate may already be cancelled on Pay.nl side)
 
         self.status = "Cancelled"
+        # Security: Controller method for mandate cancellation - authorized by API client
         self.save(ignore_permissions=True)
 
 
@@ -178,6 +181,7 @@ def get_or_create_mandate(
     doc.member = member
     doc.status = "Pending"
     doc.created_date = today()
+    # Security: Helper function called from webhook/API flow - mandate creation from ING Checkout
     doc.insert(ignore_permissions=True)
 
     return doc

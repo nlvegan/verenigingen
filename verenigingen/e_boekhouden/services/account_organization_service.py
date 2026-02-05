@@ -572,6 +572,7 @@ class AccountOrganizationService:
             group_acc.parent_account = parent_account
             group_acc.root_type = root_type
             group_acc.is_group = 1
+            # Security: Service called from @critical_api protected account organization functions
             group_acc.insert(ignore_permissions=True)
 
             frappe.logger().info(f"Created group account: {group_acc.name} under {parent_account}")

@@ -104,7 +104,7 @@ def ensure_fiscal_year_exists(transaction_date, company, debug_info=None):
             }
         )
 
-        # Note: Using ignore_permissions for automated fiscal year creation during imports
+        # Security: Automated fiscal year creation during eBoekhouden import - system context
         # Audit: All fiscal year creations are logged in debug_info for traceability
         try:
             fiscal_year.insert(ignore_permissions=True)

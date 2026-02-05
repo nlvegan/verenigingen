@@ -789,7 +789,10 @@ def create_volunteer_from_member(
         # User must have proper permissions to create volunteer records
         volunteer.insert()
 
-        # Update member's volunteer_record reference
+        # Security: Cross-document reference link from Volunteer to Member.
+        # Uses db.set_value to update Member without triggering Member's validation
+        # hooks. This is a simple reference link, not a business state change.
+        # update_modified=False preserves Member's modification timestamp.
         frappe.db.set_value("Member", member_name, "volunteer_record", volunteer.name, update_modified=False)
 
         # Queue account creation if requested

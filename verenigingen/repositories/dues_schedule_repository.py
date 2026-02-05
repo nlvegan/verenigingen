@@ -501,7 +501,15 @@ class DuesScheduleRepository:
                 # ✅ TRANSACTION SAFETY: Let Frappe framework manage transaction boundaries
                 # Calling code controls commit/rollback for proper atomicity
 
-                # Add comment manually
+                # Add comment manually for audit trail
+                # SECURITY JUSTIFICATION: ignore_permissions=True is acceptable here because:
+                # 1. Write permission already verified at line 431 (frappe.has_permission)
+                # 2. This is only for creating an audit Comment document, not modifying data
+                # 3. Fallback path used only when standard add_comment() fails
+                # 4. Comment records cancellation reason for compliance audit trail
+                # Security: Adding audit comment to cancelled schedule.
+                # Comments are system-generated audit trail, not user content.
+                # Repository method called from service layer with proper authorization.
                 frappe.get_doc(
                     {
                         "doctype": "Comment",
@@ -510,7 +518,9 @@ class DuesScheduleRepository:
                         "reference_name": schedule_name,
                         "content": comment_text,
                     }
-                ).insert(ignore_permissions=True)
+                ).insert(
+                    ignore_permissions=True
+                )  # Security: See justification at line 505
 
                 frappe.logger().info(f"Cancelled schedule {schedule_name} using fallback method")
                 return CancellationResult(

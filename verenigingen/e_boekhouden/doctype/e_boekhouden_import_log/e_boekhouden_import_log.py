@@ -30,6 +30,7 @@ def create_import_log(
         log.import_status = import_status
         log.eb_data = str(eb_data) if eb_data else None
         log.error_message = error_message
+        # Security: Migration audit log - system must record import operations
         log.insert(ignore_permissions=True)
         return log.name
     except Exception as e:

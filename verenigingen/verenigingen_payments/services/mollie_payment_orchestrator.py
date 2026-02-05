@@ -998,6 +998,7 @@ class MolliePaymentOrchestrator:
                 "review to identify the actual member."
             )
 
+            # Security: System creates orphan customer for unmatched payments during authenticated webhook processing
             customer.insert(ignore_permissions=True)
             frappe.logger().info(f"Created orphan customer: {customer.name}")
             return customer.name
@@ -1088,6 +1089,7 @@ class MolliePaymentOrchestrator:
                 },
             )
 
+            # Security: System creates orphan invoice for unmatched payment during authenticated webhook - enables financial reconciliation
             invoice.insert(ignore_permissions=True)
             invoice.submit()
 
@@ -1167,6 +1169,7 @@ class MolliePaymentOrchestrator:
                 f"This payment requires manual review to identify the member."
             )
 
+            # Security: System creates orphan payment entry during authenticated webhook - required for financial reconciliation
             payment_entry.insert(ignore_permissions=True)
             payment_entry.submit()
 
@@ -1335,8 +1338,7 @@ class MolliePaymentOrchestrator:
             if customer_email:
                 customer.append("email_ids", {"email_id": customer_email, "is_primary": 1})
 
-            # Permission bypass is intentional for orphaned payment reconciliation.
-            # Authorization context depends on caller:
+            # Security: Orphan customer creation - authorization via webhook HMAC or @high_security_api
             # - Webhook path: authenticated via Mollie HMAC-SHA256 signature verification
             # - Admin batch path: authenticated via @high_security_api(OperationType.FINANCIAL)
             # Customer created with "(Orphaned)" suffix for easy identification during reconciliation.

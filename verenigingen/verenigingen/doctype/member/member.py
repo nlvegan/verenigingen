@@ -485,11 +485,12 @@ class Member(
             customer_name = CustomerHandlingService().create_customer_for_member(
                 self, suppress_messages=False
             )
-            self.customer = customer_name
-            # CRITICAL: Must save to persist customer link to database
-            # Otherwise reload() will wipe out this in-memory value
-            frappe.db.set_value("Member", self.name, "customer", customer_name, update_modified=False)
-            frappe.db.commit()
+            if customer_name:
+                self.customer = customer_name
+                # Security: Direct db_set required in after_insert hook.
+                # After insert, in-memory changes don't persist - reload() would wipe them.
+                # Using db_set() instead of save() avoids triggering validation hooks again.
+                self.db_set("customer", customer_name, update_modified=False)
 
     def on_trash(self):
         """
@@ -593,10 +594,12 @@ class Member(
 
         # Update member with customer reference if we got a customer name
         if customer_name:
-            # Update database directly to avoid validation/timestamp conflicts
-            frappe.db.set_value("Member", self.name, "customer", customer_name)
-            self.customer = customer_name  # Update the document object too
-            frappe.db.commit()
+            # Security: Direct db_set for simple reference link.
+            # Full save() would trigger all validation hooks and update timestamps,
+            # which is unnecessary for linking a reference and may conflict with
+            # concurrent operations. Transaction commit handled by calling code.
+            self.db_set("customer", customer_name, update_modified=False)
+            self.customer = customer_name  # Keep in-memory object in sync
 
             # Only show success message if not during application submission
             if not suppress_messages:
@@ -654,9 +657,11 @@ class Member(
         """Update member's membership_status field based on active memberships - delegated to member_status_service"""
         result = update_member_membership_status(self)
         if result:
-            # Update database directly to avoid validation recursion
-            frappe.db.set_value("Member", self.name, "membership_status", result)
-            frappe.db.commit()
+            # Security: Direct db_set to prevent validation recursion.
+            # This method is often called from validation hooks - using save()
+            # would trigger validate() again, causing infinite recursion.
+            # Transaction commit handled by calling code.
+            self.db_set("membership_status", result, update_modified=False)
         return result
 
     @frappe.whitelist()
@@ -768,8 +773,10 @@ class Member(
 
         # Optionally save directly to database
         if save_to_db and not self.get("__islocal"):
-            frappe.db.set_value("Member", self.name, "other_members_at_address", html_content)
-            frappe.db.commit()
+            # Security: Direct db_set for display-only field update.
+            # This is a computed HTML field that doesn't affect business logic.
+            # Using db_set avoids unnecessary validation cycles.
+            self.db_set("other_members_at_address", html_content, update_modified=False)
 
     def update_address_display(self):
         """

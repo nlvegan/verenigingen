@@ -20,6 +20,7 @@ def ensure_cogs_item_group():
             item_group.item_group_name = "Cost of Goods Sold Items"
             item_group.parent_item_group = "All Item Groups"
             item_group.is_group = 0
+            # Security: Setup function protected by @development_only_api - creates system item group
             item_group.insert(ignore_permissions=True)
 
             return {"success": True, "message": "Created 'Cost of Goods Sold Items' item group"}

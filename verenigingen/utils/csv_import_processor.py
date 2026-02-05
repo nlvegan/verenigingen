@@ -245,6 +245,7 @@ class CSVImportBackgroundProcessor:
             if error:
                 self.import_doc.error_log = error
 
+            # Security: Background job updating its own import document status
             self.import_doc.save(ignore_permissions=True)
             frappe.db.commit()
 
@@ -278,6 +279,7 @@ class CSVImportBackgroundProcessor:
             if hasattr(self.import_doc, "last_processed_at"):
                 self.import_doc.last_processed_at = now()
 
+            # Security: Background job updating its own import document progress
             self.import_doc.save(ignore_permissions=True)
 
         except Exception as e:
@@ -304,6 +306,7 @@ class CSVImportBackgroundProcessor:
                 error_log, max_lines=100, full_log_filename=filename
             )
 
+        # Security: Background job finalizing its own import document
         self.import_doc.save(ignore_permissions=True)
         frappe.db.commit()
 

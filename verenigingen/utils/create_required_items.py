@@ -63,6 +63,7 @@ def create_eboekhouden_import_item():
                     },
                 )
 
+        # Security: Setup function protected by @development_only_api - creates system items
         item.save(ignore_permissions=True)
 
         print(f"Successfully created item: {item_name}")

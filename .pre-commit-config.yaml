@@ -364,6 +364,17 @@ repos:
         stages: [pre-commit]
         verbose: true
 
+      - id: permission-bypass-validator
+        name: 🔐 Permission Bypass Validator
+        description: Detect ignore_permissions=True without security justification
+        entry: python scripts/validation/security/permission_bypass_validator.py --pre-commit
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/.*\.py$'
+        exclude: '^(verenigingen/tests/|.*test.*\.py|.*debug.*\.py|archived_.*|.*patch.*\.py|.*setup.*\.py|.*fixture.*\.py)'
+        stages: [pre-commit]
+        verbose: true
+
       # Performance and Quality Checks
       - id: email-template-validator
         name: 📧 Email Template Validator

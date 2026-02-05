@@ -455,4 +455,7 @@ def create_address_matching_metrics_doctype():
         }
     )
 
+    # Security: DocType creation for address matching cache.
+    # Creates system DocType for storing match results during bulk operations.
+    # Only runs during system initialization, not user-triggered.
     doctype_doc.insert(ignore_permissions=True)

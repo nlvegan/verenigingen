@@ -56,6 +56,7 @@ def check_and_resolve_payment_retries(payment_entry, member):
                         },
                     )
 
+                    # Security: Hook-triggered update from payment submission - system operation
                     retry_doc.save(ignore_permissions=True)
 
                     # Update the sales invoice status if needed

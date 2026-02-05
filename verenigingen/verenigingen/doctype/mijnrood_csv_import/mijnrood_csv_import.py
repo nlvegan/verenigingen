@@ -1008,6 +1008,7 @@ class MijnroodCSVImport(Document):
                         self.error_log += volunteer_errors
                     else:
                         self.error_log = volunteer_errors
+                    # Security: Import doc updating its own error log - doc controller method
                     self.save(ignore_permissions=True)
 
             result_message = (
@@ -2128,6 +2129,7 @@ class MijnroodCSVImport(Document):
             # Fall back to simple assignment (may be lost on reload, but better than nothing)
             self.bulk_operation_tracker = tracker_name
             try:
+                # Security: Import doc updating its own tracker link - fallback in error path
                 self.save(ignore_permissions=True)
                 frappe.db.commit()
             except Exception:
@@ -3012,6 +3014,7 @@ def update_import_tracking_after_retry(import_doc_name: str):
         import_doc._update_account_creation_tracking()
 
         # Save the updated tracking
+        # Security: Background job updating its own import document tracking
         import_doc.save(ignore_permissions=True)
         frappe.db.commit()
 
@@ -3067,6 +3070,7 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
         if validation_errors:
             import_doc.import_status = "Failed"
             import_doc.error_log = "\n".join(validation_errors)
+            # Security: Background job updating its own import document status
             import_doc.save(ignore_permissions=True)
             frappe.db.commit()
             frappe.logger().error(f"Import validation failed for {import_doc_name}")
@@ -3126,6 +3130,7 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
             import_doc = frappe.get_doc("Mijnrood CSV Import", import_doc_name)
             import_doc.import_status = "Failed"
             import_doc.error_log = f"Background job failed: {str(e)}\n\nSee Error Log for full traceback"
+            # Security: Background job updating its own import document failure status
             import_doc.save(ignore_permissions=True)
             frappe.db.commit()
         except Exception as status_error:

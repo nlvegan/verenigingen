@@ -107,6 +107,7 @@ def ensure_payment_modes_exist():
         name = pm_data["mode_of_payment"]
         if not frappe.db.exists("Mode of Payment", name):
             try:
+                # Security: System setup helper - creates standard payment modes for app operation
                 doc = frappe.get_doc({"doctype": "Mode of Payment", **pm_data})
                 doc.insert(ignore_permissions=True)
                 created.append(name)

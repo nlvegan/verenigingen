@@ -29,6 +29,9 @@ def _ensure_item_group_exists(item_group_name):
         item_group.item_group_name = item_group_name
         item_group.parent_item_group = "All Item Groups"  # Standard parent
         item_group.is_group = 0  # Leaf node, not a group
+        # Security: Item Group creation during E-Boekhouden data migration.
+        # Migration runs as background job to sync accounting data.
+        # Creates master data (Item Groups) that may not exist in ERPNext.
         item_group.insert(ignore_permissions=True)
         frappe.logger().info(f"Created missing Item Group: {item_group_name}")
         return item_group_name
@@ -520,6 +523,7 @@ def get_or_create_item_group(group_name):
         group.item_group_name = group_name
         group.parent_item_group = parent
         group.is_group = 1
+        # Security: Item group creation during eBoekhouden migration - system setup
         group.insert(ignore_permissions=True)
 
         frappe.logger().info(
@@ -565,6 +569,7 @@ def get_or_create_generic_item(company):
             item.stock_uom = "Nos"
             item.is_stock_item = 0
             item.description = "Generic service item for unmapped transactions - CREATED AS FALLBACK"
+            # Security: Fallback item creation during eBoekhouden migration - system setup
             item.insert(ignore_permissions=True)
             frappe.logger().info(
                 f"E-Boekhouden Item Creation: Created generic fallback item '{generic_name}'"

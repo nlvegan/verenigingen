@@ -366,21 +366,30 @@ class SubscriptionService:
         )
 
     def _update_member_subscription_info(self, member, subscription: Subscription):
-        """Update member record with subscription information."""
+        """Update member record with subscription information.
+
+        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
+        """
         member.mollie_subscription_id = subscription.id
         member.subscription_status = subscription.status
         member.next_payment_date = subscription.next_payment_date
         member.save(ignore_permissions=True)
 
     def _update_donor_subscription_info(self, donor, subscription: Subscription):
-        """Update donor record with subscription information."""
+        """Update donor record with subscription information.
+
+        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
+        """
         donor.mollie_subscription_id = subscription.id
         donor.subscription_status = subscription.status
         donor.next_payment_date = subscription.next_payment_date
         donor.save(ignore_permissions=True)
 
     def _update_member_subscription_canceled(self, member_id: str, subscription_id: str, reason: str):
-        """Update member record when subscription is canceled."""
+        """Update member record when subscription is canceled.
+
+        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
+        """
         member = frappe.get_doc("Member", member_id)
         member.subscription_status = "canceled"
         member.subscription_cancel_reason = reason
@@ -388,7 +397,10 @@ class SubscriptionService:
         member.save(ignore_permissions=True)
 
     def _update_donor_subscription_canceled(self, donor_id: str, subscription_id: str, reason: str):
-        """Update donor record when subscription is canceled."""
+        """Update donor record when subscription is canceled.
+
+        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
+        """
         donor = frappe.get_doc("Donor", donor_id)
         donor.subscription_status = "canceled"
         donor.subscription_cancel_reason = reason

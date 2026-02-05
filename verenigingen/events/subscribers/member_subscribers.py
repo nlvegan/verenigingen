@@ -436,6 +436,7 @@ def _add_member_to_chapter_with_retry(chapter_doc, member_name, chapter_name):
 
         if not member_exists:
             fresh_chapter.append("members", {"member": member_name, "status": "Active"})
+            # Security: Event subscriber (background job) triggered by member approval - system assigns to chapter
             fresh_chapter.save(ignore_permissions=True)
             frappe.logger("events").info(f"Assigned member {member_name} to chapter {chapter_name}")
         else:

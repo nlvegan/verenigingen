@@ -379,6 +379,9 @@ class MollieAuditLogger:
                 }
             )
 
+            # Security: Mollie audit log creation is essential for payment compliance.
+            # Called from webhook handlers (authenticated via HMAC signature) and
+            # payment processing services. Must record regardless of user context.
             audit_log.insert(ignore_permissions=True)
 
             # Also log to system log for critical events

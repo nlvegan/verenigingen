@@ -717,6 +717,7 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50) -> Operatio
                         )
                         schedule_doc.member = None
                         schedule_doc.member_name = None
+                        # Security: Cleanup function protected by Administrator/System Manager role check
                         schedule_doc.save(ignore_permissions=True, ignore_validate=True)
                         schedule_result["action"] = "reference_cleared"
                         results["references_cleared"] += 1
@@ -916,6 +917,7 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
                             ] = f"Membership has dependent records: {', '.join(f'{r.type}({r.count})' for r in dependent_records if r.count > 0)}"
                         else:
                             # Safe to delete if member doesn't exist and no dependencies
+                            # Security: Cleanup function protected by Administrator/System Manager role check
                             frappe.delete_doc("Membership", membership_data["name"], ignore_permissions=True)
                             membership_info["action"] = "deleted"
                             results["invalid_memberships"]["cleaned"] += 1

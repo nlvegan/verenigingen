@@ -55,6 +55,7 @@ def sync_member_image_to_user(doc, method=None):
         user_doc.user_image = doc.image  # ast-skip: doc is Member with image field
 
         # Save without triggering validation (to avoid recursion)
+        # Security: Hook-triggered sync - user already has write permission on source Member
         user_doc.save(ignore_permissions=True)
 
         frappe.logger().info(
@@ -105,6 +106,7 @@ def sync_user_image_to_member(doc, method=None):
         member_doc.image = doc.user_image  # ast-skip: doc is User with user_image field
 
         # Save without triggering validation (to avoid recursion)
+        # Security: Hook-triggered sync - user already has write permission on source User
         member_doc.save(ignore_permissions=True)
 
         frappe.logger().info(

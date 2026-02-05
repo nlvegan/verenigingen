@@ -477,6 +477,9 @@ class HistoryIntegrityManager:
                 history_type, len(removed), "\n".join(summary_parts)
             )
 
+            # Security: Audit comment creation for member history operations.
+            # Comments document what changes were made during integrity checks.
+            # Must be created regardless of user permissions for audit trail.
             frappe.get_doc(
                 {
                     "doctype": "Comment",

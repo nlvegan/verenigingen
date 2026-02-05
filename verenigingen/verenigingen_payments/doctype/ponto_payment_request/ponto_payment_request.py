@@ -315,6 +315,7 @@ class PontoPaymentRequest(Document):
         """
         if new_status != self.status:
             self.status = new_status
+            # Security: Webhook callback - status update from verified Ponto event
             self.save(ignore_permissions=True)
 
             if new_status == "Executed":

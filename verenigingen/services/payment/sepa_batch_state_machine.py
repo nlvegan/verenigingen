@@ -322,6 +322,7 @@ class SEPABatchStateMachine(StatelessService):
             from_state = batch_doc.status
 
             # Update the status
+            # Security: State machine controls access - validated transition with audit trail
             batch_doc.status = to_state
             batch_doc.save(ignore_permissions=True)
 

@@ -108,6 +108,7 @@ class DepartmentSyncService(StatelessService):
                 dept_doc = frappe.get_doc("Department", actual_dept_name)
 
                 # Update status if changed
+                # Security: Hook-triggered sync from Chapter update - system maintains data consistency
                 if dept_doc.disabled != is_disabled:
                     dept_doc.disabled = is_disabled
                     dept_doc.save(ignore_permissions=True)
@@ -125,6 +126,7 @@ class DepartmentSyncService(StatelessService):
                         "company": company,
                     }
                 )
+                # Security: Hook-triggered sync from Chapter creation - system creates linked Department
                 dept_doc.insert(ignore_permissions=True)
                 self.logger.info(
                     f"Created Department {dept_doc.name} for chapter {chapter_doc.name} "

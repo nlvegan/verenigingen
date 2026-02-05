@@ -452,11 +452,7 @@ class PontoPaymentLink(Document):
                 if debtor_info.get("bank"):
                     self.debtor_bank = debtor_info["bank"]
 
-            # SECURITY JUSTIFICATION: Webhook callbacks execute in a system context without
-            # user session. Permission bypass is acceptable because:
-            # 1. Webhook signature is verified before this method is called
-            # 2. This only updates status/debtor info on a document already created by user
-            # 3. Full audit trail is logged below
+            # Security: Webhook callback with signature verification - only updates status on existing doc
             frappe.logger("security").info(
                 f"Webhook status update: Ponto Payment Link {self.name} "
                 f"status changed from {frappe.db.get_value('Ponto Payment Link', self.name, 'status')} "
@@ -473,6 +469,7 @@ class PontoPaymentLink(Document):
         """Increment total payments collected for periodic payments."""
         if self.payment_type == "Periodic":
             self.total_payments_collected = (self.total_payments_collected or 0) + 1
+            # Security: Internal method called from webhook - counter update only
             self.save(ignore_permissions=True)
 
     @frappe.whitelist()

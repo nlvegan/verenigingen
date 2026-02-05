@@ -94,6 +94,7 @@ def setup_enhanced_infrastructure():
                     item_group = frappe.new_doc("Item Group")
                     item_group.item_group_name = group
                     item_group.parent_item_group = "All Item Groups"
+                    # Security: Setup function protected by @critical_api - creates system configuration
                     item_group.insert(ignore_permissions=True)
                     results["item_groups"].append(f"Created: {group}")
                 except Exception as e:

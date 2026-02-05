@@ -298,6 +298,7 @@ def _fetch_and_create_single_mapping(
             doc.ledger_name = ledger_name
             if erpnext_account:
                 doc.erpnext_account = erpnext_account
+            # Security: Automated ledger mapping during eBoekhouden import - system context
             doc.insert(ignore_permissions=True)
             debug_info.append(f"Created ledger mapping: {ledger_id} -> {ledger_code}")
         except frappe.DuplicateEntryError:

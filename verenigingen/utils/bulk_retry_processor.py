@@ -126,7 +126,8 @@ def process_single_retry_queue(tracker_name: str) -> Dict:
         if len(remaining_failed) < len(retry_requests):
             # Some requests succeeded - update retry queue
             tracker.retry_queue = json.dumps(remaining_failed, indent=2) if remaining_failed else ""
-            tracker.save(ignore_permissions=True)  # System operation
+            # Security: Background batch retry processor - system operation
+            tracker.save(ignore_permissions=True)
 
             frappe.logger().info(
                 f"Updated retry queue for {tracker_name}: {len(succeeded_requests)} succeeded, "

@@ -114,6 +114,7 @@ def reorganize_reports_section(workspace_name="Verenigingen", dry_run=True):
                 continue
 
             # Create Card Break
+            # Security: Workspace reorganization - @frappe.whitelist() API, internal admin utility
             card_break_doc = frappe.get_doc(
                 {
                     "doctype": "Workspace Link",
@@ -126,6 +127,9 @@ def reorganize_reports_section(workspace_name="Verenigingen", dry_run=True):
                     "idx": current_idx,
                 }
             )
+            # Security: Workspace reorganization is an admin-only utility.
+            # Called via @frappe.whitelist() API by administrators to restructure
+            # workspace layout. No user data affected, only UI configuration.
             card_break_doc.insert(ignore_permissions=True)
             current_idx += 1
 
@@ -143,6 +147,7 @@ def reorganize_reports_section(workspace_name="Verenigingen", dry_run=True):
 
         # Handle other reports under original Reports section if any
         if structure["categorized"]["other_reports"]:
+            # Security: Workspace reorganization - same pattern as above.
             card_break_doc = frappe.get_doc(
                 {
                     "doctype": "Workspace Link",
@@ -155,7 +160,9 @@ def reorganize_reports_section(workspace_name="Verenigingen", dry_run=True):
                     "idx": current_idx,
                 }
             )
-            card_break_doc.insert(ignore_permissions=True)
+            card_break_doc.insert(
+                ignore_permissions=True
+            )  # Security: Workspace admin operation - see line 150
             current_idx += 1
 
             for report in structure["categorized"]["other_reports"]:
@@ -232,6 +239,7 @@ def copy_financial_section_to_payments_workspace(dry_run=True):
         next_idx = max_idx_result[0].max_idx + 1
 
         # Create Financial Reports Card Break in target workspace
+        # Security: Workspace copy operation - @frappe.whitelist() API, internal admin utility
         card_break_doc = frappe.get_doc(
             {
                 "doctype": "Workspace Link",
@@ -244,11 +252,13 @@ def copy_financial_section_to_payments_workspace(dry_run=True):
                 "idx": next_idx,
             }
         )
+        # Security: Workspace copy operation - admin utility for workspace setup.
         card_break_doc.insert(ignore_permissions=True)
         next_idx += 1
 
         # Copy each financial report link
         for report in financial_reports:
+            # Security: Same admin workspace operation.
             new_link_doc = frappe.get_doc(
                 {
                     "doctype": "Workspace Link",
@@ -263,7 +273,7 @@ def copy_financial_section_to_payments_workspace(dry_run=True):
                     "idx": next_idx,
                 }
             )
-            new_link_doc.insert(ignore_permissions=True)
+            new_link_doc.insert(ignore_permissions=True)  # Security: Workspace admin operation - see line 259
             next_idx += 1
 
         frappe.db.commit()

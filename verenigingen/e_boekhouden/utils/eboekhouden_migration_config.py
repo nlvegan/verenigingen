@@ -170,6 +170,7 @@ def setup_payment_modes():
             mode.mode_of_payment = mode_config["name"]
             mode.type = mode_config["type"]
             mode.enabled = mode_config["enabled"]
+            # Security: Setup function protected by @critical_api - creates system configuration
             mode.insert(ignore_permissions=True)
             created.append(mode_config["name"])
 
