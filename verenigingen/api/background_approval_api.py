@@ -28,7 +28,11 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 @frappe.whitelist()
 @high_security_api()  # Member application approval workflow
 def approve_membership_application_background(
-    member_name, membership_type=None, chapter=None, notes=None, create_invoice=True
+    member_name: str,
+    membership_type: str = None,
+    chapter: str = None,
+    notes: str = None,
+    create_invoice: bool = True,
 ) -> OperationResult[Dict[str, Any]]:
     """
     Approve a membership application using background processing for heavy operations.
@@ -102,8 +106,8 @@ def approve_membership_application_background(
 
         validate_chapter_permission_or_throw(member_name, "approve")
 
-        # Resolve membership type using existing helper
-        from verenigingen.api.membership_application_review import resolve_membership_type
+        # Resolve membership type using approval service helper
+        from verenigingen.services.member.approval.member_approval_service import resolve_membership_type
 
         membership_type = resolve_membership_type(member, membership_type)
 
@@ -115,99 +119,54 @@ def approve_membership_application_background(
         # ==========================================
         # CRITICAL SYNCHRONOUS OPERATIONS
         # ==========================================
-        # These operations must complete in the main transaction for workflow consistency
+        # Create membership and invoice via canonical MembershipCreationService path.
+        # approval_fields are passed through to be set on the member in one consolidated save,
+        # avoiding the timestamp conflicts that the old retry loop tried to work around.
 
-        # 1. Update member status (CRITICAL - must be synchronous)
-        # Use retry logic for timestamp conflicts (Frappe handles transactions natively)
-        max_retries = 3
-        retry_count = 0
+        # Build approval_fields — same pattern as the canonical review API
+        approval_fields = {
+            "application_status": "Approved",
+            "status": "Active",
+            "member_since": today(),
+            "reviewed_by": frappe.session.user,
+            "review_date": now_datetime(),
+            "selected_membership_type": membership_type,
+        }
+        if notes:
+            approval_fields["review_notes"] = notes
 
-        while retry_count < max_retries:
-            try:
-                # Reload member to get latest data and avoid timestamp conflicts
-                member.reload()
+        # If member has custom dues rate, set fee_override_reason to satisfy validation
+        if hasattr(member, "dues_rate") and member.dues_rate:
+            if not getattr(member, "fee_override_reason", None):
+                approval_fields["fee_override_reason"] = "Application approval"
 
-                member.application_status = "Approved"
-                member.status = "Active"
-                member.member_since = today()
-                member.reviewed_by = frappe.session.user
-                member.review_date = now_datetime()
-                if notes:
-                    member.review_notes = notes
-
-                # Set selected membership type
-                try:
-                    member.selected_membership_type = membership_type
-                except AttributeError:
-                    # Field might not exist in database yet, log but continue
-                    frappe.logger().warning(
-                        f"Could not set selected_membership_type field on member {member.name}"
-                    )
-
-                member.save()  # Frappe handles transaction automatically
-
-                log_security_event(
-                    frappe.session.user,
-                    "membership_approved",
-                    f"Member {member_name} approved with status change: Pending -> Approved/Active",
-                    "low",
-                )
-                break  # Success - exit retry loop
-
-            except frappe.TimestampMismatchError:
-                retry_count += 1
-
-                if retry_count >= max_retries:
-                    log_security_event(
-                        frappe.session.user,
-                        "approval_save_failed",
-                        f"Failed to save member {member_name} after {max_retries} attempts due to timestamp conflicts",
-                        "high",
-                    )
-                    frappe.throw(_("Document was modified during approval. Please refresh and try again."))
-                else:
-                    # Wait before retrying (shorter for user-facing operation)
-                    import time
-
-                    time.sleep(1 + (retry_count * 0.5))  # 1.5s, 2s, 2.5s
-
-            except Exception as e:
-                log_security_event(
-                    frappe.session.user,
-                    "approval_save_failed",
-                    f"Failed to save member {member_name} during approval: {str(e)}",
-                    "high",
-                )
-                frappe.throw(_("Failed to save member approval status. Please try again."))
-
-        # 2. Create invoice (synchronous for immediate user feedback)
         invoice = None
-        if create_invoice:
-            try:
-                from verenigingen.api.membership_application_review import create_membership_and_invoice
+        membership = None
+        try:
+            membership = member.create_membership_on_approval(
+                create_invoice=create_invoice,
+                approval_fields=approval_fields,
+            )
 
-                membership, membership_type_doc, billing_amount = create_membership_and_invoice(
-                    member, membership_type
-                )
+            # Get invoice from member after create_membership_on_approval sets it
+            member.reload()
+            if hasattr(member, "application_invoice") and member.application_invoice:
+                invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
 
-                # Create invoice for immediate feedback
-                # First ensure customer exists (quick operation)
-                from verenigingen.api.payment_processing import (
-                    create_application_invoice,
-                    get_or_create_customer,
-                )
+            log_security_event(
+                "membership_approved",
+                {"message": f"Member {member_name} approved with status change: Pending -> Approved/Active"},
+                severity="low",
+            )
 
-                customer_result = get_or_create_customer(member)
-                if customer_result:
-                    invoice = create_application_invoice(member, membership)
-
-            except Exception as e:
-                # Log the error but continue - background jobs will handle any cleanup needed
-                frappe.log_error(
-                    f"Invoice creation failed during background approval for {member_name}: {str(e)}",
-                    "Background Approval Invoice Error",
-                )
-                invoice = None
+        except (frappe.ValidationError, frappe.PermissionError):
+            raise
+        except Exception as e:
+            frappe.log_error(
+                f"Membership creation failed during background approval for {member_name}: {str(e)}",
+                "Background Approval Error",
+            )
+            frappe.throw(_("Failed to approve membership application. Please try again."))
 
         # ==========================================
         # EMIT EVENTS FOR BACKGROUND PROCESSING
@@ -296,7 +255,7 @@ def approve_membership_application_background(
 
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
-def get_approval_progress(member_name) -> OperationResult[Dict[str, Any]]:
+def get_approval_progress(member_name: str) -> OperationResult[Dict[str, Any]]:
     """
     API endpoint to check the progress of background approval operations.
 

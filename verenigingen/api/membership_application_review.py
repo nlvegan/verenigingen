@@ -12,8 +12,6 @@ from verenigingen.services.communication.email_service import get_email_service
 # Import extracted services
 from verenigingen.services.member.approval.member_approval_service import (
     create_member_iban_history,
-    finalize_member_approval,
-    process_member_approval,
     resolve_membership_type,
     validate_approval_prerequisites,
 )
@@ -65,73 +63,15 @@ def assign_member_to_chapter(member, chapter, notify=None):
         frappe.logger().warning(f"Could not assign member to chapter: {str(e)}")
 
 
-def create_membership_and_invoice(member, membership_type):
-    """Create membership record and invoice - extracted from approval workflow"""
-    # Check for existing active membership first
-    existing_membership = frappe.db.get_value(
-        "Membership", {"member": member.name, "status": ["in", ["Active", "Draft"]]}, "name"
-    )
-
-    if existing_membership:
-        frappe.logger().info(f"Member {member.name} already has active membership: {existing_membership}")
-        membership = frappe.get_doc("Membership", existing_membership)
-        # Update membership type if different
-        if membership.membership_type != membership_type:
-            membership.membership_type = membership_type
-            membership.save()
-    else:
-        # Create membership record
-        membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": member.name,
-                "membership_type": membership_type,
-                "start_date": today(),
-                "status": "Draft",  # Will be activated after payment
-            }
-        )
-
-        membership.insert()
-
-    # Get membership type details
-    membership_type_doc = frappe.get_doc("Membership Type", membership_type)
-
-    # Get billing amount from created dues schedule or template
-    billing_amount = 0
-    if hasattr(member, "dues_rate") and member.dues_rate:
-        # Use member's custom dues rate
-        billing_amount = member.dues_rate
-    elif membership_type_doc.dues_schedule_template:
-        try:
-            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
-            billing_amount = template.dues_rate or template.suggested_amount or 0
-        except Exception:
-            pass
-
-    # Fallback to minimum_amount if no template amount available
-    if not billing_amount:
-        billing_amount = membership_type_doc.minimum_amount
-
-    # Submit membership first to trigger dues schedule creation
-    try:
-        membership.submit()
-        frappe.logger().info(f"Successfully submitted membership {membership.name} for member {member.name}")
-    except Exception as e:
-        frappe.logger().error(f"Failed to submit membership for member {member.name}: {str(e)}")
-        frappe.throw(_("Failed to submit membership. Please try again."))
-
-    return membership, membership_type_doc, billing_amount
-
-
 @frappe.whitelist()
 @high_security_api()  # Member application approval workflow
 def approve_membership_application(
-    member_name,
-    membership_type=None,
-    chapter=None,
-    notes=None,
-    create_invoice=True,
-    activate_as_volunteer=False,
+    member_name: str,
+    membership_type: str = None,
+    chapter: str = None,
+    notes: str = None,
+    create_invoice: bool = True,
+    activate_as_volunteer: bool = False,
 ):
     """
     Approve a membership application with focused responsibilities
@@ -823,12 +763,12 @@ def activate_volunteer_record(member):
 @frappe.whitelist()
 @high_security_api()  # Member application rejection workflow
 def reject_membership_application(
-    member_name,
-    reason,
-    email_template=None,
-    rejection_category=None,
-    internal_notes=None,
-    process_refund=False,
+    member_name: str,
+    reason: str,
+    email_template: str = None,
+    rejection_category: str = None,
+    internal_notes: str = None,
+    process_refund: bool = False,
 ):
     """Reject a membership application with enhanced template support and input validation"""
     # Input sanitization and validation
@@ -1174,7 +1114,7 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
 
 @frappe.whitelist()
 @standard_api()  # Application listing - read-only
-def get_pending_applications(chapter=None, days_overdue=None):
+def get_pending_applications(chapter: str | None = None, days_overdue: int | None = None):
     """Get list of pending membership applications"""
     filters = {"application_status": "Pending", "status": "Pending"}
 
@@ -1340,7 +1280,7 @@ def get_pending_applications(chapter=None, days_overdue=None):
 
 @frappe.whitelist()
 @standard_api()  # Member data query
-def get_pending_reviews_for_member(member_name):
+def get_pending_reviews_for_member(member_name: str):
     """Get pending membership application reviews for a specific member"""
     try:
         # Check if there are any pending reviews for this member
@@ -1372,7 +1312,7 @@ def get_pending_reviews_for_member(member_name):
 
 @frappe.whitelist()
 @standard_api()  # Debugging and diagnostic tool
-def debug_and_fix_member_approval(member_name):
+def debug_and_fix_member_approval(member_name: str):
     """Debug and fix member approval issues"""
     try:
         member = frappe.get_doc("Member", member_name)
@@ -1424,7 +1364,7 @@ def debug_and_fix_member_approval(member_name):
 
 @frappe.whitelist()
 @standard_api()  # Testing and diagnostic tool
-def test_member_approval(member_name):
+def test_member_approval(member_name: str):
     """Test member approval without actually approving"""
     try:
         member = frappe.get_doc("Member", member_name)
@@ -1665,7 +1605,7 @@ def migrate_active_application_status():
 
 @frappe.whitelist()
 @standard_api()  # Member IBAN data validation
-def check_member_iban_data(member_name):
+def check_member_iban_data(member_name: str):
     """Check the current IBAN data for a member"""
     try:
         member = frappe.get_doc("Member", member_name)
@@ -1689,7 +1629,7 @@ def check_member_iban_data(member_name):
 
 @frappe.whitelist()
 @standard_api()  # Financial debugging tool
-def debug_custom_amount_flow(member_name):
+def debug_custom_amount_flow(member_name: str):
     """Debug the custom amount flow for a specific member"""
     try:
         member = frappe.get_doc("Member", member_name)
@@ -1770,7 +1710,7 @@ def send_overdue_notifications(**kwargs):
 
 @frappe.whitelist()
 @standard_api()  # Membership debugging tool
-def debug_membership_dues_schedule(membership_name):
+def debug_membership_dues_schedule(membership_name: str):
     """Debug a specific membership and its dues schedule"""
     try:
         membership = frappe.get_doc("Membership", membership_name)
@@ -1818,7 +1758,7 @@ def debug_membership_dues_schedule(membership_name):
 
 @frappe.whitelist()
 @standard_api()  # Configuration debugging tool
-def debug_membership_type_settings(membership_type_name):
+def debug_membership_type_settings(membership_type_name: str):
     """Debug a membership type and its settings"""
     try:
         membership_type = frappe.get_doc("Membership Type", membership_type_name)
@@ -1845,7 +1785,7 @@ def debug_membership_type_settings(membership_type_name):
 
 @frappe.whitelist()
 @standard_api()  # Invoice relationship validation
-def check_dues_schedule_invoice_relationship(invoice_name):
+def check_dues_schedule_invoice_relationship(invoice_name: str):
     """Check dues schedule invoice relationships"""
     try:
         invoice = frappe.get_doc("Sales Invoice", invoice_name)

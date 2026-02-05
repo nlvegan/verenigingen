@@ -376,7 +376,22 @@ class Member(
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
     def approve_application(self) -> bool:
-        """Approve this application and assign member ID"""
+        """Approve this application and assign member ID.
+
+        .. deprecated::
+            Not used in the production approval flow. The canonical approval path is
+            ``approve_membership_application()`` in ``api/membership_application_review.py``
+            which calls ``member.create_membership_on_approval()`` directly.
+            This method will be removed in a future version.
+        """
+        import warnings
+
+        warnings.warn(
+            "Member.approve_application() is deprecated. "
+            "Use api.membership_application_review.approve_membership_application() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # Use lifecycle service for core approval logic
         result = get_member_lifecycle_service().approve_application(self)
 
@@ -924,7 +939,7 @@ def is_chapter_management_enabled():
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_board_memberships(member_name):
+def get_board_memberships(member_name: str):
     """Get board memberships for a member"""
     from verenigingen.services.member.chapter import get_chapter_management_service
 
@@ -945,7 +960,7 @@ def handle_fee_override_after_save(doc, method=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def assign_member_id(member_name):
+def assign_member_id(member_name: str):
     """Assign member ID - delegates to MemberIDService"""
     from verenigingen.services.member.identification.member_id_service import get_member_id_service
 
