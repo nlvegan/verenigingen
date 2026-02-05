@@ -441,11 +441,13 @@ class RollbackManager:
             }
             
             for table in tables:
-                indexes_to_drop = index_mappings.get(table, [])
-                
+                if table not in index_mappings:
+                    continue
+                indexes_to_drop = index_mappings[table]
+
                 for index_name in indexes_to_drop:
                     try:
-                        frappe.db.sql(f"DROP INDEX {index_name} ON `{table}`")
+                        frappe.db.sql(f"DROP INDEX `{index_name}` ON `{table}`")
                         dropped_indexes.append(f"{table}.{index_name}")
                     except Exception as e:
                         # Index might not exist, continue

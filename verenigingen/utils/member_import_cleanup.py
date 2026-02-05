@@ -2043,9 +2043,16 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             ("tabCustomer", "custom_member", "Clear customer-member links"),
         ]
 
+        # Build whitelist from the hardcoded tuple above
+        allowed_tables = {t[0] for t in tables_to_truncate}
+
         # Get record counts before operation
         for table_name, has_special, desc in tables_to_truncate:
             try:
+                if table_name not in allowed_tables:
+                    results["warnings"].append(f"Skipping unrecognized table: {table_name}")
+                    continue
+
                 # Check if table exists
                 if has_special and table_name == "tabDonor":
                     if not frappe.db.exists("DocType", "Donor"):

@@ -237,8 +237,8 @@ def validate_production_schema():
         
         for table, column in indexes_to_check:
             indexes = frappe.db.sql(f"""
-                SHOW INDEX FROM `{table}` WHERE Column_name = '{column}'
-            """, as_dict=True)
+                SHOW INDEX FROM `{table}` WHERE Column_name = %s
+            """, (column,), as_dict=True)
             
             if indexes:
                 results.append(f"✓ Index exists for {table}.{column}")
@@ -305,8 +305,8 @@ def create_production_indexes():
         try:
             # Check if index already exists
             existing_indexes = frappe.db.sql(f"""
-                SHOW INDEX FROM `{table}` WHERE Column_name = '{column}'
-            """, as_dict=True)
+                SHOW INDEX FROM `{table}` WHERE Column_name = %s
+            """, (column,), as_dict=True)
             
             if not existing_indexes:
                 # Create index
