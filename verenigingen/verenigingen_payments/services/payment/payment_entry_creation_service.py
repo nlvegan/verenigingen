@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
 from frappe import _
@@ -51,6 +51,7 @@ class PaymentEntryCreationService:
         payment_type: str = "Receive",
         bank_transaction_name: Optional[str] = None,
         allow_draft_on_permission_failure: bool = False,
+        custom_fields: Optional[Dict[str, Any]] = None,
     ) -> "PaymentEntry":
         """
         Create and submit payment entry from invoice.
@@ -66,6 +67,8 @@ class PaymentEntryCreationService:
             bank_transaction_name: Optional link to Bank Transaction for reconciliation
             allow_draft_on_permission_failure: If True, return draft entry if user lacks
                                                submit permission (for reconciliation workflows)
+            custom_fields: Optional dict of custom field names to values to set on payment entry
+                          (e.g., {"custom_sepa_batch": "BATCH-001", "custom_sepa_batch_item": "ITEM-001"})
 
         Returns:
             PaymentEntry: Created and submitted Payment Entry document
@@ -103,6 +106,21 @@ class PaymentEntryCreationService:
                 allow_draft_on_permission_failure=True  # Can return draft
             )
             # Returns: submitted Payment Entry, or draft if lacking submit permission, or raises
+
+            # SEPA reconciliation with custom fields
+            payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name="SI-2024-001",
+                amount=Decimal("50.00"),
+                posting_date=transaction_date,
+                reference_no=bank_trans.reference_number,
+                reference_date=transaction_date,
+                mode_of_payment="SEPA Direct Debit",
+                custom_fields={
+                    "custom_bank_transaction": bank_trans.name,
+                    "custom_sepa_batch": batch.name,
+                    "custom_sepa_batch_item": item.name,
+                }
+            )
         """
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
@@ -156,6 +174,16 @@ class PaymentEntryCreationService:
             # Link to bank transaction if provided (for reconciliation path)
             if bank_transaction_name:
                 payment_entry.bank_transaction = bank_transaction_name
+
+            # Apply custom fields if provided (for SEPA batch tracking, etc.)
+            if custom_fields:
+                for field_name, field_value in custom_fields.items():
+                    if hasattr(payment_entry, field_name):
+                        setattr(payment_entry, field_name, field_value)
+                    else:
+                        frappe.logger().warning(
+                            f"Custom field '{field_name}' not found on Payment Entry - skipping"
+                        )
 
             # Insert payment entry
             payment_entry.insert()

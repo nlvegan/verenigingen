@@ -17,13 +17,33 @@ from typing import List, Optional
 
 
 class SecurityLevel(Enum):
-    """API Security Classification Levels"""
+    """
+    API Security Classification Levels.
 
-    CRITICAL = "critical"  # Financial transactions, member data changes, system administration
-    HIGH = "high"  # Member data access, batch operations, administrative functions
-    MEDIUM = "medium"  # Reporting, read-only operations, analytics
-    LOW = "low"  # Public information, utility functions, health checks
-    PUBLIC = "public"  # No authentication required
+    Security controls by level:
+    ┌──────────┬──────┬───────┬────────┬─────────┬──────────┐
+    │ Level    │ CSRF │ Audit │ IP Rst │ Methods │ Max Size │
+    ├──────────┼──────┼───────┼────────┼─────────┼──────────┤
+    │ CRITICAL │  ✓   │ Full  │   ✓    │ POST    │  512KB   │
+    │ HIGH     │  ✓   │ Std   │   ✗    │ GET/POST│   1MB    │
+    │ MEDIUM   │  ✗   │  ✗    │   ✗    │ GET/POST│   2MB    │
+    │ LOW      │  ✗   │  ✗    │   ✗    │ GET/POST│   4MB    │
+    │ PUBLIC   │  ✗   │  ✗    │   ✗    │ +OPTIONS│  10MB    │
+    └──────────┴──────┴───────┴────────┴─────────┴──────────┘
+
+    Use @critical_api for: SEPA/payment processing, financial transactions
+    Use @high_security_api for: Member data access, exports, batch operations
+    Use @standard_api for: Reporting, dashboards, read-only queries
+    Use @utility_api for: Health checks, status endpoints
+    Use @public_api for: Guest forms, webhooks (no auth)
+    Use @development_only_api for: Debug tools (blocked in production)
+    """
+
+    CRITICAL = "critical"  # POST-only, IP restrictions, detailed audit - for financial ops
+    HIGH = "high"  # GET/POST, audit trail, no IP restrictions - for member data access
+    MEDIUM = "medium"  # No audit overhead - for reporting/dashboards
+    LOW = "low"  # Minimal security - for internal utilities
+    PUBLIC = "public"  # No authentication - for guest-accessible endpoints
 
 
 class EnvironmentLevel(Enum):

@@ -1080,8 +1080,56 @@ def api_security_framework(
 
 
 # Convenience decorators for common security patterns
+#
+# Security Level Selection Guide:
+# ┌─────────────────┬────────────────────────────────────────────────────────────┐
+# │ Decorator       │ Use Case                                                   │
+# ├─────────────────┼────────────────────────────────────────────────────────────┤
+# │ @critical_api   │ Financial transactions (SEPA, payments, invoicing)        │
+# │                 │ POST-only, IP restrictions, detailed audit, 512KB limit   │
+# ├─────────────────┼────────────────────────────────────────────────────────────┤
+# │ @high_security  │ Member data access, batch operations, exports             │
+# │                 │ GET/POST allowed, standard audit, 1MB limit               │
+# ├─────────────────┼────────────────────────────────────────────────────────────┤
+# │ @standard_api   │ Reporting, dashboards, read-only operations               │
+# │                 │ No CSRF/audit overhead, 2MB limit                         │
+# ├─────────────────┼────────────────────────────────────────────────────────────┤
+# │ @utility_api    │ Health checks, status endpoints, internal tools           │
+# │                 │ Minimal security, 4MB limit                               │
+# ├─────────────────┼────────────────────────────────────────────────────────────┤
+# │ @public_api     │ Guest-accessible endpoints (membership forms, webhooks)   │
+# │                 │ No authentication, 10MB limit, OPTIONS for CORS           │
+# ├─────────────────┼────────────────────────────────────────────────────────────┤
+# │ @development_   │ Debug/test utilities - blocked in production              │
+# │ only_api        │                                                           │
+# └─────────────────┴────────────────────────────────────────────────────────────┘
+
+
 def critical_api(operation_type: OperationType = OperationType.FINANCIAL, self_service_only: bool = False):
-    """Decorator for critical security APIs (financial, admin)"""
+    """
+    Decorator for critical security APIs requiring maximum protection.
+
+    Use for: SEPA batch processing, payment submissions, financial transactions,
+    system administration operations.
+
+    Security features:
+    - CSRF validation required
+    - Detailed audit logging (full request/response)
+    - IP restrictions enabled (configurable whitelist)
+    - POST-only (no GET requests - prevents CSRF via URL)
+    - 512KB max request size
+    - Rate limiting enforced
+
+    Example:
+        @frappe.whitelist()
+        @critical_api(operation_type=OperationType.FINANCIAL)
+        def submit_sepa_batch(batch_id: str):
+            ...
+
+    Args:
+        operation_type: Classification for rate limiting (default: FINANCIAL)
+        self_service_only: If True, users can only access their own data
+    """
     return api_security_framework(
         security_level=SecurityLevel.CRITICAL,
         operation_type=operation_type,
@@ -1093,7 +1141,35 @@ def critical_api(operation_type: OperationType = OperationType.FINANCIAL, self_s
 def high_security_api(
     operation_type: OperationType = OperationType.MEMBER_DATA, self_service_only: bool = False
 ):
-    """Decorator for high security APIs (member data, batch operations)"""
+    """
+    Decorator for high security APIs that need audit trails but allow read access.
+
+    Use for: Member data lookups, batch exports, administrative queries,
+    operations that need audit logging but aren't strictly write-only.
+
+    Security features:
+    - CSRF validation required
+    - Standard audit logging (key fields only)
+    - No IP restrictions (allows broader access than critical)
+    - GET and POST allowed (enables data retrieval)
+    - 1MB max request size
+    - Rate limiting enforced
+
+    Key difference from @critical_api:
+    - Allows GET requests (for data retrieval)
+    - No IP restrictions (for member self-service portals)
+    - Larger payload limit (for batch operations)
+
+    Example:
+        @frappe.whitelist()
+        @high_security_api(operation_type=OperationType.MEMBER_DATA)
+        def get_member_payment_history(member_id: str):
+            ...
+
+    Args:
+        operation_type: Classification for rate limiting (default: MEMBER_DATA)
+        self_service_only: If True, users can only access their own data
+    """
     return api_security_framework(
         security_level=SecurityLevel.HIGH,
         operation_type=operation_type,
@@ -1110,14 +1186,40 @@ def standard_api(
     max_request_size: int = None,
 ):
     """
-    Decorator for standard security APIs (reporting, read operations)
+    Decorator for standard authenticated APIs without audit overhead.
 
-    Can be used as:
-    - @standard_api
-    - @standard_api()
-    - @standard_api(operation_type=OperationType.PUBLIC)
-    - @standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
-    - @standard_api(operation_type=OperationType.MEMBER_DATA, max_request_size=10*1024*1024)
+    Use for: Reporting endpoints, dashboard data, analytics queries,
+    read-only operations where audit logging is unnecessary.
+
+    Security features:
+    - Authentication required (not guest-accessible)
+    - No CSRF validation (read operations)
+    - No audit logging (reduces overhead)
+    - Input validation enabled
+    - 2MB max request size (or custom via max_request_size)
+    - Rate limiting enforced
+
+    Key difference from @high_security_api:
+    - No audit trail (for high-volume read operations)
+    - No CSRF overhead (safe for GET requests)
+
+    Usage patterns:
+        @standard_api                                    # Simplest form
+        @standard_api()                                  # Equivalent
+        @standard_api(operation_type=OperationType.REPORTING)
+        @standard_api(self_service_only=True)           # User can only see own data
+        @standard_api(max_request_size=10*1024*1024)    # Custom payload limit
+
+    Example:
+        @frappe.whitelist()
+        @standard_api
+        def get_dashboard_stats():
+            ...
+
+    Args:
+        operation_type: Classification for rate limiting (default: REPORTING)
+        self_service_only: If True, users can only access their own data
+        max_request_size: Override default 2MB limit
     """
     # Handle both @standard_api and @standard_api() usage patterns
     if func_or_operation_type is None:
@@ -1151,12 +1253,36 @@ def standard_api(
 
 def utility_api(func_or_operation_type=None, *, operation_type: OperationType = OperationType.UTILITY):
     """
-    Decorator for utility APIs (health checks, status)
+    Decorator for low-security utility endpoints.
 
-    Can be used as:
-    - @utility_api
-    - @utility_api()
-    - @utility_api(operation_type=OperationType.UTILITY)
+    Use for: Health checks, status endpoints, internal tooling,
+    operations that need authentication but minimal overhead.
+
+    Security features:
+    - Authentication required
+    - No CSRF validation
+    - No audit logging
+    - Input validation enabled
+    - 4MB max request size
+    - Minimal rate limiting
+
+    Key difference from @standard_api:
+    - Even less overhead (for internal tools)
+    - Larger payload limit
+
+    Usage patterns:
+        @utility_api
+        @utility_api()
+        @utility_api(operation_type=OperationType.UTILITY)
+
+    Example:
+        @frappe.whitelist()
+        @utility_api
+        def health_check():
+            return {"status": "ok"}
+
+    Args:
+        operation_type: Classification for rate limiting (default: UTILITY)
     """
     # Handle both @utility_api and @utility_api() usage patterns
     if func_or_operation_type is None:
@@ -1178,12 +1304,40 @@ def utility_api(func_or_operation_type=None, *, operation_type: OperationType = 
 
 def public_api(func_or_operation_type=None, *, operation_type: OperationType = OperationType.PUBLIC):
     """
-    Decorator for public APIs (no authentication required)
+    Decorator for guest-accessible APIs (no authentication required).
 
-    Can be used as:
-    - @public_api
-    - @public_api()
-    - @public_api(operation_type=OperationType.PUBLIC)
+    Use for: Membership application forms, public information,
+    webhook endpoints, CORS-enabled APIs.
+
+    Security features:
+    - NO authentication (guest access allowed)
+    - No CSRF validation
+    - No audit logging
+    - Input validation enabled (critical for untrusted input!)
+    - 10MB max request size
+    - GET, POST, and OPTIONS allowed (OPTIONS for CORS preflight)
+    - Rate limiting enforced (important for abuse prevention)
+
+    IMPORTANT: Since these endpoints are unauthenticated, ensure:
+    - Strict input validation (untrusted data)
+    - Rate limiting is properly configured
+    - No sensitive data exposure
+
+    Usage patterns:
+        @public_api
+        @public_api()
+        @public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
+
+    Example:
+        @frappe.whitelist(allow_guest=True)
+        @public_api
+        def get_membership_types():
+            ...
+
+    Note: Must be combined with @frappe.whitelist(allow_guest=True)
+
+    Args:
+        operation_type: Classification for rate limiting (default: PUBLIC)
     """
     # Handle both @public_api and @public_api() usage patterns
     if func_or_operation_type is None:
@@ -1207,7 +1361,34 @@ def development_only_api(
     operation_type: OperationType = OperationType.UTILITY,
     security_level: SecurityLevel = SecurityLevel.LOW,
 ):
-    """Decorator for development-only APIs (test utilities, debug functions)"""
+    """
+    Decorator for development-only APIs that are blocked in production.
+
+    Use for: Test utilities, debug endpoints, development tools,
+    database inspection, security analysis functions.
+
+    Security features:
+    - BLOCKED in production/staging environments
+    - Only accessible when FRAPPE_ENV=development
+    - Minimal audit logging
+    - Authentication required (System Manager typically)
+
+    Environment detection:
+    - Checks FRAPPE_ENV environment variable
+    - Falls back to site configuration
+    - Throws PermissionError if accessed in production
+
+    Example:
+        @frappe.whitelist()
+        @development_only_api(operation_type=OperationType.UTILITY)
+        def analyze_security_status():
+            # Only runs in development
+            ...
+
+    Args:
+        operation_type: Classification for rate limiting (default: UTILITY)
+        security_level: Override security level (default: LOW)
+    """
     return api_security_framework(
         security_level=security_level,
         operation_type=operation_type,

@@ -246,7 +246,11 @@ class BankStatementImporter:
             }
 
     def _create_payment_entry(self, transaction: Dict) -> bool:
-        """Create payment entry from transaction data"""
+        """Create payment entry from transaction data using consolidated service."""
+        from decimal import Decimal as D
+
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
         try:
             # Find matching sales invoice
             matching_invoice = self._find_matching_invoice(transaction)
@@ -265,65 +269,25 @@ class BankStatementImporter:
                 self.warnings.append(f"Payment already exists for invoice {matching_invoice}")
                 return False
 
-            # Get invoice details
+            # Get invoice to determine amount
             invoice = frappe.get_doc("Sales Invoice", matching_invoice)
+            posting_date = transaction.get("date", today())
 
-            # Get default accounts from company
-            company_doc = frappe.get_doc("Company", invoice.company)
-            default_bank_account = company_doc.default_bank_account
-            default_receivable_account = company_doc.default_receivable_account
-
-            # Fall back to getting accounts from Mode of Payment if company defaults not set
-            if not default_bank_account:
-                mode_of_payment = frappe.get_doc("Mode of Payment", "Bank Transfer")
-                for account in mode_of_payment.accounts:
-                    if account.company == invoice.company:
-                        default_bank_account = account.default_account
-                        break
-
-            if not default_receivable_account:
-                default_receivable_account = frappe.get_cached_value(
-                    "Company", invoice.company, "default_receivable_account"
-                )
-
-            # Create payment entry
-            payment_entry = frappe.new_doc("Payment Entry")
-            payment_entry.update(
-                {
-                    "payment_type": "Receive",
-                    "party_type": "Customer",
-                    "party": invoice.customer,
-                    "company": invoice.company,
-                    "posting_date": transaction.get("date", today()),
-                    "paid_amount": transaction["amount"],
-                    "received_amount": transaction["amount"],
-                    "reference_no": f"BANK_IMPORT_{matching_invoice}",
-                    "reference_date": transaction.get("date", today()),
-                    "remarks": f"Bank import: {transaction.get('description', '')}",
-                    "mode_of_payment": "Bank Transfer",
-                    # Exchange rates - mandatory in ERPNext v15+
-                    "source_exchange_rate": 1.0,
-                    "target_exchange_rate": 1.0,
-                    # Payment accounts
-                    "paid_from": default_receivable_account,  # Receivables for "Receive" payments
-                    "paid_to": default_bank_account,  # Bank account where money goes
-                    "paid_from_account_currency": invoice.currency or "EUR",
-                    "paid_to_account_currency": "EUR",
-                }
+            # Use consolidated payment entry creation service
+            # The service auto-resolves accounts from the invoice using ERPNext's get_payment_entry()
+            payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+                invoice_name=matching_invoice,
+                amount=D(str(min(transaction["amount"], invoice.outstanding_amount))),
+                posting_date=posting_date,
+                reference_no=f"BANK_IMPORT_{matching_invoice}",
+                reference_date=posting_date,
+                mode_of_payment="Bank Transfer",
+                payment_type="Receive",
             )
 
-            # Add reference to invoice
-            payment_entry.append(
-                "references",
-                {
-                    "reference_doctype": "Sales Invoice",
-                    "reference_name": matching_invoice,
-                    "allocated_amount": min(transaction["amount"], invoice.outstanding_amount),
-                },
-            )
-
-            payment_entry.insert()
-            payment_entry.submit()
+            # Add remarks after creation (service doesn't handle this)
+            if transaction.get("description"):
+                payment_entry.db_set("remarks", f"Bank import: {transaction['description']}")
 
             return True
 
