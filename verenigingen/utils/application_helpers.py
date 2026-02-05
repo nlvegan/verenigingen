@@ -918,7 +918,8 @@ def get_membership_type_fee_info(membership_type):
             description (str), amount (float), currency (str),
             billing_frequency (str), minimum_amount (float),
             maximum_amount (float), suggested_amounts (list[dict]),
-            allow_custom_amount (bool), has_template (bool)
+            allow_custom_amount (bool), has_template (bool),
+            raw_suggested_amount (float|None), template_name (str|None)
     """
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
@@ -927,6 +928,8 @@ def get_membership_type_fee_info(membership_type):
         amount = 0
         billing_frequency = "Annual"
         has_template = bool(membership_type_doc.dues_schedule_template)
+        raw_suggested_amount = None  # Preserved for strict validation in suggest_membership_amounts
+        template_name = None
 
         if has_template:
             try:
@@ -935,6 +938,8 @@ def get_membership_type_fee_info(membership_type):
                 )
                 amount = template.dues_rate or template.suggested_amount or 0
                 billing_frequency = template.billing_frequency or "Annual"
+                raw_suggested_amount = template.suggested_amount
+                template_name = template.name
             except Exception:
                 pass
 
@@ -981,6 +986,8 @@ def get_membership_type_fee_info(membership_type):
             "suggested_amounts": suggested_amounts,
             "allow_custom_amount": True,
             "has_template": has_template,
+            "raw_suggested_amount": raw_suggested_amount,
+            "template_name": template_name,
         }
 
     except Exception as e:
@@ -1073,6 +1080,10 @@ def suggest_membership_amounts(membership_type_name):
 
     Uses get_membership_type_fee_info() for base data, then adds strict
     validation and formatted suggestion tiers.
+
+    Note: This function intentionally uses suggested_amount (not dues_rate)
+    as its base amount, matching the original behavior where tiers are based
+    on the suggested contribution amount, not the billing rate.
     """
     try:
         info = get_membership_type_fee_info(membership_type_name)
@@ -1082,26 +1093,57 @@ def suggest_membership_amounts(membership_type_name):
         if not info.get("has_template"):
             frappe.throw(f"Membership Type '{membership_type_name}' must have a dues schedule template")
 
-        base_amount = info["amount"]
-        currency = info["currency"]
+        # Strict validation on raw suggested_amount (preserved from original)
+        raw_suggested_amount = info.get("raw_suggested_amount")
+        template_name = info.get("template_name", membership_type_name)
 
-        # Strict validation: suggest_membership_amounts requires a positive amount
-        if base_amount <= 0:
-            membership_type_minimum = info.get("minimum_amount", 0)
-            if membership_type_minimum > 0:
+        if raw_suggested_amount is None:
+            frappe.throw(f"Dues Schedule Template '{template_name}' must have a suggested_amount configured")
+
+        if raw_suggested_amount < 0:
+            frappe.throw(
+                f"Dues Schedule Template '{template_name}' cannot have negative "
+                f"suggested_amount: {raw_suggested_amount}"
+            )
+
+        # Allow zero amounts only if the membership type minimum is also zero
+        if raw_suggested_amount == 0:
+            membership_type_minimum = getattr(
+                frappe.get_doc("Membership Type", membership_type_name), "minimum_amount", None
+            )
+            if membership_type_minimum is None or membership_type_minimum > 0:
                 frappe.throw(
-                    f"Dues Schedule Template for '{membership_type_name}' has zero suggested_amount "
-                    f"but minimum_amount is {membership_type_minimum}. For free memberships, both must be zero."
+                    f"Dues Schedule Template '{template_name}' has zero suggested_amount but "
+                    f"Membership Type '{membership_type_name}' minimum_amount is "
+                    f"{membership_type_minimum}. For free memberships, both must be zero."
                 )
 
-        # Use canonical suggested_amounts and add impact messages
+        # Use suggested_amount as base (not dues_rate) for tier calculation
+        base_amount = float(raw_suggested_amount)
+        currency = info["currency"]
+
+        # Compute tiers from suggested_amount (not from canonical tiers which use dues_rate)
         suggestions = []
-        for tier in info.get("suggested_amounts", []):
-            tier_copy = dict(tier)
-            tier_copy["impact_message"] = get_amount_impact_message(
-                tier["amount"], base_amount, tier["percentage"]
-            )
-            suggestions.append(tier_copy)
+        if base_amount > 0:
+            for multiplier, label, desc in [
+                (1.0, _("Standard"), _("Standard membership fee")),
+                (1.25, _("Supporter"), _("Support our mission with 25% extra")),
+                (1.5, _("Advocate"), _("Help us grow with 50% extra")),
+                (2.0, _("Champion"), _("Be a champion with 100% extra")),
+            ]:
+                tier_amount = base_amount * multiplier
+                percentage = int(multiplier * 100)
+                suggestions.append(
+                    {
+                        "amount": tier_amount,
+                        "label": label,
+                        "description": desc,
+                        "percentage": percentage,
+                        "is_default": multiplier == 1.0,
+                        "formatted_amount": frappe.utils.fmt_money(tier_amount, currency=currency),
+                        "impact_message": get_amount_impact_message(tier_amount, base_amount, percentage),
+                    }
+                )
 
         return {
             "success": True,
