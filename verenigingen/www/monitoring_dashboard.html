@@ -403,7 +403,7 @@ function updateSystemMetrics(metrics) {
 
 function acknowledgeAlert(alertName) {
     frappe.call({
-        method: 'verenigingen.doctype.system_alert.system_alert.acknowledge_alert',
+        method: 'verenigingen.verenigingen.doctype.system_alert.system_alert.acknowledge_alert',
         args: { alert_name: alertName },
         callback: function(r) {
             // Handle OperationResult format
@@ -421,7 +421,7 @@ function acknowledgeAlert(alertName) {
 
 function resolveAlert(alertName) {
     frappe.call({
-        method: 'verenigingen.doctype.system_alert.system_alert.resolve_alert',
+        method: 'verenigingen.verenigingen.doctype.system_alert.system_alert.resolve_alert',
         args: { alert_name: alertName },
         callback: function(r) {
             // Handle OperationResult format

@@ -1,0 +1,59 @@
+{
+  "actions": [],
+  "creation": "2026-02-05 10:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "category_name",
+    "display_order",
+    "is_enabled",
+    "skills"
+  ],
+  "fields": [
+    {
+      "fieldname": "category_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Category Name",
+      "reqd": 1,
+      "description": "e.g., Technical, Communication, Leadership"
+    },
+    {
+      "default": "0",
+      "fieldname": "display_order",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "Display Order",
+      "description": "Lower numbers appear first"
+    },
+    {
+      "default": "1",
+      "fieldname": "is_enabled",
+      "fieldtype": "Check",
+      "in_list_view": 1,
+      "label": "Enabled"
+    },
+    {
+      "fieldname": "skills",
+      "fieldtype": "Small Text",
+      "in_list_view": 1,
+      "label": "Skills",
+      "reqd": 1,
+      "description": "Comma-separated list of skills (e.g., Web Development, Graphic Design, Video Editing)"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "istable": 1,
+  "links": [],
+  "modified": "2026-02-05 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Volunteer Skill Category",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "display_order",
+  "sort_order": "ASC",
+  "states": [],
+  "track_changes": 1
+}

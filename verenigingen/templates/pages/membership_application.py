@@ -219,7 +219,7 @@ def get_membership_types_with_contributions():
 
 @frappe.whitelist()
 @public_api
-def get_membership_type_details(membership_type_name):
+def get_membership_type_details(membership_type_name: str):
     """Get detailed contribution options for a specific membership type"""
     if not membership_type_name:
         return {"error": "Membership type name is required"}
@@ -253,10 +253,230 @@ def get_membership_type_details(membership_type_name):
         return {"error": "An error occurred while retrieving membership type details"}
 
 
+@frappe.whitelist(allow_guest=True)
+def get_dues_schedules_for_membership_type(membership_type_name: str):
+    """Get all dues schedule templates for a specific membership type.
+
+    This is used in the two-phase membership selection where:
+    1. User first selects a membership type
+    2. Then sees available payment plans (dues schedules) for that type
+
+    Args:
+        membership_type_name: The name of the membership type
+
+    Returns:
+        dict with success status and list of dues schedules
+    """
+    # Input validation for guest-accessible endpoint
+    if not membership_type_name:
+        return {"success": False, "error": "Membership type name is required"}
+
+    # Sanitize input - membership type names should be reasonable length and format
+    membership_type_name = str(membership_type_name).strip()
+    if len(membership_type_name) > 140:
+        return {"success": False, "error": "Invalid membership type name"}
+
+    # Verify the membership type actually exists before proceeding
+    if not frappe.db.exists("Membership Type", membership_type_name):
+        return {"success": False, "error": f"Membership type '{membership_type_name}' not found"}
+
+    try:
+        # Get all template dues schedules linked to this membership type
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={
+                "is_template": 1,
+                "membership_type": membership_type_name,
+                "status": ["in", ["Active", "Draft"]],  # Include both for flexibility
+            },
+            fields=[
+                "name",
+                "schedule_name",
+                "billing_frequency",
+                "dues_rate",
+                "currency",
+                "notes",
+                "contribution_mode",
+                "income_calculation_type",
+                "income_percentage",
+                "suggestion_multipliers",
+                "default_multiplier",
+                "allow_custom_amount",
+                "minimum_amount",
+                "suggested_amount",
+                "progressive_reference_income",
+                "progressive_lower_threshold",
+                "progressive_formula_description",
+            ],
+            order_by="dues_rate asc",
+        )
+
+        # Format the schedules for the frontend
+        formatted_schedules = []
+        for schedule in schedules:
+            # Create a display-friendly billing period
+            billing_period_map = {
+                "Monthly": "per month",
+                "Quarterly": "per quarter",
+                "Semi-Annual": "every 6 months",
+                "Annual": "per year",
+            }
+            billing_display = billing_period_map.get(schedule.billing_frequency, schedule.billing_frequency)
+
+            # Build contribution settings based on the new mode structure
+            mode = schedule.contribution_mode or "Fixed"
+            contribution_settings = {
+                "mode": mode,
+                "minimum": schedule.minimum_amount or schedule.dues_rate or 0,
+                "suggested": schedule.suggested_amount or schedule.dues_rate or 0,
+            }
+
+            if mode == "Income-Based":
+                calc_type = schedule.income_calculation_type or "Percentage"
+                contribution_settings["calculation_type"] = calc_type
+                contribution_settings["description"] = schedule.progressive_formula_description or ""
+
+                if calc_type == "Percentage":
+                    contribution_settings["percentage"] = schedule.income_percentage or 0.75
+                elif calc_type == "Progressive":
+                    contribution_settings["progressive"] = {
+                        "reference_income": schedule.progressive_reference_income or 3500,
+                        "lower_threshold": schedule.progressive_lower_threshold or 2200,
+                    }
+
+            elif mode == "Flexible":
+                # Parse suggestion multipliers
+                multipliers_str = schedule.suggestion_multipliers or "1,1.25,1.5,2"
+                try:
+                    multipliers = [float(m.strip()) for m in multipliers_str.split(",") if m.strip()]
+                except ValueError:
+                    multipliers = [1, 1.25, 1.5, 2]
+
+                base_amount = schedule.dues_rate or 0
+                contribution_settings["suggestions"] = [
+                    {
+                        "multiplier": m,
+                        "amount": base_amount * m,
+                        "label": f"{int(m * 100)}%" if m != 1 else "Minimum",
+                        "is_default": m == (schedule.default_multiplier or 1),
+                    }
+                    for m in multipliers
+                ]
+                contribution_settings["allow_custom"] = bool(schedule.allow_custom_amount)
+                contribution_settings["default_multiplier"] = schedule.default_multiplier or 1
+
+            formatted_schedules.append(
+                {
+                    "name": schedule.name,
+                    "schedule_name": schedule.schedule_name or schedule.name,
+                    "billing_frequency": schedule.billing_frequency,
+                    "billing_display": billing_display,
+                    "amount": schedule.dues_rate or 0,
+                    "currency": schedule.currency or "EUR",
+                    "notes": schedule.notes or "",
+                    "contribution_settings": contribution_settings,
+                }
+            )
+
+        # If no templates found, check if the membership type has a default template
+        if not formatted_schedules:
+            mt_doc = frappe.get_doc("Membership Type", membership_type_name)
+            if mt_doc.dues_schedule_template:
+                try:
+                    template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
+                    billing_period_map = {
+                        "Monthly": "per month",
+                        "Quarterly": "per quarter",
+                        "Semi-Annual": "every 6 months",
+                        "Annual": "per year",
+                    }
+
+                    # Include contribution settings for fallback template
+                    mode = getattr(template, "contribution_mode", None) or "Fixed"
+                    contribution_settings = {
+                        "mode": mode,
+                        "minimum": getattr(template, "minimum_amount", None) or template.dues_rate or 0,
+                        "suggested": getattr(template, "suggested_amount", None) or template.dues_rate or 0,
+                    }
+
+                    if mode == "Income-Based":
+                        calc_type = getattr(template, "income_calculation_type", None) or "Percentage"
+                        contribution_settings["calculation_type"] = calc_type
+                        contribution_settings["description"] = (
+                            getattr(template, "progressive_formula_description", "") or ""
+                        )
+
+                        if calc_type == "Percentage":
+                            contribution_settings["percentage"] = (
+                                getattr(template, "income_percentage", 0.75) or 0.75
+                            )
+                        elif calc_type == "Progressive":
+                            contribution_settings["progressive"] = {
+                                "reference_income": getattr(template, "progressive_reference_income", 3500)
+                                or 3500,
+                                "lower_threshold": getattr(template, "progressive_lower_threshold", 2200)
+                                or 2200,
+                            }
+
+                    elif mode == "Flexible":
+                        multipliers_str = (
+                            getattr(template, "suggestion_multipliers", "1,1.25,1.5,2") or "1,1.25,1.5,2"
+                        )
+                        try:
+                            multipliers = [float(m.strip()) for m in multipliers_str.split(",") if m.strip()]
+                        except ValueError:
+                            multipliers = [1, 1.25, 1.5, 2]
+
+                        base_amount = template.dues_rate or 0
+                        default_mult = getattr(template, "default_multiplier", 1) or 1
+                        contribution_settings["suggestions"] = [
+                            {
+                                "multiplier": m,
+                                "amount": base_amount * m,
+                                "label": f"{int(m * 100)}%" if m != 1 else "Minimum",
+                                "is_default": m == default_mult,
+                            }
+                            for m in multipliers
+                        ]
+                        contribution_settings["allow_custom"] = bool(
+                            getattr(template, "allow_custom_amount", 1)
+                        )
+                        contribution_settings["default_multiplier"] = default_mult
+
+                    formatted_schedules.append(
+                        {
+                            "name": template.name,
+                            "schedule_name": template.schedule_name or template.name,
+                            "billing_frequency": template.billing_frequency,
+                            "billing_display": billing_period_map.get(
+                                template.billing_frequency, template.billing_frequency
+                            ),
+                            "amount": template.dues_rate or 0,
+                            "currency": template.currency or "EUR",
+                            "notes": template.notes or "",
+                            "contribution_settings": contribution_settings,
+                        }
+                    )
+                except frappe.DoesNotExistError:
+                    pass
+
+        return {
+            "success": True,
+            "membership_type": membership_type_name,
+            "schedules": formatted_schedules,
+        }
+
+    except frappe.DoesNotExistError:
+        return {"success": False, "error": f"Membership type '{membership_type_name}' not found"}
+    except Exception as e:
+        frappe.log_error(f"Error getting dues schedules: {str(e)}")
+        return {"success": False, "error": "An error occurred while retrieving dues schedules"}
+
+
 @frappe.whitelist()
 @public_api
 def validate_contribution_amount(
-    membership_type_name, amount, contribution_mode=None, selected_tier=None, base_multiplier=None
+    membership_type_name: str, amount, contribution_mode=None, selected_tier=None, base_multiplier=None
 ):
     """Validate a contribution amount against membership type constraints"""
     if not membership_type_name or not amount:
@@ -327,7 +547,9 @@ def validate_contribution_amount(
 
 @frappe.whitelist()
 @public_api
-def calculate_suggested_contribution(membership_type_name, monthly_income, payment_interval="monthly"):
+def calculate_suggested_contribution(
+    membership_type_name: str, monthly_income, payment_interval: str = "monthly"
+):
     """Calculate suggested contribution based on income"""
     if not membership_type_name or not monthly_income:
         return {"error": "Membership type and monthly income are required"}

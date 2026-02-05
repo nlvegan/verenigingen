@@ -77,6 +77,16 @@
   "csv_quarterly_dues_schedule",
   "csv_annual_dues_schedule",
   "default_aspirant_membership_type",
+  "application_form_tab",
+  "application_form_section",
+  "enable_volunteer_signup",
+  "volunteer_step_label",
+  "column_break_application_form",
+  "available_countries",
+  "payment_methods_section",
+  "application_payment_methods",
+  "volunteer_skills_section",
+  "volunteer_skill_categories",
   "donation_settings_tab",
   "donations_section",
   "automate_donation_payment_entries",
@@ -652,6 +662,66 @@
    "fieldname": "enable_sequential_coverage",
    "fieldtype": "Check",
    "label": "Enable Sequential Coverage"
+  },
+  {
+   "fieldname": "application_form_tab",
+   "fieldtype": "Tab Break",
+   "label": "Application Form"
+  },
+  {
+   "fieldname": "application_form_section",
+   "fieldtype": "Section Break",
+   "label": "Application Form Configuration"
+  },
+  {
+   "default": "1",
+   "description": "Show volunteer signup step in the membership application form",
+   "fieldname": "enable_volunteer_signup",
+   "fieldtype": "Check",
+   "label": "Enable Volunteer Signup"
+  },
+  {
+   "default": "Volunteer",
+   "depends_on": "eval:doc.enable_volunteer_signup",
+   "description": "Label for the volunteer step in the progress indicator (e.g., 'Volunteer', 'Get Involved')",
+   "fieldname": "volunteer_step_label",
+   "fieldtype": "Data",
+   "label": "Volunteer Step Label"
+  },
+  {
+   "fieldname": "column_break_application_form",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Netherlands,Belgium,Germany,Other",
+   "description": "Comma-separated list of countries to show in the application form (e.g., 'Netherlands,Belgium,Germany,Other')",
+   "fieldname": "available_countries",
+   "fieldtype": "Small Text",
+   "label": "Available Countries"
+  },
+  {
+   "fieldname": "payment_methods_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Methods",
+   "description": "Configure which payment methods are available on the application form. If empty, defaults to Bank Transfer, SEPA, and Mollie."
+  },
+  {
+   "fieldname": "application_payment_methods",
+   "fieldtype": "Table",
+   "label": "Application Payment Methods",
+   "options": "Application Payment Method"
+  },
+  {
+   "fieldname": "volunteer_skills_section",
+   "fieldtype": "Section Break",
+   "label": "Volunteer Skill Categories",
+   "description": "Configure skill categories shown in the volunteer section. If empty, defaults to Technical, Communication, Organizational, Leadership, and Financial."
+  },
+  {
+   "fieldname": "volunteer_skill_categories",
+   "fieldtype": "Table",
+   "label": "Volunteer Skill Categories",
+   "options": "Volunteer Skill Category"
   },
   {
    "fieldname": "donation_settings_tab",

@@ -1,15 +1,115 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ _("Apply for Membership") }}{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 
 {% block style %}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
+<style>
+    /* Dynamic gradient from brand colors */
+    .brand-gradient-bg {
+        background: linear-gradient(to bottom right, {{ primary_color }}10, {{ secondary_color }}10);
+    }
+
+    /* Form input styling - visible borders and good contrast */
+    .form-input,
+    input[type="text"].form-input,
+    input[type="email"].form-input,
+    input[type="tel"].form-input,
+    input[type="number"].form-input,
+    input[type="date"].form-input,
+    input[type="month"].form-input,
+    select.form-input,
+    textarea.form-input {
+        border: 2px solid #d1d5db !important;
+        border-radius: 0.5rem !important;
+        padding: 0.75rem 1rem !important;
+        background-color: #ffffff !important;
+        color: #111827 !important;
+        font-size: 1rem !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+    }
+
+    .form-input:focus,
+    input.form-input:focus,
+    select.form-input:focus,
+    textarea.form-input:focus {
+        border-color: {{ primary_color }} !important;
+        box-shadow: 0 0 0 3px {{ primary_color }}20 !important;
+        outline: none !important;
+    }
+
+    .form-input::placeholder {
+        color: #9ca3af !important;
+    }
+
+    /* Labels - better visibility */
+    .input-label {
+        font-weight: 600 !important;
+        color: #374151 !important;
+        margin-bottom: 0.5rem !important;
+        display: block !important;
+    }
+
+    .input-label.required::after {
+        content: " *";
+        color: #dc2626;
+    }
+
+    /* Form cards with clear background */
+    .form-card {
+        background-color: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 0.75rem !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    /* Membership type and payment plan radio button styling */
+    .membership-type-option,
+    .payment-plan-option {
+        transition: all 0.2s ease;
+        background-color: #ffffff;
+        border: 2px solid #d1d5db;
+    }
+
+    .membership-type-option:has(input:checked),
+    .payment-plan-option:has(input:checked) {
+        border-color: {{ primary_color }};
+        background-color: {{ primary_color }}10;
+    }
+
+    .membership-type-option:hover,
+    .payment-plan-option:hover {
+        border-color: {{ primary_color }}80;
+        background-color: #f9fafb;
+    }
+
+    /* Custom radio button styling */
+    .membership-type-option input[type="radio"],
+    .payment-plan-option input[type="radio"] {
+        width: 1.25rem;
+        height: 1.25rem;
+        accent-color: {{ primary_color }};
+    }
+
+    /* Fallback for browsers without :has() support */
+    .membership-type-option.border-primary-500,
+    .payment-plan-option.border-primary-500 {
+        border-color: {{ primary_color }} !important;
+        background-color: {{ primary_color }}10 !important;
+    }
+
+    .membership-type-option.bg-primary-50,
+    .payment-plan-option.bg-primary-50 {
+        background-color: {{ primary_color }}10 !important;
+    }
+</style>
 {% endblock %}
 
 {% block page_content %}
-<div class="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 py-8">
+{# total_steps and step_width are now set in the controller for cross-block access #}
+<div class="min-h-screen brand-gradient-bg py-8">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
 
         <!-- Organization Logo & Header -->
@@ -20,23 +120,29 @@
         {% endif %}
 
         <div class="page-header animate-slide-up">
-            <h1 class="page-title">{{ _("Become a Member") }}</h1>
-            <p class="page-subtitle">{{ _("Join our association and become part of our community dedicated to making a positive impact!") }}</p>
+            <h1 class="page-title">{{ page_title }}</h1>
+            <p class="page-subtitle">{{ page_subtitle }}</p>
         </div>
 
         <!-- Progress Indicator -->
         <div class="progress-container animate-slide-up">
             <div class="progress-bar-container">
-                <div class="progress-bar" style="width: 16.67%" id="form-progress"></div>
+                <div class="progress-bar" style="width: {{ step_width }}%" id="form-progress"></div>
             </div>
             <div class="progress-steps">
                 <span class="progress-step active" data-step="1">{{ _("Personal Info") }}</span>
                 <span class="progress-step" data-step="2">{{ _("Address") }}</span>
                 <span class="progress-step" data-step="3">{{ _("Membership") }}</span>
-                <span class="progress-step" data-step="4">{{ _("Verenigingen Volunteer") }}</span>
+                {% if enable_volunteer_signup %}
+                <span class="progress-step" data-step="4">{{ volunteer_step_label }}</span>
                 <span class="progress-step" data-step="5">{{ _("Communication") }}</span>
                 <span class="progress-step" data-step="6">{{ _("Payment") }}</span>
                 <span class="progress-step" data-step="7">{{ _("Confirm") }}</span>
+                {% else %}
+                <span class="progress-step" data-step="4">{{ _("Communication") }}</span>
+                <span class="progress-step" data-step="5">{{ _("Payment") }}</span>
+                <span class="progress-step" data-step="6">{{ _("Confirm") }}</span>
+                {% endif %}
             </div>
         </div>
 
@@ -50,7 +156,7 @@
                         <h3>{{ _("Personal Information") }}</h3>
                     </div>
                     <div class="form-body">
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-6" id="name-fields-grid">
+                        <div class="grid grid-cols-1 md:grid-cols-{% if is_dutch_installation %}3{% else %}2{% endif %} gap-6 items-end" id="name-fields-grid">
                             <div class="input-group">
                                 <label for="first_name" class="input-label required">{{ _("Preferred Name") }}</label>
                                 <input type="text" class="form-input" id="first_name" name="first_name" required
@@ -58,17 +164,10 @@
                                 <div class="text-red-500 text-sm hidden" id="first_name_error">{{ _("This field is required") }}</div>
                             </div>
 
-                            <div class="input-group">
-                                <label for="middle_name" class="input-label">{{ _("Middle Name") }}</label>
-                                <input type="text" class="form-input" id="middle_name" name="middle_name"
-                                       placeholder="{{ _('Optional') }}">
-                            </div>
-
-                            <div class="input-group" id="tussenvoegsel-field" style="display: none;">
+                            <div class="input-group" id="tussenvoegsel-field" style="display: {% if is_dutch_installation %}block{% else %}none{% endif %};">
                                 <label for="tussenvoegsel" class="input-label">{{ _("Tussenvoegsel") }}</label>
                                 <input type="text" class="form-input" id="tussenvoegsel" name="tussenvoegsel"
                                        placeholder="{{ _('van, de, van der, etc.') }}">
-                                <small class="text-gray-500 text-sm">{{ _("Dutch name particles") }}</small>
                             </div>
 
                             <div class="input-group">
@@ -109,7 +208,7 @@
                             <div class="input-group">
                                 <label for="birth_date" class="input-label">{{ _("Date of Birth") }}</label>
                                 <input type="date" class="form-input" id="birth_date" name="birth_date">
-                                <div class="text-red-500 text-sm hidden" id="birth_date_error">{{ _("This field is required") }}</div>
+                                <small class="text-gray-500 text-sm">{{ _("Used for age verification") }}</small>
                             </div>
                         </div>
                     </div>
@@ -146,10 +245,9 @@
                                 <label for="country" class="input-label required">{{ _("Country") }}</label>
                                 <select class="form-input" id="country" name="country" required>
                                     <option value="">{{ _("Select country") }}</option>
-                                    <option value="Netherlands">{{ _("Netherlands") }}</option>
-                                    <option value="Belgium">{{ _("Belgium") }}</option>
-                                    <option value="Germany">{{ _("Germany") }}</option>
-                                    <option value="Other">{{ _("Other") }}</option>
+                                    {% for country in available_countries %}
+                                    <option value="{{ country }}">{{ _(country) }}</option>
+                                    {% endfor %}
                                 </select>
                             </div>
                         </div>
@@ -252,37 +350,77 @@
                                 </div>
                             </div>
 
-                            <button type="button" class="w-full bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-4 rounded-md transition-colors duration-200" id="apply-calculated-amount" style="display: none;">
+                            <button type="button" class="w-full text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 shadow-sm" id="apply-calculated-amount" style="display: none; background-color: {{ primary_color }};">
                                 {{ _("Use This Amount") }}
                             </button>
+                            <p class="text-xs text-gray-500 mt-2 text-center" id="calculator-hint">
+                                {{ _("Enter your monthly income above to see a suggested contribution based on your income level.") }}
+                            </p>
                         </div>
 
-                        <!-- Membership Type Selection -->
-                        <h5 class="input-label required">{{ _("Membership Type") }}</h5>
-                        <div id="membership-types" class="card-grid">
-                            <div class="text-center">
-                                <div class="text-gray-500">{{ _("Loading membership types...") }}</div>
+                        <!-- Phase 1: Membership Type Selection -->
+                        <div id="membership-type-phase" class="mb-6">
+                            <h5 class="input-label required">{{ _("1. Choose Membership Type") }}</h5>
+                            <p class="text-sm text-gray-600 mb-4">{{ _("Select the type of membership that best fits you.") }}</p>
+
+                            <div id="membership-types" class="space-y-3">
+                                {% for mt in enhanced_membership_types %}
+                                <label class="membership-type-option flex items-start p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-primary-500 hover:bg-gray-50 transition-colors">
+                                    <input type="radio" name="membership_type_selection" value="{{ mt.name }}"
+                                           class="mt-1 mr-4 text-primary-600 focus:ring-primary-500"
+                                           data-description="{{ mt.description or '' }}">
+                                    <div class="flex-1">
+                                        <span class="font-medium text-gray-900">{{ mt.membership_type_name }}</span>
+                                        {% if mt.description %}
+                                        <p class="text-sm text-gray-500 mt-1">{{ mt.description }}</p>
+                                        {% endif %}
+                                    </div>
+                                </label>
+                                {% endfor %}
+                                {% if not enhanced_membership_types %}
+                                <div class="text-center py-4">
+                                    <div class="text-gray-500">{{ _("Loading membership types...") }}</div>
+                                </div>
+                                {% endif %}
                             </div>
+                            <div class="text-red-500 text-sm hidden mt-2" id="membership_type_error">{{ _("Please select a membership type") }}</div>
                         </div>
 
-                        <input type="hidden" id="membership_type" name="membership_type" required>
+                        <!-- Phase 2: Payment Plan Selection (hidden until membership type selected) -->
+                        <div id="payment-plan-phase" class="mb-6" style="display: none;">
+                            <h5 class="input-label required">{{ _("2. Choose Payment Plan") }}</h5>
+                            <p class="text-sm text-gray-600 mb-4" id="payment-plan-intro">{{ _("Select how you'd like to pay your membership dues.") }}</p>
 
-                        <!-- Custom Contribution Amount -->
+                            <div id="payment-plans" class="space-y-3">
+                                <div class="text-center py-4">
+                                    <div class="text-gray-400">{{ _("Select a membership type to see available payment plans") }}</div>
+                                </div>
+                            </div>
+
+                            <div class="text-red-500 text-sm hidden mt-2" id="payment_plan_error">{{ _("Please select a payment plan") }}</div>
+                        </div>
+
+                        <!-- Hidden fields for form submission -->
+                        <input type="hidden" id="membership_type" name="membership_type" required>
+                        <input type="hidden" id="selected_dues_schedule" name="selected_dues_schedule">
+                        <input type="hidden" id="selected_billing_frequency" name="billing_frequency">
+                        <input type="hidden" id="selected_amount" name="contribution_amount">
+
+                        <!-- Custom Contribution Amount (shown only for custom payment plans) -->
                         <div class="input-group mt-6" id="custom-contribution" style="display: none;">
-                            <label for="custom_contribution_fee" class="input-label">{{ _("Custom Annual Contribution Amount") }}</label>
+                            <label for="custom_contribution_fee" class="input-label">{{ _("Custom Contribution Amount") }}</label>
                             <div class="flex items-center">
                                 <span class="text-gray-500 mr-2">€</span>
                                 <input type="number" class="form-input" id="custom_contribution_fee" name="custom_contribution_fee"
                                        min="10" step="0.01" placeholder="25.00">
                             </div>
-                            <p class="text-sm text-gray-600 mt-1">{{ _("Minimum contribution is €10. Suggested amount is €25.") }}</p>
+                            <p class="text-sm text-gray-600 mt-1" id="custom-amount-hint">{{ _("Minimum contribution is €10.") }}</p>
                         </div>
-
-                        <div class="text-red-500 text-sm hidden" id="membership_type_error">{{ _("Please select a membership type") }}</div>
                     </div>
                 </div>
             </div>
 
+            {% if enable_volunteer_signup %}
             <!-- Step 4: Volunteer Information -->
             <div class="form-step" data-step="4">
                 <div class="form-card">
@@ -351,162 +489,21 @@
                             <label class="input-label">{{ _("Skills & Experience") }}</label>
                             <p class="text-gray-600 text-sm mb-3">{{ _("Select skills you have or add new ones. This helps us match you with suitable volunteer opportunities.") }}</p>
 
-                            <!-- Skills by Category -->
+                            <!-- Skills by Category (Dynamic) -->
                             <div id="skills-selection" class="space-y-4">
-                                <!-- Technical Skills -->
+                                {% for category in skill_categories %}
                                 <div class="skill-category">
-                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Technical Skills") }}</h4>
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ category.name }}</h4>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {% for skill in category.skills %}
                                         <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Web Development" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Web Development") }}</span>
+                                            <input type="checkbox" name="volunteer_skills[]" value="{{ category.name }}|{{ skill }}" class="form-input w-auto">
+                                            <span class="text-sm">{{ skill }}</span>
                                         </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Graphic Design" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Graphic Design") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Video Editing" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Video Editing") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Photography" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Photography") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Social Media Management" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Social Media Management") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Data Analysis" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Data Analysis") }}</span>
-                                        </label>
+                                        {% endfor %}
                                     </div>
                                 </div>
-
-                                <!-- Communication Skills -->
-                                <div class="skill-category">
-                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Communication Skills") }}</h4>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Writing" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Writing") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Public Speaking" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Public Speaking") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Translation" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Translation") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Teaching" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Teaching/Training") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Customer Service" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Customer Service") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Networking" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Networking") }}</span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <!-- Organizational Skills -->
-                                <div class="skill-category">
-                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Organizational Skills") }}</h4>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Project Management" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Project Management") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Event Planning" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Event Planning") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Logistics" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Logistics") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Research" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Research") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Administration" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Administration") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Database Management" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Database Management") }}</span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <!-- Leadership Skills -->
-                                <div class="skill-category">
-                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Leadership Skills") }}</h4>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Team Leadership" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Team Leadership") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Mentoring" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Mentoring") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Board Experience" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Board Experience") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Strategic Planning" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Strategic Planning") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Facilitation" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Facilitation") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Conflict Resolution" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Conflict Resolution") }}</span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <!-- Financial Skills -->
-                                <div class="skill-category">
-                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Financial Skills") }}</h4>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Accounting" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Accounting") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Bookkeeping" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Bookkeeping") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Fundraising" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Fundraising") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Grant Writing" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Grant Writing") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Budget Planning" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Budget Planning") }}</span>
-                                        </label>
-                                        <label class="flex items-center space-x-2">
-                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Financial Analysis" class="form-input w-auto">
-                                            <span class="text-sm">{{ _("Financial Analysis") }}</span>
-                                        </label>
-                                    </div>
-                                </div>
+                                {% endfor %}
                             </div>
 
                             <!-- Add Custom Skills -->
@@ -515,11 +512,9 @@
                                     <h4 class="font-medium text-gray-700 mb-2">{{ _("Add Custom Skills") }}</h4>
                                     <div class="flex space-x-2 mb-2">
                                         <select id="custom-skill-category" class="form-input flex-none w-32">
-                                            <option value="Technical">{{ _("Technical") }}</option>
-                                            <option value="Communication">{{ _("Communication") }}</option>
-                                            <option value="Organizational">{{ _("Organizational") }}</option>
-                                            <option value="Leadership">{{ _("Leadership") }}</option>
-                                            <option value="Financial">{{ _("Financial") }}</option>
+                                            {% for category in skill_categories %}
+                                            <option value="{{ category.name }}">{{ category.name }}</option>
+                                            {% endfor %}
                                             <option value="Other">{{ _("Other") }}</option>
                                         </select>
                                         <input type="text" id="custom-skill-name" class="form-input flex-1" placeholder="{{ _('Enter skill name...') }}">
@@ -561,9 +556,10 @@
                     </div>
                 </div>
             </div>
+            {% endif %}
 
-            <!-- Step 5: Communication Preferences -->
-            <div class="form-step" data-step="5">
+            <!-- Step {% if enable_volunteer_signup %}5{% else %}4{% endif %}: Communication Preferences -->
+            <div class="form-step" data-step="{% if enable_volunteer_signup %}5{% else %}4{% endif %}">
                 <div class="form-card animate-slide-up">
                     <div class="form-header">
                         <h3 class="text-2xl font-bold text-gray-900 mb-2">{{ _("Communication Preferences") }}</h3>
@@ -708,8 +704,8 @@
                 </div>
             </div>
 
-            <!-- Step 6: Payment Information -->
-            <div class="form-step" data-step="6">
+            <!-- Step {% if enable_volunteer_signup %}6{% else %}5{% endif %}: Payment Information -->
+            <div class="form-step" data-step="{% if enable_volunteer_signup %}6{% else %}5{% endif %}">
                 <div class="form-card">
                     <div class="form-header">
                         <h3>{{ _("Payment Information") }}</h3>
@@ -722,19 +718,13 @@
 
                         <div class="input-group">
                             <label class="input-label required">{{ _("Payment Method") }}</label>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                            <div class="grid grid-cols-1 md:grid-cols-{{ payment_methods|length if payment_methods|length <= 3 else 3 }} gap-4 mt-3">
+                                {% for pm in payment_methods %}
                                 <label class="flex items-center space-x-3 cursor-pointer">
-                                    <input type="radio" name="payment_method" value="bank_transfer" class="form-input w-auto" required>
-                                    <span>{{ _("Bank Transfer") }}</span>
+                                    <input type="radio" name="payment_method" value="{{ pm.value }}" class="form-input w-auto" required>
+                                    <span>{{ pm.label }}</span>
                                 </label>
-                                <label class="flex items-center space-x-3 cursor-pointer">
-                                    <input type="radio" name="payment_method" value="sepa_direct_debit" class="form-input w-auto" required>
-                                    <span>{{ _("SEPA Direct Debit") }}</span>
-                                </label>
-                                <label class="flex items-center space-x-3 cursor-pointer">
-                                    <input type="radio" name="payment_method" value="mollie" class="form-input w-auto" required>
-                                    <span>{{ _("Mollie (Credit Card / iDEAL)") }}</span>
-                                </label>
+                                {% endfor %}
                             </div>
                         </div>
 
@@ -758,8 +748,8 @@
                 </div>
             </div>
 
-            <!-- Step 7: Confirmation -->
-            <div class="form-step" data-step="7">
+            <!-- Step {% if enable_volunteer_signup %}7{% else %}6{% endif %}: Confirmation -->
+            <div class="form-step" data-step="{% if enable_volunteer_signup %}7{% else %}6{% endif %}">
                 <div class="form-card">
                     <div class="form-header">
                         <h3>{{ _("Confirm Your Application") }}</h3>
@@ -857,8 +847,8 @@
         <div class="hidden" id="success-message">
             <div class="alert-success text-center">
                 <div class="text-2xl mb-4">🎉</div>
-                <h3 class="text-xl font-semibold mb-2">{{ _("Application Submitted Successfully!") }}</h3>
-                <p class="mb-4">{{ _("Thank you for applying to join our association. We'll review your application and get back to you soon.") }}</p>
+                <h3 class="text-xl font-semibold mb-2">{{ success_title }}</h3>
+                <p class="mb-4">{{ success_message }}</p>
                 <p class="text-sm text-gray-600 mb-4">{{ _("You will receive a confirmation email shortly with your application details.") }}</p>
                 <a href="/" class="btn-primary inline-block">{{ _("Return to Home") }}</a>
             </div>
@@ -888,7 +878,8 @@ frappe.ready(function() {
 
         // Initialize the application with Tailwind-specific configuration
         const app = new MembershipApplication({
-            maxSteps: 7,
+            maxSteps: {{ total_steps }},
+            enableVolunteerStep: {{ 'true' if enable_volunteer_signup else 'false' }},
             enableAutoSave: true,
             enableErrorHandling: true,
             autoSaveInterval: 30000
@@ -906,18 +897,21 @@ frappe.ready(function() {
                 if (r.message) {
                     // This is a Dutch installation, show the tussenvoegsel field
                     document.getElementById('tussenvoegsel-field').style.display = 'block';
-                    // Adjust grid to accommodate 4 columns on medium screens
-                    document.getElementById('name-fields-grid').className = 'grid grid-cols-1 md:grid-cols-4 gap-6';
+                    // Adjust grid to accommodate 3 columns on medium screens (first name, tussenvoegsel, last name)
+                    document.getElementById('name-fields-grid').className = 'grid grid-cols-1 md:grid-cols-3 gap-6 items-end';
                 } else {
-                    // Not a Dutch installation, keep the field hidden and use 3 columns
+                    // Not a Dutch installation, keep the field hidden and use 2 columns (first name, last name)
                     document.getElementById('tussenvoegsel-field').style.display = 'none';
-                    document.getElementById('name-fields-grid').className = 'grid grid-cols-1 md:grid-cols-3 gap-6';
+                    document.getElementById('name-fields-grid').className = 'grid grid-cols-1 md:grid-cols-2 gap-6 items-end';
                 }
             }
         });
 
             // Initialize skills functionality
             initializeSkillsSection();
+
+            // Initialize two-phase membership selection
+            initializeMembershipSelection();
         } catch (error) {
             console.error('Error initializing membership application:', error);
 
@@ -932,6 +926,564 @@ frappe.ready(function() {
         }
     });
 });
+
+// Two-phase membership selection functionality
+function initializeMembershipSelection() {
+    const membershipTypeRadios = document.querySelectorAll('input[name="membership_type_selection"]');
+    const paymentPlanPhase = document.getElementById('payment-plan-phase');
+    const paymentPlansContainer = document.getElementById('payment-plans');
+    const membershipTypeHidden = document.getElementById('membership_type');
+    const duesScheduleHidden = document.getElementById('selected_dues_schedule');
+    const billingFrequencyHidden = document.getElementById('selected_billing_frequency');
+    const selectedAmountHidden = document.getElementById('selected_amount');
+    const customContribution = document.getElementById('custom-contribution');
+
+    // Handle membership type selection (Phase 1)
+    membershipTypeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            const selectedType = this.value;
+            console.log('Membership type selected:', selectedType);
+
+            // Update hidden field
+            membershipTypeHidden.value = selectedType;
+
+            // Update visual selection
+            document.querySelectorAll('.membership-type-option').forEach(opt => {
+                opt.classList.remove('border-primary-500', 'bg-primary-50');
+            });
+            this.closest('.membership-type-option').classList.add('border-primary-500', 'bg-primary-50');
+
+            // Hide error message
+            document.getElementById('membership_type_error').classList.add('hidden');
+
+            // Load payment plans for the selected membership type
+            loadPaymentPlans(selectedType);
+        });
+    });
+
+    // Load payment plans from API
+    function loadPaymentPlans(membershipType) {
+        paymentPlansContainer.innerHTML = `
+            <div class="text-center py-4">
+                <div class="text-gray-400">{{ _("Loading payment plans...") }}</div>
+            </div>
+        `;
+        paymentPlanPhase.style.display = 'block';
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.membership_application.get_dues_schedules_for_membership_type',
+            args: { membership_type_name: membershipType },
+            callback: function(r) {
+                console.log('Payment plans API response:', r);
+                if (r.message && r.message.success) {
+                    console.log('Rendering payment plans:', r.message.schedules);
+                    try {
+                        renderPaymentPlans(r.message.schedules, membershipType);
+                    } catch (e) {
+                        console.error('Error in renderPaymentPlans:', e);
+                        paymentPlansContainer.innerHTML = `
+                            <div class="text-center py-4">
+                                <div class="text-red-500">{{ _("Error rendering payment plans:") }} ${e.message}</div>
+                            </div>
+                        `;
+                    }
+                } else {
+                    console.error('API returned error or no success:', r.message);
+                    paymentPlansContainer.innerHTML = `
+                        <div class="text-center py-4">
+                            <div class="text-red-500">{{ _("Error loading payment plans. Please try again.") }}</div>
+                        </div>
+                    `;
+                }
+            },
+            error: function(err) {
+                console.error('Payment plans API call failed:', err);
+                paymentPlansContainer.innerHTML = `
+                    <div class="text-center py-4">
+                        <div class="text-red-500">{{ _("Error loading payment plans. Please try again.") }}</div>
+                    </div>
+                `;
+            }
+        });
+    }
+
+    // Render payment plan options
+    function renderPaymentPlans(schedules, membershipType) {
+        // Get default billing frequency from first schedule or use a sensible default
+        const defaultFrequency = (schedules && schedules.length > 0)
+            ? schedules[0].billing_frequency
+            : 'Annual';
+        const defaultBillingDisplay = (schedules && schedules.length > 0)
+            ? (schedules[0].billing_display || schedules[0].billing_frequency)
+            : '{{ _("per year") }}';
+
+        if (!schedules || schedules.length === 0) {
+            // No specific schedules - show a message to contact
+            paymentPlansContainer.innerHTML = `
+                <div class="text-center py-4 text-gray-500">
+                    {{ _("No payment plans configured for this membership type. Please contact us.") }}
+                </div>
+            `;
+            return;
+        }
+
+        // Store schedules data for later use
+        window.paymentPlanSchedules = schedules;
+
+        // For simplicity, if there's only one schedule, render based on its mode
+        // If multiple schedules, let user choose which plan first
+        const schedule = schedules[0]; // Primary schedule
+        const settings = schedule.contribution_settings || {};
+        const mode = settings.mode || 'Fixed';
+        const baseAmount = parseFloat(schedule.amount) || 0;
+        const currency = schedule.currency || 'EUR';
+
+        let html = '';
+
+        if (mode === 'Fixed') {
+            // Fixed mode: Just show the amount with a confirm button
+            const formattedAmount = baseAmount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
+            html = `
+                <div class="p-4 bg-white border-2 border-primary-500 rounded-lg">
+                    <div class="text-center">
+                        <p class="text-sm text-gray-600 mb-2">{{ _("Your membership dues") }}</p>
+                        <p class="text-3xl font-bold text-gray-900">${formattedAmount}</p>
+                        <p class="text-sm text-gray-500">${schedule.billing_display || schedule.billing_frequency}</p>
+                        ${schedule.notes ? `<p class="text-xs text-gray-500 mt-2">${schedule.notes}</p>` : ''}
+                    </div>
+                    <input type="hidden" name="payment_plan_selection" value="${schedule.name}"
+                           data-amount="${baseAmount}" data-frequency="${schedule.billing_frequency}"
+                           data-schedule="${schedule.name}" data-mode="Fixed" checked>
+                </div>
+            `;
+            // Auto-set hidden fields for Fixed mode
+            duesScheduleHidden.value = schedule.name;
+            billingFrequencyHidden.value = schedule.billing_frequency;
+            selectedAmountHidden.value = baseAmount;
+            // Set state for Fixed mode - required for step 3 validation
+            if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+                window.membershipApp.state.set('selected_membership_type', membershipType);
+                window.membershipApp.state.set('selected_dues_schedule', schedule.name);
+                window.membershipApp.state.set('selected_billing_frequency', schedule.billing_frequency);
+                window.membershipApp.state.set('contribution_amount', baseAmount);
+            }
+
+        } else if (mode === 'Income-Based') {
+            // Income-Based mode: Show calculator
+            const calcType = settings.calculation_type || 'Percentage';
+            const description = settings.description || '';
+
+            html = `
+                <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <h6 class="font-semibold text-blue-800 mb-2">{{ _("Contribution based on your income") }}</h6>
+                    ${description ? `<p class="text-sm text-blue-600 mb-4">${description}</p>` : ''}
+                    <p class="text-sm text-gray-600 mb-4">{{ _("Enter your monthly net income below to calculate your suggested contribution.") }}</p>
+                    <input type="hidden" name="payment_plan_selection" value="${schedule.name}"
+                           data-amount="0" data-frequency="${schedule.billing_frequency}"
+                           data-schedule="${schedule.name}" data-mode="Income-Based"
+                           data-calc-type="${calcType}"
+                           data-percentage="${settings.percentage || 0.75}"
+                           data-ref-income="${settings.progressive?.reference_income || 3500}"
+                           data-lower-threshold="${settings.progressive?.lower_threshold || 2200}">
+                </div>
+            `;
+            // Store settings and show calculator
+            window.currentCalculatorSettings = {
+                mode: 'Income-Based',
+                calculation_type: calcType,
+                frequency: schedule.billing_frequency,
+                schedule: schedule.name,
+                amount: baseAmount,
+                settings: settings
+            };
+            duesScheduleHidden.value = schedule.name;
+            billingFrequencyHidden.value = schedule.billing_frequency;
+            // Set initial state for Income-Based mode (amount will be updated when user applies calculated amount)
+            if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+                window.membershipApp.state.set('selected_membership_type', membershipType);
+                window.membershipApp.state.set('selected_dues_schedule', schedule.name);
+                window.membershipApp.state.set('selected_billing_frequency', schedule.billing_frequency);
+                // Amount is 0 initially - will be set when user calculates and applies
+            }
+            // Show calculator section
+            setTimeout(() => {
+                initializeCalculator('Income-Based', schedule.billing_frequency);
+                document.getElementById('income-calculator').style.display = 'block';
+            }, 100);
+
+        } else if (mode === 'Flexible') {
+            // Flexible mode: Show suggestion radio buttons
+            const suggestions = settings.suggestions || [];
+            const allowCustom = settings.allow_custom !== false;
+            const defaultMult = settings.default_multiplier || 1;
+
+            html = `<div class="space-y-3">`;
+
+            suggestions.forEach((suggestion, index) => {
+                const amount = parseFloat(suggestion.amount) || 0;
+                const formattedAmount = amount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
+                const isDefault = suggestion.is_default || suggestion.multiplier === defaultMult;
+                const isChecked = isDefault ? 'checked' : '';
+                const highlightClass = isDefault ? 'border-primary-500 bg-primary-50' : '';
+
+                let label = suggestion.label || '';
+                if (suggestion.multiplier === 1) {
+                    label = '{{ _("Minimum") }}';
+                } else if (suggestion.multiplier >= 2) {
+                    label = '{{ _("Supporter") }}';
+                } else if (isDefault) {
+                    label = '{{ _("Suggested") }}';
+                }
+
+                html += `
+                    <label class="payment-plan-option flex items-center justify-between p-4 rounded-lg cursor-pointer ${highlightClass}">
+                        <div class="flex items-center">
+                            <input type="radio" name="payment_plan_selection" value="${schedule.name}_${suggestion.multiplier}"
+                                   class="mr-4 text-primary-600 focus:ring-primary-500"
+                                   data-amount="${amount}" data-frequency="${schedule.billing_frequency}"
+                                   data-schedule="${schedule.name}" data-mode="Flexible"
+                                   data-multiplier="${suggestion.multiplier}" ${isChecked}>
+                            <div>
+                                <span class="font-medium text-gray-900">${formattedAmount}</span>
+                                <span class="text-sm text-gray-500 ml-2">${label}</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xs text-gray-500">${schedule.billing_display || schedule.billing_frequency}</p>
+                        </div>
+                    </label>
+                `;
+            });
+
+            if (allowCustom) {
+                html += `
+                    <label class="payment-plan-option flex items-center justify-between p-4 rounded-lg cursor-pointer">
+                        <div class="flex items-center">
+                            <input type="radio" name="payment_plan_selection" value="custom"
+                                   class="mr-4 text-primary-600 focus:ring-primary-500"
+                                   data-amount="0" data-frequency="${schedule.billing_frequency}"
+                                   data-schedule="${schedule.name}" data-mode="Flexible" data-custom="true">
+                            <div>
+                                <span class="font-medium text-gray-900">{{ _("Custom amount") }}</span>
+                                <span class="text-sm text-gray-500 ml-2">{{ _("Choose your own") }}</span>
+                            </div>
+                        </div>
+                    </label>
+                `;
+            }
+
+            html += `</div>`;
+        }
+
+        paymentPlansContainer.innerHTML = html;
+        bindPaymentPlanEvents();
+
+        // Auto-select default option and update hidden fields
+        const firstRadio = paymentPlansContainer.querySelector('input[type="radio"]:checked');
+        if (firstRadio) {
+            updatePaymentSelection(firstRadio);
+        }
+    }
+
+    // Bind events for payment plan selection
+    function bindPaymentPlanEvents() {
+        const paymentPlanRadios = document.querySelectorAll('input[name="payment_plan_selection"]');
+        paymentPlanRadios.forEach(radio => {
+            radio.addEventListener('change', function() {
+                updatePaymentSelection(this);
+            });
+        });
+    }
+
+    // Update hidden fields and show/hide custom amount and calculator
+    function updatePaymentSelection(radio) {
+        const isCustom = radio.dataset.custom === 'true';
+        const schedule = radio.dataset.schedule || '';
+        const amount = radio.dataset.amount || '0';
+        const frequency = radio.dataset.frequency || 'Annual';
+        const contributionMode = radio.dataset.mode || 'Fixed';
+
+        // Update hidden fields
+        duesScheduleHidden.value = schedule;
+        billingFrequencyHidden.value = frequency;
+        selectedAmountHidden.value = amount;
+
+        // Update visual selection for radio options
+        const optionContainer = radio.closest('.payment-plan-option');
+        if (optionContainer) {
+            document.querySelectorAll('.payment-plan-option').forEach(opt => {
+                opt.classList.remove('border-primary-500', 'bg-primary-50');
+            });
+            optionContainer.classList.add('border-primary-500', 'bg-primary-50');
+        }
+
+        // Handle based on mode
+        const incomeCalculator = document.getElementById('income-calculator');
+
+        if (contributionMode === 'Fixed') {
+            // Fixed mode: Just confirm the amount
+            customContribution.style.display = 'none';
+            if (incomeCalculator) incomeCalculator.style.display = 'none';
+
+        } else if (contributionMode === 'Income-Based') {
+            // Income-Based mode: Show calculator (already shown in renderPaymentPlans)
+            customContribution.style.display = 'none';
+            // Calculator is already shown for Income-Based mode
+
+        } else if (contributionMode === 'Flexible') {
+            // Flexible mode: Show custom field only if custom option selected
+            if (isCustom) {
+                customContribution.style.display = 'block';
+                document.getElementById('custom_contribution_fee').focus();
+                if (incomeCalculator) incomeCalculator.style.display = 'none';
+            } else {
+                customContribution.style.display = 'none';
+                if (incomeCalculator) incomeCalculator.style.display = 'none';
+            }
+        }
+
+        // Hide error message
+        document.getElementById('payment_plan_error').classList.add('hidden');
+
+        // Notify the main app about the selection
+        if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+            window.membershipApp.state.set('selected_membership_type', document.getElementById('membership_type').value);
+            window.membershipApp.state.set('selected_dues_schedule', schedule);
+            window.membershipApp.state.set('selected_billing_frequency', frequency);
+            window.membershipApp.state.set('contribution_amount', isCustom ? document.getElementById('custom_contribution_fee').value : amount);
+        }
+
+        console.log('Payment plan selected:', { schedule, amount, frequency, contributionMode, isCustom });
+    }
+}
+
+// Calculator functionality
+function initializeCalculator(mode, billingFrequency) {
+    const incomeInput = document.getElementById('calc-monthly-income');
+    const intervalSelect = document.getElementById('calc-payment-interval');
+    const calcResult = document.getElementById('calc-result');
+    const progressiveResult = document.getElementById('progressive-calc-result');
+    const applyButton = document.getElementById('apply-calculated-amount');
+    const suggestedAmountSpan = document.getElementById('calc-suggested-amount');
+    const paymentFrequencySpan = document.getElementById('calc-payment-frequency');
+
+    // Set the payment interval dropdown to match the billing frequency
+    if (intervalSelect) {
+        const frequencyMap = {
+            'Monthly': 'monthly',
+            'Quarterly': 'quarterly',
+            'Annual': 'annually',
+            'Annually': 'annually'
+        };
+        intervalSelect.value = frequencyMap[billingFrequency] || 'quarterly';
+    }
+
+    // Remove old event listeners by cloning elements
+    if (incomeInput) {
+        const newIncomeInput = incomeInput.cloneNode(true);
+        incomeInput.parentNode.replaceChild(newIncomeInput, incomeInput);
+        newIncomeInput.addEventListener('input', calculateContribution);
+    }
+    if (intervalSelect) {
+        const newIntervalSelect = intervalSelect.cloneNode(true);
+        intervalSelect.parentNode.replaceChild(newIntervalSelect, intervalSelect);
+        // Re-set the value after cloning
+        const frequencyMap = {
+            'Monthly': 'monthly',
+            'Quarterly': 'quarterly',
+            'Annual': 'annually',
+            'Annually': 'annually'
+        };
+        newIntervalSelect.value = frequencyMap[billingFrequency] || 'quarterly';
+        newIntervalSelect.addEventListener('change', calculateContribution);
+    }
+    if (applyButton) {
+        const newApplyButton = applyButton.cloneNode(true);
+        applyButton.parentNode.replaceChild(newApplyButton, applyButton);
+        newApplyButton.addEventListener('click', applyCalculatedAmount);
+    }
+
+    // Hide results initially
+    if (calcResult) calcResult.style.display = 'none';
+    if (progressiveResult) progressiveResult.style.display = 'none';
+    if (applyButton) document.getElementById('apply-calculated-amount').style.display = 'none';
+}
+
+function calculateContribution() {
+    const incomeInput = document.getElementById('calc-monthly-income');
+    const intervalSelect = document.getElementById('calc-payment-interval');
+    const calcResult = document.getElementById('calc-result');
+    const progressiveResult = document.getElementById('progressive-calc-result');
+    const applyButton = document.getElementById('apply-calculated-amount');
+    const suggestedAmountSpan = document.getElementById('calc-suggested-amount');
+    const paymentFrequencySpan = document.getElementById('calc-payment-frequency');
+
+    const monthlyIncome = parseFloat(incomeInput.value) || 0;
+    const interval = intervalSelect.value;
+    const settings = window.currentCalculatorSettings;
+
+    if (monthlyIncome <= 0 || !settings) {
+        calcResult.style.display = 'none';
+        progressiveResult.style.display = 'none';
+        applyButton.style.display = 'none';
+        return;
+    }
+
+    // Calculate the contribution
+    let suggestedAmount = 0;
+    const mode = settings.mode;
+    const contributionSettings = settings.settings || {};
+
+    // Interval multipliers
+    const intervalMultipliers = {
+        'monthly': 1,
+        'quarterly': 3,
+        'annually': 12
+    };
+    const multiplier = intervalMultipliers[interval] || 3;
+
+    // Interval display names
+    const intervalNames = {
+        'monthly': '{{ _("per month") }}',
+        'quarterly': '{{ _("per quarter") }}',
+        'annually': '{{ _("per year") }}'
+    };
+
+    // Handle both new "Income-Based" mode and legacy modes
+    const isIncomeBasedProgressive = (mode === 'Income-Based' && contributionSettings.calculation_type === 'Progressive');
+    const isLegacyProgressive = (mode === 'Progressive' && contributionSettings.progressive);
+    const isIncomeBasedPercentage = (mode === 'Income-Based' && contributionSettings.calculation_type === 'Percentage');
+
+    if (isIncomeBasedProgressive || isLegacyProgressive) {
+        // Progressive calculation (sliding scale based on income brackets)
+        const prog = contributionSettings.progressive;
+        const referenceIncome = prog.reference_income || 3500;
+        const lowerThreshold = prog.lower_threshold || 2200;
+
+        // Warn if using fallback values (indicates missing configuration)
+        if (!prog.reference_income || !prog.lower_threshold) {
+            console.warn('Progressive calculator using fallback values. Configure progressive_reference_income and progressive_lower_threshold in the dues schedule template.', {
+                reference_income: prog.reference_income || 'fallback: 3500',
+                lower_threshold: prog.lower_threshold || 'fallback: 2200'
+            });
+        }
+
+        // Calculate percentage based on income relative to reference
+        let percentage;
+        if (monthlyIncome <= lowerThreshold) {
+            percentage = 0.5; // Minimum 0.5%
+        } else if (monthlyIncome >= referenceIncome) {
+            percentage = 1.0; // Maximum 1%
+        } else {
+            // Linear interpolation between lower threshold and reference
+            const ratio = (monthlyIncome - lowerThreshold) / (referenceIncome - lowerThreshold);
+            percentage = 0.5 + (ratio * 0.5); // 0.5% to 1%
+        }
+
+        suggestedAmount = (monthlyIncome * percentage / 100) * multiplier;
+
+        // Update progressive display
+        document.getElementById('progressive-percentage').textContent = percentage.toFixed(2) + '%';
+        document.getElementById('progressive-suggested-amount').textContent = '€' + suggestedAmount.toFixed(2);
+        document.getElementById('progressive-payment-frequency').textContent = intervalNames[interval];
+        document.getElementById('progressive-monthly-income').textContent = monthlyIncome.toFixed(0);
+        document.getElementById('progressive-percentage-detail').textContent = percentage.toFixed(2) + '%';
+
+        // Update position marker (0% = left, 100% = right based on income range)
+        const marker = document.getElementById('progressive-position-marker');
+        if (marker) {
+            const position = Math.min(100, Math.max(0, ((monthlyIncome - lowerThreshold) / (referenceIncome - lowerThreshold)) * 100));
+            marker.style.left = position + '%';
+        }
+
+        calcResult.style.display = 'none';
+        progressiveResult.style.display = 'block';
+    } else if (isIncomeBasedPercentage || mode === 'Calculator' || mode === 'Income-Based') {
+        // Percentage-based calculation
+        // Try new structure first, then legacy
+        const percentage = contributionSettings.percentage ||
+                          (contributionSettings.calculator && contributionSettings.calculator.percentage) ||
+                          0.75;
+
+        // Warn if using fallback percentage
+        if (!contributionSettings.percentage && !(contributionSettings.calculator && contributionSettings.calculator.percentage)) {
+            console.warn('Income calculator using fallback percentage (0.75%). Configure income_percentage in the dues schedule template.');
+        }
+
+        suggestedAmount = (monthlyIncome * percentage / 100) * multiplier;
+
+        // Update display
+        suggestedAmountSpan.textContent = '€' + suggestedAmount.toFixed(2);
+        paymentFrequencySpan.textContent = intervalNames[interval];
+        document.getElementById('calc-income-percentage').textContent = percentage + '%';
+
+        calcResult.style.display = 'block';
+        progressiveResult.style.display = 'none';
+    } else {
+        // No calculator for this mode
+        calcResult.style.display = 'none';
+        progressiveResult.style.display = 'none';
+        applyButton.style.display = 'none';
+        return;
+    }
+
+    // Store the calculated amount and show apply button
+    window.calculatedContributionAmount = suggestedAmount;
+    applyButton.style.display = 'block';
+
+    // Hide the hint text
+    const hintText = document.getElementById('calculator-hint');
+    if (hintText) hintText.style.display = 'none';
+}
+
+function applyCalculatedAmount() {
+    const calculatedAmount = window.calculatedContributionAmount;
+    if (!calculatedAmount || calculatedAmount <= 0) return;
+
+    // Update the hidden field with the calculated amount
+    const selectedAmountHidden = document.getElementById('selected_amount');
+    if (selectedAmountHidden) {
+        selectedAmountHidden.value = calculatedAmount.toFixed(2);
+    }
+
+    // Also update the custom contribution field if visible
+    const customFeeInput = document.getElementById('custom_contribution_fee');
+    if (customFeeInput) {
+        customFeeInput.value = calculatedAmount.toFixed(2);
+    }
+
+    // Notify user
+    const applyButton = document.getElementById('apply-calculated-amount');
+    const originalText = applyButton.textContent;
+    const originalBgColor = applyButton.style.backgroundColor;
+    applyButton.textContent = '{{ _("✓ Amount Applied!") }}';
+    applyButton.style.backgroundColor = '#16a34a'; // Green
+
+    setTimeout(() => {
+        applyButton.textContent = originalText;
+        applyButton.style.backgroundColor = originalBgColor || '{{ primary_color }}';
+    }, 2000);
+
+    // Update main app state if available - CRITICAL for step validation
+    if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+        // Get membership type from hidden field (set in Phase 1)
+        const membershipType = document.getElementById('membership_type').value;
+        // Get dues schedule from calculator settings or hidden field
+        const calculatorSettings = window.currentCalculatorSettings || {};
+        const duesSchedule = calculatorSettings.schedule || document.getElementById('selected_dues_schedule').value;
+        const billingFrequency = calculatorSettings.frequency || document.getElementById('selected_billing_frequency').value;
+
+        // Set all required state for step 3 validation
+        window.membershipApp.state.set('selected_membership_type', membershipType);
+        window.membershipApp.state.set('selected_dues_schedule', duesSchedule);
+        window.membershipApp.state.set('selected_billing_frequency', billingFrequency);
+        window.membershipApp.state.set('contribution_amount', parseFloat(calculatedAmount.toFixed(2)));
+        window.membershipApp.state.set('uses_custom_amount', true);
+        window.membershipApp.state.set('custom_contribution_fee', parseFloat(calculatedAmount.toFixed(2)));
+    }
+
+    console.log('Applied calculated amount:', calculatedAmount.toFixed(2));
+}
 
 // Skills section functionality
 function initializeSkillsSection() {
@@ -1001,6 +1553,26 @@ function addCustomSkill() {
 
 function removeCustomSkill(button) {
     button.closest('div').remove();
+}
+
+// Apply visible styles to form inputs (overrides Tailwind/other CSS)
+function applyFormInputStyles() {
+    const inputs = document.querySelectorAll('.form-input, input.form-input, select.form-input, textarea.form-input');
+    inputs.forEach(input => {
+        input.style.border = '2px solid #9ca3af';
+        input.style.borderRadius = '0.5rem';
+        input.style.padding = '0.75rem 1rem';
+        input.style.backgroundColor = '#ffffff';
+        input.style.color = '#111827';
+        input.style.fontSize = '1rem';
+    });
+}
+
+// Run after DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyFormInputStyles);
+} else {
+    applyFormInputStyles();
 }
 </script>
 {% endblock %}

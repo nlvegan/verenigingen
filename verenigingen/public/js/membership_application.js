@@ -1418,10 +1418,24 @@ class _MembershipApplication {
 
 	getAdditionalFormData() {
 		// Collect any additional form data not handled by step manager
+		// Use state as primary source, with hidden fields as fallback
 		return {
 			selected_membership_type:
-        this.state.get('selected_membership_type') || '',
-			custom_contribution_fee: this.state.get('custom_contribution_fee') || 0,
+        this.state.get('selected_membership_type')
+        || $('#membership_type').val()
+        || '',
+			selected_dues_schedule:
+        this.state.get('selected_dues_schedule')
+        || $('#selected_dues_schedule').val()
+        || '',
+			selected_billing_frequency:
+        this.state.get('selected_billing_frequency')
+        || $('#selected_billing_frequency').val()
+        || '',
+			custom_contribution_fee:
+        this.state.get('custom_contribution_fee')
+        || this.state.get('contribution_amount')
+        || parseFloat($('#selected_amount').val()) || 0,
 			uses_custom_amount: this.state.get('uses_custom_amount') || false,
 			payment_method: this.getPaymentMethod() || ''
 		};
@@ -1720,13 +1734,9 @@ class _MembershipApplication {
 		// Show chapter selection
 		$('#chapter-selection').show();
 
-		// Ensure membership types are loaded
-		if ($('.membership-type-card').length === 0) {
-			this.loadMembershipTypes(this.membershipTypes);
-		}
-
-		// Set up income calculator if enabled
-		this.setupIncomeCalculator();
+		// Membership types UI is now server-rendered. Two-phase selection
+		// is handled by initializeMembershipSelection() in the template.
+		// Calculator is shown/hidden based on selected payment plan's contribution_mode.
 	}
 
 	setupVolunteerStep() {
@@ -1961,7 +1971,7 @@ class _MembershipApplication {
 
 		// Recalculate if there's already an income entered
 		const currentIncome = parseFloat($('#calc-monthly-income').val());
-		if (currentIncome > 0) {
+		if (currentIncome > 0 && typeof this.calculateContribution === 'function') {
 			this.calculateContribution();
 		}
 	}
@@ -2466,33 +2476,25 @@ class _MembershipApplication {
 	}
 
 	loadMembershipTypes(membershipTypes) {
+		// CONSOLIDATION: Membership types are now rendered server-side via Jinja template.
+		// This function only stores the data for reference - it does NOT modify the DOM.
+		// The server-rendered radio buttons in #membership-types are the Single Source of Truth.
+		// Phase 2 (payment plans) is handled by the template's initializeMembershipSelection().
+
 		if (!membershipTypes || membershipTypes.length === 0) {
 			return;
 		}
 
-		const container = $('#membership-types');
-		container.empty();
-
-		// Enhanced membership types now come with full details from get_form_data
-		// No need for individual API calls - process the data directly
-		this.processMembershipTypes(membershipTypes);
+		// Store membership types data for any lookups needed elsewhere
+		this.membershipTypes = membershipTypes;
+		console.log('Membership types data stored (server-rendered UI preserved):', membershipTypes.length, 'types');
 	}
 
 	processMembershipTypes(membershipTypes) {
-		const container = $('#membership-types');
-
-		membershipTypes.forEach((type) => {
-			// Data already comes enhanced with contribution_options from server
-			const card = this.createMembershipCard(type);
-			container.append(card);
-		});
-
-		this.bindMembershipEvents();
-		console.log(
-			'Loaded',
-			membershipTypes.length,
-			'membership types (enhanced data from server)'
-		);
+		// CONSOLIDATION: No longer renders cards - membership types are server-rendered.
+		// This function is kept for backwards compatibility but only stores data.
+		this.membershipTypes = membershipTypes;
+		console.log('processMembershipTypes: data stored (server-rendered UI preserved)');
 	}
 
 	loadPaymentMethods(paymentMethods) {
@@ -2736,10 +2738,13 @@ class _MembershipApplication {
 		// Membership Information
 		const membershipType
       = this.state.get('selected_membership_type') || 'Not selected';
-		const membershipAmount = this.state.get('custom_contribution_fee') || 0;
+		// Check both contribution_amount and custom_contribution_fee for the amount
+		const membershipAmount = this.state.get('custom_contribution_fee')
+			|| this.state.get('contribution_amount')
+			|| 0;
 		$('#confirm-membership-type').text(membershipType);
 		$('#confirm-membership-fee').text(
-			membershipAmount ? `€${membershipAmount}` : 'Not set'
+			membershipAmount ? `€${parseFloat(membershipAmount).toFixed(2)}` : 'Not set'
 		);
 
 		// Payment Information
@@ -3214,12 +3219,16 @@ class _MembershipApplication {
 		);
 
 		// Configure income calculator based on the selected membership type's contribution mode
-		const membershipTypeData = this.membershipTypes
-			&& this.membershipTypes.find((t) => t.name === membershipType);
-		if (membershipTypeData && membershipTypeData.contribution_options) {
-			// Pass billing_frequency from dues schedule template
-			const billingFrequency = membershipTypeData.billing_frequency || 'Annual';
-			this.configureIncomeCalculator(membershipTypeData.contribution_options, billingFrequency);
+		// Skip if using the new server-rendered two-phase selection system
+		const usingTwoPhaseSelection = $('#membership-types input[name="membership_type_selection"]').length > 0;
+		if (!usingTwoPhaseSelection) {
+			const membershipTypeData = this.membershipTypes
+				&& this.membershipTypes.find((t) => t.name === membershipType);
+			if (membershipTypeData && membershipTypeData.contribution_options) {
+				// Pass billing_frequency from dues schedule template
+				const billingFrequency = membershipTypeData.billing_frequency || 'Annual';
+				this.configureIncomeCalculator(membershipTypeData.contribution_options, billingFrequency);
+			}
 		}
 
 		if (usesCustomAmount) {
@@ -3867,23 +3876,10 @@ class MembershipStep extends BaseStep {
 	}
 
 	renderMembershipTypes(membershipTypes) {
-		const container = $('#membership-types');
-		container.empty();
-
-		// Enhanced membership types already come with full details from get_form_data
-		// No need for individual API calls - process the data directly
-		membershipTypes.forEach((type) => {
-			// Data already comes enhanced with contribution_options from server
-			const card = this.createMembershipCard(type);
-			container.append(card);
-		});
-
-		this.bindMembershipEvents();
-		console.log(
-			'Rendered',
-			membershipTypes.length,
-			'membership types (enhanced data from server)'
-		);
+		// CONSOLIDATION: No longer renders cards - membership types are server-rendered.
+		// This function is kept for backwards compatibility but only stores data.
+		this.membershipTypes = membershipTypes;
+		console.log('renderMembershipTypes: data stored (server-rendered UI preserved)');
 	}
 }
 
@@ -4486,6 +4482,7 @@ class MembershipAPI {
 					'X-Frappe-CSRF-Token': frappe.csrf_token || ''
 				},
 				dataType: 'json',
+				timeout: 60000, // 60 second timeout for application submission
 				success(response) {
 					console.log('Direct AJAX response:', response);
 					if (response.message && response.message.success) {
@@ -4505,7 +4502,10 @@ class MembershipAPI {
 					console.error('Direct AJAX error:', { xhr, status, error });
 					let errorMsg = 'Network error occurred';
 
-					if (xhr.responseJSON && xhr.responseJSON.exc) {
+					// Handle timeout specifically
+					if (status === 'timeout') {
+						errorMsg = 'The request timed out. Please try again.';
+					} else if (xhr.responseJSON && xhr.responseJSON.exc) {
 						errorMsg = xhr.responseJSON.exc;
 					} else if (xhr.responseText) {
 						try {
@@ -4514,6 +4514,8 @@ class MembershipAPI {
 						} catch (e) {
 							errorMsg = `Server error: ${xhr.status} ${xhr.statusText}`;
 						}
+					} else if (xhr.status === 0) {
+						errorMsg = 'Network error - please check your connection and try again.';
 					} else {
 						errorMsg = `Server error: ${xhr.status} ${xhr.statusText}`;
 					}

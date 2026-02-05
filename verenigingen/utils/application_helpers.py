@@ -531,6 +531,7 @@ def create_member_from_application(data, application_id, address=None):
             "application_status": "Pending",
             "application_date": now_datetime(),
             "selected_membership_type": data.get("selected_membership_type"),
+            "application_dues_schedule": data.get("selected_dues_schedule"),
             "interested_in_volunteering": data.get("interested_in_volunteering", 0),
             "newsletter_opt_in": data.get("newsletter_opt_in", 1),
             # Convert opt-out preference to opt-in field (inverted logic)

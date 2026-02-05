@@ -93,6 +93,7 @@
   "application_status",
   "application_date",
   "selected_membership_type",
+  "application_dues_schedule",
   "is_aspirant",
   "column_break_app1",
   "reviewed_by",
@@ -297,6 +298,13 @@
    "fieldtype": "Link",
    "label": "Selected Membership Type",
    "options": "Membership Type"
+  },
+  {
+   "description": "The dues schedule template selected during application (for future linking on approval)",
+   "fieldname": "application_dues_schedule",
+   "fieldtype": "Link",
+   "label": "Application Dues Schedule",
+   "options": "Membership Dues Schedule"
   },
   {
    "fieldname": "column_break_app1",

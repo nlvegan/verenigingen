@@ -186,6 +186,9 @@ def create_membership_and_invoice(member, membership_type, create_invoice=True):
     Extracted from membership_application_review.py without modification.
     Handles membership creation, billing amount calculation, and invoice generation.
 
+    Now also respects `application_dues_schedule` if the applicant selected a specific
+    payment plan during application.
+
     Args:
         member: Member document instance
         membership_type (str): Validated membership type name
@@ -224,16 +227,44 @@ def create_membership_and_invoice(member, membership_type, create_invoice=True):
         # Get membership type details
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
 
-        # Get billing amount from created dues schedule or template
+        # Determine which dues schedule template to use
+        # Priority: 1) application_dues_schedule (user's selection), 2) membership type default
+        dues_schedule_template = None
+        application_dues_schedule = getattr(member, "application_dues_schedule", None)
+
+        if application_dues_schedule:
+            # Validate the selected schedule exists and is a template
+            if frappe.db.exists("Membership Dues Schedule", application_dues_schedule):
+                schedule_doc = frappe.get_doc("Membership Dues Schedule", application_dues_schedule)
+                if schedule_doc.is_template:
+                    dues_schedule_template = application_dues_schedule
+                    logger.info(
+                        f"Using applicant-selected dues schedule '{application_dues_schedule}' "
+                        f"for member {member.name}"
+                    )
+                else:
+                    logger.warning(
+                        f"application_dues_schedule '{application_dues_schedule}' is not a template, "
+                        f"falling back to membership type default"
+                    )
+            else:
+                logger.warning(
+                    f"application_dues_schedule '{application_dues_schedule}' not found, "
+                    f"falling back to membership type default"
+                )
+
+        # Fall back to membership type's default template
+        if not dues_schedule_template and membership_type_doc.dues_schedule_template:
+            dues_schedule_template = membership_type_doc.dues_schedule_template
+
+        # Get billing amount from the determined dues schedule template
         billing_amount = 0
         if hasattr(member, "dues_rate") and member.dues_rate:
-            # Use member's custom dues rate
+            # Use member's custom dues rate (from income calculator, etc.)
             billing_amount = member.dues_rate
-        elif membership_type_doc.dues_schedule_template:
+        elif dues_schedule_template:
             try:
-                template = frappe.get_doc(
-                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
-                )
+                template = frappe.get_doc("Membership Dues Schedule", dues_schedule_template)
                 billing_amount = template.dues_rate or template.suggested_amount or 0
             except Exception as e:
                 logger.warning(f"Could not load dues schedule template: {str(e)}")

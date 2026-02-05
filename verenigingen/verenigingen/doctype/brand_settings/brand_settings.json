@@ -12,6 +12,12 @@
     "is_active",
     "section_break_4",
     "logo",
+    "public_content_section",
+    "application_page_title",
+    "application_page_subtitle",
+    "column_break_public_content",
+    "application_success_title",
+    "application_success_message",
     "section_break_5",
     "primary_color",
     "column_break_8",
@@ -67,6 +73,43 @@
       "fieldname": "logo",
       "fieldtype": "Attach Image",
       "label": "Organization Logo"
+    },
+    {
+      "fieldname": "public_content_section",
+      "fieldtype": "Section Break",
+      "label": "Public Page Content"
+    },
+    {
+      "default": "Become a Member",
+      "description": "Title shown on the membership application page",
+      "fieldname": "application_page_title",
+      "fieldtype": "Data",
+      "label": "Application Page Title"
+    },
+    {
+      "default": "Join our organization and become part of our community!",
+      "description": "Subtitle/welcome message shown below the title on the application page",
+      "fieldname": "application_page_subtitle",
+      "fieldtype": "Small Text",
+      "label": "Application Page Subtitle"
+    },
+    {
+      "fieldname": "column_break_public_content",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "Application Submitted Successfully!",
+      "description": "Title shown after successful application submission",
+      "fieldname": "application_success_title",
+      "fieldtype": "Data",
+      "label": "Success Page Title"
+    },
+    {
+      "default": "Thank you for applying to join our organization. We'll review your application and get back to you soon.",
+      "description": "Message shown after successful application submission",
+      "fieldname": "application_success_message",
+      "fieldtype": "Small Text",
+      "label": "Success Page Message"
     },
     {
       "fieldname": "section_break_5",

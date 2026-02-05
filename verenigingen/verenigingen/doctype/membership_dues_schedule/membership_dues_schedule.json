@@ -39,8 +39,11 @@
   "notes",
   "section_contribution",
   "contribution_mode",
-  "selected_tier",
-  "base_multiplier",
+  "income_calculation_type",
+  "income_percentage",
+  "suggestion_multipliers",
+  "default_multiplier",
+  "allow_custom_amount",
   "progressive_reference_income",
   "progressive_lower_threshold",
   "progressive_formula_description",
@@ -280,51 +283,79 @@
    "label": "Contribution Configuration"
   },
   {
-   "default": "Calculator",
+   "default": "Fixed",
    "fieldname": "contribution_mode",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Contribution Mode",
-   "options": "Tier\nCalculator\nCustom\nProgressive"
+   "options": "Fixed\nIncome-Based\nFlexible",
+   "description": "Fixed: One amount. Income-Based: Calculated from member's income. Flexible: Min + suggestions + custom option."
   },
   {
-   "depends_on": "eval:doc.contribution_mode == 'Tier'",
-   "fieldname": "selected_tier",
-   "fieldtype": "Link",
-   "label": "Selected Tier",
-   "options": "Membership Tier"
+   "depends_on": "eval:doc.contribution_mode == 'Income-Based'",
+   "fieldname": "income_calculation_type",
+   "fieldtype": "Select",
+   "label": "Calculation Type",
+   "options": "Percentage\nProgressive",
+   "default": "Percentage",
+   "description": "Percentage: Simple % of income. Progressive: Sliding scale based on income brackets."
   },
   {
-   "default": "1",
-   "depends_on": "eval:doc.contribution_mode == 'Calculator'",
-   "description": "Multiplier applied to suggested amount (e.g., 1.5 = 150% of suggested)",
-   "fieldname": "base_multiplier",
+   "depends_on": "eval:doc.contribution_mode == 'Income-Based' && doc.income_calculation_type == 'Percentage'",
+   "fieldname": "income_percentage",
    "fieldtype": "Float",
-   "label": "Base Multiplier",
-   "precision": "2"
+   "label": "Income Percentage",
+   "default": "0.75",
+   "precision": "2",
+   "description": "Percentage of monthly net income to suggest (e.g., 0.75 = 0.75%)"
   },
   {
-   "depends_on": "eval:doc.contribution_mode == 'Progressive'",
-   "description": "National median income used as 100% reference point (e.g., 3137.75)",
+   "depends_on": "eval:doc.contribution_mode == 'Flexible'",
+   "fieldname": "suggestion_multipliers",
+   "fieldtype": "Data",
+   "label": "Suggestion Multipliers",
+   "default": "1,1.25,1.5,2,3",
+   "description": "Comma-separated multipliers of dues_rate to show as suggestions (e.g., '1,1.25,1.5,2' shows 100%, 125%, 150%, 200%)"
+  },
+  {
+   "depends_on": "eval:doc.contribution_mode == 'Flexible'",
+   "fieldname": "default_multiplier",
+   "fieldtype": "Float",
+   "label": "Default Selection",
+   "default": "1",
+   "precision": "2",
+   "description": "Which multiplier to pre-select (e.g., 1.5 to default to 150%)"
+  },
+  {
+   "depends_on": "eval:doc.contribution_mode == 'Flexible'",
+   "fieldname": "allow_custom_amount",
+   "fieldtype": "Check",
+   "label": "Allow Custom Amount",
+   "default": "1",
+   "description": "Show a 'Custom amount' option in addition to the suggestions"
+  },
+  {
+   "depends_on": "eval:doc.contribution_mode == 'Income-Based' && doc.income_calculation_type == 'Progressive'",
+   "description": "National median income used as 100% reference point (e.g., 3500)",
    "fieldname": "progressive_reference_income",
    "fieldtype": "Currency",
    "label": "Reference Income (Median)",
-   "mandatory_depends_on": "eval:doc.contribution_mode == 'Progressive' && doc.is_template"
+   "mandatory_depends_on": "eval:doc.contribution_mode == 'Income-Based' && doc.income_calculation_type == 'Progressive' && doc.is_template"
   },
   {
-   "depends_on": "eval:doc.contribution_mode == 'Progressive'",
-   "description": "Income threshold below which minimum dues apply (e.g., 2186.42)",
+   "depends_on": "eval:doc.contribution_mode == 'Income-Based' && doc.income_calculation_type == 'Progressive'",
+   "description": "Income threshold below which minimum percentage applies (e.g., 2200)",
    "fieldname": "progressive_lower_threshold",
    "fieldtype": "Currency",
    "label": "Lower Income Threshold",
-   "mandatory_depends_on": "eval:doc.contribution_mode == 'Progressive' && doc.is_template"
+   "mandatory_depends_on": "eval:doc.contribution_mode == 'Income-Based' && doc.income_calculation_type == 'Progressive' && doc.is_template"
   },
   {
-   "depends_on": "eval:doc.contribution_mode == 'Progressive'",
+   "depends_on": "eval:doc.contribution_mode == 'Income-Based'",
    "description": "Explanation shown to applicants about how their contribution is calculated",
    "fieldname": "progressive_formula_description",
    "fieldtype": "Small Text",
-   "label": "Formula Description for Applicants"
+   "label": "Calculation Description for Applicants"
   },
   {
    "fieldname": "column_break_contrib",
