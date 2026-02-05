@@ -85,28 +85,7 @@ repos:
         stages: [pre-commit, pre-push]
         verbose: true
         fail_fast: true
-
-      # Security validation hooks (TEMPORARILY DISABLED)
-      # - id: insecure-api-detector
-      #   name: 🔒 Insecure API Endpoint Detection
-      #   description: Detect API endpoints lacking proper security decorators
-      #   entry: python scripts/validation/security/insecure_api_detector.py
-      #   language: system
-      #   files: '^verenigingen/api/.*\.py$'
-      #   pass_filenames: true
-      #   verbose: true
-      #   stages: [pre-commit, pre-push]
-
-      # - id: api-security-validator
-      #   name: 🛡️  API Security Framework Validation
-      #   description: Validate API security framework compliance
-      #   entry: python scripts/validation/security/api_security_validator.py
-      #   language: system
-      #   files: '^verenigingen/api/.*\.py$'
-      #   pass_filenames: true
-      #   stages: [pre-commit]
-
-      # Original validation hooks (RESTORED)
+      # Original validation hooks
       - id: docfield-checker
         name: Legacy field reference checker (fallback)
         entry: python scripts/validation/archived/legacy_field_validator.py
