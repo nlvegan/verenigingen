@@ -848,15 +848,41 @@ def process_application_payment_endpoint(
     try:
         payment_entry = process_application_payment(member_name, payment_method, payment_reference)
 
-        # Send payment confirmation using modern status notification service
+        # Send payment confirmation notification (failure must not affect payment result)
         member = frappe.get_doc("Member", member_name)
 
-        from verenigingen.services.member.lifecycle.member_status_notification_service import (
-            get_member_status_notification_service,
-        )
+        try:
+            if member.email:
+                from verenigingen.services.communication.email_service import get_email_service
 
-        notification_svc = get_member_status_notification_service()
-        notification_svc.send_status_change_notification(member, "Approved", "Active")
+                email_service = get_email_service()
+                membership_type = getattr(member, "selected_membership_type", "") or ""
+                portal_url = frappe.utils.get_url("/member-dashboard")
+
+                email_service.send_templated_email(
+                    template_name="member_lifecycle_notification",
+                    recipients=[member.email],
+                    context={
+                        "member_name": member.full_name,
+                        "old_status": None,
+                        "new_status": "Active",
+                        "membership_number": member.name,
+                        "additional_message": _(
+                            "Thank you for your payment! Your {0} membership is now active. "
+                            "Visit {1} to access the member portal."
+                        ).format(membership_type, portal_url),
+                        "company": frappe.defaults.get_global_default("company"),
+                    },
+                    subject_override=_("Welcome! Your membership is active"),
+                    reference_doctype="Member",
+                    reference_name=member.name,
+                    notification_key="member_activated",
+                )
+        except Exception as e:
+            frappe.log_error(
+                f"Error sending payment confirmation email for {member_name}: {str(e)}",
+                "Payment Confirmation Email Error",
+            )
 
         return OperationResult.ok(
             {
