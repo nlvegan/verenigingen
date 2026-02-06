@@ -427,42 +427,6 @@ class MemberLifecycleService(StatelessService):
         """
         return bool(getattr(member, "application_id", None))
 
-    def set_application_status_defaults(self, member) -> OperationResult[str]:
-        """
-        Set appropriate defaults for application_status based on member type.
-
-        Args:
-            member: Member document to set defaults for
-
-        Returns:
-            OperationResult[str]: OperationResult with application_status on success
-        """
-        try:
-            changes_made = []
-
-            # Check if application_status is not set
-            if not hasattr(member, "application_status") or not member.application_status:
-                is_application_member = self.is_application_member(member)
-
-                if is_application_member:
-                    # Application members start as Pending
-                    member.application_status = "Pending"
-                    changes_made.append("Set application_status to Pending (application member)")
-                else:
-                    # Backend-created members are considered approved
-                    member.application_status = "Approved"
-                    changes_made.append("Set application_status to Approved (backend-created member)")
-
-            return OperationResult.ok(getattr(member, "application_status", None), changes_made=changes_made)
-
-        except Exception as e:
-            self.logger.error(f"Error setting application status defaults for member {member.name}: {str(e)}")
-            return OperationResult.fail(
-                f"Setting application status defaults failed: {str(e)}",
-                changes_made=[],
-                application_status=None,
-            )
-
     # Private helper methods
 
     def _validate_application_approval(self, member) -> OperationResult[None]:
