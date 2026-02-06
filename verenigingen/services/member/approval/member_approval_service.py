@@ -134,7 +134,7 @@ def create_member_iban_history(member):
             {"member": getattr(member, "name", "Unknown")},
             raise_error=False,
         )
-        return OperationResult.fail(str(e))
+        return OperationResult.from_exception(e)
 
 
 def validate_approval_prerequisites(member_name):
@@ -189,4 +189,4 @@ def validate_approval_prerequisites(member_name):
             {"member": member_name},
             raise_error=False,
         )
-        return OperationResult.fail(str(e))
+        return OperationResult.from_exception(e)

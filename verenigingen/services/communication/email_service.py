@@ -179,7 +179,9 @@ class EmailService(StatelessService):
                     {
                         "template": template_name,
                         "recipients_count": len(recipients),
-                        "queued": result.data.get("queued", False) if isinstance(result.data, dict) else False,
+                        "queued": result.data.get("queued", False)
+                        if isinstance(result.data, dict)
+                        else False,
                         "message": "Email queued successfully",
                     }
                 )
@@ -200,7 +202,7 @@ class EmailService(StatelessService):
                 },
                 raise_error=False,
             )
-            return OperationResult.fail(str(e))
+            return OperationResult.from_exception(e)
 
     def send_notification(
         self, notification_type: str, recipients: Union[str, List[str]], data: Dict[str, Any], **options
@@ -284,7 +286,7 @@ class EmailService(StatelessService):
                 {"notification_type": notification_type},
                 raise_error=False,
             )
-            return OperationResult.fail(str(e))
+            return OperationResult.from_exception(e)
 
     def send_bulk_emails(
         self,
@@ -363,7 +365,7 @@ class EmailService(StatelessService):
             handle_service_error(
                 e, "EmailService", "Send bulk emails", {"batch_size": len(email_batch)}, raise_error=False
             )
-            return OperationResult.fail(str(e))
+            return OperationResult.from_exception(e)
 
     def send_simple_email(
         self,
@@ -423,7 +425,7 @@ class EmailService(StatelessService):
                 },
                 raise_error=False,
             )
-            return OperationResult.fail(str(e))
+            return OperationResult.from_exception(e)
 
     def _send_email_internal(
         self,
@@ -479,9 +481,7 @@ class EmailService(StatelessService):
                             self.logger.debug(f"Skipping {recipient} for '{notification_key}' - in cooldown")
 
                     if not recipients_to_send:
-                        return OperationResult.ok(
-                            {"skipped": True, "reason": "All recipients in cooldown"}
-                        )
+                        return OperationResult.ok({"skipped": True, "reason": "All recipients in cooldown"})
                     recipients = recipients_to_send
 
             # Input validation

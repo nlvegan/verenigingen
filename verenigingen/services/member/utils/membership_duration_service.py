@@ -183,7 +183,7 @@ def update_member_duration_fields(member_doc):
             {"member": getattr(member_doc, "name", "Unknown")},
             raise_error=False,
         )
-        return OperationResult.fail(str(e))
+        return OperationResult.from_exception(e)
 
 
 def get_membership_duration_summary(member_name):
