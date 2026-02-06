@@ -53,10 +53,8 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
             context={"test": "data"}
         )
 
-        self.assertFalse(result["success"])
-        self.assertIn("not found", result["error"].lower())
-        self.assertEqual(result["service_name"], "EmailService")
-        self.assertEqual(result["operation"], "send_templated_email")
+        self.assertFalse(result.success)
+        self.assertIn("not found", result.error_message.lower())
 
     def test_empty_and_invalid_recipients(self):
         """Test handling of empty and invalid recipient lists"""
@@ -68,7 +66,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
         )
 
         # Should handle gracefully
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
 
         # Test None recipients
         result = self.email_service.send_templated_email(
@@ -77,7 +75,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
             context={"test": "data"}
         )
 
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
 
         # Test invalid email addresses
         result = self.email_service.send_templated_email(
@@ -87,7 +85,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
         )
 
         # Should still process (validation happens at sendmail level)
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
 
     def test_malformed_context_data(self):
         """Test handling of malformed context data"""
@@ -123,9 +121,9 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                         recipients=[self.test_member.email],
                         context=context
                     )
-                    # Should return a result dict even for malformed context
-                    self.assertIsInstance(result, dict)
-                    self.assertIn("success", result)
+                    # Should return an OperationResult even for malformed context
+                    self.assertIsNotNone(result)
+                    self.assertTrue(hasattr(result, "success"))
                 except Exception as e:
                     # Should not raise unhandled exceptions
                     self.fail(f"Unhandled exception for context {i}: {e}")
@@ -151,8 +149,8 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
         )
 
         # Should handle template rendering errors gracefully
-        self.assertIsInstance(result, dict)
-        self.assertIn("success", result)
+        self.assertIsNotNone(result)
+        self.assertTrue(hasattr(result, "success"))
 
     def test_frappe_sendmail_failures(self):
         """Test handling of frappe.sendmail failures"""
@@ -186,8 +184,8 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                     )
 
                     # Should handle sendmail failures gracefully
-                    self.assertIsInstance(result, dict)
-                    self.assertIn("success", result)
+                    self.assertIsNotNone(result)
+                    self.assertTrue(hasattr(result, "success"))
 
     def test_database_connectivity_issues(self):
         """Test handling of database connectivity issues"""
@@ -231,7 +229,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                 )
 
             # Should still succeed even if Communication creation fails
-            self.assertTrue(result["success"])
+            self.assertTrue(result.success)
 
     def test_cache_memory_pressure(self):
         """Test cache behavior under memory pressure"""
@@ -318,10 +316,10 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
             )
 
         # Should complete and provide statistics
-        self.assertTrue(result["success"])
-        self.assertEqual(result["data"]["total_emails"], 4)
-        self.assertGreaterEqual(result["data"]["failed_count"], 1)  # At least one should fail
-        self.assertIn("results", result["data"])
+        self.assertTrue(result.success)
+        self.assertEqual(result.data["total_emails"], 4)
+        self.assertGreaterEqual(result.data["failed_count"], 1)  # At least one should fail
+        self.assertIn("results", result.data)
 
     def test_compatibility_layer_error_handling(self):
         """Test compatibility layer error handling"""
@@ -334,8 +332,8 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
             member="NON_EXISTENT_MEMBER"
         )
 
-        self.assertFalse(result["success"])
-        self.assertIn("error", result)
+        self.assertFalse(result.success)
+        self.assertIsNotNone(result.error_message)
 
         # Test member notification with invalid member
         result = send_member_notification(
@@ -344,8 +342,8 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
             context={}
         )
 
-        self.assertFalse(result["success"])
-        self.assertIn("error", result)
+        self.assertFalse(result.success)
+        self.assertIsNotNone(result.error_message)
 
     def test_segment_recipients_edge_cases(self):
         """Test get_segment_recipients with edge cases"""
@@ -385,7 +383,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
             )
 
         # Should handle large templates
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
 
     def test_concurrent_cache_access_simulation(self):
         """Simulate concurrent cache access patterns"""
@@ -448,7 +446,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                         context=context
                     )
 
-                if result["success"] and mock_sendmail.called:
+                if result.success and mock_sendmail.called:
                     email_content = mock_sendmail.call_args[1]["message"]
 
                     # Verify dangerous content is properly escaped (not executed)
@@ -476,7 +474,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
         )
 
         # Should handle large recipient lists gracefully
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
 
         # Test with very large context
         large_context = {}
@@ -490,7 +488,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
         )
 
         # Should handle large contexts gracefully
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
 
     def test_unicode_and_encoding_edge_cases(self):
         """Test Unicode and encoding edge cases"""
@@ -526,7 +524,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                     )
 
                 # Should handle Unicode text properly
-                self.assertIsInstance(result, dict)
+                self.assertIsNotNone(result)
 
 
 if __name__ == '__main__':

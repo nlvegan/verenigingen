@@ -15,8 +15,9 @@ from frappe import _
 from frappe.utils import get_datetime, now
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
+from verenigingen.utils.service_error_handler import handle_service_error
 
 
 class BoundedLRUCache:
@@ -105,7 +106,7 @@ class EmailService(StatelessService):
         create_communication: bool = True,
         notification_key: str = None,
         **options,
-    ) -> Dict[str, Any]:
+    ) -> OperationResult:
         """
         Send email using a template with context variables.
 
@@ -122,7 +123,7 @@ class EmailService(StatelessService):
             **options: Additional email options
 
         Returns:
-            Dict with success status and details
+            OperationResult with success status and details
         """
         try:
             # Check Email Configuration early - before any template loading
@@ -130,12 +131,7 @@ class EmailService(StatelessService):
             config_service = self._get_config_service()
             if config_service and not config_service.is_email_enabled():
                 self.logger.info("Email sending disabled via Email Configuration - skipping templated email")
-                return create_service_result(
-                    success=True,
-                    data={"skipped": True, "reason": "Email disabled in configuration"},
-                    service_name="EmailService",
-                    operation="send_templated_email",
-                )
+                return OperationResult.ok({"skipped": True, "reason": "Email disabled in configuration"})
 
             # Normalize recipients to list
             if isinstance(recipients, str):
@@ -144,12 +140,7 @@ class EmailService(StatelessService):
             # Load and validate template
             template = self._get_template(template_name)
             if not template:
-                return create_service_result(
-                    success=False,
-                    error=f"Email template '{template_name}' not found",
-                    service_name="EmailService",
-                    operation="send_templated_email",
-                )
+                return OperationResult.fail(f"Email template '{template_name}' not found")
 
             # Prepare context with validation
             if context is None:
@@ -183,27 +174,23 @@ class EmailService(StatelessService):
                 **options,
             )
 
-            return create_service_result(
-                success=result["success"],
-                data=(
+            if result.success:
+                return OperationResult.ok(
                     {
                         "template": template_name,
                         "recipients_count": len(recipients),
-                        "queued": result.get("queued", False),
-                        "message": (
-                            "Email queued successfully" if result["success"] else "Email queueing failed"
-                        ),
+                        "queued": result.data.get("queued", False) if isinstance(result.data, dict) else False,
+                        "message": "Email queued successfully",
                     }
-                    if result["success"]
-                    else None
-                ),
-                error="; ".join(result.get("errors", [])) if not result["success"] else None,
-                service_name="EmailService",
-                operation="send_templated_email",
-            )
+                )
+            else:
+                return OperationResult.fail(
+                    result.error_message or "Email queueing failed",
+                    errors=result.errors,
+                )
 
         except Exception as e:
-            return handle_service_error(
+            handle_service_error(
                 e,
                 "EmailService",
                 "Send templated email",
@@ -213,10 +200,11 @@ class EmailService(StatelessService):
                 },
                 raise_error=False,
             )
+            return OperationResult.fail(str(e))
 
     def send_notification(
         self, notification_type: str, recipients: Union[str, List[str]], data: Dict[str, Any], **options
-    ) -> Dict[str, Any]:
+    ) -> OperationResult:
         """
         Send system notifications using predefined templates.
 
@@ -237,7 +225,7 @@ class EmailService(StatelessService):
             **options: Additional options
 
         Returns:
-            Dict with success status and details
+            OperationResult with success status and details
         """
         warnings.warn(
             "EmailService.send_notification() is deprecated. "
@@ -275,12 +263,7 @@ class EmailService(StatelessService):
 
             template_name = template_mapping.get(notification_type)
             if not template_name:
-                return create_service_result(
-                    success=False,
-                    error=f"Unknown notification type: {notification_type}",
-                    service_name="EmailService",
-                    operation="send_notification",
-                )
+                return OperationResult.fail(f"Unknown notification type: {notification_type}")
 
             # Get the notification key for configuration-based control
             notification_key = key_mapping.get(notification_type)
@@ -294,13 +277,14 @@ class EmailService(StatelessService):
             )
 
         except Exception as e:
-            return handle_service_error(
+            handle_service_error(
                 e,
                 "EmailService",
                 "Send notification",
                 {"notification_type": notification_type},
                 raise_error=False,
             )
+            return OperationResult.fail(str(e))
 
     def send_bulk_emails(
         self,
@@ -308,7 +292,7 @@ class EmailService(StatelessService):
         batch_size: int = 50,
         delay_between_batches: float = 1.0,
         **options,
-    ) -> Dict[str, Any]:
+    ) -> OperationResult:
         """
         Send multiple emails efficiently with rate limiting.
 
@@ -319,7 +303,7 @@ class EmailService(StatelessService):
             **options: Additional options
 
         Returns:
-            Dict with batch results
+            OperationResult with batch results
         """
         try:
             import time
@@ -330,16 +314,13 @@ class EmailService(StatelessService):
                 self.logger.info(
                     f"Email sending disabled via Email Configuration - skipping batch of {len(email_batch)} emails"
                 )
-                return create_service_result(
-                    success=True,
-                    data={
+                return OperationResult.ok(
+                    {
                         "skipped": True,
                         "reason": "Email disabled in configuration",
                         "total_emails": len(email_batch),
                         "skipped_count": len(email_batch),
-                    },
-                    service_name="EmailService",
-                    operation="send_bulk_emails",
+                    }
                 )
 
             total_emails = len(email_batch)
@@ -354,7 +335,7 @@ class EmailService(StatelessService):
                 for email_config in batch:
                     try:
                         result = self.send_templated_email(**email_config)
-                        if result["success"]:
+                        if result.success:
                             sent_count += 1
                         else:
                             failed_count += 1
@@ -368,23 +349,21 @@ class EmailService(StatelessService):
                 if i + batch_size < total_emails:
                     time.sleep(delay_between_batches)
 
-            return create_service_result(
-                success=True,
-                data={
+            return OperationResult.ok(
+                {
                     "total_emails": total_emails,
                     "sent_count": sent_count,
                     "failed_count": failed_count,
                     "success_rate": (sent_count / total_emails) * 100 if total_emails > 0 else 0,
                     "results": results,
-                },
-                service_name="EmailService",
-                operation="send_bulk_emails",
+                }
             )
 
         except Exception as e:
-            return handle_service_error(
+            handle_service_error(
                 e, "EmailService", "Send bulk emails", {"batch_size": len(email_batch)}, raise_error=False
             )
+            return OperationResult.fail(str(e))
 
     def send_simple_email(
         self,
@@ -395,7 +374,7 @@ class EmailService(StatelessService):
         reference_name: str = None,
         notification_key: str = None,
         **options,
-    ) -> Dict[str, Any]:
+    ) -> OperationResult:
         """
         Send simple non-templated email for system notifications and alerts.
 
@@ -416,7 +395,7 @@ class EmailService(StatelessService):
             **options: Additional options (delayed, etc.)
 
         Returns:
-            Dict with success status and details
+            OperationResult with success status and details
         """
         try:
             # Normalize recipients
@@ -434,7 +413,7 @@ class EmailService(StatelessService):
             )
 
         except Exception as e:
-            return handle_service_error(
+            handle_service_error(
                 e,
                 "EmailService",
                 "Send simple email",
@@ -444,6 +423,7 @@ class EmailService(StatelessService):
                 },
                 raise_error=False,
             )
+            return OperationResult.fail(str(e))
 
     def _send_email_internal(
         self,
@@ -455,7 +435,7 @@ class EmailService(StatelessService):
         create_communication: bool = True,  # Deprecated - kept for backward compatibility
         notification_key: str = None,
         **options,
-    ) -> Dict[str, Any]:
+    ) -> OperationResult:
         """
         Internal email sending using Frappe's Email Queue system.
 
@@ -477,12 +457,7 @@ class EmailService(StatelessService):
                 # Check master email enable
                 if not config_service.is_email_enabled():
                     self.logger.info("Email sending disabled via Email Configuration")
-                    return create_service_result(
-                        success=True,
-                        data={"skipped": True, "reason": "Email disabled in configuration"},
-                        service_name="EmailService",
-                        operation="_send_email_internal",
-                    )
+                    return OperationResult.ok({"skipped": True, "reason": "Email disabled in configuration"})
 
                 # Check notification-specific settings if key provided
                 if notification_key:
@@ -491,11 +466,8 @@ class EmailService(StatelessService):
 
                     if not config_service.is_notification_enabled(notification_key):
                         self.logger.info(f"Notification '{notification_key}' disabled in Email Configuration")
-                        return create_service_result(
-                            success=True,
-                            data={"skipped": True, "reason": f"Notification '{notification_key}' disabled"},
-                            service_name="EmailService",
-                            operation="_send_email_internal",
+                        return OperationResult.ok(
+                            {"skipped": True, "reason": f"Notification '{notification_key}' disabled"}
                         )
 
                     # Check cooldown for each recipient
@@ -507,30 +479,17 @@ class EmailService(StatelessService):
                             self.logger.debug(f"Skipping {recipient} for '{notification_key}' - in cooldown")
 
                     if not recipients_to_send:
-                        return create_service_result(
-                            success=True,
-                            data={"skipped": True, "reason": "All recipients in cooldown"},
-                            service_name="EmailService",
-                            operation="_send_email_internal",
+                        return OperationResult.ok(
+                            {"skipped": True, "reason": "All recipients in cooldown"}
                         )
                     recipients = recipients_to_send
 
             # Input validation
             if not recipients:
-                return create_service_result(
-                    success=False,
-                    error="No recipients provided",
-                    service_name="EmailService",
-                    operation="_send_email_internal",
-                )
+                return OperationResult.fail("No recipients provided")
 
             if not subject or not content:
-                return create_service_result(
-                    success=False,
-                    error="Subject and content are required",
-                    service_name="EmailService",
-                    operation="_send_email_internal",
-                )
+                return OperationResult.fail("Subject and content are required")
 
             # Check if email account is configured
             if not self._has_active_email_account():
@@ -539,11 +498,8 @@ class EmailService(StatelessService):
                     f"Recipients: {recipients}\n"
                     f"Subject: {subject[:50]}..."
                 )
-                return create_service_result(
-                    success=False,
-                    error="No active email account configured. Please configure an email account in Settings.",
-                    service_name="EmailService",
-                    operation="_send_email_internal",
+                return OperationResult.fail(
+                    "No active email account configured. Please configure an email account in Settings."
                 )
 
             # Use frappe.sendmail with delayed=True (default) to queue for background processing
@@ -586,15 +542,12 @@ class EmailService(StatelessService):
             if notification_key:
                 self._record_cooldown(notification_key, recipients)
 
-            return create_service_result(
-                success=True,
-                data={
+            return OperationResult.ok(
+                {
                     "queued": True,
                     "message": f"Email queued for {len(recipients)} recipient(s)",
                     "tracking": "Check Email Queue for delivery status",
-                },
-                service_name="EmailService",
-                operation="_send_email_internal",
+                }
             )
 
         except Exception as e:
@@ -603,12 +556,7 @@ class EmailService(StatelessService):
                 f"Recipients: {recipients}\n"
                 f"Subject: {subject[:50] if subject else 'None'}..."
             )
-            return create_service_result(
-                success=False,
-                error=f"Failed to queue email: {str(e)}",
-                service_name="EmailService",
-                operation="_send_email_internal",
-            )
+            return OperationResult.fail(f"Failed to queue email: {str(e)}")
 
     def _create_communication_record(
         self,

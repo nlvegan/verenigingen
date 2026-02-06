@@ -542,7 +542,7 @@ def send_donation_confirmation_email(donation_id):
             notification_key="donation_confirmation",
         )
 
-        return result.get("success", False)
+        return result.success
 
     except Exception as e:
         # Log error with truncated message to avoid field length issues
@@ -603,7 +603,7 @@ def send_payment_confirmation_email(donation_id):
             notification_key="donation_payment_confirmation",
         )
 
-        return result.get("success", False)
+        return result.success
 
     except Exception as e:
         # Log error with truncated message to avoid field length issues

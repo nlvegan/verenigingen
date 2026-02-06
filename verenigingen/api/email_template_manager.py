@@ -692,7 +692,7 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
             notification_key=notification_key,
         )
 
-        return result.get("success", False)
+        return result.success
 
     except Exception as e:
         frappe.log_error(f"Failed to send template email '{template_name}': {str(e)}", "Template Email Error")

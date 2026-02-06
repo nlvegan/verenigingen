@@ -143,7 +143,7 @@ class MemberDurationService(StatelessService):
             # Use extracted utility to update duration fields
             result = update_member_duration_fields(member_doc)
 
-            if result.get("success"):
+            if result.success:
                 # Suppress version tracking for automatic duration updates
                 # These are calculated fields updated by scheduler, not user actions
                 member_doc.flags.ignore_version = True

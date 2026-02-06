@@ -244,7 +244,7 @@ class PaymentAlertService:
                 message=message,
                 notification_key=notification_key,
             )
-            return result.get("success", False)
+            return result.success
         except Exception as e:
             frappe.logger().warning(f"Failed to send {alert_type} alert email: {e}")
             return False

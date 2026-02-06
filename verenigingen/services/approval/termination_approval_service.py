@@ -243,9 +243,9 @@ class TerminationApprovalService(StatefulService):
                 notification_key="termination_pending_approval",
             )
 
-            if not result.get("success"):
+            if not result.success:
                 frappe.log_error(
-                    f"Failed to send approval notification: {result.get('error')}",
+                    f"Failed to send approval notification: {result.error_message}",
                     "Termination Approval Email Error",
                 )
             else:
@@ -288,9 +288,9 @@ class TerminationApprovalService(StatefulService):
                 notification_key="termination_approved",
             )
 
-            if not result.get("success"):
+            if not result.success:
                 frappe.log_error(
-                    f"Failed to send approved notification: {result.get('error')}",
+                    f"Failed to send approved notification: {result.error_message}",
                     "Termination Approved Email Error",
                 )
             else:
@@ -328,9 +328,9 @@ class TerminationApprovalService(StatefulService):
                 notification_key="termination_rejected",
             )
 
-            if not result.get("success"):
+            if not result.success:
                 frappe.log_error(
-                    f"Failed to send rejection notification: {result.get('error')}",
+                    f"Failed to send rejection notification: {result.error_message}",
                     "Termination Rejection Email Error",
                 )
             else:

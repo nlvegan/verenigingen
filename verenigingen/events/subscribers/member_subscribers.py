@@ -291,11 +291,11 @@ def _send_approval_notification(member):
             context={"member_name": member.full_name, "membership_number": member.name},
         )
 
-        if result.get("success"):
+        if result.success:
             frappe.logger("events").info(f"Approval notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                f"Failed to send approval notification: {'; '.join(result.get('errors', []))}"
+                f"Failed to send approval notification: {'; '.join(result.errors)}"
             )
 
     except Exception:
@@ -345,11 +345,11 @@ def _send_suspension_notification(member):
             context={"member_name": member.full_name, "membership_number": member.name},
         )
 
-        if result.get("success"):
+        if result.success:
             frappe.logger("events").info(f"Suspension notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                f"Failed to send suspension notification: {'; '.join(result.get('errors', []))}"
+                f"Failed to send suspension notification: {'; '.join(result.errors)}"
             )
 
     except Exception:
@@ -371,11 +371,11 @@ def _send_termination_notification(member):
             context={"member_name": member.full_name, "membership_number": member.name},
         )
 
-        if result.get("success"):
+        if result.success:
             frappe.logger("events").info(f"Termination notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                f"Failed to send termination notification: {'; '.join(result.get('errors', []))}"
+                f"Failed to send termination notification: {'; '.join(result.errors)}"
             )
 
     except Exception:
@@ -397,11 +397,11 @@ def _send_reactivation_notification(member):
             context={"member_name": member.full_name, "membership_number": member.name},
         )
 
-        if result.get("success"):
+        if result.success:
             frappe.logger("events").info(f"Reactivation notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                f"Failed to send reactivation notification: {'; '.join(result.get('errors', []))}"
+                f"Failed to send reactivation notification: {'; '.join(result.errors)}"
             )
 
     except Exception:

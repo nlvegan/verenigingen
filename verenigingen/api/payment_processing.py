@@ -535,7 +535,7 @@ def send_payment_reminder_email(
         )
 
         # If template not found, send with fallback content
-        if not result.get("success") and "not found" in str(result.get("errors", [])):
+        if not result.success and "not found" in str(result.errors):
             fallback_content = generate_payment_reminder_html(
                 member, payment_info, reminder_type, custom_message
             )
@@ -549,12 +549,12 @@ def send_payment_reminder_email(
             )
 
         # Check if email was sent successfully
-        if result.get("success"):
+        if result.success:
             # Log the reminder
             create_payment_reminder_log(member_name, reminder_type, payment_info)
             return True
         else:
-            frappe.logger().error(f"Payment reminder email failed: {'; '.join(result.get('errors', []))}")
+            frappe.logger().error(f"Payment reminder email failed: {'; '.join(result.errors)}")
             return False
 
     except Exception as e:
@@ -601,7 +601,7 @@ def send_chapter_notification(chapter, member_name, payment_info):
         )
 
         # Return success status based on EmailService result
-        return result.get("success", False)
+        return result.success
 
     except Exception as e:
         frappe.logger().error(f"Failed to send chapter notification: {str(e)}")

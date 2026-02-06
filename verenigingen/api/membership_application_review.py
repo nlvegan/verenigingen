@@ -1106,9 +1106,9 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         notification_key="member_application_rejected",
     )
 
-    if not result.get("success"):
+    if not result.success:
         frappe.logger("membership_review").warning(
-            f"Failed to send rejection notification to {member.email}: {'; '.join(result.get('errors', []))}"
+            f"Failed to send rejection notification to {member.email}: {'; '.join(result.errors)}"
         )
 
 

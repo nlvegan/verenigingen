@@ -664,7 +664,7 @@ def send_disciplinary_notification(member, termination_request):
                 reference_name=termination_request,
             )
 
-            return result.get("success", False)
+            return result.success
 
         return False
 

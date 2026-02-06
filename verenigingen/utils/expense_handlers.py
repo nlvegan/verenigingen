@@ -191,11 +191,11 @@ def notify_expense_approvers(doc, method=None):
             notification_key="expense_approval_request",
         )
 
-        if result.get("success"):
+        if result.success:
             frappe.logger().info(f"Expense approval notification sent to {approver_email} for {doc.name}")
         else:
             frappe.logger().warning(
-                f"Failed to send expense approval notification: {result.get('error', 'Unknown error')}"
+                f"Failed to send expense approval notification: {result.error_message or 'Unknown error'}"
             )
 
     except Exception as e:

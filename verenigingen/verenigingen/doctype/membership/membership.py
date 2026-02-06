@@ -883,12 +883,13 @@ class Membership(Document):
             member_doc = frappe.get_doc("Member", self.member)
             result = update_member_duration_fields(member_doc)
 
-            if result.get("success"):
+            if result.success:
                 # Mark as system update to bypass fee override validation
                 member_doc._system_update = True
                 member_doc.save()
+                duration = result.data.get("duration") if result.data else None
                 frappe.logger().info(
-                    f"Updated membership duration for {self.member}: {result.get('data', {}).get('duration')}"
+                    f"Updated membership duration for {self.member}: {duration}"
                 )
         except Exception as e:
             frappe.logger().error(f"Failed to update membership duration for {self.member}: {str(e)}")

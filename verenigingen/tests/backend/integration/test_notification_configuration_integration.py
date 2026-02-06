@@ -64,7 +64,7 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
 
                 # Verify result indicates notification was skipped
                 self.assertTrue(
-                    result.get("skipped") or not result.get("success", True),
+                    (isinstance(result.data, dict) and result.data.get("skipped")) or not result.success,
                     f"Expected notification to be skipped/blocked, got: {result}"
                 )
                 # sendmail should NOT be called for disabled notifications
@@ -91,7 +91,7 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
 
                 # Verify result indicates email was blocked due to global disable
                 self.assertTrue(
-                    result.get("skipped") or not result.get("success", True),
+                    (isinstance(result.data, dict) and result.data.get("skipped")) or not result.success,
                     f"Expected email to be blocked when master_email_enabled=0, got: {result}"
                 )
                 # sendmail should NOT be called when globally disabled
@@ -377,12 +377,13 @@ class TestVolunteerEmailIntegration(EnhancedTestCase):
                     )
 
                     # Verify result structure
-                    self.assertIn("success", result, "Result should contain 'success' key")
+                    self.assertTrue(hasattr(result, "success"), "Result should have 'success' attribute")
                     # Verify volunteer email was resolved correctly
-                    if result.get("success"):
+                    if result.success:
                         # If successful, sendmail should have been called
                         self.assertTrue(
-                            mock_sendmail.called or result.get("skipped"),
+                            mock_sendmail.called
+                            or (isinstance(result.data, dict) and result.data.get("skipped")),
                             "Either sendmail should be called or notification skipped"
                         )
 
@@ -432,13 +433,13 @@ class TestEmailServiceCacheIntegration(EnhancedTestCase):
 
         # Verify first call succeeded
         self.assertTrue(
-            result1.get("success", False) or "error" not in result1,
+            result1.success or result1.error_message is None,
             f"First email send should succeed, got: {result1}"
         )
 
         # Verify second call succeeded
         self.assertTrue(
-            result2.get("success", False) or "error" not in result2,
+            result2.success or result2.error_message is None,
             f"Second email send should succeed, got: {result2}"
         )
 

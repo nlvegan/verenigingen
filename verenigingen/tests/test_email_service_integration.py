@@ -140,9 +140,9 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Verify result
-        self.assertTrue(result["success"])
-        self.assertEqual(result["data"]["recipients_count"], 1)
-        self.assertEqual(result["data"]["template"], "test_member_approval")
+        self.assertTrue(result.success)
+        self.assertEqual(result.data["recipients_count"], 1)
+        self.assertEqual(result.data["template"], "test_member_approval")
 
         # Verify email was sent with correct content
         mock_sendmail.assert_called_once()
@@ -165,8 +165,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Should succeed even if template doesn't exist (would fall back)
-        self.assertIsInstance(result, dict)
-        self.assertIn("success", result)
+        self.assertIsNotNone(result)
 
     def test_email_service_bulk_sending(self):
         """Test EmailService bulk email functionality"""
@@ -206,11 +205,11 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Verify bulk result
-        self.assertTrue(result["success"])
-        self.assertEqual(result["data"]["total_emails"], 3)
-        self.assertEqual(result["data"]["sent_count"], 3)
-        self.assertEqual(result["data"]["failed_count"], 0)
-        self.assertEqual(result["data"]["success_rate"], 100.0)
+        self.assertTrue(result.success)
+        self.assertEqual(result.data["total_emails"], 3)
+        self.assertEqual(result.data["sent_count"], 3)
+        self.assertEqual(result.data["failed_count"], 0)
+        self.assertEqual(result.data["success_rate"], 100.0)
 
         # Verify all emails were sent
         self.assertEqual(mock_sendmail.call_count, 3)
@@ -224,8 +223,8 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             context={}
         )
 
-        self.assertFalse(result["success"])
-        self.assertIn("not found", result["error"])
+        self.assertFalse(result.success)
+        self.assertIn("not found", result.error_message)
 
         # Test empty recipients
         result = self.email_service.send_templated_email(
@@ -235,7 +234,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
         )
 
         # Should handle gracefully
-        self.assertIsInstance(result, dict)
+        self.assertIsNotNone(result)
 
     def test_compatibility_layer_sepa_emails(self):
         """Test SEPA email compatibility layer"""
@@ -256,7 +255,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Verify compatibility wrapper works
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
         mock_sendmail.assert_called_once()
 
     def test_compatibility_layer_member_notifications(self):
@@ -271,8 +270,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Should attempt to send notification
-        self.assertIsInstance(result, dict)
-        self.assertIn("success", result)
+        self.assertIsNotNone(result)
 
     def test_compatibility_layer_chapter_emails(self):
         """Test chapter email compatibility layer"""
@@ -291,7 +289,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
                 }
             )
 
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
         mock_sendmail.assert_called_once()
 
     def test_template_context_validation_and_xss_protection(self):
@@ -312,7 +310,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Should succeed but escape dangerous content
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
 
         # Verify XSS content was escaped in the email
         call_args = mock_sendmail.call_args
@@ -349,8 +347,8 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             second_call_time = time.time() - start_time
 
         # Both should succeed
-        self.assertTrue(result1["success"])
-        self.assertTrue(result2["success"])
+        self.assertTrue(result1.success)
+        self.assertTrue(result2.success)
 
         # Second call should be faster (cached)
         # Note: This might be flaky in fast environments, so we just verify both work
@@ -381,7 +379,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
         # Verify communication record was created
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
 
         # Check if communication count increased
         new_count = frappe.db.count("Communication", filters={
@@ -419,7 +417,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
                 reference_name=dutch_member.name
             )
 
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
 
         # Verify Dutch content is properly handled
         call_args = mock_sendmail.call_args
@@ -440,8 +438,8 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             )
 
             # Should fail gracefully
-            self.assertFalse(result["success"])
-            self.assertIn("not found", result["error"])
+            self.assertFalse(result.success)
+            self.assertIn("not found", result.error_message)
 
     def test_bounded_cache_behavior(self):
         """Test that the bounded cache respects size limits and TTL"""

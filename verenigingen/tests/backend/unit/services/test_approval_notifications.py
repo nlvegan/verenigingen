@@ -34,12 +34,12 @@ class TestEmailServiceResultFormat(FrappeTestCase):
         )
 
         # Verify failure
-        self.assertFalse(result.get("success"), "Should fail with nonexistent template")
+        self.assertFalse(result.success, "Should fail with nonexistent template")
 
-        # CRITICAL: Error must be in 'error' key, NOT 'message'
+        # CRITICAL: Error must be in 'error_message' attribute, NOT 'message'
         self.assertIsNotNone(
-            result.get("error"),
-            "Failed result must have 'error' key with error message",
+            result.error_message,
+            "Failed result must have 'error_message' with error description",
         )
 
 
@@ -135,22 +135,22 @@ class TestMemberIDGenerationNoExplicitTransaction(SingletonBackupMixin, FrappeTe
 class TestApprovalServiceErrorHandling(FrappeTestCase):
     """Verify approval services use correct error key from EmailService."""
 
-    def test_termination_service_uses_error_key(self):
-        """TerminationApprovalService must use result.get('error')."""
+    def test_termination_service_uses_error_message_attribute(self):
+        """TerminationApprovalService must use result.error_message."""
         from verenigingen.services.approval.termination_approval_service import (
             TerminationApprovalService,
         )
 
         source = inspect.getsource(TerminationApprovalService.send_approval_notification)
-        self.assertIn("result.get('error')", source)
+        self.assertIn("result.error_message", source)
         self.assertNotIn("result.get('message')", source)
 
-    def test_contribution_service_uses_error_key(self):
-        """ContributionAmendmentApprovalService must use result.get('error')."""
+    def test_contribution_service_uses_error_message_attribute(self):
+        """ContributionAmendmentApprovalService must use result.error_message."""
         from verenigingen.services.approval.contribution_amendment_approval_service import (
             ContributionAmendmentApprovalService,
         )
 
         source = inspect.getsource(ContributionAmendmentApprovalService.send_approval_notification)
-        self.assertIn("result.get('error')", source)
+        self.assertIn("result.error_message", source)
         self.assertNotIn("result.get('message')", source)

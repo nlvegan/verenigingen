@@ -14,7 +14,8 @@ Functions:
 import frappe
 from frappe.utils import date_diff, getdate, now, today
 
-from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
+from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.service_error_handler import handle_service_error
 
 
 def calculate_total_membership_days(member_name):
@@ -158,7 +159,7 @@ def update_member_duration_fields(member_doc):
         member_doc: Member document instance to update
 
     Returns:
-        dict: Result with success status and calculated values
+        OperationResult: Result with success status and calculated values
     """
     try:
         # Calculate the raw days from membership records
@@ -167,23 +168,22 @@ def update_member_duration_fields(member_doc):
         # Update only the human-readable duration field
         member_doc.cumulative_membership_duration = format_duration_human_readable(total_days)
 
-        return create_service_result(
-            success=True,
-            data={
+        return OperationResult.ok(
+            {
                 "total_days": total_days,
                 "duration": member_doc.cumulative_membership_duration,
-            },
+            }
         )
 
     except Exception as e:
-        error_result = handle_service_error(
+        handle_service_error(
             e,
             "MembershipDurationService",
             "Update member duration fields",
             {"member": getattr(member_doc, "name", "Unknown")},
             raise_error=False,
         )
-        return error_result
+        return OperationResult.fail(str(e))
 
 
 def get_membership_duration_summary(member_name):

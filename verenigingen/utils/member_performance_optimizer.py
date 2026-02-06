@@ -414,11 +414,11 @@ def process_member_post_creation(member_name: str):
                     notification_key="member_activated",
                 )
 
-                if result.get("success"):
+                if result.success:
                     frappe.logger().info(f"Welcome email sent to {member.email}")
                 else:
                     frappe.log_error(
-                        f"Welcome email failed for {member_name}: {result.get('error', 'Unknown error')}"
+                        f"Welcome email failed for {member_name}: {result.error_message or 'Unknown error'}"
                     )
             except Exception as e:
                 frappe.log_error(f"Welcome email failed for {member_name}: {str(e)}")

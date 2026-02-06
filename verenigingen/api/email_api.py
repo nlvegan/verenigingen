@@ -77,7 +77,7 @@ def send_templated_email(
             reference_name=reference_name,
         )
 
-        return OperationResult.ok(result, message=_("Templated email sent successfully"))
+        return result
 
     except Exception as e:
         frappe.log_error(f"Email API error: {str(e)}\n{traceback.format_exc()}", "Email API")
@@ -137,7 +137,7 @@ def send_notification(
             reference_name=reference_name,
         )
 
-        return OperationResult.ok(result, message=_("Notification sent successfully"))
+        return result
 
     except Exception as e:
         frappe.log_error(f"Notification API error: {str(e)}\n{traceback.format_exc()}", "Email API")

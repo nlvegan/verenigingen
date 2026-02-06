@@ -344,7 +344,7 @@ def send_test_newsletter(email_group=None):
     )
 
     return {
-        "success": result.get("success", False),
+        "success": result.success,
         "recipients_count": len(recipients),
         "message": f"Test newsletter sent to {len(recipients)} recipients",
     }
