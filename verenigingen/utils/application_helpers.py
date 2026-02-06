@@ -524,8 +524,9 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
             try:
                 custom_contribution_fee = float(data.get("custom_contribution_fee"))
             except (ValueError, TypeError) as e:
-                frappe.logger().error(
-                    f"Error converting custom_contribution_fee '{data.get('custom_contribution_fee')}' to float: {str(e)}"
+                frappe.log_error(
+                    f"Error converting custom_contribution_fee '{data.get('custom_contribution_fee')}' to float: {str(e)}",
+                    "Custom Amount Conversion Error",
                 )
                 custom_contribution_fee = 0
 
