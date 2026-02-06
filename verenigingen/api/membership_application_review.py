@@ -192,9 +192,9 @@ def approve_membership_application(
             "notes": (notes, 2000, False),
         },
     )
-    membership_type = sanitized.get("membership_type") or membership_type
-    chapter = sanitized.get("chapter") or chapter
-    notes = sanitized.get("notes") or notes
+    membership_type = sanitized["membership_type"]
+    chapter = sanitized["chapter"]
+    notes = sanitized["notes"]
 
     # Idempotency check - if already approved, return success
     member_status = frappe.db.get_value(
@@ -518,10 +518,10 @@ def reject_membership_application(
             "internal_notes": (internal_notes, 2000, False),
         },
     )
-    reason = sanitized.get("reason") or reason
-    email_template = sanitized.get("email_template") or email_template
-    rejection_category = sanitized.get("rejection_category") or rejection_category
-    internal_notes = sanitized.get("internal_notes") or internal_notes
+    reason = sanitized["reason"]
+    email_template = sanitized["email_template"]
+    rejection_category = sanitized["rejection_category"]
+    internal_notes = sanitized["internal_notes"]
 
     # Validate email template if provided
     if email_template and not frappe.db.exists("Email Template", email_template):
