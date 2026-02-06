@@ -10,10 +10,75 @@ from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.services.member.approval.member_approval_service import (
     create_member_iban_history,
     resolve_membership_type,
+    validate_membership_type_for_approval,
 )
 from verenigingen.utils.member_utils import get_volunteer_for_member
-from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.safe_error_logging import safe_log_error
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
+from verenigingen.services.member.account.member_user_account_service import (
+    create_secure_user_account_for_member,
+)
+from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
+from verenigingen.utils.security.audit_logging import log_security_event
+from verenigingen.utils.validation.api_validators import APIValidator
+
+
+def _validate_member_and_sanitize_inputs(member_name, operation_label, text_fields=None):
+    """Validate member exists and sanitize text inputs.
+
+    Shared validation for approve/reject endpoints. Handles member_name sanitization,
+    existence check with security logging, and optional text field sanitization.
+
+    Args:
+        member_name: Raw member name from API call
+        operation_label: Label for security logs (e.g. "approval", "rejection")
+        text_fields: Dict of {field_name: (value, max_length, allow_html)} to sanitize.
+            If allow_html is omitted, defaults to True.
+
+    Returns:
+        Tuple of (sanitized_member_name, sanitized_fields_dict).
+        sanitized_fields_dict keys match text_fields keys.
+
+    Raises:
+        frappe.ValidationError: On invalid member or sanitization failure.
+        Logs security events on failures.
+    """
+    try:
+        member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
+
+        # Sanitize additional text fields
+        sanitized = {}
+        if text_fields:
+            for field_name, spec in text_fields.items():
+                value, max_length = spec[0], spec[1]
+                allow_html = spec[2] if len(spec) > 2 else True
+                if value:
+                    sanitized[field_name] = APIValidator.sanitize_text(
+                        str(value), max_length=max_length, allow_html=allow_html
+                    )
+                else:
+                    sanitized[field_name] = value
+
+        # Validate member exists
+        if not frappe.db.exists("Member", member_name):
+            log_security_event(
+                "invalid_member_access",
+                {"message": f"Attempted {operation_label} of non-existent member: {member_name}"},
+                severity="error",
+            )
+            frappe.throw(_("Invalid member reference"))
+
+        return member_name, sanitized
+
+    except frappe.ValidationError:
+        raise
+    except Exception as e:
+        log_security_event(
+            "input_validation_failure",
+            {"message": f"Input validation failed for {operation_label}: {str(e)}"},
+            severity="warning",
+        )
+        frappe.throw(_("Invalid input data provided"))
 
 
 def assign_member_to_chapter(member, chapter, notify=None):
@@ -118,64 +183,47 @@ def approve_membership_application(
     This separation ensures proper security compliance and maintainable code.
     """
     # Input sanitization and validation
-    from verenigingen.utils.security.audit_logging import log_security_event
-    from verenigingen.utils.validation.api_validators import APIValidator
+    member_name, sanitized = _validate_member_and_sanitize_inputs(
+        member_name,
+        "approval",
+        text_fields={
+            "membership_type": (membership_type, 255),
+            "chapter": (chapter, 255),
+            "notes": (notes, 2000, False),
+        },
+    )
+    membership_type = sanitized.get("membership_type") or membership_type
+    chapter = sanitized.get("chapter") or chapter
+    notes = sanitized.get("notes") or notes
 
-    try:
-        # Validate and sanitize all inputs
-        member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
-        if membership_type:
-            membership_type = APIValidator.sanitize_text(str(membership_type), max_length=255)
-        if chapter:
-            chapter = APIValidator.sanitize_text(str(chapter), max_length=255)
-        if notes:
-            notes = APIValidator.sanitize_text(str(notes), max_length=2000, allow_html=False)
-
-        # Validate member exists before proceeding
-        if not frappe.db.exists("Member", member_name):
-            log_security_event(
-                "invalid_member_access",
-                {"message": f"Attempted approval of non-existent member: {member_name}"},
-                severity="error",
-            )
-            frappe.throw(_("Invalid member reference"))
-
-        # Idempotency check - if already approved, return success
-        member_status = frappe.db.get_value(
-            "Member", member_name, ["application_status", "status"], as_dict=True
+    # Idempotency check - if already approved, return success
+    member_status = frappe.db.get_value(
+        "Member", member_name, ["application_status", "status"], as_dict=True
+    )
+    if member_status and member_status.application_status == "Approved":
+        frappe.logger().info(
+            f"Member {member_name} already approved (application_status=Approved), returning existing approval"
         )
-        if member_status and member_status.application_status == "Approved":
-            frappe.logger().info(
-                f"Member {member_name} already approved (application_status=Approved), returning existing approval"
-            )
-            # Get existing membership for response
-            existing_membership = frappe.db.get_value(
-                "Membership", {"member": member_name, "status": "Active", "docstatus": 1}, "name"
-            )
-
-            # Get most recent invoice for this member if exists
-            existing_invoice = frappe.db.get_value(
-                "Sales Invoice",
-                {"customer": frappe.db.get_value("Member", member_name, "customer"), "docstatus": 1},
-                "name",
-                order_by="creation desc",
-            )
-
-            return {
-                "success": True,
-                "message": _("Member application already approved"),
-                "membership": existing_membership,
-                "invoice": existing_invoice,
-                "idempotent": True,  # Flag to indicate this was already done
-            }
-
-    except Exception as e:
-        log_security_event(
-            "input_validation_failure",
-            {"message": f"Input validation failed for approval: {str(e)}"},
-            severity="warning",
+        # Get existing membership for response
+        existing_membership = frappe.db.get_value(
+            "Membership", {"member": member_name, "status": "Active", "docstatus": 1}, "name"
         )
-        frappe.throw(_("Invalid input data provided"))
+
+        # Get most recent invoice for this member if exists
+        existing_invoice = frappe.db.get_value(
+            "Sales Invoice",
+            {"customer": frappe.db.get_value("Member", member_name, "customer"), "docstatus": 1},
+            "name",
+            order_by="creation desc",
+        )
+
+        return {
+            "success": True,
+            "message": _("Member application already approved"),
+            "membership": existing_membership,
+            "invoice": existing_invoice,
+            "idempotent": True,  # Flag to indicate this was already done
+        }
 
     member = frappe.get_doc("Member", member_name)
 
@@ -304,7 +352,7 @@ def approve_membership_application(
                 f"Activated volunteer record for {member.name} during approval (full activation)"
             )
         except Exception as e:
-            safe_log_error(f"Non-critical: Failed to activate volunteer record for {member.name}: {str(e)}")
+            safe_log_error("Volunteer activation failed", f"Failed to activate volunteer record for {member.name}: {str(e)}")
             # Continue with approval - this is not critical
     elif has_volunteer_interest:
         # Interest-only: volunteer record exists but no full activation requested
@@ -325,7 +373,7 @@ def approve_membership_application(
             member, activate_as_volunteer=should_activate_volunteer
         )
     except Exception as e:
-        safe_log_error(f"Non-critical: User account creation failed for {member.name}: {str(e)}")
+        safe_log_error("User account creation failed", f"User account creation failed for {member.name}: {str(e)}")
         user_creation_result = {"success": False, "error": "Account creation failed"}
         # Continue with approval - user accounts can be created manually later
 
@@ -448,303 +496,6 @@ def approve_membership_application(
     }
 
 
-def safe_log_error(message, title=None):
-    """Helper to log errors with length protection"""
-    # Truncate message to prevent log title validation errors
-    safe_message = message[:100] + "..." if len(message) > 100 else message
-    frappe.log_error(safe_message, title)
-
-
-def create_secure_user_account_for_member(member, activate_as_volunteer=False):
-    """
-    Create user account for approved member using secure AccountCreationManager with proper role profiles.
-
-    Args:
-        member: Member document
-        activate_as_volunteer: If True, assign Volunteer role profile; otherwise Member role profile
-
-    Returns:
-        dict: Result dictionary with keys: success, message, user, action, error, account_request
-              (Compatible with existing callers that use .get() access)
-
-    Note:
-        Internally uses OperationResult pattern but returns dict for backward compatibility.
-        Callers can use result.get("success"), result.get("action"), etc.
-    """
-    try:
-        from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
-
-        # Determine role profile from membership type, with fallback to default
-        # The membership type's role_profile field defines what permissions members get
-        role_profile = None
-        if member.selected_membership_type:
-            # Validate membership type exists
-            if not frappe.db.exists("Membership Type", member.selected_membership_type):
-                frappe.logger().error(
-                    f"Membership Type '{member.selected_membership_type}' no longer exists for member {member.name}"
-                )
-            else:
-                role_profile = frappe.db.get_value(
-                    "Membership Type", member.selected_membership_type, "role_profile"
-                )
-                # Validate retrieved role_profile exists
-                if role_profile and not frappe.db.exists("Role Profile", role_profile):
-                    frappe.logger().warning(
-                        f"Role Profile '{role_profile}' configured for Membership Type "
-                        f"'{member.selected_membership_type}' does not exist - using default"
-                    )
-                    role_profile = None
-
-        if not role_profile:
-            role_profile = "Verenigingen Member"  # Fallback default
-            frappe.logger().info(
-                f"Using default role profile 'Verenigingen Member' for member {member.name} "
-                f"(membership_type: {member.selected_membership_type or 'not set'})"
-            )
-        additional_roles = []  # Only for roles not covered by role profiles
-
-        # Override with Volunteer profile if explicitly requested via activate_as_volunteer parameter
-        if activate_as_volunteer:
-            # Verify volunteer record exists before assigning volunteer profile
-            volunteer_name = get_volunteer_for_member(member.name)
-            if volunteer_name:
-                volunteer_status = frappe.db.get_value("Volunteer", volunteer_name, "status")
-                if volunteer_status in ["Active", "Pending"]:
-                    role_profile = "Verenigingen Volunteer"  # Volunteer role profile
-                    frappe.logger().info(
-                        f"Member {member.name} activated as volunteer, using Verenigingen Volunteer profile"
-                    )
-
-                    # Check if volunteer is a board member - this requires additional role assignment
-                    board_member_chapters = frappe.get_all(
-                        "Chapter Board Member",
-                        filters={"volunteer": volunteer_name, "is_active": 1},
-                        fields=["parent"],
-                    )
-                    if board_member_chapters:
-                        additional_roles.append("Verenigingen Chapter Board Member")
-                        frappe.logger().info(
-                            f"Member {member.name} is board member of {len(board_member_chapters)} chapters - adding board member role"
-                        )
-                else:
-                    frappe.logger().warning(
-                        f"Cannot assign Volunteer profile to {member.name} - volunteer status is {volunteer_status}"
-                    )
-            else:
-                frappe.logger().warning(
-                    f"Cannot assign Volunteer profile to {member.name} - no volunteer record found"
-                )
-
-        frappe.logger().info(
-            f"Creating secure user account for member {member.name} with role_profile: {role_profile}, additional_roles: {additional_roles}"
-        )
-
-        # Check if user already exists (quick check)
-        if frappe.db.exists("User", member.email):
-            frappe.logger().info(f"User already exists for {member.email}, linking to member")
-            # Security: Simple reference link to existing User.
-            # Uses db.set_value to link Member to User without triggering
-            # Member validation hooks. The user already exists and is valid.
-            # Explicit commit ensures link persists before verification check.
-            frappe.db.set_value("Member", member.name, "user", member.email)
-            frappe.db.commit()
-
-            # Verify linkage persisted correctly
-            linked_user = frappe.db.get_value("Member", member.name, "user")
-            if linked_user != member.email:
-                frappe.log_error(
-                    f"User linkage verification failed: expected {member.email}, got {linked_user}",
-                    "Account Linking Verification",
-                )
-                return OperationResult.fail(
-                    _("Failed to link user account"),
-                    errors=["Linkage verification failed"],
-                    user=None,
-                    action="link_failed",
-                ).to_dict()
-
-            return OperationResult.ok(
-                member.email,
-                message=_("Linked to existing user account"),
-                user=member.email,
-                action="linked_existing",
-            ).to_dict()
-
-        # Check for existing account creation request
-        existing_request = frappe.db.get_value(
-            "Account Creation Request",
-            {"source_record": member.name, "status": ["in", ["Pending", "In Progress", "Completed"]]},
-            "name",
-        )
-
-        if existing_request:
-            frappe.logger().info(
-                f"Account creation request already exists for {member.name}: {existing_request}"
-            )
-            return OperationResult.ok(
-                existing_request,
-                message=_("Account creation already in progress or completed"),
-                user=None,
-                action="existing_request",
-                account_request=existing_request,
-            ).to_dict()
-
-        # Create new account creation request - this returns OperationResult
-        account_result = queue_account_creation_for_member(
-            member_name=member.name,
-            roles=additional_roles if additional_roles else None,
-            role_profile=role_profile,
-            priority="High",  # Member approval is high priority
-        )
-
-        # Handle dict result from queue_account_creation_for_member
-        # (@critical_api decorator converts OperationResult to dict via to_dict())
-        if account_result and account_result.get("success"):
-            result_data = account_result.get("data") or {}
-            request_name = (
-                result_data.get("request_name")
-                if isinstance(result_data, dict)
-                else str(result_data)
-                if result_data
-                else None
-            )
-            return OperationResult.ok(
-                request_name,
-                message=_("User account creation queued successfully via secure system"),
-                user=None,  # Will be set when background job completes
-                action="queued_secure",
-                account_request=request_name,
-            ).to_dict()
-        else:
-            error_msg = (
-                account_result.get("error", {}).get("message", "Unknown error")
-                if account_result
-                else "Unknown error"
-            )
-            return OperationResult.fail(
-                _("Failed to queue account creation request"),
-                errors=[error_msg],
-                user=None,
-                action="queue_failed",
-            ).to_dict()
-
-    except Exception as e:
-        # Create shortened error message to avoid log title length issues
-        error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
-        frappe.log_error(f"Account creation error for {member.name}: {error_msg}")
-        return OperationResult.fail(
-            _("Account creation failed"),
-            errors=[error_msg],
-            user=None,
-            action="exception",
-        ).to_dict()
-
-
-def _log_upgrade_result(upgrade_result, context_label):
-    """Log the result of a volunteer user account upgrade.
-
-    Args:
-        upgrade_result: Dict from @critical_api-decorated upgrade_member_to_volunteer_user
-        context_label: Description for log messages (e.g. "volunteer", "new volunteer")
-    """
-    if upgrade_result.get("success"):
-        message = upgrade_result.get("meta", {}).get("message", "") if upgrade_result.get("meta") else ""
-        frappe.logger().info(f"User account upgrade for {context_label}: {message}")
-    else:
-        error_obj = upgrade_result.get("error", {})
-        errors = error_obj.get("errors", []) if isinstance(error_obj, dict) else []
-        frappe.logger().warning(f"Could not upgrade user account for {context_label}: {'; '.join(errors)}")
-
-
-def activate_volunteer_record(member):
-    """Activate volunteer record when membership application is approved"""
-    # Permission check - ensure user can write to Volunteer records
-    if not frappe.has_permission("Volunteer", "write"):
-        frappe.throw(_("You don't have permission to activate volunteers"))
-
-    try:
-        # Find existing volunteer record for this member
-        volunteer_name = get_volunteer_for_member(member.name)
-
-        # Also check by email in case member record was recreated
-        if not volunteer_name:
-            volunteer_name = frappe.db.get_value("Volunteer", {"email": member.email}, "name")
-            if volunteer_name:
-                frappe.logger().info(
-                    f"Found orphaned volunteer {volunteer_name} by email, relinking to member {member.name}"
-                )
-                # Relink the volunteer to this member
-                volunteer = frappe.get_doc("Volunteer", volunteer_name)
-                volunteer.member = member.name
-                volunteer.volunteer_name = (
-                    member.full_name or f"{member.first_name} {member.last_name}".strip()
-                )
-                volunteer.save()
-
-                # Also update member's volunteer_record field if it exists
-                if hasattr(member, "volunteer_record"):
-                    member.volunteer_record = volunteer_name
-                    member.save()
-
-        if volunteer_name:
-            # Update existing volunteer record
-            volunteer = frappe.get_doc("Volunteer", volunteer_name)
-            volunteer.status = "Active"
-            volunteer.save()
-            frappe.logger().info(f"Activated volunteer record {volunteer_name} for member {member.name}")
-
-            # Link volunteer to member record if not already linked
-            if hasattr(member, "volunteer_record") and member.volunteer_record != volunteer_name:
-                member.reload()  # Ensure we have latest data
-                member.volunteer_record = volunteer_name
-                member.save()
-                frappe.logger().info(f"Linked volunteer {volunteer_name} to member {member.name}")
-
-            # Upgrade user account from Website User to System User for volunteer access
-            if member.user:
-                try:
-                    from verenigingen.utils.account_creation_manager import upgrade_member_to_volunteer_user
-
-                    upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                    _log_upgrade_result(upgrade_result, "volunteer")
-                except Exception as e:
-                    frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
-                    # Non-critical - continue with volunteer activation
-
-            # Employee creation is now handled by AccountCreationManager
-            # The account creation request will handle employee creation properly
-            # with full security compliance and audit trail
-            frappe.logger().info(
-                f"Employee creation for volunteer {volunteer_name} will be handled by AccountCreationManager"
-            )
-        else:
-            # Create volunteer record if it doesn't exist (fallback)
-            from verenigingen.utils.application_helpers import create_volunteer_record
-
-            volunteer = create_volunteer_record(member)
-            if volunteer:
-                volunteer.status = "Active"
-                volunteer.save()
-                frappe.logger().info(
-                    f"Created and activated volunteer record {volunteer.name} for member {member.name}"
-                )
-
-                # Upgrade user account from Website User to System User for volunteer access
-                if member.user:
-                    try:
-                        from verenigingen.utils.account_creation_manager import (
-                            upgrade_member_to_volunteer_user,
-                        )
-
-                        upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                        _log_upgrade_result(upgrade_result, "new volunteer")
-                    except Exception as e:
-                        frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
-                        # Non-critical - continue with volunteer activation
-    except Exception as e:
-        safe_log_error(f"Error activating volunteer record for member {member.name}: {str(e)}")
-
-
 @frappe.whitelist()
 @high_security_api()  # Member application rejection workflow
 def reject_membership_application(
@@ -757,43 +508,24 @@ def reject_membership_application(
 ):
     """Reject a membership application with enhanced template support and input validation"""
     # Input sanitization and validation
-    from verenigingen.utils.security.audit_logging import log_security_event
-    from verenigingen.utils.validation.api_validators import APIValidator
+    member_name, sanitized = _validate_member_and_sanitize_inputs(
+        member_name,
+        "rejection",
+        text_fields={
+            "reason": (reason, 1000, False),
+            "email_template": (email_template, 255),
+            "rejection_category": (rejection_category, 255),
+            "internal_notes": (internal_notes, 2000, False),
+        },
+    )
+    reason = sanitized.get("reason") or reason
+    email_template = sanitized.get("email_template") or email_template
+    rejection_category = sanitized.get("rejection_category") or rejection_category
+    internal_notes = sanitized.get("internal_notes") or internal_notes
 
-    try:
-        # Validate and sanitize all inputs
-        member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
-        reason = APIValidator.sanitize_text(str(reason), max_length=1000, allow_html=False)
-
-        if email_template:
-            email_template = APIValidator.sanitize_text(str(email_template), max_length=255)
-        if rejection_category:
-            rejection_category = APIValidator.sanitize_text(str(rejection_category), max_length=255)
-        if internal_notes:
-            internal_notes = APIValidator.sanitize_text(
-                str(internal_notes), max_length=2000, allow_html=False
-            )
-
-        # Validate member exists
-        if not frappe.db.exists("Member", member_name):
-            log_security_event(
-                "invalid_member_access",
-                {"message": f"Attempted rejection of non-existent member: {member_name}"},
-                severity="error",
-            )
-            frappe.throw(_("Invalid member reference"))
-
-        # Validate email template if provided
-        if email_template and not frappe.db.exists("Email Template", email_template):
-            frappe.throw(_("Invalid email template specified"))
-
-    except Exception as e:
-        log_security_event(
-            "input_validation_failure",
-            {"message": f"Input validation failed for rejection: {str(e)}"},
-            severity="warning",
-        )
-        frappe.throw(_("Invalid input data provided"))
+    # Validate email template if provided
+    if email_template and not frappe.db.exists("Email Template", email_template):
+        frappe.throw(_("Invalid email template specified"))
 
     member = frappe.get_doc("Member", member_name)
 
@@ -1193,91 +925,8 @@ def get_pending_reviews_for_member(member_name: str):
         return reviews
 
     except Exception as e:
-        safe_log_error(f"Error getting pending reviews for member {member_name}: {str(e)}")
+        safe_log_error("Pending reviews error", f"Error getting pending reviews for member {member_name}: {str(e)}")
         return []
-
-
-def validate_membership_type_for_approval(membership_type, member, is_application_approval=False):
-    """
-    Validate that the membership type has a proper dues schedule template
-    and all required fields are properly configured before approval
-
-    Args:
-        membership_type: The membership type to validate
-        member: The member record
-        is_application_approval: If True, skip existing membership validation
-    """
-    # Check if membership type exists and is active
-    if not frappe.db.exists("Membership Type", membership_type):
-        frappe.throw(_("Membership Type {0} does not exist").format(membership_type))
-
-    membership_type_doc = frappe.get_doc("Membership Type", membership_type)
-
-    # Check if membership type is active
-    if hasattr(membership_type_doc, "is_active") and not membership_type_doc.is_active:
-        frappe.throw(_("Membership Type {0} is not active").format(membership_type))
-
-    # Check if dues schedule template exists
-    template_exists = frappe.db.exists(
-        "Membership Dues Schedule", {"membership_type": membership_type, "is_template": 1, "status": "Active"}
-    )
-
-    if not template_exists:
-        frappe.throw(
-            _(
-                "Cannot approve application: Membership Type {0} does not have a valid dues schedule template. "
-                "Please create a dues schedule template for this membership type first."
-            ).format(membership_type)
-        )
-
-    # Template field validation (billing_frequency, dues_rate, contribution_mode)
-    # belongs in the template's own validate hook, not in the approval flow.
-    # If a template was saved successfully, we trust it's properly configured.
-
-    # Validate member-specific requirements
-    if member and not is_application_approval:
-        # Check if member already has an active membership
-        # Skip this check for application approvals as they may create the first membership
-        existing_membership = frappe.db.exists(
-            "Membership", {"member": member.name, "status": "Active", "docstatus": 1}
-        )
-
-        if existing_membership:
-            frappe.throw(
-                _(
-                    "Member {0} already has an active membership. "
-                    "Please cancel or terminate the existing membership first."
-                ).format(member.name)
-            )
-
-        # Check if member already has an active dues schedule
-        existing_schedule = frappe.db.exists(
-            "Membership Dues Schedule",
-            {"member": member.name, "is_template": 0, "status": ["in", ["Active", "Grace Period"]]},
-        )
-
-        if existing_schedule:
-            frappe.throw(
-                _(
-                    "Member {0} already has an active dues schedule. "
-                    "Please resolve the existing schedule first."
-                ).format(member.name)
-            )
-
-        # Validate member has required fields for billing
-        if hasattr(member, "email") and not member.email:
-            frappe.throw(_("Member email is required for billing notifications"))
-
-        # Check if SEPA is required but member has no valid IBAN
-        # Note: We don't block approval for missing IBAN as members can add it later
-        if hasattr(member, "iban") and not member.iban:
-            frappe.msgprint(
-                _(
-                    "Note: Member has no IBAN configured. "
-                    "They will need to add payment details before SEPA collection can begin."
-                ),
-                alert=True,
-            )
 
 
 def update_payment_history_for_invoice(member_name: str, invoice_name: str):

@@ -50,6 +50,7 @@ from frappe import _
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.account.member_role_service import get_member_role_service
 from verenigingen.utils.dutch_name_utils import get_full_last_name, is_dutch_installation
+from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 
@@ -726,3 +727,188 @@ class MemberUserAccountService(StatelessService):
 def get_member_user_account_service() -> MemberUserAccountService:
     """Get singleton instance of MemberUserAccountService"""
     return MemberUserAccountService()
+
+
+def create_secure_user_account_for_member(member, activate_as_volunteer=False):
+    """
+    Create user account for approved member using secure AccountCreationManager with proper role profiles.
+
+    Args:
+        member: Member document
+        activate_as_volunteer: If True, assign Volunteer role profile; otherwise Member role profile
+
+    Returns:
+        dict: Result dictionary with keys: success, message, user, action, error, account_request
+              (Compatible with existing callers that use .get() access)
+
+    Note:
+        Internally uses OperationResult pattern but returns dict for backward compatibility.
+        Callers can use result.get("success"), result.get("action"), etc.
+    """
+    try:
+        from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
+
+        # Determine role profile from membership type, with fallback to default
+        # The membership type's role_profile field defines what permissions members get
+        role_profile = None
+        if member.selected_membership_type:
+            # Validate membership type exists
+            if not frappe.db.exists("Membership Type", member.selected_membership_type):
+                frappe.logger().error(
+                    f"Membership Type '{member.selected_membership_type}' no longer exists for member {member.name}"
+                )
+            else:
+                role_profile = frappe.db.get_value(
+                    "Membership Type", member.selected_membership_type, "role_profile"
+                )
+                # Validate retrieved role_profile exists
+                if role_profile and not frappe.db.exists("Role Profile", role_profile):
+                    frappe.logger().warning(
+                        f"Role Profile '{role_profile}' configured for Membership Type "
+                        f"'{member.selected_membership_type}' does not exist - using default"
+                    )
+                    role_profile = None
+
+        if not role_profile:
+            role_profile = "Verenigingen Member"  # Fallback default
+            frappe.logger().info(
+                f"Using default role profile 'Verenigingen Member' for member {member.name} "
+                f"(membership_type: {member.selected_membership_type or 'not set'})"
+            )
+        additional_roles = []  # Only for roles not covered by role profiles
+
+        # Override with Volunteer profile if explicitly requested via activate_as_volunteer parameter
+        if activate_as_volunteer:
+            # Verify volunteer record exists before assigning volunteer profile
+            volunteer_name = get_volunteer_for_member(member.name)
+            if volunteer_name:
+                volunteer_status = frappe.db.get_value("Volunteer", volunteer_name, "status")
+                if volunteer_status in ["Active", "Pending"]:
+                    role_profile = "Verenigingen Volunteer"  # Volunteer role profile
+                    frappe.logger().info(
+                        f"Member {member.name} activated as volunteer, using Verenigingen Volunteer profile"
+                    )
+
+                    # Check if volunteer is a board member - this requires additional role assignment
+                    board_member_chapters = frappe.get_all(
+                        "Chapter Board Member",
+                        filters={"volunteer": volunteer_name, "is_active": 1},
+                        fields=["parent"],
+                    )
+                    if board_member_chapters:
+                        additional_roles.append("Verenigingen Chapter Board Member")
+                        frappe.logger().info(
+                            f"Member {member.name} is board member of {len(board_member_chapters)} chapters - adding board member role"
+                        )
+                else:
+                    frappe.logger().warning(
+                        f"Cannot assign Volunteer profile to {member.name} - volunteer status is {volunteer_status}"
+                    )
+            else:
+                frappe.logger().warning(
+                    f"Cannot assign Volunteer profile to {member.name} - no volunteer record found"
+                )
+
+        frappe.logger().info(
+            f"Creating secure user account for member {member.name} with role_profile: {role_profile}, additional_roles: {additional_roles}"
+        )
+
+        # Check if user already exists (quick check)
+        if frappe.db.exists("User", member.email):
+            frappe.logger().info(f"User already exists for {member.email}, linking to member")
+            # Security: Simple reference link to existing User.
+            # Uses db.set_value to link Member to User without triggering
+            # Member validation hooks. The user already exists and is valid.
+            # Explicit commit ensures link persists before verification check.
+            frappe.db.set_value("Member", member.name, "user", member.email)
+            frappe.db.commit()
+
+            # Verify linkage persisted correctly
+            linked_user = frappe.db.get_value("Member", member.name, "user")
+            if linked_user != member.email:
+                frappe.log_error(
+                    f"User linkage verification failed: expected {member.email}, got {linked_user}",
+                    "Account Linking Verification",
+                )
+                return OperationResult.fail(
+                    _("Failed to link user account"),
+                    errors=["Linkage verification failed"],
+                    user=None,
+                    action="link_failed",
+                ).to_dict()
+
+            return OperationResult.ok(
+                member.email,
+                message=_("Linked to existing user account"),
+                user=member.email,
+                action="linked_existing",
+            ).to_dict()
+
+        # Check for existing account creation request
+        existing_request = frappe.db.get_value(
+            "Account Creation Request",
+            {"source_record": member.name, "status": ["in", ["Pending", "In Progress", "Completed"]]},
+            "name",
+        )
+
+        if existing_request:
+            frappe.logger().info(
+                f"Account creation request already exists for {member.name}: {existing_request}"
+            )
+            return OperationResult.ok(
+                existing_request,
+                message=_("Account creation already in progress or completed"),
+                user=None,
+                action="existing_request",
+                account_request=existing_request,
+            ).to_dict()
+
+        # Create new account creation request - this returns OperationResult
+        account_result = queue_account_creation_for_member(
+            member_name=member.name,
+            roles=additional_roles if additional_roles else None,
+            role_profile=role_profile,
+            priority="High",  # Member approval is high priority
+        )
+
+        # Handle dict result from queue_account_creation_for_member
+        # (@critical_api decorator converts OperationResult to dict via to_dict())
+        if account_result and account_result.get("success"):
+            result_data = account_result.get("data") or {}
+            request_name = (
+                result_data.get("request_name")
+                if isinstance(result_data, dict)
+                else str(result_data)
+                if result_data
+                else None
+            )
+            return OperationResult.ok(
+                request_name,
+                message=_("User account creation queued successfully via secure system"),
+                user=None,  # Will be set when background job completes
+                action="queued_secure",
+                account_request=request_name,
+            ).to_dict()
+        else:
+            error_msg = (
+                account_result.get("error", {}).get("message", "Unknown error")
+                if account_result
+                else "Unknown error"
+            )
+            return OperationResult.fail(
+                _("Failed to queue account creation request"),
+                errors=[error_msg],
+                user=None,
+                action="queue_failed",
+            ).to_dict()
+
+    except Exception as e:
+        # Create shortened error message to avoid log title length issues
+        error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
+        frappe.log_error(f"Account creation error for {member.name}: {error_msg}")
+        return OperationResult.fail(
+            _("Account creation failed"),
+            errors=[error_msg],
+            user=None,
+            action="exception",
+        ).to_dict()

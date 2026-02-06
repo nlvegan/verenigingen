@@ -112,7 +112,7 @@ def approve_membership_application_background(
         membership_type = resolve_membership_type(member, membership_type)
 
         # Pre-check: Validate membership type has a valid dues schedule template
-        from verenigingen.api.membership_application_review import validate_membership_type_for_approval
+        from verenigingen.services.member.approval.member_approval_service import validate_membership_type_for_approval
 
         validate_membership_type_for_approval(membership_type, member, is_application_approval=True)
 
@@ -286,8 +286,3 @@ def get_approval_progress(member_name: str) -> OperationResult[Dict[str, Any]]:
         )
 
 
-def safe_log_error(message, title=None):
-    """Helper to log errors with length protection"""
-    # Truncate message to prevent log title validation errors
-    safe_message = message[:100] + "..." if len(message) > 100 else message
-    frappe.log_error(safe_message, title)

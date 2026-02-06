@@ -128,7 +128,7 @@ def handle_iban_history_creation(event_name, event_data, **kwargs):
         member = frappe.get_doc("Member", member_name)
 
         # Use existing helper function
-        from verenigingen.api.membership_application_review import create_member_iban_history
+        from verenigingen.services.member.approval.member_approval_service import create_member_iban_history
 
         create_member_iban_history(member)
 
@@ -160,7 +160,7 @@ def handle_user_account_creation(event_name, event_data, **kwargs):
         member = frappe.get_doc("Member", member_name)
 
         # Use existing secure account creation system
-        from verenigingen.api.membership_application_review import create_secure_user_account_for_member
+        from verenigingen.services.member.account.member_user_account_service import create_secure_user_account_for_member
 
         user_creation_result = create_secure_user_account_for_member(member)
 
@@ -239,7 +239,7 @@ def handle_volunteer_activation(event_name, event_data, **kwargs):
             return {"success": True, "action": "skipped", "reason": "Not interested in volunteering"}
 
         # Use existing volunteer activation helper
-        from verenigingen.api.membership_application_review import activate_volunteer_record
+        from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
 
         activate_volunteer_record(member)
 

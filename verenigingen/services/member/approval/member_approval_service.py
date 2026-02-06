@@ -10,6 +10,7 @@ Functions in this module:
     - resolve_membership_type(): Validate and resolve membership type with fallbacks
     - create_member_iban_history(): Initialize IBAN history tracking on approval
     - validate_approval_prerequisites(): Check member readiness for approval
+    - validate_membership_type_for_approval(): Validate membership type configuration for approval
 """
 
 import logging
@@ -190,3 +191,86 @@ def validate_approval_prerequisites(member_name):
             raise_error=False,
         )
         return OperationResult.from_exception(e)
+
+
+def validate_membership_type_for_approval(membership_type, member, is_application_approval=False):
+    """
+    Validate that the membership type has a proper dues schedule template
+    and all required fields are properly configured before approval.
+
+    Args:
+        membership_type: The membership type to validate
+        member: The member record
+        is_application_approval: If True, skip existing membership validation
+    """
+    # Check if membership type exists and is active
+    if not frappe.db.exists("Membership Type", membership_type):
+        frappe.throw(_("Membership Type {0} does not exist").format(membership_type))
+
+    membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+
+    # Check if membership type is active
+    if hasattr(membership_type_doc, "is_active") and not membership_type_doc.is_active:
+        frappe.throw(_("Membership Type {0} is not active").format(membership_type))
+
+    # Check if dues schedule template exists
+    template_exists = frappe.db.exists(
+        "Membership Dues Schedule", {"membership_type": membership_type, "is_template": 1, "status": "Active"}
+    )
+
+    if not template_exists:
+        frappe.throw(
+            _(
+                "Cannot approve application: Membership Type {0} does not have a valid dues schedule template. "
+                "Please create a dues schedule template for this membership type first."
+            ).format(membership_type)
+        )
+
+    # Template field validation (billing_frequency, dues_rate, contribution_mode)
+    # belongs in the template's own validate hook, not in the approval flow.
+    # If a template was saved successfully, we trust it's properly configured.
+
+    # Validate member-specific requirements
+    if member and not is_application_approval:
+        # Check if member already has an active membership
+        # Skip this check for application approvals as they may create the first membership
+        existing_membership = frappe.db.exists(
+            "Membership", {"member": member.name, "status": "Active", "docstatus": 1}
+        )
+
+        if existing_membership:
+            frappe.throw(
+                _(
+                    "Member {0} already has an active membership. "
+                    "Please cancel or terminate the existing membership first."
+                ).format(member.name)
+            )
+
+        # Check if member already has an active dues schedule
+        existing_schedule = frappe.db.exists(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0, "status": ["in", ["Active", "Grace Period"]]},
+        )
+
+        if existing_schedule:
+            frappe.throw(
+                _(
+                    "Member {0} already has an active dues schedule. "
+                    "Please resolve the existing schedule first."
+                ).format(member.name)
+            )
+
+        # Validate member has required fields for billing
+        if hasattr(member, "email") and not member.email:
+            frappe.throw(_("Member email is required for billing notifications"))
+
+        # Check if SEPA is required but member has no valid IBAN
+        # Note: We don't block approval for missing IBAN as members can add it later
+        if hasattr(member, "iban") and not member.iban:
+            frappe.msgprint(
+                _(
+                    "Note: Member has no IBAN configured. "
+                    "They will need to add payment details before SEPA collection can begin."
+                ),
+                alert=True,
+            )

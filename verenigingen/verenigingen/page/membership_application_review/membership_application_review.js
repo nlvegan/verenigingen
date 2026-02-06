@@ -90,6 +90,16 @@ class MembershipApplicationReview {
 		this.selected_applications = new Set();
 	}
 
+	escapeHtml(str) {
+		if (!str) { return ''; }
+		return String(str)
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#x27;');
+	}
+
 	make() {
 		// Add HTML content directly
 		const html = `
@@ -617,35 +627,25 @@ class MembershipApplicationReview {
 			? '<span class="badge badge-info ml-2">Volunteer Interest</span>'
 			: '';
 
-		// Security: Properly escape user input to prevent XSS attacks
-		const escapeHtml = (str) => {
-			if (!str) { return ''; }
-			return String(str)
-				.replace(/&/g, '&amp;')
-				.replace(/</g, '&lt;')
-				.replace(/>/g, '&gt;')
-				.replace(/"/g, '&quot;')
-				.replace(/'/g, '&#x27;');
-		};
-
 		// Security: Use data attributes and event delegation instead of inline onclick
+		const e = (str) => this.escapeHtml(str);
 		return `
-			<div class="card application-card mb-3 ${overdueClass}" data-member="${escapeHtml(app.name)}">
+			<div class="card application-card mb-3 ${overdueClass}" data-member="${e(app.name)}">
 				<div class="card-header d-flex justify-content-between align-items-center">
 					<div class="d-flex align-items-center">
-						<input type="checkbox" class="mr-2 app-checkbox" data-member="${escapeHtml(app.name)}">
-						<strong>${escapeHtml(app.full_name)}</strong>
+						<input type="checkbox" class="mr-2 app-checkbox" data-member="${e(app.name)}">
+						<strong>${e(app.full_name)}</strong>
 						${volunteering}
 						${overdue ? '<span class="badge badge-danger ml-2">Overdue</span>' : ''}
 					</div>
 					<div class="application-actions">
-						<button class="btn btn-success btn-sm action-approve" data-member="${escapeHtml(app.name)}">
+						<button class="btn btn-success btn-sm action-approve" data-member="${e(app.name)}">
 							<i class="fa fa-check"></i> Approve
 						</button>
-						<button class="btn btn-danger btn-sm action-reject" data-member="${escapeHtml(app.name)}">
+						<button class="btn btn-danger btn-sm action-reject" data-member="${e(app.name)}">
 							<i class="fa fa-times"></i> Reject
 						</button>
-						<button class="btn btn-info btn-sm action-details" data-member="${escapeHtml(app.name)}">
+						<button class="btn btn-info btn-sm action-details" data-member="${e(app.name)}">
 							<i class="fa fa-eye"></i> Details
 						</button>
 					</div>
@@ -653,14 +653,14 @@ class MembershipApplicationReview {
 				<div class="card-body">
 					<div class="row">
 						<div class="col-md-6">
-							<p class="mb-1"><strong>Email:</strong> ${escapeHtml(app.email)}</p>
-							<p class="mb-1"><strong>Phone:</strong> ${escapeHtml(app.contact_number) || 'Not provided'}</p>
-							<p class="mb-1"><strong>Age:</strong> ${escapeHtml(app.age) || 'Not provided'}</p>
+							<p class="mb-1"><strong>Email:</strong> ${e(app.email)}</p>
+							<p class="mb-1"><strong>Phone:</strong> ${e(app.contact_number) || 'Not provided'}</p>
+							<p class="mb-1"><strong>Age:</strong> ${e(app.age) || 'Not provided'}</p>
 						</div>
 						<div class="col-md-6">
-							<p class="mb-1"><strong>Application Date:</strong> ${escapeHtml(frappe.datetime.str_to_user(app.application_date))}</p>
-							<p class="mb-1"><strong>Days Pending:</strong> ${escapeHtml(app.days_pending)}</p>
-							<p class="mb-1"><strong>Chapter:</strong> ${escapeHtml(app.current_chapter_display) || 'Unassigned'}</p>
+							<p class="mb-1"><strong>Application Date:</strong> ${e(frappe.datetime.str_to_user(app.application_date))}</p>
+							<p class="mb-1"><strong>Days Pending:</strong> ${e(app.days_pending)}</p>
+							<p class="mb-1"><strong>Chapter:</strong> ${e(app.current_chapter_display) || 'Unassigned'}</p>
 							<p class="mb-1"><strong>Membership Type:</strong> ${app.selected_membership_type || 'Not selected'}</p>
 							${app.membership_amount ? `<p class="mb-1"><strong>Amount:</strong> €${app.membership_amount}</p>` : ''}
 						</div>
@@ -689,17 +689,6 @@ class MembershipApplicationReview {
 	async approve_application(member_name) {
 		const app = this.applications.find((a) => a.name === member_name);
 		if (!app) { return; }
-
-		// SECURITY: HTML escaping helper for XSS prevention
-		const escapeHtml = (str) => {
-			if (!str) return '';
-			return String(str)
-				.replace(/&/g, '&amp;')
-				.replace(/</g, '&lt;')
-				.replace(/>/g, '&gt;')
-				.replace(/"/g, '&quot;')
-				.replace(/'/g, '&#x27;');
-		};
 
 		// Check for duplicates before showing approval dialog
 		let duplicateCheckResult;
@@ -743,12 +732,12 @@ class MembershipApplicationReview {
 					const details = match.details;
 					// SECURITY FIX: Escape all user-controlled data to prevent XSS
 					warningHtml += `<li>
-						<strong>${escapeHtml(details.full_name)}</strong> (${confidence}% match)<br>
+						<strong>${this.escapeHtml(details.full_name)}</strong> (${confidence}% match)<br>
 						<small style="color: #666;">
-							${escapeHtml(details.email) || 'No email'} |
-							Status: ${escapeHtml(details.status) || 'Unknown'} |
-							Reason: ${escapeHtml(details.reason)}
-							<a href="#Form/Member/${escapeHtml(match.member_name)}" target="_blank" style="margin-left: 10px;">View Record</a>
+							${this.escapeHtml(details.email) || 'No email'} |
+							Status: ${this.escapeHtml(details.status) || 'Unknown'} |
+							Reason: ${this.escapeHtml(details.reason)}
+							<a href="#Form/Member/${this.escapeHtml(match.member_name)}" target="_blank" style="margin-left: 10px;">View Record</a>
 						</small>
 					</li>`;
 				});
