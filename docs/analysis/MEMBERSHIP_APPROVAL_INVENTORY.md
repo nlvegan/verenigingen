@@ -380,79 +380,17 @@ membership.submit()
 
 ## 8. Consolidation Opportunities
 
-### 8.1 CRITICAL: Unify Approval Functions
+### 8.1 ~~CRITICAL: Unify Approval Functions~~ RESOLVED
 
-**Current State**: 3 different `approve_membership_application()` functions
+**Status:** RESOLVED (2026-02-06) — Unified into single canonical path. `approve_membership_application()` in `api/membership_application_review.py` is the thin HTTP layer. All business logic flows through `member.create_membership_on_approval()` → `MembershipCreationService`. Deleted: `process_member_approval()`, `finalize_member_approval()`, `validate_member_fields()`, both copies of `create_membership_and_invoice()`. `Member.approve_application()` deprecated with warning. Background API also uses canonical path. See `docs/plans/2026-02-05-unify-approval-orchestration.md`.
 
-**Proposal**:
-```python
-# SINGLE CANONICAL IMPLEMENTATION
-# File: verenigingen/api/membership_application_review.py
-
-@frappe.whitelist()
-@high_security_api()
-def approve_membership_application(
-    member_name,
-    membership_type=None,
-    chapter=None,
-    notes=None,
-    create_invoice=True
-):
-    """
-    CANONICAL membership approval function.
-    All other implementations should be deprecated and redirected here.
-    """
-    # Current implementation (already best-in-class)
-```
-
-**Migration Path**:
-1. Update `web_form/membership_application.py` to call this function
-2. Update `membership_application.py` to call this function
-3. Add deprecation warnings to old implementations
-4. Update all tests to use canonical function
-5. Remove old implementations in next major version
-
-**Estimated LOC Reduction**: ~150 lines
+**Estimated LOC Reduction**: ~350 lines (actual)
 
 ---
 
-### 8.2 HIGH: Simplify Lifecycle Service
+### 8.2 ~~HIGH: Simplify Lifecycle Service~~ PARTIALLY RESOLVED
 
-**Current State**: Lifecycle service duplicates status field setting
-
-**Proposal**:
-```python
-# File: member_lifecycle_service.py
-
-def approve_application(self, member) -> Dict[str, Any]:
-    """
-    Validate application and assign member_id ONLY.
-    Status field setting delegated to create_membership_on_approval().
-    """
-    # Validate pre-conditions
-    validation_result = self._validate_application_approval(member)
-    if not validation_result["success"]:
-        return validation_result
-
-    # Assign member ID (ONLY thing that needs to happen first)
-    if not member.member_id:
-        member.member_id = member.generate_member_id()
-        # Save ONLY member_id field
-        frappe.db.set_value("Member", member.name, "member_id", member.member_id)
-
-    return {
-        "success": True,
-        "member_id": member.member_id,
-    }
-```
-
-**Benefits**:
-- Eliminates duplicate status field setting
-- Eliminates duplicate save operations
-- Clearer separation of concerns
-- Prevents timestamp mismatch issues
-
-**Estimated LOC Reduction**: ~25 lines
+**Status:** PARTIALLY RESOLVED (2026-02-06) — `set_application_status_defaults()` deleted from lifecycle service (orphaned, zero callers). `approve_application()` deprecated via `Member.approve_application()` deprecation warning but kept for test compatibility. The canonical approval path bypasses the lifecycle service entirely — `approve_membership_application()` → `member.create_membership_on_approval()` → `MembershipCreationService`. Full removal of lifecycle `approve_application()` deferred until test files are updated.
 
 ---
 

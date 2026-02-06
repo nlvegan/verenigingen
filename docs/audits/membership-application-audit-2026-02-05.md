@@ -841,21 +841,21 @@ Both are written on every state change (lines 3201-3210). Form data collection h
 
 ## 7. Recommended Refactoring Roadmap
 
-### Phase 1: Eliminate Highest-Risk Duplication (2-3 days)
+### Phase 1: Eliminate Highest-Risk Duplication (2-3 days) — COMPLETED
 
-| Task | Files Affected | Risk Reduction |
-|------|---------------|----------------|
-| **Unify approval path**: Delete local `create_membership_and_invoice()` from review API. Route through `MembershipCreationService`. | `membership_application_review.py`, `member_approval_service.py` | Prevents divergent billing bugs |
-| **Establish canonical approval orchestrator**: Choose lifecycle service OR approval service. Delete the other. Update review API to be a thin HTTP wrapper. | `member_lifecycle_service.py`, `member_approval_service.py`, `membership_application_review.py` | Eliminates status-setting inconsistencies |
-| **Extract validation wrapper**: Create `_wrap_validation()` generic function. Reduce 20+ endpoints to thin one-liners. | `membership_application.py` | Saves ~600 LOC, single error handling policy |
+| Task | Files Affected | Status |
+|------|---------------|--------|
+| ~~**Unify approval path**: Delete local `create_membership_and_invoice()` from review API. Route through `MembershipCreationService`.~~ | `membership_application_review.py`, `member_approval_service.py` | DONE (see 2.1) |
+| ~~**Establish canonical approval orchestrator**: Choose lifecycle service OR approval service. Delete the other. Update review API to be a thin HTTP wrapper.~~ | `member_lifecycle_service.py`, `member_approval_service.py`, `membership_application_review.py` | DONE (see 2.2) |
+| ~~**Extract validation wrapper**: Create `_wrap_validation()` generic function. Reduce 20+ endpoints to thin one-liners.~~ | `membership_application.py` | DONE (see 2.4) |
 
-### Phase 2: Consolidate Fee & Notification Logic (2-3 days)
+### Phase 2: Consolidate Fee & Notification Logic (2-3 days) — PARTIALLY COMPLETED
 
-| Task | Files Affected | Risk Reduction |
-|------|---------------|----------------|
-| **Create `MembershipFeeService`**: Combine `get_membership_fee_info`, `get_membership_type_details`, `suggest_membership_amounts` into one service. | `application_helpers.py`, `membership_application.py` | Eliminates 3x DB queries for same data |
-| **Clean up notification layer**: Delete deprecated functions. Move review API notifications into `ApplicationNotificationService`. Integrate `notification_registry`. | `application_notifications.py`, `membership_application_review.py` | Single notification system |
-| **Extract custom amount logic**: Create `_apply_custom_amount_to_member(member, data)`. | `application_helpers.py` | Prevents new/reapplication flow divergence |
+| Task | Files Affected | Status |
+|------|---------------|--------|
+| ~~**Create `MembershipFeeService`**: Combine `get_membership_fee_info`, `get_membership_type_details`, `suggest_membership_amounts` into one service.~~ | `application_helpers.py`, `membership_application.py` | DONE (see 2.3) |
+| **Clean up notification layer**: Delete deprecated functions. Move review API notifications into `ApplicationNotificationService`. Integrate `notification_registry`. | `application_notifications.py`, `membership_application_review.py` | TODO (see 3.1) |
+| ~~**Extract custom amount logic**: Create `_apply_custom_amount_to_member(member, data)`.~~ | `application_helpers.py` | DONE (see 3.2) |
 
 ### Phase 3: Structural Improvements (3-5 days)
 
