@@ -677,6 +677,11 @@ Net: -63 LOC across 22 files. `create_service_result()` is no longer imported by
 
 **Remaining:** `membership_creation_service.py` and `member_id_service.py` import `create_service_result` but don't call it (unused imports).
 
+**Follow-up observations (code review 2026-02-06):**
+- `compatibility.py` `isinstance(result, dict)` guard (lines 86-93) is now dead code for email paths — email service returns `OperationResult` directly. Guard still needed for other services that haven't migrated yet.
+- 130+ other locations across non-email services still use `result.get("success")` dict-pattern. Out of scope — they use services not in the 3 target files.
+- Exception handlers upgraded from `OperationResult.fail(str(e))` to `OperationResult.from_exception(e)` for richer error metadata (exception type, traceback).
+
 ### 4.7 Circular Invocation in Event Emission — RESOLVED
 
 **Status:** RESOLVED (2026-02-06) — Event emission service now calls MemberStatusNotificationService directly instead of bouncing through the member document.
