@@ -130,14 +130,9 @@ class MemberRoleService(StatelessService):
             str: Username if successful
 
         Raises:
-            frappe.PermissionError: If user lacks permission to modify roles
             Exception: If role assignment fails
         """
         try:
-            # Check permissions
-            if not frappe.has_permission("User", "write"):
-                frappe.throw(_("Insufficient permissions to modify user roles"))
-
             # Define the roles that members need for portal access
             member_roles = [
                 "Verenigingen Member",  # Primary member role for all member access
