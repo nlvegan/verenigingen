@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-from verenigingen.templates.pages.volunteer.expenses import is_policy_covered_expense, submit_expense
+from verenigingen.templates.pages.volunteer.expenses import submit_expense
+from verenigingen.utils.volunteer_expense_portal_utils import is_policy_covered_expense
 
 
 class TestPolicyExpenseIntegration(EnhancedTestCase):

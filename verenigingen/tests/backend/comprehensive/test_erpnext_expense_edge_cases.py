@@ -9,11 +9,9 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.exceptions import ValidationError
 
-from verenigingen.templates.pages.volunteer.expenses import (
-    get_organization_cost_center,
-    get_user_volunteer_record,
-    submit_expense,
-)
+from verenigingen.templates.pages.volunteer.expenses import submit_expense
+from verenigingen.utils.cost_center_resolver import get_organization_cost_center_from_dict as get_organization_cost_center
+from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
 from verenigingen.utils.volunteer_expense_setup import (
     get_or_create_expense_type,
     setup_expense_claim_types,
@@ -43,13 +41,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_volunteer.employee_id = "HR-EMP-001"
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - Expense Claim document creation
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-JSON-001")):
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data_json)
@@ -77,13 +75,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_volunteer.employee_id = "HR-EMP-001"
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - Expense Claim document creation
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-ZERO-001")):
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -103,13 +101,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_volunteer.employee_id = "HR-EMP-001"
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - Expense Claim document creation
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-NEG-001")):
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -129,7 +127,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_volunteer.employee_id = "HR-EMP-001"
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - date validation testing
@@ -139,7 +137,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
                 mock_get_doc.return_value = mock_expense_claim
 
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -187,7 +185,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
             "category": "Travel"}
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             result = submit_expense(expense_data)
@@ -277,13 +275,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_expense_claim.name = "EXP-RECEIPT-001"
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - expense claim with receipt testing
             with patch("frappe.get_doc", return_value=mock_expense_claim):
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -309,13 +307,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
 
         # Should still process - currency validation happens at ERPNext level
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - currency validation testing
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-CURRENCY-001")):
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -342,13 +340,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
                 "category": "Travel"}
 
             with patch(
-                "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+                "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
                 return_value=mock_volunteer,
             ):
                 # Mock justified: ERPNext external service - session testing
                 with patch("frappe.get_doc", return_value=MagicMock(name="EXP-SESSION-001")):
                     with patch(
-                        "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                        "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                         return_value="Travel",
                     ):
                         result = submit_expense(expense_data)
@@ -374,7 +372,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_settings.national_board_chapter = None
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             with patch("frappe.get_single", return_value=mock_settings):
@@ -395,7 +393,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
             "category": "Travel"}
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - submit workflow error testing
@@ -405,7 +403,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
                 mock_get_doc.return_value = mock_expense_claim
 
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -432,7 +430,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_volunteer_expense.insert.side_effect = ValidationError("Volunteer expense creation failed")
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - audit functionality testing
@@ -448,7 +446,7 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
                 mock_get_doc.side_effect = get_doc_side_effect
 
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -486,13 +484,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
         mock_volunteer.employee_id = "HR-EMP-001"
 
         with patch(
-            "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+            "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
             # Mock justified: ERPNext external service - long description truncation testing
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-LONG-DESC-001")):
                 with patch(
-                    "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
+                    "verenigingen.utils.volunteer_expense_setup.get_or_create_expense_type",
                     return_value="Travel",
                 ):
                     result = submit_expense(expense_data)
@@ -520,13 +518,13 @@ class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
             ]
 
             with patch(
-                "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
+                "verenigingen.utils.volunteer_expense_portal_utils.get_user_volunteer_record",
                 return_value=mock_volunteer,
             ):
                 # Mock justified: ERPNext external service - complex integration scenario testing
                 with patch("frappe.get_doc", return_value=MagicMock(name="EXP-COMPLEX-001")):
                     with patch(
-                        "verenigingen.templates.pages.volunteer.expenses.get_organization_cost_center",
+                        "verenigingen.utils.cost_center_resolver.get_organization_cost_center_from_dict",
                         return_value="Test Cost Center",
                     ):
                         result = submit_expense(expense_data)

@@ -11,10 +11,8 @@ import frappe
 from unittest.mock import patch, MagicMock
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-from verenigingen.templates.pages.volunteer.expenses import (
-    submit_expense,
-    get_organization_cost_center,
-)
+from verenigingen.templates.pages.volunteer.expenses import submit_expense
+from verenigingen.utils.cost_center_resolver import get_organization_cost_center_from_dict as get_organization_cost_center
 from verenigingen.utils.volunteer_expense_setup import (
     get_or_create_expense_type,
 )

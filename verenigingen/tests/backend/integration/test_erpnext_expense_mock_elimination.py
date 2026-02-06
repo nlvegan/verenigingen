@@ -29,11 +29,9 @@ REAL BUSINESS LOGIC TESTED:
 import frappe
 from frappe.utils import today, add_days, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.templates.pages.volunteer.expenses import (
-    get_organization_cost_center,
-    get_user_volunteer_record,
-    submit_expense,
-)
+from verenigingen.templates.pages.volunteer.expenses import submit_expense
+from verenigingen.utils.cost_center_resolver import get_organization_cost_center_from_dict as get_organization_cost_center
+from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
 from verenigingen.utils.volunteer_expense_setup import (
     get_or_create_expense_type,
     setup_expense_claim_types,
