@@ -45,7 +45,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
     def setUp(self):
         """Set up test environment with real database operations"""
         super().setUp()
-        
+
         # Create test environment using Enhanced Test Factory
         self.chapter = self.factory.ensure_test_chapter("Test Chapter", {
             "chapter_name": "Test Chapter",
@@ -56,7 +56,36 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             "amount": 25.00,
             "billing_period": "Monthly"  # Factory expects billing_period, not billing_frequency
         })
-        
+
+        # Ensure the membership type's dues schedule template is properly configured
+        # (required by validate_membership_type_for_approval)
+        if self.membership_type.dues_schedule_template:
+            template = frappe.get_doc(
+                "Membership Dues Schedule", self.membership_type.dues_schedule_template
+            )
+            if not template.contribution_mode:
+                template.db_set("contribution_mode", "Fixed", update_modified=False)
+            # Ensure dues_rate >= membership type minimum
+            if template.dues_rate < self.membership_type.minimum_amount:
+                template.db_set(
+                    "dues_rate", self.membership_type.minimum_amount, update_modified=False
+                )
+
+        # Clean up orphaned test templates that could interfere with approval validation
+        orphans = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={
+                "membership_type": self.membership_type.name,
+                "is_template": 1,
+                "name": ["!=", self.membership_type.dues_schedule_template or ""],
+            },
+            pluck="name",
+        )
+        for orphan in orphans:
+            frappe.db.delete("Membership Dues Schedule", {"name": orphan})
+        if orphans:
+            frappe.db.commit()
+
         # Create test admin user for approval workflow
         admin_unique_id = int(time.time() * 1000) % 10000 + 200
         self.admin_user = self.create_test_user_with_roles(
@@ -466,6 +495,182 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             )
             # Either no customer or no invoices for this test
             self.assertEqual(len(no_invoices), 0)
+
+
+    def test_approval_dict_result_handling(self):
+        """Regression test: approval must not crash on dict results from @critical_api.
+
+        The @critical_api decorator converts OperationResult to dict via to_dict().
+        The approval code must use dict access (.get()) instead of attribute access.
+        """
+        unique_id = int(time.time() * 1000) % 10000 + 10
+        member = self.create_test_member(
+            first_name="DictResult",
+            last_name="TestMember",
+            email=f"dictresult.test.{unique_id}@example.com",
+            status="Pending",
+            application_status="Pending",
+            selected_membership_type=self.membership_type.name,
+            chapter=self.chapter.name,
+            birth_date=add_days(today(), -365 * 25),
+        )
+
+        if member.status != "Pending" or member.application_status != "Pending":
+            member.db_set("status", "Pending", update_modified=False)
+            member.db_set("application_status", "Pending", update_modified=False)
+            member.reload()
+
+        with self.as_user(self.admin_user.email):
+            # Mock justified: External email service, not business logic
+            with patch("frappe.sendmail"):
+                # Mock justified: External service configuration, not business logic
+                with patch("frappe.db.get_single_value") as mock_settings:
+                    mock_settings.side_effect = lambda doctype, field, *args: {
+                        ("Verenigingen Settings", "member_contact_email"): "admin@example.com",
+                        ("Verenigingen Settings", "support_email"): "support@example.com",
+                        ("Global Defaults", "default_company"): "Test Company",
+                    }.get((doctype, field))
+
+                    # This must not raise AttributeError: 'dict' object has no attribute 'success'
+                    result = approve_membership_application(
+                        member_name=member.name,
+                        membership_type=self.membership_type.name,
+                        chapter=self.chapter.name,
+                        notes="Dict result handling test",
+                        create_invoice=False,
+                    )
+
+                    self.assertIsInstance(result, dict)
+                    self.assertTrue(result.get("success"), f"Approval failed: {result}")
+
+        member.reload()
+        self.assertEqual(member.application_status, "Approved")
+        self.assertEqual(member.status, "Active")
+
+    def test_approval_uses_applicant_selected_template(self):
+        """Verify that approval uses the applicant's selected dues schedule template."""
+        unique_id = int(time.time() * 1000) % 10000 + 20
+
+        # Create an alternative Annual template for the membership type
+        default_currency = frappe.db.get_default("currency") or "EUR"
+        alt_template = self.ensure_dues_schedule_template(
+            f"Annual Template {unique_id}",
+            {
+                "billing_frequency": "Annual",
+                "dues_rate": 250.00,
+                "membership_type": self.membership_type.name,
+                "currency": default_currency,
+                "contribution_mode": "Fixed",
+            },
+        )
+
+        member = self.create_test_member(
+            first_name="TemplateChoice",
+            last_name="TestMember",
+            email=f"templatechoice.test.{unique_id}@example.com",
+            status="Pending",
+            application_status="Pending",
+            selected_membership_type=self.membership_type.name,
+            chapter=self.chapter.name,
+            birth_date=add_days(today(), -365 * 30),
+            application_dues_schedule=alt_template.name,
+        )
+
+        if member.status != "Pending" or member.application_status != "Pending":
+            member.db_set("status", "Pending", update_modified=False)
+            member.db_set("application_status", "Pending", update_modified=False)
+            member.reload()
+
+        # Ensure application_dues_schedule is persisted
+        if not member.application_dues_schedule:
+            member.db_set(
+                "application_dues_schedule", alt_template.name, update_modified=False
+            )
+            member.reload()
+        self.assertEqual(
+            member.application_dues_schedule,
+            alt_template.name,
+            "application_dues_schedule not set on member",
+        )
+
+        with self.as_user(self.admin_user.email):
+            with patch("frappe.sendmail"):
+                with patch("frappe.db.get_single_value") as mock_settings:
+                    mock_settings.side_effect = lambda doctype, field, *args: {
+                        ("Verenigingen Settings", "member_contact_email"): "admin@example.com",
+                        ("Verenigingen Settings", "support_email"): "support@example.com",
+                        ("Global Defaults", "default_company"): "Test Company",
+                    }.get((doctype, field))
+
+                    result = approve_membership_application(
+                        member_name=member.name,
+                        membership_type=self.membership_type.name,
+                        chapter=self.chapter.name,
+                        notes="Template selection test",
+                        create_invoice=False,
+                    )
+
+                    self.assertTrue(result.get("success"), f"Approval failed: {result}")
+
+        # Verify the created schedule uses the alternative template
+        schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0},
+            ["name", "billing_frequency", "template_reference"],
+            as_dict=True,
+        )
+        self.assertIsNotNone(schedule, "Dues schedule was not created")
+        self.assertEqual(schedule.template_reference, alt_template.name)
+
+    def test_approval_default_template_fallback(self):
+        """Verify that approval falls back to default template when no selection is made."""
+        unique_id = int(time.time() * 1000) % 10000 + 30
+
+        member = self.create_test_member(
+            first_name="DefaultTemplate",
+            last_name="TestMember",
+            email=f"defaulttemplate.test.{unique_id}@example.com",
+            status="Pending",
+            application_status="Pending",
+            selected_membership_type=self.membership_type.name,
+            chapter=self.chapter.name,
+            birth_date=add_days(today(), -365 * 28),
+            # No application_dues_schedule set - should use default
+        )
+
+        if member.status != "Pending" or member.application_status != "Pending":
+            member.db_set("status", "Pending", update_modified=False)
+            member.db_set("application_status", "Pending", update_modified=False)
+            member.reload()
+
+        with self.as_user(self.admin_user.email):
+            with patch("frappe.sendmail"):
+                with patch("frappe.db.get_single_value") as mock_settings:
+                    mock_settings.side_effect = lambda doctype, field, *args: {
+                        ("Verenigingen Settings", "member_contact_email"): "admin@example.com",
+                        ("Verenigingen Settings", "support_email"): "support@example.com",
+                        ("Global Defaults", "default_company"): "Test Company",
+                    }.get((doctype, field))
+
+                    result = approve_membership_application(
+                        member_name=member.name,
+                        membership_type=self.membership_type.name,
+                        chapter=self.chapter.name,
+                        notes="Default template fallback test",
+                        create_invoice=False,
+                    )
+
+                    self.assertTrue(result.get("success"), f"Approval failed: {result}")
+
+        # Verify a schedule was created (using default template)
+        schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0},
+            ["name", "billing_frequency"],
+            as_dict=True,
+        )
+        self.assertIsNotNone(schedule, "Dues schedule was not created with default template")
+        # Verify the schedule was created (billing frequency comes from the default template)
 
 
 if __name__ == '__main__':

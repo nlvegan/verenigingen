@@ -367,6 +367,97 @@ class MembershipCreationService(StatelessService):
         )
         return membership
 
+    def _resolve_dues_template(self, member_doc, membership_type):
+        """Resolve which dues schedule template to use for a new member.
+
+        Checks the applicant's selected template (application_dues_schedule) and
+        validates it before use. Falls back to the membership type's default template.
+
+        Args:
+            member_doc: Member document instance
+            membership_type: Membership Type document
+
+        Returns:
+            str or None: Template name if applicant selected a valid one, else None (use default)
+        """
+        selected = getattr(member_doc, "application_dues_schedule", None)
+        if not selected:
+            return None
+
+        if not frappe.db.exists("Membership Dues Schedule", selected):
+            self.logger.warning(
+                f"MembershipCreationService: application_dues_schedule '{selected}' "
+                f"does not exist, falling back to default"
+            )
+            return None
+
+        template_fields = frappe.db.get_value(
+            "Membership Dues Schedule",
+            selected,
+            ["is_template", "membership_type"],
+            as_dict=True,
+        )
+
+        if not template_fields.get("is_template"):
+            self.logger.warning(
+                f"MembershipCreationService: '{selected}' is not a template, falling back to default"
+            )
+            return None
+
+        if (
+            template_fields.get("membership_type")
+            and template_fields["membership_type"] != membership_type.name
+        ):
+            self.logger.warning(
+                f"MembershipCreationService: template '{selected}' belongs to "
+                f"'{template_fields['membership_type']}', not '{membership_type.name}', "
+                f"falling back to default"
+            )
+            return None
+
+        self.logger.info(
+            f"MembershipCreationService: Using applicant-selected template '{selected}' "
+            f"for {member_doc.name}"
+        )
+        return selected
+
+    def _update_schedule_from_template(self, schedule_name, template_name):
+        """Update an existing schedule to match a different template.
+
+        Called when the membership on_submit hook auto-created a schedule using the
+        default template, but the applicant selected a different one.
+
+        Args:
+            schedule_name: Name of the existing schedule to update
+            template_name: Name of the template to copy fields from
+        """
+        template = frappe.get_doc("Membership Dues Schedule", template_name)
+        schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+
+        copy_fields = [
+            "billing_frequency",
+            "custom_frequency_number",
+            "custom_frequency_unit",
+            "contribution_mode",
+            "base_multiplier",
+            "minimum_amount",
+            "suggested_amount",
+            "invoice_days_before",
+            "billing_day",
+            "payment_terms_template",
+            "auto_generate",
+            "dues_rate",
+        ]
+        for field in copy_fields:
+            if hasattr(template, field) and getattr(template, field):
+                setattr(schedule, field, getattr(template, field))
+
+        schedule.template_reference = template_name
+        schedule.save()
+        self.logger.info(
+            f"MembershipCreationService: Updated schedule {schedule_name} " f"from template '{template_name}'"
+        )
+
     def _ensure_dues_schedule_exists(self, member_doc, membership, membership_type):
         """
         Ensure membership dues schedule exists.
@@ -384,6 +475,14 @@ class MembershipCreationService(StatelessService):
         )
 
         if existing_schedule:
+            # Check if applicant selected a different template than what was auto-created
+            template_name = self._resolve_dues_template(member_doc, membership_type)
+            if template_name:
+                current_ref = frappe.db.get_value(
+                    "Membership Dues Schedule", existing_schedule, "template_reference"
+                )
+                if current_ref != template_name:
+                    self._update_schedule_from_template(existing_schedule, template_name)
             self.logger.info(
                 f"MembershipCreationService: Dues schedule {existing_schedule} "
                 f"already exists for {member_doc.name}"
@@ -408,9 +507,13 @@ class MembershipCreationService(StatelessService):
             custom_amount = member_doc.dues_rate
             custom_amount_reason = getattr(member_doc, "fee_override_reason", None)
 
+        # Use applicant's selected template if valid, otherwise fall back to membership type default
+        template_name = self._resolve_dues_template(member_doc, membership_type)
+
         try:
             schedule_name = MembershipDuesSchedule.create_from_template(
                 member_doc.name,
+                template_name=template_name,
                 membership_type=membership_type.name,
                 membership_name=membership.name,
                 custom_amount=custom_amount,

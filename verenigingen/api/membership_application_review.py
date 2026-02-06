@@ -622,13 +622,15 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
             priority="High",  # Member approval is high priority
         )
 
-        # Handle OperationResult from queue_account_creation_for_member
-        if account_result and account_result.success:
+        # Handle dict result from queue_account_creation_for_member
+        # (@critical_api decorator converts OperationResult to dict via to_dict())
+        if account_result and account_result.get("success"):
+            result_data = account_result.get("data") or {}
             request_name = (
-                account_result.data.get("request")
-                if isinstance(account_result.data, dict)
-                else str(account_result.data)
-                if account_result.data
+                result_data.get("request_name")
+                if isinstance(result_data, dict)
+                else str(result_data)
+                if result_data
                 else None
             )
             return OperationResult.ok(
@@ -639,7 +641,11 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
                 account_request=request_name,
             ).to_dict()
         else:
-            error_msg = account_result.error_message if account_result else "Unknown error"
+            error_msg = (
+                account_result.get("error", {}).get("message", "Unknown error")
+                if account_result
+                else "Unknown error"
+            )
             return OperationResult.fail(
                 _("Failed to queue account creation request"),
                 errors=[error_msg],
@@ -657,6 +663,22 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
             user=None,
             action="exception",
         ).to_dict()
+
+
+def _log_upgrade_result(upgrade_result, context_label):
+    """Log the result of a volunteer user account upgrade.
+
+    Args:
+        upgrade_result: Dict from @critical_api-decorated upgrade_member_to_volunteer_user
+        context_label: Description for log messages (e.g. "volunteer", "new volunteer")
+    """
+    if upgrade_result.get("success"):
+        message = upgrade_result.get("meta", {}).get("message", "") if upgrade_result.get("meta") else ""
+        frappe.logger().info(f"User account upgrade for {context_label}: {message}")
+    else:
+        error_obj = upgrade_result.get("error", {})
+        errors = error_obj.get("errors", []) if isinstance(error_obj, dict) else []
+        frappe.logger().warning(f"Could not upgrade user account for {context_label}: {'; '.join(errors)}")
 
 
 def activate_volunteer_record(member):
@@ -709,12 +731,7 @@ def activate_volunteer_record(member):
                     from verenigingen.utils.account_creation_manager import upgrade_member_to_volunteer_user
 
                     upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                    if upgrade_result.success:
-                        frappe.logger().info(f"User account upgrade for volunteer: {upgrade_result.message}")
-                    else:
-                        frappe.logger().warning(
-                            f"Could not upgrade user account for volunteer: {'; '.join(upgrade_result.errors or [])}"
-                        )
+                    _log_upgrade_result(upgrade_result, "volunteer")
                 except Exception as e:
                     frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
                     # Non-critical - continue with volunteer activation
@@ -745,14 +762,7 @@ def activate_volunteer_record(member):
                         )
 
                         upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                        if upgrade_result.success:
-                            frappe.logger().info(
-                                f"User account upgrade for new volunteer: {upgrade_result.message}"
-                            )
-                        else:
-                            frappe.logger().warning(
-                                f"Could not upgrade user account for new volunteer: {'; '.join(upgrade_result.errors or [])}"
-                            )
+                        _log_upgrade_result(upgrade_result, "new volunteer")
                     except Exception as e:
                         frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
                         # Non-critical - continue with volunteer activation
