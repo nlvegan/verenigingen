@@ -444,53 +444,19 @@ And the lifecycle layer has a THIRD notification mechanism:
 
 ---
 
-### 3.2 Custom Amount Handling Duplicated (~120 LOC)
+### 3.2 Custom Amount Handling Duplicated (~120 LOC) -- RESOLVED
 
 **Confidence:** 82/100
 **Category:** DRY violation
+**Status:** RESOLVED (2026-02-06)
 
-`utils/application_helpers.py` contains two functions with near-identical custom amount processing:
+Extracted 3 shared helper functions in `utils/application_helpers.py`:
 
-**`create_member_from_application()` (lines 559-621):**
-```python
-if data.get("custom_contribution_fee") or data.get("uses_custom_amount"):
-    custom_contribution_fee = 0
-    if data.get("custom_contribution_fee"):
-        try:
-            custom_contribution_fee = float(data.get("custom_contribution_fee"))
-        except (ValueError, TypeError) as e:
-            frappe.log_error(...)
-    if custom_contribution_fee > 0:
-        member.dues_rate = custom_contribution_fee
-        member.fee_override_active = 1
-        member.fee_override_reason = "Custom amount selected during application"
-        member._system_update = True
-        # ... 15 more lines of field assignment
-```
+1. **`_sanitize_application_names(data)`** -- Validates and sanitizes 4 name fields, returns tuple. Replaces ~52 LOC of duplication.
+2. **`_apply_custom_contribution_fee(member, data, context_label)`** -- Applies custom fee override fields with 3-tier user fallback and parameterized reason message. Replaces ~92 LOC of duplication.
+3. **`_append_chapter_notes(member, selected_chapter, label)`** -- Appends chapter display info to member notes with parameterized label. Replaces ~30 LOC of duplication.
 
-**`update_member_from_reapplication()` (lines 789-817):**
-```python
-# IDENTICAL block copied:
-if data.get("custom_contribution_fee") or data.get("uses_custom_amount"):
-    custom_contribution_fee = 0
-    if data.get("custom_contribution_fee"):
-        try:
-            custom_contribution_fee = float(data.get("custom_contribution_fee"))
-        except (ValueError, TypeError) as e:
-            frappe.log_error(...)
-    if custom_contribution_fee > 0:
-        member.dues_rate = custom_contribution_fee
-        member.fee_override_active = 1
-        member.fee_override_reason = "Custom amount selected during application"
-        member._system_update = True
-        # ... same 15 lines
-```
-
-Both functions also duplicate address creation/update logic and volunteer record setup.
-
-#### Recommendation
-
-Extract `_apply_custom_amount_to_member(member, data)` and `_apply_application_data_to_member(member, data)` covering the shared field-setting logic.
+Both `create_member_from_application()` and `update_member_from_reapplication()` now call these helpers. Characterization tests in `tests/backend/unit/utils/test_application_helpers_reapplication.py` (7 tests) serve as safety net.
 
 ---
 
