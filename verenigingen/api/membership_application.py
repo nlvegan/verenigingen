@@ -900,57 +900,36 @@ def process_application_payment_endpoint(
 @public_api(operation_type=OperationType.PUBLIC)
 def get_membership_fee_info_endpoint(membership_type) -> OperationResult[Dict[str, Any]]:
     """Get membership fee information"""
-    try:
-        result = get_membership_fee_info_util(membership_type)
-        return OperationResult.ok(result, message=_("Membership fee information retrieved"))
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting membership fee info: {str(e)}\n{traceback.format_exc()}",
-            "Membership Fee Info Error",
-        )
-        return OperationResult.fail(
-            _("Error retrieving membership fee information"),
-            errors=[str(e)],
-            context={"operation": "get_membership_fee_info"},
-        )
+    return _wrap_data_fetch(
+        lambda: get_membership_fee_info_util(membership_type),
+        success_message="Membership fee information retrieved",
+        error_message="Error retrieving membership fee information",
+        operation="get_membership_fee_info",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
 def get_membership_type_details_endpoint(membership_type) -> OperationResult[Dict[str, Any]]:
     """Get detailed membership type information"""
-    try:
-        result = get_membership_type_details_util(membership_type)
-        return OperationResult.ok(result, message=_("Membership type details retrieved"))
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting membership type details: {str(e)}\n{traceback.format_exc()}",
-            "Membership Type Details Error",
-        )
-        return OperationResult.fail(
-            _("Error retrieving membership type details"),
-            errors=[str(e)],
-            context={"operation": "get_membership_type_details"},
-        )
+    return _wrap_data_fetch(
+        lambda: get_membership_type_details_util(membership_type),
+        success_message="Membership type details retrieved",
+        error_message="Error retrieving membership type details",
+        operation="get_membership_type_details",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 def suggest_membership_amounts_endpoint(membership_type_name) -> OperationResult[Dict[str, Any]]:
     """Suggest membership amounts based on type"""
-    try:
-        result = suggest_membership_amounts_util(membership_type_name)
-        return OperationResult.ok(result, message=_("Membership amount suggestions retrieved"))
-    except Exception as e:
-        frappe.log_error(
-            f"Error suggesting membership amounts: {str(e)}\n{traceback.format_exc()}",
-            "Suggest Amounts Error",
-        )
-        return OperationResult.fail(
-            _("Error suggesting membership amounts"),
-            errors=[str(e)],
-            context={"operation": "suggest_membership_amounts"},
-        )
+    return _wrap_data_fetch(
+        lambda: suggest_membership_amounts_util(membership_type_name),
+        success_message="Membership amount suggestions retrieved",
+        error_message="Error suggesting membership amounts",
+        operation="suggest_membership_amounts",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -981,19 +960,12 @@ def validate_custom_amount_endpoint(membership_type, amount) -> OperationResult[
 @public_api(operation_type=OperationType.PUBLIC)
 def get_payment_methods_endpoint() -> OperationResult[Dict[str, Any]]:
     """Get available payment methods"""
-    try:
-        result = get_payment_methods_util()
-        return OperationResult.ok(result, message=_("Payment methods retrieved"))
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting payment methods: {str(e)}\n{traceback.format_exc()}",
-            "Payment Methods Error",
-        )
-        return OperationResult.fail(
-            _("Error retrieving payment methods"),
-            errors=[str(e)],
-            context={"operation": "get_payment_methods"},
-        )
+    return _wrap_data_fetch(
+        get_payment_methods_util,
+        success_message="Payment methods retrieved",
+        error_message="Error retrieving payment methods",
+        operation="get_payment_methods",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -1053,19 +1025,12 @@ def load_draft_application_endpoint(draft_id) -> OperationResult[Dict[str, Any]]
 @public_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_field_info_endpoint() -> OperationResult[Dict[str, Any]]:
     """Get information about member fields for form generation"""
-    try:
-        result = get_member_field_info()
-        return OperationResult.ok(result, message=_("Member field information retrieved"))
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting member field info: {str(e)}\n{traceback.format_exc()}",
-            "Member Field Info Error",
-        )
-        return OperationResult.fail(
-            _("Error retrieving member field information"),
-            errors=[str(e)],
-            context={"operation": "get_member_field_info"},
-        )
+    return _wrap_data_fetch(
+        get_member_field_info,
+        success_message="Member field information retrieved",
+        error_message="Error retrieving member field information",
+        operation="get_member_field_info",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
