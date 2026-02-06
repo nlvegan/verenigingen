@@ -29,10 +29,7 @@ from verenigingen.utils.application_helpers import (
     suggest_membership_amounts as suggest_membership_amounts_util,
     update_member_from_reapplication,
 )
-from verenigingen.utils.application_notifications import (
-    check_overdue_applications,
-    send_payment_confirmation_email,
-)
+from verenigingen.utils.application_notifications import check_overdue_applications
 from verenigingen.utils.application_payments import (
     get_payment_methods as get_payment_methods_util,
     process_application_payment,
@@ -851,30 +848,15 @@ def process_application_payment_endpoint(
     try:
         payment_entry = process_application_payment(member_name, payment_method, payment_reference)
 
-        # Send confirmation email
+        # Send payment confirmation using modern status notification service
         member = frappe.get_doc("Member", member_name)
-        # Get application invoice from payment history child table
-        application_invoice_name = None
-        # Safe iteration over payment history
-        payment_history = getattr(member, "payment_history", None)
-        if not payment_history:
-            payment_history = []
 
-        for payment in payment_history:
-            payment_description = getattr(payment, "description", None) or ""
-            invoice_type = getattr(payment, "invoice_type", None)
-            if invoice_type == "Application" or "application" in payment_description.lower():
-                application_invoice_name = getattr(payment, "invoice", None)
-                break
+        from verenigingen.services.member.lifecycle.member_status_notification_service import (
+            get_member_status_notification_service,
+        )
 
-        if application_invoice_name:
-            invoice = frappe.get_doc("Sales Invoice", application_invoice_name)
-            send_payment_confirmation_email(member, invoice)
-        else:
-            frappe.log_error(
-                f"No application invoice found for member {member_name}",
-                "Payment Confirmation",
-            )
+        notification_svc = get_member_status_notification_service()
+        notification_svc.send_status_change_notification(member, "Approved", "Active")
 
         return OperationResult.ok(
             {

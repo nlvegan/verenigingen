@@ -81,71 +81,6 @@ def send_approval_email(member, invoice):
         frappe.log_error(f"Error sending approval email: {str(e)}", "Email Error")
 
 
-def send_payment_confirmation_email(member, invoice):
-    """Send confirmation email after successful payment.
-
-    .. deprecated:: 2.0
-        Uses inline HTML. Consider using 'Member Status Changed to Active'
-        Frappe Notification which triggers when member status becomes Active.
-    """
-    warnings.warn(
-        "send_payment_confirmation_email() uses inline HTML. "
-        "Consider using Frappe Notification 'Member Status Changed to Active'.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    try:
-        message = f"""
-        <h3>Welcome! Your membership is now active</h3>
-
-        <p>Dear {member.first_name},</p>
-
-        <p>Thank you for your payment. Your membership is now active!</p>
-
-        <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <h4>Membership Details:</h4>
-            <ul>
-                <li><strong>Member ID:</strong> {member.name}</li>
-                <li><strong>Membership Type:</strong> {member.selected_membership_type}</li>
-                <li><strong>Start Date:</strong> {frappe.format_date(today())}</li>
-                <li><strong>Chapter:</strong> {get_member_primary_chapter(member.name) or 'To be assigned'}</li>
-            </ul>
-        </div>
-
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <h4>What's Next:</h4>
-            <ul>
-                <li>Access the member portal</li>
-                <li>Join your local chapter activities</li>
-                <li>Connect with other members</li>
-                <li>Explore member benefits</li>
-            </ul>
-        </div>
-
-        <p><a href="{frappe.utils.get_url()}/member-dashboard"
-             style="background: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-            Access Member Portal
-        </a></p>
-
-        <p>Welcome to our community!</p>
-
-        <p>Best regards,<br>The Membership Team</p>
-        """
-
-        email_service = get_email_service()
-        email_service.send_simple_email(
-            recipients=[member.email],
-            subject="Welcome! Your membership is active",
-            message=message,
-            now=True,
-            reference_doctype="Member",
-            reference_name=member.name,
-            notification_key="member_activated",
-        )
-    except Exception as e:
-        frappe.log_error(f"Error sending payment confirmation email: {str(e)}", "Email Error")
-
-
 def check_overdue_applications():
     """Check for applications pending more than 7 days"""
     seven_days_ago = add_days(today(), -7)
@@ -221,18 +156,3 @@ def check_overdue_applications():
                         )
         except Exception as e:
             frappe.log_error(f"Error notifying about overdue applications: {str(e)}")
-
-
-def get_member_primary_chapter(member_name):
-    """Get member's primary chapter (first in Chapter Member list)"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-            limit=1,
-        )
-        return chapters[0].parent if chapters else None
-    except Exception:
-        return None
