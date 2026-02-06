@@ -972,53 +972,26 @@ def get_payment_methods_endpoint() -> OperationResult[Dict[str, Any]]:
 @public_api(operation_type=OperationType.MEMBER_DATA)
 def save_draft_application_endpoint(data) -> OperationResult[Dict[str, Any]]:
     """Save application as draft"""
-    try:
-        parsed_data = parse_application_data(data)
-        result = save_draft_application_util(parsed_data)
-        if result.get("success"):
-            return OperationResult.ok(result, message=_("Draft application saved successfully"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Failed to save draft application")),
-                errors=[result.get("error", "save_failed")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Error saving draft application: {str(e)}\n{traceback.format_exc()}",
-            "Save Draft Error",
-        )
-        return OperationResult.fail(
-            _("Error saving draft application"),
-            errors=[str(e)],
-            context={"operation": "save_draft_application"},
-        )
+    return _wrap_success_check(
+        lambda: save_draft_application_util(parse_application_data(data)),
+        success_message="Draft application saved successfully",
+        fail_message="Failed to save draft application",
+        fail_error="save_failed",
+        operation="save_draft_application",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.MEMBER_DATA)
 def load_draft_application_endpoint(draft_id) -> OperationResult[Dict[str, Any]]:
     """Load application draft"""
-    try:
-        result = load_draft_application_util(draft_id)
-        if result.get("success"):
-            return OperationResult.ok(result, message=_("Draft application loaded successfully"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Failed to load draft application")),
-                errors=[result.get("error", "load_failed")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Error loading draft application: {str(e)}\n{traceback.format_exc()}",
-            "Load Draft Error",
-        )
-        return OperationResult.fail(
-            _("Error loading draft application"),
-            errors=[str(e)],
-            context={"operation": "load_draft_application"},
-        )
+    return _wrap_success_check(
+        lambda: load_draft_application_util(draft_id),
+        success_message="Draft application loaded successfully",
+        fail_message="Failed to load draft application",
+        fail_error="load_failed",
+        operation="load_draft_application",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -1037,26 +1010,13 @@ def get_member_field_info_endpoint() -> OperationResult[Dict[str, Any]]:
 @public_api(operation_type=OperationType.MEMBER_DATA)
 def check_application_status_endpoint(application_id) -> OperationResult[Dict[str, Any]]:
     """Check the status of an application by ID"""
-    try:
-        result = check_application_status_util(application_id)
-        if result.get("success"):
-            return OperationResult.ok(result, message=_("Application status retrieved"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Failed to retrieve application status")),
-                errors=[result.get("error", "status_check_failed")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Error checking application status: {str(e)}\n{traceback.format_exc()}",
-            "Application Status Error",
-        )
-        return OperationResult.fail(
-            _("Error checking application status"),
-            errors=[str(e)],
-            context={"operation": "check_application_status"},
-        )
+    return _wrap_success_check(
+        lambda: check_application_status_util(application_id),
+        success_message="Application status retrieved",
+        fail_message="Failed to retrieve application status",
+        fail_error="status_check_failed",
+        operation="check_application_status",
+    )
 
 
 # Scheduled tasks
