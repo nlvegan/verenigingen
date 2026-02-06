@@ -287,14 +287,12 @@ def create_membership_workflow_action_masters():
                 result = secure_document_operation(
                     operation="insert",
                     doc=action_doc,
-                    justification=f"Create workflow action {action_data['action']} - membership application workflow setup",
+                    justification=f"Create workflow action {action} - membership application workflow setup",
                     required_permissions=["Workflow Action:create"],
                 )
 
                 if not result.success:
-                    frappe.log_error(
-                        f"Failed to create workflow action {action_data['action']}: {'; '.join(result.errors)}"
-                    )
+                    frappe.log_error(f"Failed to create workflow action {action}: {'; '.join(result.errors)}")
                     continue  # Continue with other actions
                 created_count += 1
                 print(f"      ✓ Created workflow action: {action}")
@@ -317,6 +315,8 @@ def create_membership_workflow_state_masters():
     created_count = 0
 
     for state in custom_states:
+        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
         if not DocumentExistenceValidator.validate_document_exists(
             "Workflow State", state, throw_on_error=False
         ):
@@ -326,14 +326,12 @@ def create_membership_workflow_state_masters():
                 result = secure_document_operation(
                     operation="insert",
                     doc=state_doc,
-                    justification=f"Create workflow state {state_data['state']} - membership application workflow setup",
+                    justification=f"Create workflow state {state} - membership application workflow setup",
                     required_permissions=["Workflow State:create"],
                 )
 
                 if not result.success:
-                    frappe.log_error(
-                        f"Failed to create workflow state {state_data['state']}: {'; '.join(result.errors)}"
-                    )
+                    frappe.log_error(f"Failed to create workflow state {state}: {'; '.join(result.errors)}")
                     continue  # Continue with other states
                 created_count += 1
                 print(f"      ✓ Created workflow state: {state}")
