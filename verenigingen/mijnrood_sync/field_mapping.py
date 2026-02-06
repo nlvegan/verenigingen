@@ -9,7 +9,7 @@ MijnRood status IDs are mapped via MIJNROOD_STATUS_MAP to the same status string
 that MemberImportService.STATUS_MAP expects (e.g. "lid", "opgezegd").
 """
 
-# Columns to include in CRC32 checksum for each MijnRood table.
+# Columns to include in MD5 checksum for each MijnRood table.
 # Order matters for checksum consistency — do not reorder.
 MEMBER_COLUMNS = [
     "id",
@@ -69,6 +69,10 @@ TABLE_PRIMARY_KEY = {
     "admin_division": "id",
     "admin_membershipstatus": "id",
 }
+
+# Whitelist of allowed table names — used by client.py to prevent SQL injection.
+# Built from TABLE_PRIMARY_KEY keys so any new table must be registered there first.
+ALLOWED_TABLES = frozenset(TABLE_PRIMARY_KEY.keys())
 
 # ─────────────────────────────────────────────────────────────────────
 # MijnRood DB column → Verenigingen intermediate field name

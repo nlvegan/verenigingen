@@ -6,20 +6,45 @@ Uses sshtunnel for SSH port forwarding and pymysql for database access.
 All queries are SELECT-only — no writes to MijnRood.
 """
 
+import base64
 import logging
+import re
+import time
 from typing import Optional
 
 import pymysql
 import pymysql.cursors
 from sshtunnel import SSHTunnelForwarder
 
-from verenigingen.mijnrood_sync.field_mapping import TABLE_COLUMNS, TABLE_PRIMARY_KEY
+from verenigingen.mijnrood_sync.field_mapping import (
+    ALLOWED_TABLES,
+    TABLE_COLUMNS,
+    TABLE_PRIMARY_KEY,
+)
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.client")
 
 
+_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+_CHUNK_SIZE = 500
+
+
 class MijnRoodDatabaseClient:
-    """Read-only client for MijnRood's MariaDB via SSH tunnel."""
+    """Read-only client for MijnRood's MariaDB via SSH tunnel.
+
+    Security assumptions:
+    - Table and column names are validated against ALLOWED_TABLES and a strict
+      identifier regex before interpolation into SQL. No user-supplied strings
+      reach SQL without validation.
+    - SSH authentication uses key files or passwords stored in Frappe's encrypted
+      password store. SSH key file permissions must be restricted to 0600 by the
+      administrator.
+    - sshtunnel does NOT verify SSH host keys by default. Administrators must
+      ensure host authenticity via known_hosts, network-level controls, or VPN.
+    - Credentials and secrets are never written to logs. Only table names, row
+      counts, and non-sensitive metadata appear in log output.
+    """
 
     def __init__(self, settings=None):
         """Initialize with MijnRood Sync Settings document or load from DB.
@@ -36,10 +61,33 @@ class MijnRoodDatabaseClient:
         self._tunnel: Optional[SSHTunnelForwarder] = None
         self._connection: Optional[pymysql.Connection] = None
 
-    def connect(self):
-        """Open SSH tunnel then MariaDB connection."""
-        self._open_tunnel()
-        self._open_connection()
+    def connect(self, *, max_retries: int = 3):
+        """Open SSH tunnel then MariaDB connection.
+
+        Retries up to *max_retries* times with exponential backoff (2s, 4s, 8s)
+        on transient connection failures. Partial state is cleaned up between
+        attempts via disconnect().
+        """
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                self._open_tunnel()
+                self._open_connection()
+                return
+            except Exception as exc:
+                last_error = exc
+                self.disconnect()
+                if attempt < max_retries:
+                    delay = 2**attempt
+                    logger.warning(
+                        "Connection attempt %d/%d failed: %s — retrying in %ds",
+                        attempt,
+                        max_retries,
+                        exc,
+                        delay,
+                    )
+                    time.sleep(delay)
+        raise ConnectionError(f"Failed to connect after {max_retries} attempts") from last_error
 
     def disconnect(self):
         """Close connection and tunnel."""
@@ -65,6 +113,37 @@ class MijnRoodDatabaseClient:
         self.disconnect()
         return False
 
+    @staticmethod
+    def _validate_identifier(name: str, label: str = "identifier") -> None:
+        """Validate that a name is a safe SQL identifier.
+
+        Args:
+            name: The identifier to validate.
+            label: Human-readable label for error messages.
+
+        Raises:
+            ValueError: If the name contains unsafe characters.
+        """
+        if not _IDENTIFIER_RE.match(name):
+            raise ValueError(f"Invalid {label}: {name!r}")
+
+    @staticmethod
+    def _validate_table_name(table: str) -> None:
+        """Validate that a table name is in the allowed whitelist.
+
+        Args:
+            table: MijnRood table name to validate.
+
+        Raises:
+            ValueError: If the table is not in ALLOWED_TABLES or has invalid characters.
+        """
+        if table not in ALLOWED_TABLES:
+            raise ValueError(
+                f"Table {table!r} is not in ALLOWED_TABLES. " f"Allowed: {sorted(ALLOWED_TABLES)}"
+            )
+        if not _IDENTIFIER_RE.match(table):
+            raise ValueError(f"Invalid table name: {table!r}")
+
     def _open_tunnel(self):
         """Open SSH tunnel to MijnRood server."""
         s = self._settings
@@ -85,6 +164,11 @@ class MijnRoodDatabaseClient:
             if password:
                 ssh_kwargs["ssh_password"] = password
 
+        # NOTE: SSHTunnelForwarder does not verify SSH host keys by default.
+        # Administrators must ensure host authenticity through one of:
+        #   1. Pre-populating ~/.ssh/known_hosts on the server
+        #   2. Network-level controls (VPN, private network)
+        #   3. Passing ssh_host_key to SSHTunnelForwarder
         self._tunnel = SSHTunnelForwarder(**ssh_kwargs)
         self._tunnel.start()
         logger.info(
@@ -120,11 +204,14 @@ class MijnRoodDatabaseClient:
             return result["cnt"] if result else 0
 
     def fetch_row_checksums(self, table: str) -> dict[int, str]:
-        """Compute CRC32 checksum for each row in a table, DB-side.
+        """Compute MD5 checksum for each row in a table, DB-side.
 
-        Uses MySQL's CRC32(CONCAT_WS('|', col1, col2, ...)) so the hash is
+        Uses MySQL's MD5(CONCAT_WS('|', col1, col2, ...)) so the hash is
         computed server-side in a single query. Only the ID and checksum are
         transferred — no need to fetch full rows for unchanged records.
+
+        MD5 returns a 32-char hex string (128-bit) which is vastly more
+        collision-resistant than CRC32 (32-bit) with negligible performance cost.
 
         Args:
             table: MijnRood table name (e.g. 'admin_member')
@@ -132,21 +219,23 @@ class MijnRoodDatabaseClient:
         Returns:
             Dict mapping row ID → checksum hex string
         """
-        pk = TABLE_PRIMARY_KEY.get(table, "id")
+        self._validate_table_name(table)
+        pk = TABLE_PRIMARY_KEY[table]
+        self._validate_identifier(pk, "primary key")
+
         columns = TABLE_COLUMNS.get(table)
-
         if columns:
-            # Build CONCAT_WS of specific columns, coalescing NULLs
-            col_expressions = ", ".join(f"COALESCE(`{col}`, '')" for col in columns)
-            concat_expr = f"CONCAT_WS('|', {col_expressions})"
+            col_names = columns
         else:
-            # Fallback: use all columns via SELECT * approach
-            # First get column names from information_schema
             col_names = self._get_table_columns(table)
-            col_expressions = ", ".join(f"COALESCE(`{col}`, '')" for col in col_names)
-            concat_expr = f"CONCAT_WS('|', {col_expressions})"
 
-        query = f"SELECT `{pk}`, CRC32({concat_expr}) AS checksum FROM `{table}`"  # noqa: S608
+        for col in col_names:
+            self._validate_identifier(col, "column")
+
+        col_expressions = ", ".join(f"COALESCE(`{col}`, '')" for col in col_names)
+        concat_expr = f"CONCAT_WS('|', {col_expressions})"
+
+        query = f"SELECT `{pk}`, MD5({concat_expr}) AS checksum FROM `{table}`"  # noqa: S608
 
         with self._connection.cursor() as cursor:
             cursor.execute(query)
@@ -164,6 +253,9 @@ class MijnRoodDatabaseClient:
     def fetch_rows_by_ids(self, table: str, ids: list[int]) -> list[dict]:
         """Fetch full row data for specific IDs.
 
+        IDs are batched into chunks of _CHUNK_SIZE to stay within MariaDB's
+        parameter limits. Results from all chunks are combined.
+
         Args:
             table: MijnRood table name
             ids: List of primary key values to fetch
@@ -174,16 +266,22 @@ class MijnRoodDatabaseClient:
         if not ids:
             return []
 
-        pk = TABLE_PRIMARY_KEY.get(table, "id")
-        placeholders = ", ".join(["%s"] * len(ids))
-        query = f"SELECT * FROM `{table}` WHERE `{pk}` IN ({placeholders})"  # noqa: S608
+        self._validate_table_name(table)
+        pk = TABLE_PRIMARY_KEY[table]
+        self._validate_identifier(pk, "primary key")
 
-        with self._connection.cursor() as cursor:
-            cursor.execute(query, ids)
-            rows = cursor.fetchall()
+        all_rows: list[dict] = []
+        for i in range(0, len(ids), _CHUNK_SIZE):
+            chunk = ids[i : i + _CHUNK_SIZE]
+            placeholders = ", ".join(["%s"] * len(chunk))
+            query = f"SELECT * FROM `{table}` WHERE `{pk}` IN ({placeholders})"  # noqa: S608
 
-        # Convert non-serializable types to strings for JSON storage
-        return [self._serialize_row(row) for row in rows]
+            with self._connection.cursor() as cursor:
+                cursor.execute(query, chunk)
+                rows = cursor.fetchall()
+            all_rows.extend(self._serialize_row(row) for row in rows)
+
+        return all_rows
 
     def fetch_all_rows(self, table: str) -> list[dict]:
         """Fetch all rows from a table.
@@ -194,6 +292,7 @@ class MijnRoodDatabaseClient:
         Returns:
             List of row dicts
         """
+        self._validate_table_name(table)
         query = f"SELECT * FROM `{table}`"  # noqa: S608
 
         with self._connection.cursor() as cursor:
@@ -204,6 +303,7 @@ class MijnRoodDatabaseClient:
 
     def _get_table_columns(self, table: str) -> list[str]:
         """Get column names for a table from information_schema."""
+        self._validate_table_name(table)
         query = (
             "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
             "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
@@ -230,7 +330,7 @@ class MijnRoodDatabaseClient:
             elif isinstance(value, Decimal):
                 serialized[key] = float(value)
             elif isinstance(value, bytes):
-                serialized[key] = value.decode("utf-8", errors="replace")
+                serialized[key] = base64.b64encode(value).decode("ascii")
             elif value is None:
                 serialized[key] = None
             else:
