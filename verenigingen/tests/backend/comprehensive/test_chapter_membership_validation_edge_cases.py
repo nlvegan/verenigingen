@@ -108,7 +108,8 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
     def test_volunteer_with_member_valid_chapter(self):
         """Test volunteer with member link submitting to valid chapter"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record, submit_expense
+        from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
+        from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         # Test get_user_volunteer_record first
         with patch("frappe.session.user", "edge1@example.com"):
@@ -159,7 +160,8 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
     def test_volunteer_without_member_link(self):
         """Test volunteer without member link submitting expense"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record, submit_expense
+        from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
+        from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         # Test get_user_volunteer_record
         with patch("frappe.session.user", "edge2@example.com"):
@@ -186,7 +188,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
     def test_member_without_volunteer_link(self):
         """Test member without volunteer link trying to access system"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
 
         with patch("frappe.session.user", "edge3@example.com"):
             volunteer_record = get_user_volunteer_record()
@@ -301,7 +303,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
     def test_empty_member_field_vs_none(self):
         """Test difference between empty string and None in member field"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
 
         # Create volunteer with empty string member field
         volunteer_empty = frappe.get_doc(
