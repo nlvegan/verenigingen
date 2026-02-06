@@ -8,10 +8,10 @@ Tests member creation/update logic extracted from MijnRood CSV Import DocType.
 """
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestMemberImportService(IntegrationTestCase):
+class TestMemberImportService(FrappeTestCase):
     """Test MemberImportService functionality."""
 
     @classmethod
