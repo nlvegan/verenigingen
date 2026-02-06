@@ -1043,8 +1043,10 @@ def api_security_framework(
                     frappe.local.response.setdefault("headers", {}).update(headers)
 
                 # Convert OperationResult to dict for JSON serialization
+                # Use scrub_sensitive=True to prevent traceback/exception metadata
+                # from leaking into HTTP responses (e.g. from OperationResult.from_exception)
                 if hasattr(result, "to_dict"):
-                    return result.to_dict()
+                    return result.to_dict(scrub_sensitive=True)
                 return result
 
             except Exception as e:

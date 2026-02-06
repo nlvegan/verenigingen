@@ -241,7 +241,9 @@ def bulk_assign_members_to_chapters(assignments) -> OperationResult[Dict[str, An
 
             result = assign_member_to_chapter(member_name, chapter_name)
             # Handle OperationResult from assign_member_to_chapter
-            result_dict = result.to_dict() if isinstance(result, OperationResult) else result
+            result_dict = (
+                result.to_dict(scrub_sensitive=True) if isinstance(result, OperationResult) else result
+            )
             results.append({"member_name": member_name, "chapter_name": chapter_name, "result": result_dict})
 
             if isinstance(result, OperationResult):
