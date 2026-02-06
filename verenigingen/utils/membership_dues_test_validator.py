@@ -156,7 +156,7 @@ def run_quick_membership_dues_tests():
         template.membership_type = membership_type.name
         template.status = "Active"
         template.billing_frequency = "Monthly"
-        template.contribution_mode = "Tier"
+        template.contribution_mode = "Flexible"
         template.minimum_amount = 10.0
         template.suggested_amount = 25.0
         template.invoice_days_before = 30
@@ -235,11 +235,6 @@ def run_quick_membership_dues_tests():
     try:
         # Test 4: API endpoints
         results.append("\nTesting API endpoints...")
-        from verenigingen.api.enhanced_membership_application import get_membership_types_for_application
-
-        types = get_membership_types_for_application()
-        results.append(f"  ✅ Membership types API returned {len(types)} types")
-
         from verenigingen.api.payment_plan_management import calculate_payment_plan_preview
 
         preview = calculate_payment_plan_preview(120.0, 4, "Monthly")

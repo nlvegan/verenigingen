@@ -304,12 +304,8 @@ class ContributionAmendmentApprovalService(StatefulService):
         """Update the existing dues schedule with new fee amount."""
         schedule_doc = frappe.get_doc("Membership Dues Schedule", self.request.current_dues_schedule)
         schedule_doc.dues_rate = self.request.requested_amount
-        schedule_doc.contribution_mode = "Custom"
-        schedule_doc.uses_custom_amount = 1
-        schedule_doc.custom_amount_approved = 1
-        schedule_doc.custom_amount_reason = f"Amendment Request: {self.request.reason}"
-        schedule_doc.custom_amount_approved_by = frappe.session.user
-        schedule_doc.custom_amount_approved_date = today()
+        # Keep existing contribution_mode (Fixed/Income-Based/Flexible)
+        # uses_custom_amount tracks that the amount was amended
 
         # Add amendment note
         schedule_doc.notes = (
@@ -534,14 +530,8 @@ class ContributionAmendmentApprovalService(StatefulService):
             else:
                 dues_schedule.membership_type = membership.membership_type
 
-            dues_schedule.contribution_mode = "Custom"
+            dues_schedule.contribution_mode = "Fixed"
             dues_schedule.dues_rate = self.request.requested_amount
-            dues_schedule.uses_custom_amount = 1
-            dues_schedule.custom_amount_approved = 1
-            dues_schedule.custom_amount_reason = f"Amendment Request: {self.request.reason}"
-
-            if not self.request.requested_amount:
-                dues_schedule.custom_amount_reason = f"Free membership via amendment: {self.request.reason}"
 
             # Get billing frequency from membership type's template
             membership_type_to_use = (

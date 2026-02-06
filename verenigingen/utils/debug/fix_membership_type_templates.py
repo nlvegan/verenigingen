@@ -174,7 +174,7 @@ def create_missing_templates():
                             )
                         )  # Default for Annual, Lifetime, Custom
                     ),
-                    "contribution_mode": "Calculator",
+                    "contribution_mode": "Income-Based",
                     "base_multiplier": 1.0,
                     "status": "Active",
                     "auto_generate": 1,

@@ -155,7 +155,7 @@ class MembershipType(Document):
             suggested = template.suggested_amount if template.suggested_amount is not None else 15.0
             minimum = template.minimum_amount if template.minimum_amount is not None else 5.0
             options = {
-                "mode": template.contribution_mode or "Calculator",
+                "mode": template.contribution_mode or "Income-Based",
                 "minimum": minimum,
                 "suggested": suggested,
                 "maximum": suggested * 10 if suggested > 0 else 0,
@@ -295,7 +295,7 @@ class MembershipType(Document):
         if not template.billing_frequency:
             template.billing_frequency = "Annual"  # Only set default if not already set
         if not template.contribution_mode:
-            template.contribution_mode = "Calculator"  # Only set default if not already set
+            template.contribution_mode = "Income-Based"  # Only set default if not already set
         if not template.minimum_amount:
             template.minimum_amount = 5.0  # Only set default if not already set
         if not template.suggested_amount:
@@ -344,7 +344,7 @@ class MembershipType(Document):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_membership_contribution_options(membership_type_name):
+def get_membership_contribution_options(membership_type_name: str):
     """Get contribution options for a specific membership type"""
     membership_type = frappe.get_doc("Membership Type", membership_type_name)
     return membership_type.get_contribution_options()

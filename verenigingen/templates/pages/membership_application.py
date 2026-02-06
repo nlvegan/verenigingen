@@ -483,9 +483,8 @@ def validate_contribution_amount(
 
         # Determine if approval is needed for custom amounts
         needs_approval = False
-        if contribution_mode == "Custom" or (
-            amount != template_values.get("suggested_contribution", 0)
-            and template_values.get("custom_amount_requires_approval", False)
+        if amount != template_values.get("suggested_contribution", 0) and template_values.get(
+            "custom_amount_requires_approval", False
         ):
             needs_approval = True
 

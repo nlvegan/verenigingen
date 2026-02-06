@@ -133,10 +133,9 @@ class TemplateConfigurationService(StatelessService):
                 )
 
             # Validate template has required configuration based on contribution mode
-            # Only require suggested_amount for Calculator mode (not Custom mode)
-            if template.contribution_mode == "Calculator" and not template.suggested_amount:
+            if template.contribution_mode == "Income-Based" and not template.suggested_amount:
                 frappe.throw(
-                    f"Dues schedule template '{membership_type_doc.dues_schedule_template}' with Calculator mode "
+                    f"Dues schedule template '{membership_type_doc.dues_schedule_template}' with Income-Based mode "
                     f"must have a suggested_amount configured"
                 )
 

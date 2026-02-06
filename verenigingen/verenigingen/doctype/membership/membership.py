@@ -742,8 +742,8 @@ class Membership(Document):
             billing_period = getattr(membership_type, "billing_period", None) or "Annual"
             dues_schedule.billing_frequency = period_mapping.get(billing_period, "Annual")
 
-        # Set contribution mode - use proper values
-        dues_schedule.contribution_mode = "Calculator"  # Default to calculator mode
+        # Set contribution mode
+        dues_schedule.contribution_mode = "Income-Based"
         dues_schedule.base_multiplier = 1.0
 
         # Set status
@@ -888,9 +888,7 @@ class Membership(Document):
                 member_doc._system_update = True
                 member_doc.save()
                 duration = result.data.get("duration") if result.data else None
-                frappe.logger().info(
-                    f"Updated membership duration for {self.member}: {duration}"
-                )
+                frappe.logger().info(f"Updated membership duration for {self.member}: {duration}")
         except Exception as e:
             frappe.logger().error(f"Failed to update membership duration for {self.member}: {str(e)}")
             # Don't fail the membership submission if this update fails
@@ -915,7 +913,10 @@ def on_cancel(doc, method=None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def cancel_membership(
-    membership_name, cancellation_date=None, cancellation_reason=None, cancellation_type="Immediate"
+    membership_name: str,
+    cancellation_date: str = None,
+    cancellation_reason: str = None,
+    cancellation_type: str = "Immediate",
 ):
     """
     Cancel a membership with the given details
@@ -977,7 +978,7 @@ def cancel_membership(
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def sync_membership_payments(membership_name=None):
+def sync_membership_payments(membership_name: str = None):
     """
     Sync payment details for a membership or all active memberships
     """
@@ -1001,7 +1002,7 @@ def sync_membership_payments(membership_name=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def show_payment_history(membership_name):
+def show_payment_history(membership_name: str):
     """
     Get payment history for a membership from linked dues schedule
     """
@@ -1020,7 +1021,7 @@ def show_payment_history(membership_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def renew_membership(membership_name):
+def renew_membership(membership_name: str):
     """Renew a membership and return the new membership doc"""
     membership = frappe.get_doc("Membership", membership_name)
     return membership.renew_membership()
@@ -1124,7 +1125,7 @@ def verify_signature(data, signature, secret_key=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def show_all_invoices(membership_name):
+def show_all_invoices(membership_name: str):
     """
     Get all invoices related to a membership through dues schedule
     or direct links
@@ -1221,7 +1222,9 @@ def show_all_invoices(membership_name):
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_member_sepa_mandates(doctype, txt, searchfield, start, page_len, filters):
+def get_member_sepa_mandates(
+    doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: str
+):
     """Get SEPA mandates for a specific member"""
     member = filters.get("member")
 
@@ -1255,7 +1258,7 @@ def get_member_sepa_mandates(doctype, txt, searchfield, start, page_len, filters
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def revert_to_standard_amount(membership_name, reason=None):
+def revert_to_standard_amount(membership_name: str, reason: str = None):
     """Revert membership to use standard membership type amount"""
 
     membership = frappe.get_doc("Membership", membership_name)
@@ -1300,7 +1303,7 @@ def revert_to_standard_amount(membership_name, reason=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def allow_multiple_memberships(member):
+def allow_multiple_memberships(member: str):
     """Set a flag to allow creating multiple memberships for a member"""
     frappe.flags.allow_multiple_memberships = True
     return True

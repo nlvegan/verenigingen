@@ -96,7 +96,7 @@ class TemplateCreationService(StatelessService):
             template.membership_type = membership_type
             template.status = "Active"
             template.billing_frequency = "Annual"
-            template.contribution_mode = "Calculator"
+            template.contribution_mode = "Income-Based"
             template.minimum_amount = 0
             template.suggested_amount = 15.0  # Default template value
             template.invoice_days_before = 30
@@ -279,10 +279,8 @@ class TemplateCreationService(StatelessService):
         # User's explicit selection represents an active choice and should always win
         if user_selected_rate and user_selected_rate > 0:
             # User has selected a specific dues rate during application - preserve it
+            # The contribution_mode (Income-Based/Flexible) already implies user selection
             schedule.dues_rate = user_selected_rate
-            schedule.contribution_mode = "Custom"  # Mark as custom since user selected specific amount
-            schedule.uses_custom_amount = 1
-            schedule.custom_amount_reason = "Amount selected during membership application"
 
             # Validate user's selection against template minimum
             template_minimum = getattr(template, "minimum_amount", 0)
@@ -296,10 +294,6 @@ class TemplateCreationService(StatelessService):
         # Historic data from imports, should not override active user choices
         elif custom_amount and custom_amount > 0:
             schedule.dues_rate = custom_amount
-            schedule.contribution_mode = "Custom"
-            schedule.uses_custom_amount = 1
-            schedule.custom_amount_reason = custom_amount_reason or "Imported from CSV"
-            schedule.custom_amount_approved = custom_amount_approved
             self.logger.info(
                 f"[DUES SCHEDULE] Using CSV import custom amount: €{custom_amount:.2f} for member {member_name}"
             )

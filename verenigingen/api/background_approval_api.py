@@ -154,9 +154,9 @@ def approve_membership_application_background(
                 invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
 
             log_security_event(
-                "membership_approved",
-                {"message": f"Member {member_name} approved with status change: Pending -> Approved/Active"},
-                severity="low",
+                "data_modification",
+                {"message": f"Membership approved: {member_name} status change Pending -> Approved/Active"},
+                severity="info",
             )
 
         except (frappe.ValidationError, frappe.PermissionError):

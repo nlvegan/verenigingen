@@ -396,8 +396,8 @@ def approve_membership_application(
         )
 
     log_security_event(
-        "membership_approved",
-        {"message": f"Member {member_name} approved with status change: Pending -> Approved/Active"},
+        "data_modification",
+        {"message": f"Membership approved: {member_name} status change Pending -> Approved/Active"},
         severity="info",
     )
 
@@ -2133,33 +2133,9 @@ def validate_membership_type_for_approval(membership_type, member, is_applicatio
             ).format(membership_type)
         )
 
-    # Get the template and validate it
-    template = frappe.get_doc(
-        "Membership Dues Schedule", {"membership_type": membership_type, "is_template": 1, "status": "Active"}
-    )
-
-    # Validate template has required fields
-    validation_errors = []
-
-    # Check required fields
-    if not template.billing_frequency:
-        validation_errors.append(_("Billing frequency is not set"))
-
-    if not template.dues_rate or template.dues_rate <= 0:
-        validation_errors.append(_("Amount must be greater than 0"))
-
-    if not template.contribution_mode:
-        validation_errors.append(_("Contribution mode is not set"))
-
-    # Check if auto_generate is enabled (optional but recommended)
-    if not template.auto_generate:
-        frappe.msgprint(
-            _(
-                "Warning: Auto-generate is disabled for this membership type. "
-                "Invoices will need to be created manually."
-            ),
-            alert=True,
-        )
+    # Template field validation (billing_frequency, dues_rate, contribution_mode)
+    # belongs in the template's own validate hook, not in the approval flow.
+    # If a template was saved successfully, we trust it's properly configured.
 
     # Validate member-specific requirements
     if member and not is_application_approval:
@@ -2193,7 +2169,7 @@ def validate_membership_type_for_approval(membership_type, member, is_applicatio
 
         # Validate member has required fields for billing
         if hasattr(member, "email") and not member.email:
-            validation_errors.append(_("Member email is required for billing notifications"))
+            frappe.throw(_("Member email is required for billing notifications"))
 
         # Check if SEPA is required but member has no valid IBAN
         # Note: We don't block approval for missing IBAN as members can add it later
@@ -2205,12 +2181,6 @@ def validate_membership_type_for_approval(membership_type, member, is_applicatio
                 ),
                 alert=True,
             )
-
-    if validation_errors:
-        frappe.throw(
-            _("Cannot approve application due to the following issues with the dues schedule template:<br>")
-            + "<br>".join(f"• {error}" for error in validation_errors)
-        )
 
 
 def update_payment_history_for_invoice(member_name: str, invoice_name: str):

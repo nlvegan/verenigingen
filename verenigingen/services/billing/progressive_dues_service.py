@@ -129,7 +129,7 @@ class ProgressiveDuesService(StatelessService):
         Raises:
             frappe.ValidationError: If configuration is invalid
         """
-        if schedule_doc.contribution_mode != "Progressive":
+        if schedule_doc.contribution_mode != "Income-Based":
             return
 
         reference_income = getattr(schedule_doc, "progressive_reference_income", None)

@@ -1047,16 +1047,11 @@ class SEPABatchProcessor:
         """Generate invoice description based on contribution mode"""
         base_desc = f"Membership dues - {schedule.billing_frequency}"
 
-        if schedule.contribution_mode == "Tier" and schedule.selected_tier:
-            tier_doc = frappe.get_doc("Membership Tier", schedule.selected_tier)
-            base_desc += f"\nTier: {tier_doc.display_name}"
-        elif schedule.contribution_mode == "Calculator" and schedule.base_multiplier:
+        if schedule.contribution_mode == "Income-Based" and schedule.base_multiplier:
             percentage = int(schedule.base_multiplier * 100)
             base_desc += f"\nContribution: {percentage}% of suggested amount"
-        elif schedule.contribution_mode == "Custom" and schedule.uses_custom_amount:
-            base_desc += "\nCustom contribution"
-            if schedule.custom_amount_reason:
-                base_desc += f": {schedule.custom_amount_reason}"
+        elif schedule.contribution_mode == "Flexible":
+            base_desc += f"\nFlexible contribution"
 
         base_desc += (
             f"\nCoverage: {schedule.last_invoice_coverage_start} to {schedule.last_invoice_coverage_end}"

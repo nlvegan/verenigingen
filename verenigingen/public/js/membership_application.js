@@ -447,7 +447,7 @@ class _MembershipApplication {
 	bindStepNavigation() {
 		// Initialize step navigation
 		this.currentStep = 1;
-		this.maxSteps = 7; // Fixed: Match template which has 7 steps
+		this.maxSteps = this.config.maxSteps || 7;
 
 		// Show first step
 		this.showStep(1);
@@ -562,15 +562,27 @@ class _MembershipApplication {
 		return this.validateStepBasic(this.currentStep);
 	}
 
+	// Map a numeric step to a logical step name based on volunteer config
+	getStepName(stepNumber) {
+		const hasVolunteer = this.config.enableVolunteerStep;
+		if (hasVolunteer) {
+			return { 1: 'personal', 2: 'address', 3: 'membership', 4: 'volunteer',
+				5: 'communication', 6: 'payment', 7: 'confirmation' }[stepNumber];
+		}
+		return { 1: 'personal', 2: 'address', 3: 'membership',
+			4: 'communication', 5: 'payment', 6: 'confirmation' }[stepNumber];
+	}
+
 	validateStepBasic(step) {
 		let isValid = true;
+		const stepName = this.getStepName(step);
 
 		// Clear previous errors only for current step
 		$(`.form-step[data-step="${step}"] .is-invalid`).removeClass('is-invalid');
 		$(`.form-step[data-step="${step}"] .invalid-feedback`).hide();
 
-		switch (step) {
-			case 1: {
+		switch (stepName) {
+			case 'personal': {
 				// Personal info
 				const requiredFields = [
 					'#first_name',
@@ -605,7 +617,7 @@ class _MembershipApplication {
 				}
 				break;
 			}
-			case 2: {
+			case 'address': {
 				// Address
 				const addressFields = [
 					'#address_line1',
@@ -629,7 +641,7 @@ class _MembershipApplication {
 				});
 				break;
 			}
-			case 3: {
+			case 'membership': {
 				// Membership type
 				const selectedType = this.state.get('selected_membership_type');
 				const membership = this.state.get('membership');
@@ -684,20 +696,20 @@ class _MembershipApplication {
 				}
 				break;
 			}
-			case 4: {
+			case 'volunteer': {
 				// Volunteer (optional)
 				// No required fields
 				break;
 			}
-			case 5: {
+			case 'communication': {
 				// Communication Preferences
-				console.log('Validating step 5 - Communication Preferences');
+				console.log('Validating communication preferences step');
 				// No required fields for communication preferences
 				break;
 			}
-			case 6: {
+			case 'payment': {
 				// Payment
-				console.log('Validating step 6 - Payment');
+				console.log('Validating payment step');
 
 				// Check payment method selection
 				const paymentMethod = $('input[name="payment_method"]:checked').val();
@@ -778,7 +790,7 @@ class _MembershipApplication {
 				console.log('Step 6 validation result:', isValid);
 				break;
 			}
-			case 7: {
+			case 'confirmation': {
 				// Confirmation
 				// Check terms and privacy checkboxes
 				if (!$('input[name="terms_accepted"]').is(':checked')) {
@@ -817,29 +829,25 @@ class _MembershipApplication {
 	}
 
 	setupStepContent(stepNumber) {
-		switch (stepNumber) {
-			case 1:
-				this.setupPersonalInfoStep();
-				break;
-			case 2:
-				this.setupAddressStep();
-				break;
-			case 3:
-				this.setupMembershipStep();
-				break;
-			case 4:
-				this.setupVolunteerStep();
-				break;
-			case 5:
-				this.setupCommunicationPreferencesStep();
-				break;
-			case 6:
-				this.setupPaymentStep();
-				break;
-			case 7:
-				this.setupConfirmationStep();
-				break;
+		const hasVolunteer = this.config.enableVolunteerStep;
+		const stepMap = {
+			1: () => this.setupPersonalInfoStep(),
+			2: () => this.setupAddressStep(),
+			3: () => this.setupMembershipStep(),
+		};
+		if (hasVolunteer) {
+			stepMap[4] = () => this.setupVolunteerStep();
+			stepMap[5] = () => this.setupCommunicationPreferencesStep();
+			stepMap[6] = () => this.setupPaymentStep();
+			stepMap[7] = () => this.setupConfirmationStep();
+		} else {
+			stepMap[4] = () => this.setupCommunicationPreferencesStep();
+			stepMap[5] = () => this.setupPaymentStep();
+			stepMap[6] = () => this.setupConfirmationStep();
 		}
+
+		const setup = stepMap[stepNumber];
+		if (setup) setup();
 	}
 
 	getCurrentStep() {

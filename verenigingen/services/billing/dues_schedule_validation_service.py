@@ -118,8 +118,8 @@ class DuesScheduleValidationService(StatelessService):
         Validate and set dues rate based on contribution mode.
 
         Calculates the appropriate dues_rate for the schedule based on its
-        contribution_mode (Tier, Calculator, or Custom). Only calculates if
-        dues_rate is not already set or is zero.
+        contribution_mode (Fixed, Income-Based, or Flexible). Only calculates if
+        dues_rate is not already set.
 
         Args:
             schedule_doc: MembershipDuesSchedule document instance
@@ -128,16 +128,10 @@ class DuesScheduleValidationService(StatelessService):
             frappe.ValidationError: If configuration is invalid or incomplete
 
         Business Logic:
-            - Tier mode: Uses selected tier's amount
-            - Calculator mode: Multiplies suggested_amount by base_multiplier
-            - Custom mode: Requires uses_custom_amount flag
+            - Fixed mode: Uses template dues_rate directly
+            - Income-Based mode: Multiplies suggested_amount by base_multiplier
+            - Flexible mode: Uses user selection, falls back to suggested_amount
             - Templates skip calculation (may have incomplete configuration)
-
-        Example:
-            >>> schedule.contribution_mode = "Calculator"
-            >>> schedule.base_multiplier = 1.5
-            >>> DuesScheduleValidationService.validate_dues_rate_configuration(schedule)
-            >>> print(schedule.dues_rate)  # Will be suggested_amount * 1.5
         """
         # Templates may not have all dues rate fields set
         if schedule_doc.is_template:
@@ -149,10 +143,8 @@ class DuesScheduleValidationService(StatelessService):
         # Only calculate dues_rate if not already explicitly set (None means not set)
         # Allow 0 as a valid value for free memberships
         if schedule_doc.dues_rate is None:
-            if schedule_doc.contribution_mode == "Tier" and schedule_doc.selected_tier:
-                tier = frappe.get_doc("Membership Tier", schedule_doc.selected_tier)
-                schedule_doc.dues_rate = tier.amount
-            elif schedule_doc.contribution_mode == "Calculator":
+            if schedule_doc.contribution_mode == "Income-Based":
+                # Income-Based: calculate from suggested_amount * multiplier
                 from verenigingen.services.billing.template_configuration_service import (
                     TemplateConfigurationService,
                 )
@@ -164,18 +156,14 @@ class DuesScheduleValidationService(StatelessService):
                 if not suggested_amount:
                     frappe.throw(
                         "Cannot calculate dues: template has no suggested_amount configured. "
-                        "Either set a suggested_amount or switch to Custom contribution mode."
+                        "Please configure the template's suggested_amount."
                     )
 
-                # Use base multiplier, defaulting to 1.0 if not set
                 multiplier = schedule_doc.base_multiplier if schedule_doc.base_multiplier is not None else 1.0
                 schedule_doc.dues_rate = suggested_amount * multiplier
-            elif schedule_doc.contribution_mode == "Custom":
-                if not schedule_doc.uses_custom_amount:
-                    frappe.throw("Custom dues rate must be enabled for custom contribution mode")
-            elif schedule_doc.contribution_mode == "Progressive":
-                # Progressive mode: dues_rate should be set from application form based on income
-                # If not set, use the suggested_amount as default (100% rate)
+            elif schedule_doc.contribution_mode == "Flexible":
+                # Flexible: dues_rate should be set from user selection
+                # If not set, fall back to suggested_amount
                 from verenigingen.services.billing.template_configuration_service import (
                     TemplateConfigurationService,
                 )
@@ -184,11 +172,6 @@ class DuesScheduleValidationService(StatelessService):
                     schedule_doc, schedule_doc.membership_type
                 )
                 schedule_doc.dues_rate = template_values.get("suggested_amount", 0)
-
-        # If contribution mode is Custom but dues_rate is set, ensure custom amount flags are set
-        if schedule_doc.contribution_mode == "Custom" and schedule_doc.dues_rate:
-            if not schedule_doc.uses_custom_amount:
-                schedule_doc.uses_custom_amount = 1
 
     def validate_financial_constraints(self, schedule_doc: "Document") -> None:
         """

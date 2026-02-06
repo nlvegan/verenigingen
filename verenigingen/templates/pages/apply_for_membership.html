@@ -283,6 +283,51 @@
                             </div>
                         </div>
 
+                        <!-- Phase 1: Membership Type Selection -->
+                        <div id="membership-type-phase" class="mb-6">
+                            <h5 class="input-label required">{{ _("1. Choose Membership Type") }}</h5>
+                            <p class="text-sm text-gray-600 mb-4">{{ _("Select the type of membership that best fits you.") }}</p>
+
+                            <div id="membership-types" class="space-y-3">
+                                {% for mt in enhanced_membership_types %}
+                                <label class="membership-type-option flex items-start p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-primary-500 hover:bg-gray-50 transition-colors">
+                                    <input type="radio" name="membership_type_selection" value="{{ mt.name }}"
+                                           class="mt-1 mr-4 text-primary-600 focus:ring-primary-500"
+                                           data-description="{{ mt.description or '' }}">
+                                    <div class="flex-1">
+                                        <span class="font-medium text-gray-900">{{ mt.membership_type_name }}</span>
+                                        {% if mt.description %}
+                                        <p class="text-sm text-gray-500 mt-1">{{ mt.description }}</p>
+                                        {% endif %}
+                                    </div>
+                                </label>
+                                {% endfor %}
+                                {% if not enhanced_membership_types %}
+                                <div class="text-center py-4">
+                                    <div class="text-gray-500">{{ _("Loading membership types...") }}</div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div class="text-red-500 text-sm hidden mt-2" id="membership_type_error">{{ _("Please select a membership type") }}</div>
+                        </div>
+
+                        <!-- Phase 2: Payment Plan Selection (hidden until membership type selected) -->
+                        <div id="payment-plan-phase" class="mb-6" style="display: none;">
+                            <h5 class="input-label required">{{ _("2. Choose Payment Plan") }}</h5>
+                            <p class="text-sm text-gray-600 mb-4" id="payment-plan-intro">{{ _("Select how you'd like to pay your membership dues.") }}</p>
+
+                            <div id="payment-plans" class="space-y-3">
+                                <div class="text-center py-4">
+                                    <div class="text-gray-400">{{ _("Select a membership type to see available payment plans") }}</div>
+                                </div>
+                            </div>
+
+                            <div class="text-red-500 text-sm hidden mt-2" id="payment_plan_error">{{ _("Please select a payment plan") }}</div>
+                        </div>
+
+                        <!-- Payment Plan Details: mode-specific sub-UI rendered here by JS -->
+                        <div id="payment-plan-details" class="mb-6" style="display: none;"></div>
+
                         <!-- Income Calculator (supports both percentage and progressive modes) -->
                         <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200" id="income-calculator" style="display: none;">
                             <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
@@ -356,48 +401,6 @@
                             <p class="text-xs text-gray-500 mt-2 text-center" id="calculator-hint">
                                 {{ _("Enter your monthly income above to see a suggested contribution based on your income level.") }}
                             </p>
-                        </div>
-
-                        <!-- Phase 1: Membership Type Selection -->
-                        <div id="membership-type-phase" class="mb-6">
-                            <h5 class="input-label required">{{ _("1. Choose Membership Type") }}</h5>
-                            <p class="text-sm text-gray-600 mb-4">{{ _("Select the type of membership that best fits you.") }}</p>
-
-                            <div id="membership-types" class="space-y-3">
-                                {% for mt in enhanced_membership_types %}
-                                <label class="membership-type-option flex items-start p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-primary-500 hover:bg-gray-50 transition-colors">
-                                    <input type="radio" name="membership_type_selection" value="{{ mt.name }}"
-                                           class="mt-1 mr-4 text-primary-600 focus:ring-primary-500"
-                                           data-description="{{ mt.description or '' }}">
-                                    <div class="flex-1">
-                                        <span class="font-medium text-gray-900">{{ mt.membership_type_name }}</span>
-                                        {% if mt.description %}
-                                        <p class="text-sm text-gray-500 mt-1">{{ mt.description }}</p>
-                                        {% endif %}
-                                    </div>
-                                </label>
-                                {% endfor %}
-                                {% if not enhanced_membership_types %}
-                                <div class="text-center py-4">
-                                    <div class="text-gray-500">{{ _("Loading membership types...") }}</div>
-                                </div>
-                                {% endif %}
-                            </div>
-                            <div class="text-red-500 text-sm hidden mt-2" id="membership_type_error">{{ _("Please select a membership type") }}</div>
-                        </div>
-
-                        <!-- Phase 2: Payment Plan Selection (hidden until membership type selected) -->
-                        <div id="payment-plan-phase" class="mb-6" style="display: none;">
-                            <h5 class="input-label required">{{ _("2. Choose Payment Plan") }}</h5>
-                            <p class="text-sm text-gray-600 mb-4" id="payment-plan-intro">{{ _("Select how you'd like to pay your membership dues.") }}</p>
-
-                            <div id="payment-plans" class="space-y-3">
-                                <div class="text-center py-4">
-                                    <div class="text-gray-400">{{ _("Select a membership type to see available payment plans") }}</div>
-                                </div>
-                            </div>
-
-                            <div class="text-red-500 text-sm hidden mt-2" id="payment_plan_error">{{ _("Please select a payment plan") }}</div>
                         </div>
 
                         <!-- Hidden fields for form submission -->
@@ -1007,253 +1010,355 @@ function initializeMembershipSelection() {
         });
     }
 
-    // Render payment plan options
+    // ── Mode-specific rendering helpers ──────────────────────────────
+
+    function getModeLabel(mode) {
+        const labels = {
+            'Fixed': '{{ _("Fixed") }}',
+            'Income-Based': '{{ _("Income-Based") }}',
+            'Flexible': '{{ _("Flexible") }}'
+        };
+        return labels[mode] || mode;
+    }
+
+    function getModeBadgeClass(mode) {
+        const classes = {
+            'Fixed': 'bg-gray-100 text-gray-700',
+            'Income-Based': 'bg-blue-100 text-blue-700',
+            'Flexible': 'bg-green-100 text-green-700'
+        };
+        return classes[mode] || 'bg-gray-100 text-gray-700';
+    }
+
+    function renderFixedMode(schedule, container, membershipType) {
+        const baseAmount = parseFloat(schedule.amount) || 0;
+        const currency = schedule.currency || 'EUR';
+        const formattedAmount = baseAmount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
+        container.innerHTML = `
+            <div class="p-4 bg-white border-2 border-primary-500 rounded-lg">
+                <div class="text-center">
+                    <p class="text-sm text-gray-600 mb-2">{{ _("Your membership dues") }}</p>
+                    <p class="text-3xl font-bold text-gray-900">${formattedAmount}</p>
+                    <p class="text-sm text-gray-500">${schedule.billing_display || schedule.billing_frequency}</p>
+                    ${schedule.notes ? `<p class="text-xs text-gray-500 mt-2">${schedule.notes}</p>` : ''}
+                </div>
+            </div>
+        `;
+        container.style.display = 'block';
+        // Set hidden fields
+        duesScheduleHidden.value = schedule.name;
+        billingFrequencyHidden.value = schedule.billing_frequency;
+        selectedAmountHidden.value = baseAmount;
+        // Set state
+        if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+            window.membershipApp.state.set('selected_membership_type', membershipType);
+            window.membershipApp.state.set('selected_dues_schedule', schedule.name);
+            window.membershipApp.state.set('selected_billing_frequency', schedule.billing_frequency);
+            window.membershipApp.state.set('contribution_amount', baseAmount);
+        }
+        // Hide calculator and custom contribution
+        document.getElementById('income-calculator').style.display = 'none';
+        customContribution.style.display = 'none';
+    }
+
+    function renderIncomeBasedMode(schedule, container, membershipType) {
+        const settings = schedule.contribution_settings || {};
+        const calcType = settings.calculation_type || 'Percentage';
+        const description = settings.description || '';
+        const baseAmount = parseFloat(schedule.amount) || 0;
+        container.innerHTML = `
+            <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h6 class="font-semibold text-blue-800 mb-2">{{ _("Contribution based on your income") }}</h6>
+                ${description ? `<p class="text-sm text-blue-600 mb-4">${description}</p>` : ''}
+                <p class="text-sm text-gray-600">{{ _("Use the calculator below to determine your suggested contribution.") }}</p>
+            </div>
+        `;
+        container.style.display = 'block';
+        // Store calculator settings
+        window.currentCalculatorSettings = {
+            mode: 'Income-Based',
+            calculation_type: calcType,
+            frequency: schedule.billing_frequency,
+            schedule: schedule.name,
+            amount: baseAmount,
+            settings: settings
+        };
+        duesScheduleHidden.value = schedule.name;
+        billingFrequencyHidden.value = schedule.billing_frequency;
+        // Set state (amount will be set when user applies calculated amount)
+        if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+            window.membershipApp.state.set('selected_membership_type', membershipType);
+            window.membershipApp.state.set('selected_dues_schedule', schedule.name);
+            window.membershipApp.state.set('selected_billing_frequency', schedule.billing_frequency);
+        }
+        customContribution.style.display = 'none';
+        // Show calculator
+        setTimeout(() => {
+            initializeCalculator('Income-Based', schedule.billing_frequency);
+            document.getElementById('income-calculator').style.display = 'block';
+        }, 100);
+    }
+
+    function renderFlexibleMode(schedule, container, membershipType) {
+        const settings = schedule.contribution_settings || {};
+        const suggestions = settings.suggestions || [];
+        const allowCustom = settings.allow_custom !== false;
+        const defaultMult = settings.default_multiplier || 1;
+        const currency = schedule.currency || 'EUR';
+
+        let html = '<div class="space-y-3">';
+
+        suggestions.forEach((suggestion) => {
+            const amount = parseFloat(suggestion.amount) || 0;
+            const formattedAmount = amount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
+            const isDefault = suggestion.is_default || suggestion.multiplier === defaultMult;
+            const isChecked = isDefault ? 'checked' : '';
+            const highlightClass = isDefault ? 'border-primary-500 bg-primary-50' : '';
+
+            let label = suggestion.label || '';
+            if (suggestion.multiplier === 1) {
+                label = '{{ _("Minimum") }}';
+            } else if (suggestion.multiplier >= 2) {
+                label = '{{ _("Supporter") }}';
+            } else if (isDefault) {
+                label = '{{ _("Suggested") }}';
+            }
+
+            html += `
+                <label class="payment-plan-option flex items-center justify-between p-4 rounded-lg cursor-pointer ${highlightClass}">
+                    <div class="flex items-center">
+                        <input type="radio" name="payment_plan_selection" value="${schedule.name}_${suggestion.multiplier}"
+                               class="mr-4 text-primary-600 focus:ring-primary-500"
+                               data-amount="${amount}" data-frequency="${schedule.billing_frequency}"
+                               data-schedule="${schedule.name}" data-mode="Flexible"
+                               data-multiplier="${suggestion.multiplier}" ${isChecked}>
+                        <div>
+                            <span class="font-medium text-gray-900">${formattedAmount}</span>
+                            <span class="text-sm text-gray-500 ml-2">${label}</span>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-500">${schedule.billing_display || schedule.billing_frequency}</p>
+                    </div>
+                </label>
+            `;
+        });
+
+        if (allowCustom) {
+            html += `
+                <label class="payment-plan-option flex items-center justify-between p-4 rounded-lg cursor-pointer">
+                    <div class="flex items-center">
+                        <input type="radio" name="payment_plan_selection" value="custom"
+                               class="mr-4 text-primary-600 focus:ring-primary-500"
+                               data-amount="0" data-frequency="${schedule.billing_frequency}"
+                               data-schedule="${schedule.name}" data-mode="Flexible" data-custom="true">
+                        <div>
+                            <span class="font-medium text-gray-900">{{ _("Custom amount") }}</span>
+                            <span class="text-sm text-gray-500 ml-2">{{ _("Choose your own") }}</span>
+                        </div>
+                    </div>
+                </label>
+            `;
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+        container.style.display = 'block';
+
+        // Hide calculator, set hidden fields
+        document.getElementById('income-calculator').style.display = 'none';
+        duesScheduleHidden.value = schedule.name;
+        billingFrequencyHidden.value = schedule.billing_frequency;
+        if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+            window.membershipApp.state.set('selected_membership_type', membershipType);
+            window.membershipApp.state.set('selected_dues_schedule', schedule.name);
+            window.membershipApp.state.set('selected_billing_frequency', schedule.billing_frequency);
+        }
+
+        // Bind flex option events and auto-select default
+        bindFlexOptionEvents();
+        const defaultRadio = container.querySelector('input[name="payment_plan_selection"]:checked');
+        if (defaultRadio) {
+            updateFlexSelection(defaultRadio);
+        }
+    }
+
+    function bindFlexOptionEvents() {
+        const radios = document.querySelectorAll('input[name="payment_plan_selection"]');
+        radios.forEach(radio => {
+            radio.addEventListener('change', function() {
+                updateFlexSelection(this);
+            });
+        });
+    }
+
+    function updateFlexSelection(radio) {
+        const isCustom = radio.dataset.custom === 'true';
+        const amount = radio.dataset.amount || '0';
+
+        // Update visual selection
+        document.querySelectorAll('.payment-plan-option').forEach(opt => {
+            opt.classList.remove('border-primary-500', 'bg-primary-50');
+        });
+        const optionContainer = radio.closest('.payment-plan-option');
+        if (optionContainer) {
+            optionContainer.classList.add('border-primary-500', 'bg-primary-50');
+        }
+
+        if (isCustom) {
+            customContribution.style.display = 'block';
+            document.getElementById('custom_contribution_fee').focus();
+            selectedAmountHidden.value = '0';
+        } else {
+            customContribution.style.display = 'none';
+            selectedAmountHidden.value = amount;
+        }
+
+        // Update state
+        if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
+            window.membershipApp.state.set('contribution_amount',
+                isCustom ? document.getElementById('custom_contribution_fee').value : amount);
+        }
+
+        document.getElementById('payment_plan_error').classList.add('hidden');
+        console.log('Flex option selected:', { amount, isCustom });
+    }
+
+    // ── Main render function ─────────────────────────────────────────
+
     function renderPaymentPlans(schedules, membershipType) {
-        // Get default billing frequency from first schedule or use a sensible default
-        const defaultFrequency = (schedules && schedules.length > 0)
-            ? schedules[0].billing_frequency
-            : 'Annual';
-        const defaultBillingDisplay = (schedules && schedules.length > 0)
-            ? (schedules[0].billing_display || schedules[0].billing_frequency)
-            : '{{ _("per year") }}';
+        const detailsContainer = document.getElementById('payment-plan-details');
 
         if (!schedules || schedules.length === 0) {
-            // No specific schedules - show a message to contact
             paymentPlansContainer.innerHTML = `
                 <div class="text-center py-4 text-gray-500">
                     {{ _("No payment plans configured for this membership type. Please contact us.") }}
                 </div>
             `;
+            detailsContainer.style.display = 'none';
             return;
         }
 
-        // Store schedules data for later use
+        // Store schedules for later use
         window.paymentPlanSchedules = schedules;
 
-        // For simplicity, if there's only one schedule, render based on its mode
-        // If multiple schedules, let user choose which plan first
-        const schedule = schedules[0]; // Primary schedule
-        const settings = schedule.contribution_settings || {};
-        const mode = settings.mode || 'Fixed';
-        const baseAmount = parseFloat(schedule.amount) || 0;
-        const currency = schedule.currency || 'EUR';
+        // Hide calculator and details by default on re-render
+        document.getElementById('income-calculator').style.display = 'none';
+        detailsContainer.style.display = 'none';
+        detailsContainer.innerHTML = '';
+        customContribution.style.display = 'none';
 
-        let html = '';
+        if (schedules.length === 1) {
+            // ── Single schedule: render its mode directly (no schedule selector) ──
+            const schedule = schedules[0];
+            const settings = schedule.contribution_settings || {};
+            const mode = settings.mode || 'Fixed';
 
-        if (mode === 'Fixed') {
-            // Fixed mode: Just show the amount with a confirm button
-            const formattedAmount = baseAmount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
-            html = `
-                <div class="p-4 bg-white border-2 border-primary-500 rounded-lg">
-                    <div class="text-center">
-                        <p class="text-sm text-gray-600 mb-2">{{ _("Your membership dues") }}</p>
-                        <p class="text-3xl font-bold text-gray-900">${formattedAmount}</p>
-                        <p class="text-sm text-gray-500">${schedule.billing_display || schedule.billing_frequency}</p>
-                        ${schedule.notes ? `<p class="text-xs text-gray-500 mt-2">${schedule.notes}</p>` : ''}
-                    </div>
-                    <input type="hidden" name="payment_plan_selection" value="${schedule.name}"
-                           data-amount="${baseAmount}" data-frequency="${schedule.billing_frequency}"
-                           data-schedule="${schedule.name}" data-mode="Fixed" checked>
-                </div>
-            `;
-            // Auto-set hidden fields for Fixed mode
-            duesScheduleHidden.value = schedule.name;
-            billingFrequencyHidden.value = schedule.billing_frequency;
-            selectedAmountHidden.value = baseAmount;
-            // Set state for Fixed mode - required for step 3 validation
-            if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
-                window.membershipApp.state.set('selected_membership_type', membershipType);
-                window.membershipApp.state.set('selected_dues_schedule', schedule.name);
-                window.membershipApp.state.set('selected_billing_frequency', schedule.billing_frequency);
-                window.membershipApp.state.set('contribution_amount', baseAmount);
+            // No schedule selector cards needed; render mode UI into the plans container
+            paymentPlansContainer.innerHTML = '';
+
+            if (mode === 'Fixed') {
+                renderFixedMode(schedule, detailsContainer, membershipType);
+            } else if (mode === 'Income-Based') {
+                renderIncomeBasedMode(schedule, detailsContainer, membershipType);
+            } else if (mode === 'Flexible') {
+                renderFlexibleMode(schedule, detailsContainer, membershipType);
             }
+        } else {
+            // ── Multiple schedules: render schedule selector radio cards ──
+            let html = '<div class="space-y-3">';
 
-        } else if (mode === 'Income-Based') {
-            // Income-Based mode: Show calculator
-            const calcType = settings.calculation_type || 'Percentage';
-            const description = settings.description || '';
+            schedules.forEach((schedule, index) => {
+                const settings = schedule.contribution_settings || {};
+                const mode = settings.mode || 'Fixed';
+                const baseAmount = parseFloat(schedule.amount) || 0;
+                const currency = schedule.currency || 'EUR';
+                const billingDisplay = schedule.billing_display || schedule.billing_frequency;
+                const scheduleName = schedule.schedule_name || schedule.name;
+                const badgeClass = getModeBadgeClass(mode);
+                const modeLabel = getModeLabel(mode);
 
-            html = `
-                <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <h6 class="font-semibold text-blue-800 mb-2">{{ _("Contribution based on your income") }}</h6>
-                    ${description ? `<p class="text-sm text-blue-600 mb-4">${description}</p>` : ''}
-                    <p class="text-sm text-gray-600 mb-4">{{ _("Enter your monthly net income below to calculate your suggested contribution.") }}</p>
-                    <input type="hidden" name="payment_plan_selection" value="${schedule.name}"
-                           data-amount="0" data-frequency="${schedule.billing_frequency}"
-                           data-schedule="${schedule.name}" data-mode="Income-Based"
-                           data-calc-type="${calcType}"
-                           data-percentage="${settings.percentage || 0.75}"
-                           data-ref-income="${settings.progressive?.reference_income || 3500}"
-                           data-lower-threshold="${settings.progressive?.lower_threshold || 2200}">
-                </div>
-            `;
-            // Store settings and show calculator
-            window.currentCalculatorSettings = {
-                mode: 'Income-Based',
-                calculation_type: calcType,
-                frequency: schedule.billing_frequency,
-                schedule: schedule.name,
-                amount: baseAmount,
-                settings: settings
-            };
-            duesScheduleHidden.value = schedule.name;
-            billingFrequencyHidden.value = schedule.billing_frequency;
-            // Set initial state for Income-Based mode (amount will be updated when user applies calculated amount)
-            if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
-                window.membershipApp.state.set('selected_membership_type', membershipType);
-                window.membershipApp.state.set('selected_dues_schedule', schedule.name);
-                window.membershipApp.state.set('selected_billing_frequency', schedule.billing_frequency);
-                // Amount is 0 initially - will be set when user calculates and applies
-            }
-            // Show calculator section
-            setTimeout(() => {
-                initializeCalculator('Income-Based', schedule.billing_frequency);
-                document.getElementById('income-calculator').style.display = 'block';
-            }, 100);
-
-        } else if (mode === 'Flexible') {
-            // Flexible mode: Show suggestion radio buttons
-            const suggestions = settings.suggestions || [];
-            const allowCustom = settings.allow_custom !== false;
-            const defaultMult = settings.default_multiplier || 1;
-
-            html = `<div class="space-y-3">`;
-
-            suggestions.forEach((suggestion, index) => {
-                const amount = parseFloat(suggestion.amount) || 0;
-                const formattedAmount = amount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
-                const isDefault = suggestion.is_default || suggestion.multiplier === defaultMult;
-                const isChecked = isDefault ? 'checked' : '';
-                const highlightClass = isDefault ? 'border-primary-500 bg-primary-50' : '';
-
-                let label = suggestion.label || '';
-                if (suggestion.multiplier === 1) {
-                    label = '{{ _("Minimum") }}';
-                } else if (suggestion.multiplier >= 2) {
-                    label = '{{ _("Supporter") }}';
-                } else if (isDefault) {
-                    label = '{{ _("Suggested") }}';
+                // Build the pricing description line based on mode
+                let pricingDescription = '';
+                if (mode === 'Income-Based') {
+                    pricingDescription = billingDisplay;
+                } else if (mode === 'Flexible') {
+                    const minAmount = (settings.suggestions && settings.suggestions.length > 0)
+                        ? parseFloat(settings.suggestions[0].amount) || baseAmount
+                        : baseAmount;
+                    const formattedMin = minAmount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
+                    pricingDescription = `${formattedMin}+ ${billingDisplay}`;
+                } else {
+                    const formattedAmount = baseAmount.toLocaleString('nl-NL', { style: 'currency', currency: currency });
+                    pricingDescription = `${formattedAmount} ${billingDisplay}`;
                 }
 
                 html += `
-                    <label class="payment-plan-option flex items-center justify-between p-4 rounded-lg cursor-pointer ${highlightClass}">
-                        <div class="flex items-center">
-                            <input type="radio" name="payment_plan_selection" value="${schedule.name}_${suggestion.multiplier}"
-                                   class="mr-4 text-primary-600 focus:ring-primary-500"
-                                   data-amount="${amount}" data-frequency="${schedule.billing_frequency}"
-                                   data-schedule="${schedule.name}" data-mode="Flexible"
-                                   data-multiplier="${suggestion.multiplier}" ${isChecked}>
-                            <div>
-                                <span class="font-medium text-gray-900">${formattedAmount}</span>
-                                <span class="text-sm text-gray-500 ml-2">${label}</span>
+                    <label class="schedule-selector-option flex items-start p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-primary-500 hover:bg-gray-50 transition-colors">
+                        <input type="radio" name="schedule_selection" value="${schedule.name}"
+                               class="mt-1 mr-4 text-primary-600 focus:ring-primary-500">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="font-medium text-gray-900">${scheduleName}</span>
+                                <span class="inline-block text-xs font-medium px-2 py-0.5 rounded-full ${badgeClass}">${modeLabel}</span>
                             </div>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-xs text-gray-500">${schedule.billing_display || schedule.billing_frequency}</p>
+                            <p class="text-sm text-gray-500">${pricingDescription}</p>
+                            ${schedule.notes ? `<p class="text-xs text-gray-400 mt-1">${schedule.notes}</p>` : ''}
                         </div>
                     </label>
                 `;
             });
 
-            if (allowCustom) {
-                html += `
-                    <label class="payment-plan-option flex items-center justify-between p-4 rounded-lg cursor-pointer">
-                        <div class="flex items-center">
-                            <input type="radio" name="payment_plan_selection" value="custom"
-                                   class="mr-4 text-primary-600 focus:ring-primary-500"
-                                   data-amount="0" data-frequency="${schedule.billing_frequency}"
-                                   data-schedule="${schedule.name}" data-mode="Flexible" data-custom="true">
-                            <div>
-                                <span class="font-medium text-gray-900">{{ _("Custom amount") }}</span>
-                                <span class="text-sm text-gray-500 ml-2">{{ _("Choose your own") }}</span>
-                            </div>
-                        </div>
-                    </label>
-                `;
-            }
+            html += '</div>';
+            paymentPlansContainer.innerHTML = html;
 
-            html += `</div>`;
-        }
-
-        paymentPlansContainer.innerHTML = html;
-        bindPaymentPlanEvents();
-
-        // Auto-select default option and update hidden fields
-        const firstRadio = paymentPlansContainer.querySelector('input[type="radio"]:checked');
-        if (firstRadio) {
-            updatePaymentSelection(firstRadio);
+            // Bind schedule selection events
+            const scheduleRadios = document.querySelectorAll('input[name="schedule_selection"]');
+            scheduleRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    handleScheduleSelection(this, schedules, membershipType);
+                });
+            });
         }
     }
 
-    // Bind events for payment plan selection
-    function bindPaymentPlanEvents() {
-        const paymentPlanRadios = document.querySelectorAll('input[name="payment_plan_selection"]');
-        paymentPlanRadios.forEach(radio => {
-            radio.addEventListener('change', function() {
-                updatePaymentSelection(this);
-            });
+    // Handle schedule selection in multi-schedule mode
+    function handleScheduleSelection(radio, schedules, membershipType) {
+        const scheduleName = radio.value;
+        const schedule = schedules.find(s => s.name === scheduleName);
+        if (!schedule) return;
+
+        const settings = schedule.contribution_settings || {};
+        const mode = settings.mode || 'Fixed';
+        const detailsContainer = document.getElementById('payment-plan-details');
+
+        // Update visual selection on schedule cards
+        document.querySelectorAll('.schedule-selector-option').forEach(opt => {
+            opt.classList.remove('border-primary-500', 'bg-primary-50');
         });
-    }
-
-    // Update hidden fields and show/hide custom amount and calculator
-    function updatePaymentSelection(radio) {
-        const isCustom = radio.dataset.custom === 'true';
-        const schedule = radio.dataset.schedule || '';
-        const amount = radio.dataset.amount || '0';
-        const frequency = radio.dataset.frequency || 'Annual';
-        const contributionMode = radio.dataset.mode || 'Fixed';
-
-        // Update hidden fields
-        duesScheduleHidden.value = schedule;
-        billingFrequencyHidden.value = frequency;
-        selectedAmountHidden.value = amount;
-
-        // Update visual selection for radio options
-        const optionContainer = radio.closest('.payment-plan-option');
+        const optionContainer = radio.closest('.schedule-selector-option');
         if (optionContainer) {
-            document.querySelectorAll('.payment-plan-option').forEach(opt => {
-                opt.classList.remove('border-primary-500', 'bg-primary-50');
-            });
             optionContainer.classList.add('border-primary-500', 'bg-primary-50');
         }
 
-        // Handle based on mode
-        const incomeCalculator = document.getElementById('income-calculator');
+        // Reset details container
+        detailsContainer.innerHTML = '';
+        detailsContainer.style.display = 'none';
+        document.getElementById('income-calculator').style.display = 'none';
+        customContribution.style.display = 'none';
 
-        if (contributionMode === 'Fixed') {
-            // Fixed mode: Just confirm the amount
-            customContribution.style.display = 'none';
-            if (incomeCalculator) incomeCalculator.style.display = 'none';
-
-        } else if (contributionMode === 'Income-Based') {
-            // Income-Based mode: Show calculator (already shown in renderPaymentPlans)
-            customContribution.style.display = 'none';
-            // Calculator is already shown for Income-Based mode
-
-        } else if (contributionMode === 'Flexible') {
-            // Flexible mode: Show custom field only if custom option selected
-            if (isCustom) {
-                customContribution.style.display = 'block';
-                document.getElementById('custom_contribution_fee').focus();
-                if (incomeCalculator) incomeCalculator.style.display = 'none';
-            } else {
-                customContribution.style.display = 'none';
-                if (incomeCalculator) incomeCalculator.style.display = 'none';
-            }
+        // Render mode-specific sub-UI
+        if (mode === 'Fixed') {
+            renderFixedMode(schedule, detailsContainer, membershipType);
+        } else if (mode === 'Income-Based') {
+            renderIncomeBasedMode(schedule, detailsContainer, membershipType);
+        } else if (mode === 'Flexible') {
+            renderFlexibleMode(schedule, detailsContainer, membershipType);
         }
 
-        // Hide error message
+        // Hide error
         document.getElementById('payment_plan_error').classList.add('hidden');
-
-        // Notify the main app about the selection
-        if (window.membershipApp && typeof window.membershipApp.state !== 'undefined') {
-            window.membershipApp.state.set('selected_membership_type', document.getElementById('membership_type').value);
-            window.membershipApp.state.set('selected_dues_schedule', schedule);
-            window.membershipApp.state.set('selected_billing_frequency', frequency);
-            window.membershipApp.state.set('contribution_amount', isCustom ? document.getElementById('custom_contribution_fee').value : amount);
-        }
-
-        console.log('Payment plan selected:', { schedule, amount, frequency, contributionMode, isCustom });
+        console.log('Schedule selected:', { name: schedule.name, mode });
     }
 }
 

@@ -342,13 +342,9 @@ class MembershipDuesSchedule(Document):
         if self.dues_rate is None and self.membership_type:
             # Get the fee from template values (explicit configuration)
             template_values = self.get_template_values()
-            # For Calculator mode, use suggested_amount as default
-            # For Custom mode, suggested_amount is optional (can be 0)
-            # For Tier mode, dues_rate will be set from tier selection
-            if self.contribution_mode == "Calculator":
+            if self.contribution_mode == "Income-Based":
                 self.dues_rate = template_values.get("suggested_amount", 0)
-            elif self.contribution_mode == "Custom":
-                # For Custom mode, use suggested_amount if available, otherwise 0
+            elif self.contribution_mode == "Flexible":
                 self.dues_rate = template_values.get("suggested_amount", 0)
 
     def set_billing_day(self):
@@ -925,8 +921,12 @@ class MembershipDuesSchedule(Document):
             from verenigingen.utils.settings_utils import get_payments_settings
 
             payments_settings = get_payments_settings()
-            if payments_settings and payments_settings.dues_income_account:
-                item.income_account = payments_settings.dues_income_account
+            # dues_income_account is a field on Verenigingen Payments Settings, not this DocType
+            income_acct = (
+                getattr(payments_settings, "dues_income_account", None) if payments_settings else None
+            )
+            if income_acct:
+                item.income_account = income_acct
 
             # Expense account from Company's default cost of goods sold account
             try:
@@ -1344,14 +1344,14 @@ def _bulk_update_payment_history(member_names, successful_invoices):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def create_schedule_from_template(member_name, template_name=None):
+def create_schedule_from_template(member_name: str, template_name: str = None):
     """API endpoint to create schedule from template"""
     return MembershipDuesSchedule.create_from_template(member_name, template_name)
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def create_template_for_membership_type(membership_type, template_name=None):
+def create_template_for_membership_type(membership_type: str, template_name: str = None):
     """Create a new template for a membership type"""
     if not template_name:
         # Use membership type name for more descriptive template naming
@@ -1377,7 +1377,7 @@ def create_template_for_membership_type(membership_type, template_name=None):
 
     # Set defaults from membership type
     template.billing_frequency = "Annual"  # Default, since this is now owned by dues schedule
-    template.contribution_mode = getattr(membership_type_doc, "contribution_mode", "Calculator")
+    template.contribution_mode = getattr(membership_type_doc, "contribution_mode", "Income-Based")
     template.minimum_amount = 0  # Will be set per schedule
     template.suggested_amount = 15.0  # Default template value - should be configured explicitly
     template.invoice_days_before = 30  # Default
@@ -1395,7 +1395,7 @@ def create_template_for_membership_type(membership_type, template_name=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_member_dues_schedule(member=None):
+def get_member_dues_schedule(member: str = None):
     """Get dues schedule for a member (with permission checks)"""
     user = frappe.session.user
 
@@ -1432,7 +1432,7 @@ def get_member_dues_schedule(member=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def update_member_contribution(schedule_name, updates):
+def update_member_contribution(schedule_name: str, updates: str):
     """Update member's contribution settings with permission checks"""
     if isinstance(updates, str):
         updates = frappe.parse_json(updates)
@@ -1481,7 +1481,7 @@ def test_billing_day_field():
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def create_test_schedule(member_name, membership_name=None):
+def create_test_schedule(member_name: str, membership_name: str = None):
     """
     DELEGATES TO: billing_debug_utilities.create_test_schedule()
 

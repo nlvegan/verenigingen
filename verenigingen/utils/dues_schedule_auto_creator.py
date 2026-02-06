@@ -680,7 +680,7 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
                 dues_rate = minimum_amount
 
             dues_schedule.dues_rate = dues_rate
-            dues_schedule.contribution_mode = "Custom"  # Use Custom mode for auto-created
+            dues_schedule.contribution_mode = "Fixed"  # Auto-created schedules use Fixed mode
             dues_schedule.uses_custom_amount = 1  # Mark as custom amount
             dues_schedule.custom_amount_approved = 1  # Auto-approve for system creation
             dues_schedule.custom_amount_reason = f"Auto-created from membership type {member.membership_type}"
@@ -918,7 +918,7 @@ def get_dues_schedule_retry_queue_status():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def clear_dues_schedule_retry_queue(member_name=None):
+def clear_dues_schedule_retry_queue(member_name: str = None):
     """
     DEPRECATED: Clear retry queue items (all or specific member) - admin only
 
@@ -956,7 +956,7 @@ def manually_process_retry_queue():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_dues_schedules_for_members(members, send_emails=False):
+def create_dues_schedules_for_members(members: str, send_emails: bool = False):
     """Create dues schedules for specific members"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):
         frappe.throw("You don't have permission to create dues schedules")
@@ -1026,7 +1026,7 @@ def create_dues_schedules_for_members(members, send_emails=False):
                     "billing_frequency": "Monthly",
                     "status": "Active",
                     "next_invoice_date": _calculate_next_invoice_date("Monthly"),
-                    "contribution_mode": "Custom",  # Use Custom mode for auto-created
+                    "contribution_mode": "Fixed",  # Auto-created schedules use Fixed mode
                     "uses_custom_amount": 1,  # Mark as custom amount
                     "custom_amount_approved": 1,  # Auto-approve for system creation
                     "custom_amount_reason": f"Auto-created from membership type {membership.membership_type}",

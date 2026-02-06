@@ -240,14 +240,7 @@ class DuesScheduleHealthManager:
 
             # Set dues rate
             dues_schedule.dues_rate = dues_data["dues_rate"]
-            dues_schedule.contribution_mode = "Custom"
-            dues_schedule.uses_custom_amount = 1
-            dues_schedule.custom_amount_approved = 1
-            dues_schedule.custom_amount_reason = (
-                f"Reconstructed from {dues_data['source']} - health check recovery"
-            )
-            dues_schedule.custom_amount_approved_by = frappe.session.user
-            dues_schedule.custom_amount_approved_date = today()
+            dues_schedule.contribution_mode = "Fixed"
             dues_schedule.auto_generate = 1
 
             # Set next invoice date
@@ -476,7 +469,11 @@ class DuesScheduleHealthManager:
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def comprehensive_dues_schedule_health_check(
-    member_filter=None, fix_issues=False, batch_size=100, continue_on_error=True, max_members=50
+    member_filter: str = None,
+    fix_issues: bool = False,
+    batch_size: int = 100,
+    continue_on_error: bool = True,
+    max_members: int = 50,
 ):
     """
     ✅ ENHANCED: Comprehensive health check with batch processing and transaction safety
