@@ -295,7 +295,7 @@ frappe.listview_settings['Member'] = {
 		listview.page.add_menu_item(__('Refresh Status'), () => {
 			frappe.call({
 				method:
-          'verenigingen.api.membership_application_review.sync_member_statuses',
+          'verenigingen.api.admin_membership_operations.sync_member_statuses',
 				callback(r) {
 					if (r.message) {
 						frappe.show_alert(
@@ -325,7 +325,7 @@ frappe.listview_settings['Member'] = {
 
 						frappe.call({
 							method:
-                'verenigingen.api.membership_application_review.fix_backend_member_statuses',
+                'verenigingen.api.admin_membership_operations.fix_backend_member_statuses',
 							callback(r) {
 								if (r.message && r.message.success) {
 									frappe.show_alert(

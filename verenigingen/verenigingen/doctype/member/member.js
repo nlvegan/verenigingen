@@ -2988,7 +2988,7 @@ function create_default_email_templates() {
 	// Create default email templates for membership application management
 	return frappe.call({
 		method:
-      'verenigingen.api.membership_application_review.create_default_email_templates',
+      'verenigingen.api.membership_email_templates.create_default_email_templates',
 		freeze: true,
 		freeze_message: __('Creating default email templates...')
 	});

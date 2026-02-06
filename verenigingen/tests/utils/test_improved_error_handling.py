@@ -101,7 +101,7 @@ class TestImprovedErrorHandling(EnhancedTestCase):
         """Test DD batch scheduler API without admin permissions"""
         print("\n7. Testing DD Batch Scheduler API - Without admin permissions")
         
-        from verenigingen.api.dd_batch_scheduler import run_batch_creation_now
+        from verenigingen.verenigingen_payments.api.dd_batch_scheduler import run_batch_creation_now
         
         # Temporarily change user to non-admin
         original_user = frappe.session.user
@@ -122,7 +122,7 @@ class TestImprovedErrorHandling(EnhancedTestCase):
         """Test application statistics API without admin permissions"""
         print("\n8. Testing Application Statistics API - Without admin permissions")
         
-        from verenigingen.api.membership_application_review import get_application_stats
+        from verenigingen.api.admin_membership_operations import get_application_stats
         
         # Temporarily change user to non-admin
         original_user = frappe.session.user

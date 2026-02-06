@@ -545,7 +545,7 @@ class MembershipApplicationReview {
 		try {
 			const response = await frappe.call({
 				method:
-          'verenigingen.api.membership_application_review.get_application_stats'
+          'verenigingen.api.admin_membership_operations.get_application_stats'
 			});
 
 			if (response.message) {
@@ -931,7 +931,7 @@ class MembershipApplicationReview {
 		frappe
 			.call({
 				method:
-          'verenigingen.api.membership_application_review.get_application_stats'
+          'verenigingen.api.admin_membership_operations.get_application_stats'
 			})
 			.then((response) => {
 				if (response.message) {
@@ -1053,7 +1053,7 @@ class MembershipApplicationReview {
 		try {
 			const response = await frappe.call({
 				method:
-          'verenigingen.api.membership_application_review.create_default_email_templates'
+          'verenigingen.api.membership_email_templates.create_default_email_templates'
 			});
 
 			if (response.message?.success) {

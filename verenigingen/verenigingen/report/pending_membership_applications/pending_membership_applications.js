@@ -201,7 +201,7 @@ frappe.query_reports['Pending Membership Applications'] = {
 		report.page.add_inner_button(__('Email Overdue List'), () => {
 			frappe.call({
 				method:
-          'verenigingen.api.membership_application_review.send_overdue_notifications',
+          'verenigingen.api.overdue_application_notifications.send_overdue_notifications',
 				callback(r) {
 					if (r.message) {
 						frappe.msgprint(

@@ -19,7 +19,7 @@ def check_and_create_email_templates():
 
     # Import the create function and run it
     try:
-        from verenigingen.api.membership_application_review import create_default_email_templates
+        from verenigingen.api.membership_email_templates import create_default_email_templates
 
         result = create_default_email_templates()
         print(f"\nTemplate creation result: {result}")

@@ -204,7 +204,7 @@ def test_improved_apis():
     # Test 8: Application Statistics API - Permission test
     print("\n8. Testing Application Statistics API - Without admin permissions")
     try:
-        from verenigingen.api.membership_application_review import get_application_stats
+        from verenigingen.api.admin_membership_operations import get_application_stats
 
         # Temporarily change user to non-admin
         original_user = frappe.session.user

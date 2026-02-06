@@ -869,7 +869,7 @@ def setup_membership_application_system():
         # Create enhanced rejection email templates
         try:
             print("   📧 Creating enhanced rejection email templates...")
-            from verenigingen.api.membership_application_review import create_default_email_templates
+            from verenigingen.api.membership_email_templates import create_default_email_templates
 
             create_default_email_templates()
         except Exception as e:
@@ -1830,7 +1830,7 @@ def create_email_templates_manual():
         # Create enhanced templates
         enhanced_count = 0
         try:
-            from verenigingen.api.membership_application_review import create_default_email_templates
+            from verenigingen.api.membership_email_templates import create_default_email_templates
 
             enhanced_count = create_default_email_templates()
         except Exception as e:

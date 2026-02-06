@@ -29,7 +29,7 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
         "verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders",
         "verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records",
-        "verenigingen.api.membership_application_review.send_overdue_notifications",
+        "verenigingen.api.overdue_application_notifications.send_overdue_notifications",
         # Dues schedule system
         "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
         "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.generate_dues_invoices",
