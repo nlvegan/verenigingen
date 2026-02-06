@@ -165,13 +165,14 @@ class AccountCreationRequest(Document):
     def send_member_approval_email(self, member):
         """Send approval email with login credentials when account is ready"""
         try:
-            from verenigingen.utils.application_notifications import send_approval_email
+            from verenigingen.api.membership_application_review import send_approval_notification
 
             # Get the application invoice
             invoice = self.get_application_invoice(member)
 
             if invoice:
-                send_approval_email(member, invoice)
+                membership_type = getattr(member, "selected_membership_type", None) or ""
+                send_approval_notification(member, invoice, membership_type)
                 frappe.logger().info(f"Sent approval email for member {member.name} after account creation")
             else:
                 frappe.logger().warning(
