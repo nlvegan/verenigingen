@@ -330,11 +330,13 @@ Create `MembershipFeeService.get_fee_details(membership_type)` that returns all 
 
 ---
 
-### 2.4 Validation Endpoint Boilerplate (~650 LOC)
+### 2.4 Validation Endpoint Boilerplate (~650 LOC) — RESOLVED
+
+**Status:** Resolved 2026-02-05. Three helper functions (`_wrap_validation`, `_wrap_data_fetch`, `_wrap_success_check`) extract repeated try/except/OperationResult boilerplate from 14 endpoints. `check_application_eligibility_endpoint` kept as-is due to unique error shape.
 
 **Confidence:** 90/100
 **Category:** DRY violation
-**Estimated waste:** ~650 LOC
+**Estimated waste:** ~650 LOC (reduced by ~125 LOC with centralized wrappers)
 
 `api/membership_application.py` lines 193-850 contains 20+ validation endpoints. Every one follows this identical pattern:
 
