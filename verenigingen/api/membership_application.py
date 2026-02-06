@@ -96,7 +96,81 @@ def check_rate_limit(endpoint, limit_per_hour=60):
         return True
 
 
-# Removed - using centralized error handling from utils.error_handling
+def _wrap_validation(fn, field_name="field", operation=""):
+    """Generic wrapper for validation endpoints returning {"valid": True/False}.
+
+    Eliminates repeated try/except/OperationResult boilerplate across validation
+    endpoints. The fn callable should return a dict with at least a "valid" key.
+    """
+    try:
+        result = fn()
+        if result.get("valid"):
+            return OperationResult.ok(result, message=_(f"{field_name} is valid"))
+        return OperationResult.fail(
+            _(result.get("message", f"{field_name} validation failed")),
+            errors=[result.get("type", "validation_error")],
+            context=result,
+        )
+    except Exception as e:
+        frappe.log_error(
+            f"{field_name} validation error: {str(e)}\n{traceback.format_exc()}",
+            f"{field_name} Validation Error",
+        )
+        return OperationResult.fail(
+            _(f"{field_name} validation failed"),
+            errors=[str(e)],
+            context={"operation": operation or f"validate_{field_name.lower()}"},
+        )
+
+
+def _wrap_data_fetch(
+    fn, success_message="Data retrieved", error_message="Error retrieving data", operation=""
+):
+    """Generic wrapper for data-fetch endpoints that always return ok unless exception.
+
+    Eliminates repeated try/except/OperationResult boilerplate across
+    endpoints that call a utility function and wrap its result in OperationResult.ok().
+    """
+    try:
+        result = fn()
+        return OperationResult.ok(result, message=_(success_message))
+    except Exception as e:
+        frappe.log_error(
+            f"{operation} error: {str(e)}\n{traceback.format_exc()}",
+            f"{operation} Error",
+        )
+        return OperationResult.fail(
+            _(error_message),
+            errors=[str(e)],
+            context={"operation": operation},
+        )
+
+
+def _wrap_success_check(fn, success_message="", fail_message="", fail_error="failed", operation=""):
+    """Generic wrapper for endpoints returning {"success": True/False}.
+
+    Eliminates repeated try/except/OperationResult boilerplate across
+    endpoints that delegate to utility functions returning success dicts.
+    """
+    try:
+        result = fn()
+        if result.get("success"):
+            return OperationResult.ok(result, message=_(success_message))
+        return OperationResult.fail(
+            _(result.get("message", fail_message)),
+            errors=[result.get("error", fail_error)],
+            context=result,
+        )
+    except Exception as e:
+        frappe.log_error(
+            f"{operation} error: {str(e)}\n{traceback.format_exc()}",
+            f"{operation} Error",
+        )
+        return OperationResult.fail(
+            _(f"Error: {fail_message.lower()}" if fail_message else "Operation failed"),
+            errors=[str(e)],
+            context={"operation": operation},
+        )
 
 
 # API Endpoints
