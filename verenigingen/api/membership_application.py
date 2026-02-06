@@ -371,25 +371,11 @@ def validate_postal_code_endpoint(postal_code, country="Netherlands") -> Operati
 @public_api(operation_type=OperationType.PUBLIC)
 def validate_phone_number(phone, country="Netherlands") -> OperationResult[Dict[str, Any]]:
     """Validate phone number format"""
-    try:
-        result = validate_phone_number_util(phone, country)
-        if result.get("valid"):
-            return OperationResult.ok(result, message=_("Phone number is valid"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Phone number validation failed")),
-                errors=[result.get("type", "validation_error")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Phone validation error: {str(e)}\n{traceback.format_exc()}", "Phone Validation Error"
-        )
-        return OperationResult.fail(
-            _("Phone number validation failed"),
-            errors=[str(e)],
-            context={"operation": "validate_phone_number"},
-        )
+    return _wrap_validation(
+        lambda: validate_phone_number_util(phone, country),
+        field_name="Phone number",
+        operation="validate_phone_number",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -403,25 +389,11 @@ def validate_phone_number_endpoint(phone, country="Netherlands") -> OperationRes
 @public_api(operation_type=OperationType.PUBLIC)
 def validate_birth_date(birth_date) -> OperationResult[Dict[str, Any]]:
     """Validate birth date"""
-    try:
-        result = validate_birth_date_util(birth_date)
-        if result.get("valid"):
-            return OperationResult.ok(result, message=_("Birth date is valid"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Birth date validation failed")),
-                errors=[result.get("type", "validation_error")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Birth date validation error: {str(e)}\n{traceback.format_exc()}", "Birth Date Validation Error"
-        )
-        return OperationResult.fail(
-            _("Birth date validation failed"),
-            errors=[str(e)],
-            context={"operation": "validate_birth_date"},
-        )
+    return _wrap_validation(
+        lambda: validate_birth_date_util(birth_date),
+        field_name="Birth date",
+        operation="validate_birth_date",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -435,25 +407,11 @@ def validate_birth_date_endpoint(birth_date) -> OperationResult[Dict[str, Any]]:
 @public_api(operation_type=OperationType.PUBLIC)
 def validate_name(name, field_name="Name") -> OperationResult[Dict[str, Any]]:
     """Validate name fields"""
-    try:
-        result = validate_name_util(name, field_name)
-        if result.get("valid"):
-            return OperationResult.ok(result, message=_("Name is valid"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Name validation failed")),
-                errors=[result.get("type", "validation_error")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Name validation error: {str(e)}\n{traceback.format_exc()}", "Name Validation Error"
-        )
-        return OperationResult.fail(
-            _("Name validation failed"),
-            errors=[str(e)],
-            context={"operation": "validate_name"},
-        )
+    return _wrap_validation(
+        lambda: validate_name_util(name, field_name),
+        field_name=field_name,
+        operation="validate_name",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -1001,52 +959,22 @@ def validate_membership_amount_selection_endpoint(
     membership_type, amount, uses_custom
 ) -> OperationResult[Dict[str, Any]]:
     """Validate membership amount selection"""
-    try:
-        result = validate_membership_amount_selection(membership_type, amount, uses_custom)
-        if result.get("valid"):
-            return OperationResult.ok(result, message=_("Membership amount selection is valid"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Membership amount selection is invalid")),
-                errors=[result.get("type", "validation_error")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Error validating membership amount selection: {str(e)}\n{traceback.format_exc()}",
-            "Amount Selection Validation Error",
-        )
-        return OperationResult.fail(
-            _("Error validating membership amount selection"),
-            errors=[str(e)],
-            context={"operation": "validate_membership_amount_selection"},
-        )
+    return _wrap_validation(
+        lambda: validate_membership_amount_selection(membership_type, amount, uses_custom),
+        field_name="Membership amount selection",
+        operation="validate_membership_amount_selection",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 def validate_custom_amount_endpoint(membership_type, amount) -> OperationResult[Dict[str, Any]]:
     """Validate custom membership amount"""
-    try:
-        result = validate_custom_amount_util(membership_type, amount)
-        if result.get("valid"):
-            return OperationResult.ok(result, message=_("Custom amount is valid"))
-        else:
-            return OperationResult.fail(
-                _(result.get("message", "Custom amount is invalid")),
-                errors=[result.get("type", "validation_error")],
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Error validating custom amount: {str(e)}\n{traceback.format_exc()}",
-            "Custom Amount Validation Error",
-        )
-        return OperationResult.fail(
-            _("Error validating custom amount"),
-            errors=[str(e)],
-            context={"operation": "validate_custom_amount"},
-        )
+    return _wrap_validation(
+        lambda: validate_custom_amount_util(membership_type, amount),
+        field_name="Custom amount",
+        operation="validate_custom_amount",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
@@ -1808,27 +1736,11 @@ def get_application_form_data_legacy() -> OperationResult[Dict[str, Any]]:
 @public_api(operation_type=OperationType.PUBLIC)
 def validate_address_endpoint(data) -> OperationResult[Dict[str, Any]]:
     """Validate address data"""
-    try:
-        parsed_data = parse_application_data(data)
-        result = validate_address_util(parsed_data)
-        if result.get("valid"):
-            return OperationResult.ok(result, message=_("Address is valid"))
-        else:
-            return OperationResult.fail(
-                _("Address validation failed"),
-                errors=result.get("errors", ["validation_failed"]),
-                context=result,
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Address validation error: {str(e)}\n{traceback.format_exc()}",
-            "Address Validation Error",
-        )
-        return OperationResult.fail(
-            _("Address validation failed"),
-            errors=[str(e)],
-            context={"operation": "validate_address"},
-        )
+    return _wrap_validation(
+        lambda: validate_address_util(parse_application_data(data)),
+        field_name="Address",
+        operation="validate_address",
+    )
 
 
 @frappe.whitelist(allow_guest=True)
