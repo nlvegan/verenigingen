@@ -409,13 +409,6 @@ def get_context(context):
             "color": "brand-primary",
         },
         {
-            "title": "Fraud Detection Stats",
-            "description": "View fraud detection statistics",
-            "method": "verenigingen.utils.fraud_detection.get_fraud_statistics",
-            "icon": "fa fa-shield",
-            "color": "brand-secondary",
-        },
-        {
             "title": "Test Cleanup (Small Batch)",
             "description": "Test cleanup process on a small batch of documents to verify functionality",
             "method": "verenigingen.e_boekhouden.utils.cleanup_utils.test_cleanup_small_batch",
@@ -644,7 +637,6 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.database_query_analyzer.get_index_recommendations",
     "verenigingen.utils.api_doc_generator.generate_api_documentation",
     "verenigingen.utils.api_doc_generator.get_api_endpoints_summary",
-    "verenigingen.utils.fraud_detection.get_fraud_statistics",
     # E-Boekhouden cleanup
     "verenigingen.e_boekhouden.utils.cleanup_utils.test_cleanup_small_batch",
     "verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_orphaned_gl_entries",
