@@ -12,6 +12,7 @@ Services:
 - DuesScheduleValidationService: Validation logic for schedules
 - FeeChangeTrackingService: Fee change history tracking
 - InvoiceErrorHandlerService: Error handling for invoice generation
+- InvoiceGenerationOrchestrator: Single-schedule invoice generation pipeline
 - InvoiceGenerator: Individual invoice generation
 - ProgressiveDuesService: Income-based progressive dues calculation
 - TemplateConfigurationService: Template value loading and validation
@@ -64,6 +65,9 @@ from verenigingen.services.billing.invoice_error_handler_service import (
     InvoiceErrorHandlerService,
     get_invoice_error_handler_service,
 )
+from verenigingen.services.billing.invoice_generation_orchestrator import (
+    InvoiceGenerationOrchestrator,
+)
 from verenigingen.services.billing.progressive_dues_service import (
     ProgressiveDuesResult,
     ProgressiveDuesService,
@@ -113,6 +117,8 @@ __all__ = [
     # Invoice error handling
     "InvoiceErrorHandlerService",
     "get_invoice_error_handler_service",
+    # Invoice generation orchestrator
+    "InvoiceGenerationOrchestrator",
     # Progressive dues
     "ProgressiveDuesResult",
     "ProgressiveDuesService",

@@ -169,39 +169,36 @@ class TestDeadlockHandling(unittest.TestCase):
 
 
 class TestErrorConstants(unittest.TestCase):
-    """Test that error length constants are properly defined and used"""
+    """Test that error length constants are properly defined in billing_constants"""
 
     def test_constants_exist(self):
         """Test that error length constants are defined"""
-        from verenigingen.verenigingen.doctype.membership_dues_schedule import (
-            membership_dues_schedule as mds_module,
-        )
+        from verenigingen.utils import billing_constants as bc
 
-        self.assertTrue(hasattr(mds_module, "MAX_USER_ERROR_LENGTH"))
-        self.assertTrue(hasattr(mds_module, "MAX_DB_ERROR_LENGTH"))
-        self.assertTrue(hasattr(mds_module, "MAX_LOG_ERROR_LENGTH"))
+        self.assertTrue(hasattr(bc, "MAX_USER_ERROR_LENGTH"))
+        self.assertTrue(hasattr(bc, "MAX_DB_ERROR_LENGTH"))
+        self.assertTrue(hasattr(bc, "MAX_LOG_ERROR_LENGTH"))
 
     def test_constant_values(self):
         """Test that constants have sensible values"""
-        from verenigingen.verenigingen.doctype.membership_dues_schedule import (
-            membership_dues_schedule as mds_module,
+        from verenigingen.utils.billing_constants import (
+            MAX_DB_ERROR_LENGTH,
+            MAX_LOG_ERROR_LENGTH,
+            MAX_USER_ERROR_LENGTH,
         )
 
-        self.assertEqual(mds_module.MAX_USER_ERROR_LENGTH, 200)
-        self.assertEqual(mds_module.MAX_DB_ERROR_LENGTH, 255)
-        self.assertEqual(mds_module.MAX_LOG_ERROR_LENGTH, 100)
+        self.assertEqual(MAX_USER_ERROR_LENGTH, 200)
+        self.assertEqual(MAX_DB_ERROR_LENGTH, 255)
+        self.assertEqual(MAX_LOG_ERROR_LENGTH, 100)
 
     def test_deadlock_patterns_defined(self):
         """Test that deadlock patterns are properly defined"""
-        from verenigingen.verenigingen.doctype.membership_dues_schedule import (
-            membership_dues_schedule as mds_module,
-        )
+        from verenigingen.utils.billing_constants import DEADLOCK_PATTERNS
 
-        self.assertTrue(hasattr(mds_module, "DEADLOCK_PATTERNS"))
-        self.assertIsInstance(mds_module.DEADLOCK_PATTERNS, list)
-        self.assertGreaterEqual(len(mds_module.DEADLOCK_PATTERNS), 4)
+        self.assertIsInstance(DEADLOCK_PATTERNS, list)
+        self.assertGreaterEqual(len(DEADLOCK_PATTERNS), 4)
         # Verify specific patterns
-        self.assertIn("deadlock", mds_module.DEADLOCK_PATTERNS)
-        self.assertIn("1213", mds_module.DEADLOCK_PATTERNS)
-        self.assertIn("1205", mds_module.DEADLOCK_PATTERNS)
-        self.assertIn("3058", mds_module.DEADLOCK_PATTERNS)
+        self.assertIn("deadlock", DEADLOCK_PATTERNS)
+        self.assertIn("1213", DEADLOCK_PATTERNS)
+        self.assertIn("1205", DEADLOCK_PATTERNS)
+        self.assertIn("3058", DEADLOCK_PATTERNS)

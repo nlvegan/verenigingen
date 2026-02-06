@@ -1,23 +1,12 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
-import re
-import sys
-from datetime import datetime, timedelta
-
 import frappe
 from frappe.model.document import Document
-from frappe.utils import add_days, add_months, add_years, flt, getdate, today
+from frappe.utils import getdate, today
 
 from verenigingen.services.billing import DuplicateInvoiceDetector
-from verenigingen.utils.billing_constants import (
-    DEADLOCK_PATTERNS,
-    MAX_DB_ERROR_LENGTH,
-    MAX_LOG_ERROR_LENGTH,
-    MAX_USER_ERROR_LENGTH,
-)
 from verenigingen.utils.billing_period_calculator import calculate_billing_period, calculate_next_invoice_date
-from verenigingen.utils.member_utils import get_active_membership_for_member, get_member_chapters
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -25,7 +14,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
-from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 class MembershipDuesSchedule(Document):
@@ -606,178 +595,27 @@ class MembershipDuesSchedule(Document):
         return get_invoice_error_handler_service()._is_deadlock_error(error_msg)
 
     def generate_invoice(self, force=False):
-        """Generate invoice for the current period with enhanced coverage tracking and concurrency protection"""
-        from frappe.utils.redis_wrapper import RedisWrapper
+        """
+        Generate invoice for the current period.
 
-        can_generate, reason = self.can_generate_invoice()
+        Delegates to InvoiceGenerationOrchestrator for the full pipeline:
+        eligibility check -> Redis lock -> coverage calc -> invoice generation -> tracking.
 
-        if not can_generate and not force:
-            # Use appropriate logging level based on reason - don't create error logs for expected business logic
-            if "not eligible for billing" in reason.lower() or "coverage overlap" in reason.lower():
-                # These are expected business logic outcomes, not errors
-                frappe.logger().info(f"Invoice generation skipped for {self.name}: {reason}")
-            else:
-                # Actual errors that need investigation
-                frappe.log_error(
-                    f"Cannot generate invoice: {reason}", f"Membership Dues Schedule {self.name}"
-                )
+        Preserves existing contract: returns invoice doc or None, raises ValidationError on failure.
+        """
+        from verenigingen.services.billing.invoice_generation_orchestrator import (
+            InvoiceGenerationOrchestrator,
+        )
+
+        orchestrator = InvoiceGenerationOrchestrator(self)
+        result = orchestrator.generate(force=force)
+
+        if not result.success:
+            if result.error_message:
+                raise frappe.ValidationError(result.error_message)
             return None
 
-        if self.test_mode:
-            # In test mode, just log and update dates - but only if we can actually generate
-            frappe.logger().info(
-                f"TEST MODE: Would generate invoice for {self.member} - Dues Rate: {self.dues_rate}"
-            )
-            self.update_schedule_dates()  # Test mode uses fallback behavior
-            return "TEST_INVOICE"
-
-        # ✅ CONCURRENCY PROTECTION: Acquire lock for this specific schedule
-        lock_acquired = False
-        redis = None
-        schedule_lock_key = f"verenigingen_invoice_generation_{self.name}"
-
-        # Get configurable timeout
-        lock_timeout = (
-            frappe.db.get_single_value("Verenigingen Settings", "invoice_generation_timeout") or 300
-        )
-
-        try:
-            # Attempt Redis connection with graceful fallback
-            try:
-                redis = RedisWrapper.from_url(frappe.conf.redis_cache)
-                # Test Redis connectivity
-                redis.ping()
-            except Exception as redis_error:
-                frappe.log_error(
-                    f"Redis unavailable for invoice generation concurrency protection: {str(redis_error)}",
-                    "Redis Connectivity Warning",
-                )
-                # Continue without concurrency protection but log the risk
-                frappe.logger().warning(
-                    f"Invoice generation for {self.name} proceeding without concurrency protection due to Redis unavailability"
-                )
-
-            if redis:
-                try:
-                    # Attempt to acquire lock
-                    lock_acquired = redis.set(schedule_lock_key, "generating", nx=True, ex=lock_timeout)
-
-                    if not lock_acquired:
-                        frappe.log_error(
-                            f"Schedule {self.name} invoice generation blocked by concurrent process",
-                            "Invoice Generation Concurrency",
-                        )
-                        return None
-                except Exception as lock_error:
-                    frappe.log_error(
-                        f"Failed to acquire Redis lock for {self.name}: {str(lock_error)}. Proceeding without lock.",
-                        "Redis Lock Warning",
-                    )
-                    # Continue without lock rather than failing completely
-
-            # ✅ FIX: Let Frappe handle transactions automatically - avoid micromanaging
-            # Set flag to skip strict validation during invoice generation
-            frappe.flags.in_invoice_generation = True
-
-            # ✅ ENHANCED: Calculate coverage period using sequential logic
-            coverage_start, coverage_end = self.calculate_next_coverage_period()
-
-            # ✅ SERVICE EXTRACTION: Use InvoiceGenerator service for invoice creation
-            from verenigingen.services.billing.invoice_generator import InvoiceGenerator
-
-            # Get member document for service
-            member_doc = frappe.get_doc("Member", self.member)
-
-            # Generate invoice via service
-            generator = InvoiceGenerator(self)
-            result = generator.generate_invoice(coverage_start, coverage_end, member_doc)
-
-            # Check service result
-            if not result.success:
-                frappe.throw(f"Invoice generation failed: {result.error_message}")
-
-            invoice = result.data
-            invoice_name = invoice.name
-
-            # ✅ SAFETY CHECK: Ensure we're not trying to edit a cancelled invoice
-            if invoice.docstatus == 2:  # 2 = Cancelled
-                frappe.throw(
-                    f"Cannot edit cancelled invoice {invoice_name}. This may indicate a naming collision or data issue."
-                )
-
-            # ✅ VALIDATION: Ensure coverage dates were set during invoice creation
-            if not invoice.custom_coverage_start_date or not invoice.custom_coverage_end_date:
-                frappe.throw(f"Coverage dates were not set during invoice creation for {invoice.name}")
-
-            # No need to save again - invoice was already created and submitted by create_sales_invoice()
-
-            # ✅ ENHANCED: Create direct link and track coverage (use normal fields instead of db_set)
-            self.last_generated_invoice = invoice.name
-            self.last_invoice_coverage_start = coverage_start
-            self.last_invoice_coverage_end = coverage_end
-
-            # ✅ CRITICAL FIX: Update schedule with actual invoice posting date
-            # This also saves the coverage tracking fields above
-            self.update_schedule_dates(actual_invoice_date=invoice.posting_date)
-
-            # ✅ DEFENSIVE: Verify coverage tracking was actually saved
-            saved_coverage_end = frappe.db.get_value(
-                "Membership Dues Schedule", self.name, "last_invoice_coverage_end"
-            )
-            if saved_coverage_end != coverage_end:
-                frappe.log_error(
-                    f"Coverage tracking save verification failed for {self.name}. "
-                    f"Expected end: {coverage_end}, Got: {saved_coverage_end}",
-                    "Coverage Tracking Save Failure",
-                )
-
-        except Exception as e:
-            # Extract and clean root cause error message
-            error_msg = self._deduplicate_error_message(str(e))
-
-            # Log full error details with safe error handling
-            full_error_details = (
-                f"Schedule: {self.name}\n" f"Error: {error_msg}\n\n" f"Traceback:\n{frappe.get_traceback()}"
-            )
-
-            try:
-                frappe.log_error(title=f"Invoice Gen Fail - {self.name[:50]}", message=full_error_details)
-            except Exception as log_error:
-                # If logging fails, use logger as fallback
-                try:
-                    frappe.logger().error(
-                        f"Failed to log invoice generation error for {self.name}: {str(log_error)}\n"
-                        f"Original error: {error_msg}"
-                    )
-                except Exception:
-                    # Absolute last resort - print to stderr
-                    print(
-                        f"CRITICAL: All logging failed for {self.name} - Error: {error_msg}", file=sys.stderr
-                    )
-
-            # Create user-friendly shortened message for display
-            user_error_msg = f"Invoice gen failed for {self.name}: {error_msg[:MAX_USER_ERROR_LENGTH]}"
-
-            # Re-raise exception to maintain existing error handling behavior
-            raise frappe.ValidationError(user_error_msg)
-        finally:
-            # Always clear the flag
-            frappe.flags.in_invoice_generation = False
-
-            # Release schedule-specific lock if we acquired it
-            if lock_acquired and redis:
-                try:
-                    redis.delete(schedule_lock_key)
-                except Exception as e:
-                    frappe.log_error(
-                        f"Error releasing schedule lock for {self.name}: {str(e)}", "Schedule Lock Cleanup"
-                    )
-
-        frappe.logger().info(
-            f"Generated invoice {invoice.name} for {self.member} covering period {coverage_start} to {coverage_end}"
-        )
-
-        return invoice
+        return result.data
 
     def _handle_invoice_generation_failure(self, error_message):
         """
