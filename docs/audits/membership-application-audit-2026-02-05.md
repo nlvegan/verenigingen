@@ -641,21 +641,11 @@ user.save()
 
 ---
 
-### 3.8 Duplicate Member Existence Validation
+### 3.8 ~~Duplicate Member Existence Validation~~ RESOLVED
 
 **Confidence:** 75/100
 **Category:** DRY violation
-
-In `services/member/chapter/chapter_management_service.py`, this identical check appears 4 times:
-
-```python
-if not frappe.db.exists("Member", member_name):
-    frappe.throw(_("Member {0} does not exist").format(member_name))
-```
-
-**Locations:** lines 117, 179, 278, 367.
-
-The same file also has 4 identical null/empty checks for `member_name` at lines 112, 175, 274, 426.
+**Status:** RESOLVED (2026-02-06) — Extracted `_validate_member_exists()` private helper method in `ChapterManagementService`. 4 inline checks replaced with single-line calls. Null/empty checks left inline (different return values per method). Commit: `refactor: extract _validate_member_exists to DRY 4 identical checks`.
 
 ---
 
