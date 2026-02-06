@@ -481,38 +481,38 @@ def create_address_from_application(data):
         return address
 
 
+def _sanitize_application_names(data):
+    """
+    Validate and sanitize name fields from application data.
+
+    Returns tuple: (first_name, middle_name, tussenvoegsel, last_name)
+    """
+    from verenigingen.utils.validation.application_validators import validate_name
+
+    names = {}
+    for field, label in [
+        ("first_name", "First Name"),
+        ("middle_name", "Middle Name"),
+        ("tussenvoegsel", "Tussenvoegsel"),
+        ("last_name", "Last Name"),
+    ]:
+        value = data.get(field, "")
+        if value:
+            validation_result = validate_name(value, label)
+            if validation_result.get("valid") and validation_result.get("sanitized"):
+                value = validation_result["sanitized"]
+        names[field] = value
+
+    return names["first_name"], names["middle_name"], names["tussenvoegsel"], names["last_name"]
+
+
 def create_member_from_application(data, application_id, address=None):
     """Create member record from application data"""
     # Import here to avoid circular imports
     from verenigingen.utils.secure_operations import get_system_user_for_operation
-    from verenigingen.utils.validation.application_validators import validate_name
 
     # Sanitize names before creating member record
-    first_name = data.get("first_name", "")
-    middle_name = data.get("middle_name", "")
-    tussenvoegsel = data.get("tussenvoegsel", "")
-    last_name = data.get("last_name", "")
-
-    # Validate and sanitize names
-    if first_name:
-        validation_result = validate_name(first_name, "First Name")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            first_name = validation_result["sanitized"]
-
-    if middle_name:
-        validation_result = validate_name(middle_name, "Middle Name")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            middle_name = validation_result["sanitized"]
-
-    if tussenvoegsel:
-        validation_result = validate_name(tussenvoegsel, "Tussenvoegsel")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            tussenvoegsel = validation_result["sanitized"]
-
-    if last_name:
-        validation_result = validate_name(last_name, "Last Name")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            last_name = validation_result["sanitized"]
+    first_name, middle_name, tussenvoegsel, last_name = _sanitize_application_names(data)
 
     member = frappe.get_doc(
         {
@@ -692,37 +692,12 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     - Voluntary terminations rejoining
     """
     from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
-    from verenigingen.utils.validation.application_validators import validate_name
 
     # Get existing member
     member = frappe.get_doc("Member", member_name)
 
     # Sanitize names before updating
-    first_name = data.get("first_name", "")
-    middle_name = data.get("middle_name", "")
-    tussenvoegsel = data.get("tussenvoegsel", "")
-    last_name = data.get("last_name", "")
-
-    # Validate and sanitize names
-    if first_name:
-        validation_result = validate_name(first_name, "First Name")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            first_name = validation_result["sanitized"]
-
-    if middle_name:
-        validation_result = validate_name(middle_name, "Middle Name")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            middle_name = validation_result["sanitized"]
-
-    if tussenvoegsel:
-        validation_result = validate_name(tussenvoegsel, "Tussenvoegsel")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            tussenvoegsel = validation_result["sanitized"]
-
-    if last_name:
-        validation_result = validate_name(last_name, "Last Name")
-        if validation_result.get("valid") and validation_result.get("sanitized"):
-            last_name = validation_result["sanitized"]
+    first_name, middle_name, tussenvoegsel, last_name = _sanitize_application_names(data)
 
     # Update member fields with new application data
     member.first_name = first_name
