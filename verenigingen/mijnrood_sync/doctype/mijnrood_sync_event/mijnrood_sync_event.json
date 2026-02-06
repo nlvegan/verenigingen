@@ -1,0 +1,205 @@
+{
+  "actions": [],
+  "autoname": "naming_series:",
+  "creation": "2026-02-06 10:00:00",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "naming_series",
+    "event_type",
+    "status",
+    "mijnrood_table",
+    "mijnrood_row_id",
+    "column_break_event",
+    "linked_member",
+    "detected_at",
+    "sync_run_id",
+    "change_details_section",
+    "change_summary",
+    "changed_fields",
+    "data_section",
+    "old_data",
+    "column_break_data",
+    "new_data",
+    "review_section",
+    "reviewed_by",
+    "reviewed_at",
+    "review_notes",
+    "application_section",
+    "applied_at",
+    "error_message"
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "fieldtype": "Select",
+      "hidden": 1,
+      "label": "Naming Series",
+      "options": "MR-SYNC-.YYYY.-.#####",
+      "default": "MR-SYNC-.YYYY.-.#####"
+    },
+    {
+      "fieldname": "event_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Event Type",
+      "options": "New\nChanged\nDeleted",
+      "reqd": 1
+    },
+    {
+      "default": "Pending",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Pending\nApproved\nApplied\nRejected\nIgnored",
+      "reqd": 1
+    },
+    {
+      "fieldname": "mijnrood_table",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "MijnRood Table",
+      "reqd": 1
+    },
+    {
+      "fieldname": "mijnrood_row_id",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "MijnRood Row ID",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_event",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "linked_member",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Linked Member",
+      "options": "Member"
+    },
+    {
+      "fieldname": "detected_at",
+      "fieldtype": "Datetime",
+      "label": "Detected At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "sync_run_id",
+      "fieldtype": "Data",
+      "label": "Sync Run ID",
+      "read_only": 1
+    },
+    {
+      "fieldname": "change_details_section",
+      "fieldtype": "Section Break",
+      "label": "Change Details"
+    },
+    {
+      "fieldname": "change_summary",
+      "fieldtype": "Small Text",
+      "label": "Change Summary",
+      "read_only": 1
+    },
+    {
+      "description": "List of {field, old, new} dicts",
+      "fieldname": "changed_fields",
+      "fieldtype": "JSON",
+      "label": "Changed Fields",
+      "read_only": 1
+    },
+    {
+      "fieldname": "data_section",
+      "fieldtype": "Section Break",
+      "collapsible": 1,
+      "label": "Raw Data"
+    },
+    {
+      "fieldname": "old_data",
+      "fieldtype": "JSON",
+      "label": "Old Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_data",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "new_data",
+      "fieldtype": "JSON",
+      "label": "New Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "review_section",
+      "fieldtype": "Section Break",
+      "label": "Review"
+    },
+    {
+      "fieldname": "reviewed_by",
+      "fieldtype": "Link",
+      "label": "Reviewed By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "reviewed_at",
+      "fieldtype": "Datetime",
+      "label": "Reviewed At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "review_notes",
+      "fieldtype": "Small Text",
+      "label": "Review Notes"
+    },
+    {
+      "fieldname": "application_section",
+      "fieldtype": "Section Break",
+      "label": "Application"
+    },
+    {
+      "fieldname": "applied_at",
+      "fieldtype": "Datetime",
+      "label": "Applied At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "error_message",
+      "fieldtype": "Small Text",
+      "label": "Error Message",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "modified": "2026-02-06 10:00:00",
+  "modified_by": "Administrator",
+  "module": "MijnRood Sync",
+  "name": "MijnRood Sync Event",
+  "naming_rule": "By \"Naming Series\" field",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "read": 1,
+      "role": "System Manager",
+      "write": 1
+    },
+    {
+      "read": 1,
+      "role": "Verenigingen Administrator",
+      "write": 1
+    }
+  ],
+  "sort_field": "detected_at",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

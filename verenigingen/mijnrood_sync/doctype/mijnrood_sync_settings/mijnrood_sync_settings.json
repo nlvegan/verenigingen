@@ -1,0 +1,222 @@
+{
+  "actions": [],
+  "creation": "2026-02-06 10:00:00",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "enabled",
+    "ssh_tunnel_section",
+    "ssh_host",
+    "ssh_port",
+    "ssh_username",
+    "column_break_ssh",
+    "ssh_private_key_path",
+    "ssh_password",
+    "database_section",
+    "db_host",
+    "db_port",
+    "db_name",
+    "column_break_db",
+    "db_username",
+    "db_password",
+    "sync_configuration_section",
+    "poll_interval_minutes",
+    "tables_to_sync",
+    "column_break_sync",
+    "auto_apply_safe_changes",
+    "status_section",
+    "last_sync_time",
+    "last_sync_status",
+    "column_break_status",
+    "last_sync_message",
+    "total_events_pending",
+    "connection_status"
+  ],
+  "fields": [
+    {
+      "default": "0",
+      "description": "Master on/off switch for MijnRood sync polling",
+      "fieldname": "enabled",
+      "fieldtype": "Check",
+      "label": "Enabled"
+    },
+    {
+      "fieldname": "ssh_tunnel_section",
+      "fieldtype": "Section Break",
+      "label": "SSH Tunnel"
+    },
+    {
+      "fieldname": "ssh_host",
+      "fieldtype": "Data",
+      "label": "SSH Host",
+      "reqd": 1
+    },
+    {
+      "default": "22",
+      "fieldname": "ssh_port",
+      "fieldtype": "Int",
+      "label": "SSH Port"
+    },
+    {
+      "fieldname": "ssh_username",
+      "fieldtype": "Data",
+      "label": "SSH Username",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_ssh",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Absolute path to SSH private key file on the server",
+      "fieldname": "ssh_private_key_path",
+      "fieldtype": "Data",
+      "label": "SSH Private Key Path"
+    },
+    {
+      "description": "SSH key passphrase (if key is encrypted) or SSH password",
+      "fieldname": "ssh_password",
+      "fieldtype": "Password",
+      "label": "SSH Password / Passphrase"
+    },
+    {
+      "fieldname": "database_section",
+      "fieldtype": "Section Break",
+      "label": "Database"
+    },
+    {
+      "default": "127.0.0.1",
+      "description": "MariaDB host as seen from the SSH server",
+      "fieldname": "db_host",
+      "fieldtype": "Data",
+      "label": "Database Host"
+    },
+    {
+      "default": "3306",
+      "fieldname": "db_port",
+      "fieldtype": "Int",
+      "label": "Database Port"
+    },
+    {
+      "default": "rood",
+      "fieldname": "db_name",
+      "fieldtype": "Data",
+      "label": "Database Name",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_db",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "db_username",
+      "fieldtype": "Data",
+      "label": "Database Username",
+      "reqd": 1
+    },
+    {
+      "fieldname": "db_password",
+      "fieldtype": "Password",
+      "label": "Database Password",
+      "reqd": 1
+    },
+    {
+      "fieldname": "sync_configuration_section",
+      "fieldtype": "Section Break",
+      "label": "Sync Configuration"
+    },
+    {
+      "default": "15",
+      "description": "How often to poll MijnRood for changes (in minutes)",
+      "fieldname": "poll_interval_minutes",
+      "fieldtype": "Int",
+      "label": "Poll Interval (minutes)"
+    },
+    {
+      "default": "[\"admin_member\", \"admin_support_member\", \"admin_membership_application\", \"admin_contribution_payment\", \"admin_division\", \"admin_membershipstatus\"]",
+      "description": "JSON list of MijnRood database tables to poll",
+      "fieldname": "tables_to_sync",
+      "fieldtype": "Small Text",
+      "label": "Tables to Sync"
+    },
+    {
+      "fieldname": "column_break_sync",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "description": "Future use: automatically apply non-destructive changes without review",
+      "fieldname": "auto_apply_safe_changes",
+      "fieldtype": "Check",
+      "label": "Auto-apply Safe Changes"
+    },
+    {
+      "fieldname": "status_section",
+      "fieldtype": "Section Break",
+      "label": "Status"
+    },
+    {
+      "fieldname": "last_sync_time",
+      "fieldtype": "Datetime",
+      "label": "Last Sync Time",
+      "read_only": 1
+    },
+    {
+      "fieldname": "last_sync_status",
+      "fieldtype": "Select",
+      "label": "Last Sync Status",
+      "options": "\nSuccess\nFailed\nRunning",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_status",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "last_sync_message",
+      "fieldtype": "Small Text",
+      "label": "Last Sync Message",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "total_events_pending",
+      "fieldtype": "Int",
+      "label": "Total Events Pending",
+      "read_only": 1
+    },
+    {
+      "fieldname": "connection_status",
+      "fieldtype": "Data",
+      "label": "Connection Status",
+      "read_only": 1
+    }
+  ],
+  "issingle": 1,
+  "links": [],
+  "modified": "2026-02-06 10:00:00",
+  "modified_by": "Administrator",
+  "module": "MijnRood Sync",
+  "name": "MijnRood Sync Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "read": 1,
+      "role": "System Manager",
+      "write": 1
+    },
+    {
+      "create": 1,
+      "read": 1,
+      "role": "Verenigingen Administrator",
+      "write": 1
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

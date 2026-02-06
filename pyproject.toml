@@ -33,6 +33,9 @@ dependencies = [
     "mt-940>=4.0",
     # XML security (XXE prevention)
     "defusedxml>=0.7.1",
+    # MijnRood sync: SSH tunnel + MySQL client for remote DB polling
+    "sshtunnel>=0.4.0",
+    "pymysql>=1.1.0",
 ]
 
 [project.optional-dependencies]

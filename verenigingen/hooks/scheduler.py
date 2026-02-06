@@ -124,4 +124,6 @@ cron = {
     "*/10 * * * * *": [
         "verenigingen.utils.financial_history_batch_processor.schedule_financial_history_processing"
     ],
+    # MijnRood sync - poll remote DB for member changes every 15 minutes
+    "*/15 * * * *": ["verenigingen.mijnrood_sync.tasks.run_mijnrood_sync"],
 }
