@@ -81,55 +81,6 @@ def send_approval_email(member, invoice):
         frappe.log_error(f"Error sending approval email: {str(e)}", "Email Error")
 
 
-def send_rejection_email(member, reason):
-    """Send email when application is rejected.
-
-    .. deprecated:: 2.0
-        Uses inline HTML. Consider using 'Member Application Rejected'
-        Frappe Notification for automatic triggering on application_status change.
-    """
-    warnings.warn(
-        "send_rejection_email() uses inline HTML. "
-        "Consider using Frappe Notification 'Member Application Rejected'.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    try:
-        message = f"""
-        <h3>Regarding your membership application</h3>
-
-        <p>Dear {member.first_name},</p>
-
-        <p>Thank you for your interest in becoming a member. After careful review,
-        we are unable to approve your membership application at this time.</p>
-
-        <div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <h4>Reason:</h4>
-            <p>{reason}</p>
-        </div>
-
-        <p>If you believe this decision was made in error or if your circumstances have changed,
-        you may submit a new application or contact us for clarification.</p>
-
-        <p>Thank you for your understanding.</p>
-
-        <p>Best regards,<br>The Membership Team</p>
-        """
-
-        email_service = get_email_service()
-        email_service.send_simple_email(
-            recipients=[member.email],
-            subject="Membership Application Update",
-            message=message,
-            now=True,
-            reference_doctype="Member",
-            reference_name=member.name,
-            notification_key="member_application_rejected",
-        )
-    except Exception as e:
-        frappe.log_error(f"Error sending rejection email: {str(e)}", "Email Error")
-
-
 def send_payment_confirmation_email(member, invoice):
     """Send confirmation email after successful payment.
 

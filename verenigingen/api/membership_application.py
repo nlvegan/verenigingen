@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.api.membership_application_review import send_rejection_notification
 from verenigingen.utils.application_helpers import (
     check_application_status as check_application_status_util,
     create_address_from_application,
@@ -31,7 +32,6 @@ from verenigingen.utils.application_helpers import (
 from verenigingen.utils.application_notifications import (
     check_overdue_applications,
     send_payment_confirmation_email,
-    send_rejection_email,
 )
 from verenigingen.utils.application_payments import (
     get_payment_methods as get_payment_methods_util,
@@ -819,8 +819,8 @@ def reject_membership_application(member_name, reason) -> OperationResult[Dict[s
         # Use the new reject_application method which handles chapter membership cleanup
         member.reject_application(reason)
 
-        # Send rejection email
-        send_rejection_email(member, reason)
+        # Send rejection notification using modern EmailService
+        send_rejection_notification(member, reason)
 
         return OperationResult.ok(
             {
