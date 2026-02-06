@@ -612,32 +612,11 @@ No single source of truth for which fields get set during approval.
 
 ---
 
-### 3.7 Duplicate Role and Permission Logic
+### 3.7 ~~Duplicate Role and Permission Logic~~ RESOLVED
 
 **Confidence:** 78/100
 **Category:** DRY violation
-
-In `services/member/account/member_role_service.py`:
-
-**Identical permission check in two methods:**
-```python
-# Line 66-68 in add_member_roles_to_user():
-if not frappe.has_permission("User", "write"):
-    frappe.throw(_("Insufficient permissions to modify user roles"))
-
-# Line 137-139 in _assign_individual_member_roles():
-if not frappe.has_permission("User", "write"):
-    frappe.throw(_("Insufficient permissions to modify user roles"))
-```
-
-**Identical role clearing pattern:**
-```python
-# Lines 83-101 and 154-171 both contain:
-user.roles = []
-if not user.enabled:
-    user.enabled = 1
-user.save()
-```
+**Status:** RESOLVED (2026-02-06) — Removed redundant `frappe.has_permission("User", "write")` check from private `_assign_individual_member_roles()`. The caller `add_member_roles_to_user()` already performs this check before invoking the private method. The role clearing patterns (lines 83-101 and 154-171) are intentionally different — one assigns a role profile, the other appends individual roles — so those remain as-is. Commit: `refactor: remove redundant permission check from private _assign_individual_member_roles`.
 
 ---
 
