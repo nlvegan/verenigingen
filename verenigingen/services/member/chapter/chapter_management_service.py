@@ -78,6 +78,11 @@ class ChapterManagementService(StatelessService):
             self.logger.error(f"Database error in chapter management check: {str(e)}")
             return True
 
+    def _validate_member_exists(self, member_name: str) -> None:
+        """Raise if member does not exist in the database."""
+        if not frappe.db.exists("Member", member_name):
+            frappe.throw(_("Member {0} does not exist").format(member_name))
+
     def get_board_memberships(self, member_name: str) -> List[Dict[str, Any]]:
         """
         Get active board memberships for a member.
@@ -114,8 +119,7 @@ class ChapterManagementService(StatelessService):
             return []
 
         # Verify member exists
-        if not frappe.db.exists("Member", member_name):
-            frappe.throw(_("Member {0} does not exist").format(member_name))
+        self._validate_member_exists(member_name)
 
         self.logger.info(f"ChapterManagementService: Getting board memberships for {member_name}")
 
@@ -175,9 +179,8 @@ class ChapterManagementService(StatelessService):
         if not member_name:
             return []
 
-        # Verify member exists (will raise DoesNotExistError if not)
-        if not frappe.db.exists("Member", member_name):
-            frappe.throw(_("Member {0} does not exist").format(member_name))
+        # Verify member exists
+        self._validate_member_exists(member_name)
 
         try:
             # Single optimized query to get all chapter information at once
@@ -275,8 +278,7 @@ class ChapterManagementService(StatelessService):
             return []
 
         # Verify member exists
-        if not frappe.db.exists("Member", member_name):
-            frappe.throw(_("Member {0} does not exist").format(member_name))
+        self._validate_member_exists(member_name)
 
         try:
             # Get chapters where this member is listed in the Chapter Member child table
@@ -364,8 +366,7 @@ class ChapterManagementService(StatelessService):
             return False
 
         # Verify both exist
-        if not frappe.db.exists("Member", member_name):
-            frappe.throw(_("Member {0} does not exist").format(member_name))
+        self._validate_member_exists(member_name)
         if not frappe.db.exists("Chapter", chapter_name):
             frappe.throw(_("Chapter {0} does not exist").format(chapter_name))
 
