@@ -430,8 +430,9 @@ Both `create_member_from_application()` and `update_member_from_reapplication()`
 
 ---
 
-### 3.3 Payment Methods Defined in 4+ Separate Files
+### 3.3 Payment Methods Defined in 5 Separate Files
 
+**Status:** CONFIRMED — deferred to dedicated planning session (complex, high-risk refactor)
 **Confidence:** 80/100
 **Category:** DRY violation, no single source of truth
 
@@ -461,6 +462,18 @@ JavaScript also hardcodes payment method names (line 3368-3435):
 const is_direct_debit = methodName === 'SEPA Direct Debit' || normalizedMethod === 'sepadirectdebit';
 ```
 
+#### Investigation Findings (2026-02-06)
+
+**5 locations confirmed** with the following inconsistencies:
+
+1. **Snake_case vs Title Case**: Form sends `"bank_transfer"`, database stores `"Bank Transfer"`. `map_payment_method()` is the single conversion point — if it fails, application submission fails.
+2. **Multiple fallback chains**: Template defaults (3 methods), API descriptions (4 methods), and `ensure_payment_modes_exist()` (4 methods) don't stay in sync.
+3. **Incomplete recovery**: `ensure_payment_modes_exist()` only creates Bank Transfer, SEPA Direct Debit, Mollie, Cash — but `Application Payment Method` options include ideal, credit_card, paypal (no recovery path for those 3).
+4. **3 different `get_payment_methods()` functions**: `application_payments.py` queries Mode of Payment, `apply_for_membership.py` reads Settings child table, `verenigingen_payments/hooks/api.py` uses PaymentHook abstraction.
+5. **Description mismatch**: Template defaults and API descriptions list different methods with different descriptions.
+
+**Deferred because:** The bidirectional conversion is load-bearing, JavaScript hardcodes Title Case values throughout, and the `Application Payment Method` child DocType already partially exists. Needs careful planning to avoid breaking the application submission flow.
+
 #### Recommendation
 
 Create a single `PAYMENT_METHODS` configuration constant (or a `Payment Method` DocType) that all layers import from.
@@ -469,29 +482,48 @@ Create a single `PAYMENT_METHODS` configuration constant (or a `Payment Method` 
 
 ### 3.4 Chapter Membership State Transitions Scattered
 
-**Confidence:** 78/100
+**Status:** NOT A DRY VIOLATION — different workflows, correctly separated
+**Confidence:** 78/100 (original) → revised down after investigation
 **Category:** Separation of concerns
 
 Chapter membership operations live in `utils/application_helpers.py`:
 
 | Function | Lines | Purpose |
 |----------|-------|---------|
-| `create_pending_chapter_membership()` | 1187-1257 | Create Pending record |
-| `activate_pending_chapter_membership()` | 1259-1334 | Pending → Active |
-| `create_active_chapter_membership()` | 1336-1434 | Create Active directly |
-| `remove_pending_chapter_membership()` | 1436-1506 | Remove on rejection |
+| `create_pending_chapter_membership()` | 1208-1278 | Create Pending record |
+| `activate_pending_chapter_membership()` | 1280-1355 | Pending → Active |
+| `create_active_chapter_membership()` | 1357-1455 | Create Active directly |
+| `remove_pending_chapter_membership()` | 1457-1527 | Remove on rejection |
 
 These are called from:
-- `member_lifecycle_service.py:578-609` (post-approval setup)
-- `member_lifecycle_service.py:621-648` (post-rejection cleanup)
-- `membership_application_review.py:31-65` (`assign_member_to_chapter()` via `ChapterMembershipManager`)
-- Application submission flow in `membership_application.py`
+- `member_lifecycle_service.py:560` (post-approval setup)
+- `member_lifecycle_service.py:596` (post-rejection cleanup)
+- `events/subscribers/approval_subscribers.py:100` (background job on approval)
+- Application submission flow in `membership_application.py:686`
 
 There's also a `ChapterMembershipManager` and a `ChapterManagementService` that handle similar operations through different interfaces.
 
+#### Investigation Findings (2026-02-06)
+
+**These are NOT true duplication.** The standalone functions and `ChapterMembershipManager` serve fundamentally different workflows:
+
+| Aspect | Standalone Functions | ChapterMembershipManager |
+|--------|---------------------|--------------------------|
+| **Purpose** | Application lifecycle state machine | General chapter management |
+| **State model** | Pending → Active (two-phase) | Direct Active assignment (no Pending) |
+| **Callers** | submit_application, approve, reject | Manual management, bulk imports |
+| **History** | Explicit two-phase history updates | Single-step via MemberManager |
+| **Delegation** | Direct child table manipulation | Via Chapter.member_manager property |
+
+The Pending status concept only exists in the application workflow. `ChapterMembershipManager.assign_member_to_chapter()` creates Active members directly — it doesn't support the Pending state at all. `ChapterManagementService` is purely read/query operations — no overlap.
+
+Good test coverage exists: `test_chapter_member_status.py`, `test_chapter_membership_workflow.py`, `test_chapter_membership_approval_integration.py`.
+
 #### Recommendation
 
-Consolidate into `ChapterMembershipManager` as the single entry point. Remove the 4 standalone functions from `application_helpers.py`. All call sites should use the manager.
+~~Consolidate into `ChapterMembershipManager` as the single entry point. Remove the 4 standalone functions from `application_helpers.py`. All call sites should use the manager.~~
+
+**Revised:** Keep separate. The 4 standalone functions implement a Pending→Active state machine specific to the application workflow. Could optionally extract into an `ApplicationChapterWorkflow` service class for better organization, but this is cosmetic not a DRY fix. No code changes needed.
 
 ---
 
