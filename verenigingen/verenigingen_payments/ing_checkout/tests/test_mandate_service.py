@@ -11,10 +11,10 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestMandateService(IntegrationTestCase):
+class TestMandateService(FrappeTestCase):
     """Test cases for MandateService."""
 
     @classmethod

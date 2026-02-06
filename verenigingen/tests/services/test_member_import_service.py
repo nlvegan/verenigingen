@@ -14,10 +14,10 @@ This test module verifies:
 import time
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestMemberImportServiceLocks(IntegrationTestCase):
+class TestMemberImportServiceLocks(FrappeTestCase):
     """Test cases for advisory lock functionality in MemberImportService."""
 
     def setUp(self):
@@ -136,7 +136,7 @@ class TestMemberImportServiceLocks(IntegrationTestCase):
         frappe.db.sql("SELECT RELEASE_LOCK(%s)", (lock_name,))
 
 
-class TestMemberImportServiceBulkContext(IntegrationTestCase):
+class TestMemberImportServiceBulkContext(FrappeTestCase):
     """Test cases for bulk context flag management."""
 
     def setUp(self):
@@ -240,7 +240,7 @@ class TestMemberImportServiceBulkContext(IntegrationTestCase):
         )
 
 
-class TestMemberImportServiceTOCTOU(IntegrationTestCase):
+class TestMemberImportServiceTOCTOU(FrappeTestCase):
     """Test cases for TOCTOU prevention and strategy consistency."""
 
     def test_mijnrood_strategies_are_consistent(self):
@@ -320,7 +320,7 @@ class TestMemberImportServiceTOCTOU(IntegrationTestCase):
             frappe.db.commit()
 
 
-class TestMemberImportServiceConfigurable(IntegrationTestCase):
+class TestMemberImportServiceConfigurable(FrappeTestCase):
     """Test cases for configurable lock parameters."""
 
     def test_lock_constants_are_sensible(self):

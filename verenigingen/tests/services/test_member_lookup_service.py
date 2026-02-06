@@ -11,10 +11,10 @@ configurable cascade matching strategies for import operations.
 import time
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestMemberLookupService(IntegrationTestCase):
+class TestMemberLookupService(FrappeTestCase):
     """Test cases for MemberLookupService."""
 
     def setUp(self):

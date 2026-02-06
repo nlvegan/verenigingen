@@ -8,12 +8,12 @@ Tests the FieldEncryption class used for encrypting sensitive data like IBANs.
 """
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.utils.field_encryption import FieldEncryption, get_encryption
 
 
-class TestFieldEncryption(IntegrationTestCase):
+class TestFieldEncryption(FrappeTestCase):
     """Test suite for FieldEncryption class."""
 
     def setUp(self):

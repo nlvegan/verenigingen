@@ -14,12 +14,12 @@ Author: Security Audit Response
 """
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch, MagicMock
 import threading
 
 
-class TestSecureOperationsSecurityAudit(IntegrationTestCase):
+class TestSecureOperationsSecurityAudit(FrappeTestCase):
     """Tests for secure_operations security audit fixes."""
 
     def setUp(self):

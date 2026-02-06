@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
 
@@ -34,7 +34,7 @@ def set_user_context(user):
         frappe.set_user(original_user)
 
 
-class TestFrappeWhitelistAdapter(IntegrationTestCase):
+class TestFrappeWhitelistAdapter(FrappeTestCase):
     """Tests for FrappeWhitelistAdapter module."""
 
     @classmethod
@@ -171,7 +171,7 @@ class TestFrappeWhitelistAdapter(IntegrationTestCase):
             self.assertIsNone(result)
 
 
-class TestSelfServiceAccessController(IntegrationTestCase):
+class TestSelfServiceAccessController(FrappeTestCase):
     """Tests for SelfServiceAccessController module."""
 
     @classmethod
@@ -445,7 +445,7 @@ class TestSelfServiceAccessController(IntegrationTestCase):
         self.assertEqual(controller._get_client_ip(), "192.168.1.1")
 
 
-class TestSecurityModuleIntegration(IntegrationTestCase):
+class TestSecurityModuleIntegration(FrappeTestCase):
     """Integration tests for security modules working together."""
 
     def test_framework_uses_self_service_controller(self):

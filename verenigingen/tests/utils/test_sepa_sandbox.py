@@ -9,12 +9,12 @@ accidental production bank submissions.
 """
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.utils.sepa_sandbox import SandboxCheckResult, SEPASandbox, get_sandbox
 
 
-class TestSEPASandbox(IntegrationTestCase):
+class TestSEPASandbox(FrappeTestCase):
     """Test suite for SEPASandbox class."""
 
     def setUp(self):

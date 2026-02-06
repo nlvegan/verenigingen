@@ -16,12 +16,12 @@ Author: Verenigingen Development Team
 """
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.services.payment.alert_manager import AlertManager, ReconciliationAlertResult
 
 
-class TestReconciliationAlertResult(IntegrationTestCase):
+class TestReconciliationAlertResult(FrappeTestCase):
     """Test the ReconciliationAlertResult dataclass"""
 
     def test_info_result_creation(self):
@@ -64,7 +64,7 @@ class TestReconciliationAlertResult(IntegrationTestCase):
         self.assertEqual(result.unreconciled_count, 100)
 
 
-class TestReconciliationAlerts(IntegrationTestCase):
+class TestReconciliationAlerts(FrappeTestCase):
     """Test the AlertManager reconciliation status checking"""
 
     def setUp(self):

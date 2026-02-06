@@ -9,10 +9,10 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestMolliePaymentServiceWrapper(IntegrationTestCase):
+class TestMolliePaymentServiceWrapper(FrappeTestCase):
     """Test the MolliePaymentService compatibility wrapper."""
 
     @classmethod
@@ -385,7 +385,7 @@ class TestMolliePaymentServiceWrapper(IntegrationTestCase):
         mock_frappe.log_error.assert_called()
 
 
-class TestProcessMolliePaymentFunction(IntegrationTestCase):
+class TestProcessMolliePaymentFunction(FrappeTestCase):
     """Test the process_mollie_payment standalone function."""
 
     @patch(

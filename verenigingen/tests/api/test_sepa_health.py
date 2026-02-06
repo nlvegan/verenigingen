@@ -5,10 +5,10 @@ These tests verify that the health check endpoint correctly reports
 the status of SEPA infrastructure components.
 """
 import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestSEPAHealthEndpoint(IntegrationTestCase):
+class TestSEPAHealthEndpoint(FrappeTestCase):
     """Test cases for SEPA health check endpoint."""
 
     def test_health_check_returns_status(self):
