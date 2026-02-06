@@ -565,6 +565,36 @@ def _apply_custom_contribution_fee(member, data, context_label="application"):
         )
 
 
+def _append_chapter_notes(member, selected_chapter, label="Selected Chapter"):
+    """
+    Append chapter display info to member notes.
+
+    Args:
+        member: Member document (modified in place)
+        selected_chapter: Chapter name/ID from application data
+        label: Prefix label (e.g. "Selected Chapter" or "Selected Chapter (Reapplication)")
+    """
+    if not selected_chapter:
+        return
+
+    try:
+        try:
+            chapter_doc = frappe.get_doc("Chapter", selected_chapter)
+            chapter_display = f"{chapter_doc.region} ({selected_chapter})"
+        except Exception:
+            chapter_display = selected_chapter
+
+        existing_notes = member.notes or ""
+        if existing_notes:
+            existing_notes += "\n\n"
+        member.notes = existing_notes + f"{label}: {chapter_display}"
+    except Exception as e:
+        frappe.log_error(
+            f"Error storing chapter information: {str(e)}",
+            "Chapter Info Storage Error",
+        )
+
+
 def create_member_from_application(data, application_id, address=None):
     """Create member record from application data"""
     # Import here to avoid circular imports
@@ -619,26 +649,7 @@ def create_member_from_application(data, application_id, address=None):
     _apply_custom_contribution_fee(member, data, context_label="application")
 
     # Add chapter information to notes for approver visibility
-    try:
-        selected_chapter = data.get("selected_chapter")
-        if selected_chapter:
-            existing_notes = member.notes or ""
-            if existing_notes:
-                existing_notes += "\n\n"
-
-            # Get chapter display name if possible
-            try:
-                # chapter_doc = frappe.get_doc("Chapter", selected_chapter)
-                # chapter_display = f"{chapter_doc.chapter_name} ({selected_chapter})"
-                chapter_doc = frappe.get_doc("Chapter", selected_chapter)
-                chapter_display = f"{chapter_doc.region} ({selected_chapter})"
-            except Exception:
-                chapter_display = selected_chapter
-
-            member.notes = existing_notes + f"Selected Chapter: {chapter_display}"
-    except Exception as e:
-        # Log the error for debugging but don't fail the submission
-        frappe.log_error(f"Error storing chapter information: {str(e)}", "Chapter Info Storage Error")
+    _append_chapter_notes(member, data.get("selected_chapter"), label="Selected Chapter")
 
     # Suppress customer creation messages during application submission
     member._suppress_customer_messages = True
@@ -737,17 +748,7 @@ def update_member_from_reapplication(member_name, data, application_id, address=
         member.volunteer_skills = volunteer_skills
 
     # Add chapter information to notes for approver visibility
-    selected_chapter = data.get("selected_chapter")
-    if selected_chapter:
-        try:
-            chapter_doc = frappe.get_doc("Chapter", selected_chapter)
-            chapter_display = f"{chapter_doc.region} ({selected_chapter})"
-            existing_notes = member.notes or ""
-            if existing_notes:
-                existing_notes += "\n\n"
-            member.notes = existing_notes + f"Selected Chapter (Reapplication): {chapter_display}\n"
-        except Exception as e:
-            frappe.log_error(f"Error storing chapter information: {str(e)}", "Chapter Info Storage Error")
+    _append_chapter_notes(member, data.get("selected_chapter"), label="Selected Chapter (Reapplication)")
 
     # Add reapplication timestamp note
     reapp_note = f"Reapplication submitted: {now_datetime()}"
