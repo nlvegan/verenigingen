@@ -561,25 +561,21 @@ Either implement the methods fully, or gate them behind a feature flag (`frappe.
 
 ---
 
-### 3.6 Status Setting Logic Duplicated Across 3 Services
+### 3.6 Status Setting Logic Duplicated Across 3 Services — PARTIALLY RESOLVED
 
 **Confidence:** 85/100
 **Category:** DRY violation
+**Status:** PARTIALLY RESOLVED (2026-02-06) — 2 of 4 locations eliminated:
+- `finalize_member_approval()` deleted in audit item 2.2
+- `set_application_status_defaults()` in lifecycle service deleted — orphaned method with zero callers; canonical version lives in `member_status_service` (commit: `refactor: delete orphaned set_application_status_defaults from lifecycle service`)
 
-Application status defaults and status synchronization are implemented in three separate services:
+**Remaining (not true duplication — different flows):**
+- `approve_application()` in lifecycle service sets status fields during approval workflow (deprecated but has test callers — scoped to unification plan)
+- `set_member_application_status_defaults()` in `member_status_service` sets defaults during before_save (canonical)
 
-**`member_approval_service.py:313-393` (`finalize_member_approval`)**
-```python
-member.application_status = "Approved"
-member.status = "Active"
-member.member_since = today()
-member.reviewed_by = frappe.session.user
-member.review_date = now_datetime()
-member._system_update = True
-member.save()
-```
+These two remaining locations serve different purposes: one is the approval action (setting Approved/Active), the other is the before-save default (setting Pending/Approved for new documents). They are not candidates for further consolidation.
 
-**`member_lifecycle_service.py:96-179` (`approve_application`)**
+**`member_lifecycle_service.py:96-179` (`approve_application`)** — deprecated, test-only callers
 ```python
 member.application_status = "Approved"
 member.status = "Active"
@@ -589,7 +585,7 @@ member.flags.ignore_status_validation = True
 # Does NOT set member_since or _system_update
 ```
 
-**`member_status_service.py:26-64` (`set_member_application_status_defaults`)**
+**`member_status_service.py:26-64` (`set_member_application_status_defaults`)** — CANONICAL
 ```python
 if not getattr(member_doc, "application_status", ""):
     if not member_doc.name or member_doc.is_new():
@@ -597,18 +593,6 @@ if not getattr(member_doc, "application_status", ""):
     else:
         member_doc.application_status = "Approved"
 ```
-
-**`member_lifecycle_service.py:430-464` (`set_application_status_defaults`)**
-```python
-# Same logic as member_status_service but with different conditions:
-if not hasattr(member, "application_status") or not member.application_status:
-    if is_application_member:
-        member.application_status = "Pending"
-    else:
-        member.application_status = "Approved"
-```
-
-No single source of truth for which fields get set during approval.
 
 ---
 
