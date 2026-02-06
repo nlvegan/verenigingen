@@ -1,14 +1,10 @@
 """
-Notification utilities for membership applications
+Notification utilities for membership applications.
 
-.. deprecated:: 2.0
-    This module contains inline HTML notification functions that are being migrated
-    to Frappe's native Notification DocType. New code should use Frappe Notifications
-    instead for document-triggered notifications.
-    See: Setup > Email > Notification in Frappe Desk
+Contains check_overdue_applications() scheduled task.
+All deprecated inline HTML notification functions have been migrated
+to EmailService / MemberStatusNotificationService.
 """
-
-import warnings
 
 import frappe
 from frappe.utils import add_days, getdate, today

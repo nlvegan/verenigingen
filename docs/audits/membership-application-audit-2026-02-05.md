@@ -395,52 +395,22 @@ def validate_email(email):
 
 ## 3. Medium Priority Findings
 
-### 3.1 Deprecated Notifications Still in Production (594 LOC)
+### 3.1 Deprecated Notifications Still in Production (594 LOC) -- RESOLVED
 
 **Confidence:** 85/100
 **Category:** Tech debt
+**Status:** RESOLVED — All 9 deprecated functions deleted, 3 callers migrated to modern services.
 
-`utils/application_notifications.py` contains functions explicitly marked deprecated:
+All deprecated inline HTML notification functions have been removed from `utils/application_notifications.py`:
+- **Deleted (dead code):** `format_email_subject`, `send_application_confirmation_email`, `notify_reviewers_of_new_application`, `notify_admins_of_new_application`, `send_simple_notification`, `get_application_reviewers`
+- **Migrated then deleted:** `send_rejection_email` → `send_rejection_notification` (review API), `send_payment_confirmation_email` → `MemberStatusNotificationService`, `send_approval_email` → `send_approval_notification` (review API)
 
-```python
-def notify_admins_of_new_application(member, invoice=None):
-    """.. deprecated:: 2.0
-        Uses inline HTML. Replaced by 'New Membership Application Submitted'
-        Frappe Notification which sends to 'Verenigingen Administrator' role.
-    """
-    warnings.warn(
-        "notify_admins_of_new_application() is deprecated.",
-        DeprecationWarning, stacklevel=2,
-    )
-    # ... 70 lines of inline HTML email construction
-```
+The module now contains only `check_overdue_applications()` (active scheduled task). ~470 LOC removed.
 
-Also deprecated: `send_simple_notification()` (line 539).
-
-Meanwhile, `api/membership_application_review.py` defines its OWN notification functions:
-
-| Function | File | Lines |
-|----------|------|-------|
-| `send_approval_notification()` | review API | 1099-1134 |
-| `send_rejection_notification()` | review API | 1136-1180 |
-| `send_overdue_notifications()` | review API | 1749-1878 |
-| `notify_chapter_of_overdue_applications()` | review API | 1881-1924 |
-| `notify_managers_of_overdue_applications()` | review API | 1926-1970 |
-
-And the lifecycle layer has a THIRD notification mechanism:
-
-| Service | File |
-|---------|------|
-| `MemberStatusNotificationService` | `services/member/lifecycle/member_status_notification_service.py` |
-
-**Three parallel notification systems** for the same domain events.
-
-#### Recommendation
-
-1. Delete all deprecated functions from `application_notifications.py`
-2. Move notification logic from `membership_application_review.py` into a dedicated `ApplicationNotificationService`
-3. Keep `MemberStatusNotificationService` for post-approval status changes only
-4. Integrate with `notification_registry.py` which already defines the correct notification keys
+Remaining notification architecture (not in scope — working correctly):
+- `send_approval_notification()` / `send_rejection_notification()` in review API use `EmailService`
+- `MemberStatusNotificationService` handles status change notifications
+- `notification_registry.py` defines notification keys
 
 ---
 
