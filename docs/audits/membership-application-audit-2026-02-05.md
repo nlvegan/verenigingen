@@ -527,39 +527,19 @@ Good test coverage exists: `test_chapter_member_status.py`, `test_chapter_member
 
 ---
 
-### 3.5 Fraud Detection Module — 589 Lines of Mostly Stubs
+### 3.5 Fraud Detection Module — 589 Lines of Mostly Stubs — RESOLVED
 
+**Status:** RESOLVED (2026-02-06) — Module deleted. No production code imported or called it. Admin tools card and whitelist entry removed.
 **Confidence:** 75/100
 **Category:** Tech debt / false sense of security
 
-`utils/fraud_detection.py` contains 17 helper methods that return hardcoded values:
+~~`utils/fraud_detection.py` contained 17 helper methods returning hardcoded values (empty lists, False, 0, True), making all risk scoring ineffective. No production code actually imported or called `FraudPreventionService.validate_membership_application()`. The duplicate detection service (`duplicate_detection_service.py`) already handles the most relevant check (duplicate applications).~~
 
-| Method | Line | Returns | Impact |
-|--------|------|---------|--------|
-| `_get_recent_failed_payments()` | 335 | `[]` | Payment fraud check 1 always passes |
-| `_is_new_payment_method()` | 362 | `False` | Payment fraud check 4 always passes |
-| `_get_recent_payments()` | 366 | `[]` | Payment fraud check 5 always passes |
-| `_count_recent_applications_from_ip()` | 399 | `0` | Application fraud check 2 always passes |
-| `_has_similar_recent_expense()` | 423 | `False` | Expense fraud check 1 always passes |
-| `_get_recent_expense_claims()` | 431 | `[]` | Expense fraud check 4 always passes |
-| `_count_proxy_votes_by_member()` | 448 | `0` | Voting fraud check 3 always passes |
-| `_is_valid_geographic_data()` | 417 | `True` | Geo validation always passes |
-| `_is_blacklisted_iban()` | 369 | Only checks `["TEST", "FAKE", "FRAUD"]` | Trivial blocklist |
-| `get_fraud_statistics()` | 577 | All zeros | Statistics endpoint returns no data |
+#### ~~Recommendation~~
 
-Example of the impact:
-```python
-# In check_payment_fraud():
-failed_payments = self._get_recent_failed_payments(member_name, days=30)
-if len(failed_payments) > 3:  # This condition can NEVER be true
-    risk_assessment["risk_score"] += 30
-```
+~~Either implement the methods fully, or gate them behind a feature flag.~~
 
-The `FraudPreventionService.validate_membership_application()` is called from real application flows, but its risk scoring is ineffective because the underlying checks all return neutral values.
-
-#### Recommendation
-
-Either implement the methods fully, or gate them behind a feature flag (`frappe.conf.get("enable_fraud_detection", False)`) and clearly document that fraud detection is not operational.
+**Resolution:** Deleted entirely. Duplicate detection (the real concern) lives in a separate, functional service.
 
 ---
 
@@ -696,36 +676,17 @@ Two competing return type patterns:
 
 Callers must know which pattern each function uses. Some services mix both.
 
-### 4.7 Circular Invocation in Event Emission
+### 4.7 Circular Invocation in Event Emission — RESOLVED
 
-**Confidence:** 72/100
+**Status:** RESOLVED (2026-02-06) — Event emission service now calls MemberStatusNotificationService directly instead of bouncing through the member document.
 
-```
-member.py on_update()
-  → MemberEventEmissionService.emit_status_change_events(member)
-    → member._send_member_status_notification(old, new)  [BACK TO MEMBER]
-      → MemberStatusNotificationService.send_status_change_notification(member, old, new)
-```
+~~Three layers of indirection with a callback to the document. The event emission service should call the notification service directly.~~
 
-Three layers of indirection with a callback to the document. The event emission service should call the notification service directly.
+### 4.8 Workflow Setup Variable Name Bugs — RESOLVED
 
-### 4.8 Workflow Setup Variable Name Bugs
+**Status:** RESOLVED (2026-02-06) — Fixed `action_data` → `action`, `state_data` → `state`, added missing `DocumentExistenceValidator` import.
 
-**Confidence:** 90/100 (but low severity — only affects workflow creation)
-
-In `setup/membership_application_workflow_setup.py`:
-
-```python
-# Line 290: Uses undefined variable
-justification=f"Create workflow action {action_data['action']} - ..."
-# Should be: action['action'] or similar
-
-# Line 329: Uses undefined variable
-justification=f"Create workflow state {state_data['state']} - ..."
-# Should be: state['state'] or similar
-```
-
-These will crash at runtime if the workflow creation codepath is exercised.
+~~These will crash at runtime if the workflow creation codepath is exercised.~~
 
 ---
 
