@@ -349,13 +349,21 @@ class EnhancedJSPythonParameterValidator:
                 # Also parse ES6 shorthand property syntax (e.g., { chapter_name, segment })
                 # These are variable names used directly as properties
                 # Match word at start of line or after comma/brace, followed by comma/newline/brace
-                es6_shorthand_pattern = r'(?:^|[,{\s])(\w+)(?=\s*[,}\n])'
+                es6_shorthand_pattern = r'(?:^|[,{\s])(\w+)(?=\s*(?:[,}\n]|$))'
                 for shorthand_match in re.finditer(es6_shorthand_pattern, args_str, re.MULTILINE):
                     key = shorthand_match.group(1).strip()
                     # Skip if already found via key: value pattern or if it's a common keyword
                     if key not in args and key not in ('true', 'false', 'null', 'undefined'):
                         args[key] = key  # In shorthand, key and value are the same
                 break
+
+        # Handle variable args references (e.g., args: filters, args: values)
+        if not args:
+            var_args_match = re.search(r"args:\s*(\w+)", context)
+            if var_args_match:
+                var_name = var_args_match.group(1)
+                if var_name not in ("true", "false", "null", "undefined", "this"):
+                    args["__variable_args__"] = var_name
 
         return args
     
@@ -573,6 +581,11 @@ class EnhancedJSPythonParameterValidator:
                 self.issues.append(issue)
                 continue
             
+            # DocType instance methods: short name (no dots) + doc: in context
+            # These are called via frm.call() where self is auto-injected by Frappe
+            if "." not in js_call.method_name and "doc:" in js_call.context:
+                continue
+
             # Try enhanced method resolution
             python_func = self.resolve_method_path(js_call.method_name)
             
@@ -629,8 +642,12 @@ class EnhancedJSPythonParameterValidator:
     
     def _validate_call_parameters(self, js_call: JSCall, python_func: PythonFunction) -> None:
         """Validate parameters for a specific call"""
+        # Skip validation when args are a variable reference (unresolvable at static analysis time)
+        if "__variable_args__" in js_call.args:
+            return
+
         js_params = set(js_call.args.keys())
-        
+
         # Skip validation if function accepts **kwargs
         if python_func.has_kwargs:
             return

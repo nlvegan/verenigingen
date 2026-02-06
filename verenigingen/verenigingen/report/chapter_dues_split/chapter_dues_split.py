@@ -60,6 +60,7 @@ def get_columns(filters: Optional[Dict]) -> List[Dict]:
     ]
 
 
+@frappe.whitelist()
 def get_data(filters: Optional[Dict]) -> List[Dict]:
     """
     Get report data grouped by chapter.

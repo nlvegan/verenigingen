@@ -19,7 +19,6 @@ app_include_css = [
 app_include_js = [
     # OperationResult helpers - must load first for API response handling
     "/assets/verenigingen/js/utils/operation-result-helpers.js",
-    # Removed termination_dashboard.js as it's a React component and causes import errors
     "/assets/verenigingen/js/member_portal_redirect.js",
     "/assets/verenigingen/js/utils/iban-validator.js",
     "/assets/verenigingen/js/utils/iban-masking.js",
