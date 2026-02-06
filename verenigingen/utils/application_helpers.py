@@ -506,6 +506,65 @@ def _sanitize_application_names(data):
     return names["first_name"], names["middle_name"], names["tussenvoegsel"], names["last_name"]
 
 
+def _apply_custom_contribution_fee(member, data, context_label="application"):
+    """
+    Apply custom contribution fee override fields to a member.
+
+    Args:
+        member: Member document (modified in place)
+        data: Application data dict with custom_contribution_fee, uses_custom_amount, custom_amount_reason
+        context_label: Used in fee_override_reason (e.g. "application" or "reapplication")
+    """
+    if not (data.get("custom_contribution_fee") or data.get("uses_custom_amount")):
+        return
+
+    try:
+        custom_contribution_fee = 0
+        if data.get("custom_contribution_fee"):
+            try:
+                custom_contribution_fee = float(data.get("custom_contribution_fee"))
+            except (ValueError, TypeError) as e:
+                frappe.logger().error(
+                    f"Error converting custom_contribution_fee '{data.get('custom_contribution_fee')}' to float: {str(e)}"
+                )
+                custom_contribution_fee = 0
+
+        if custom_contribution_fee > 0:
+            member.dues_rate = custom_contribution_fee
+            member.fee_override_reason = (
+                f"Custom amount selected during {context_label}: "
+                f"{data.get('custom_amount_reason', 'Member-specified contribution level')}"
+            )
+            member.fee_override_date = today()
+            member.application_custom_fee = custom_contribution_fee
+
+            # Resolve fee_override_by user with safe fallback
+            override_user = None
+            if frappe.session.user and frappe.session.user != "Guest":
+                if frappe.db.exists("User", frappe.session.user):
+                    override_user = frappe.session.user
+            if not override_user and frappe.db.exists("User", "Administrator"):
+                override_user = "Administrator"
+            if not override_user:
+                first_user = frappe.db.get_value("User", {"enabled": 1}, "name")
+                if first_user:
+                    override_user = first_user
+
+            if override_user:
+                member.fee_override_by = override_user
+            else:
+                frappe.log_error(
+                    "No valid user found for fee_override_by field - custom amount preserved without approver",
+                    "Fee Override User Warning",
+                )
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error storing custom amount data: {str(e)}",
+            "Custom Amount Storage Error",
+        )
+
+
 def create_member_from_application(data, application_id, address=None):
     """Create member record from application data"""
     # Import here to avoid circular imports
@@ -556,69 +615,8 @@ def create_member_from_application(data, application_id, address=None):
     if volunteer_skills:
         member.volunteer_skills = volunteer_skills
 
-    # Handle custom membership amount using new fee override fields
-    if data.get("custom_contribution_fee") or data.get("uses_custom_amount"):
-        try:
-            # Debug logging
-            frappe.logger().info(
-                f"Processing custom amount for application. custom_contribution_fee: {data.get('custom_contribution_fee')}, uses_custom_amount: {data.get('uses_custom_amount')}"
-            )
-
-            # Safely convert custom_contribution_fee to float
-            custom_contribution_fee = 0
-            if data.get("custom_contribution_fee"):
-                try:
-                    custom_contribution_fee = float(data.get("custom_contribution_fee"))
-                    frappe.logger().info(f"Converted custom_contribution_fee to: {custom_contribution_fee}")
-                except (ValueError, TypeError) as e:
-                    frappe.logger().error(
-                        f"Error converting custom_contribution_fee '{data.get('custom_contribution_fee')}' to float: {str(e)}"
-                    )
-                    custom_contribution_fee = 0
-
-            # Set fee override fields if custom amount is specified
-            if custom_contribution_fee > 0:
-                member.dues_rate = custom_contribution_fee
-                member.fee_override_reason = f"Custom amount selected during application: {data.get('custom_amount_reason', 'Member-specified contribution level')}"
-                member.fee_override_date = today()
-                # Also store in the application-specific field
-                member.application_custom_fee = custom_contribution_fee
-
-                # Use a safe fallback for fee_override_by - ensure the user exists
-                override_user = None
-
-                # Try current session user first
-                if frappe.session.user and frappe.session.user != "Guest":
-                    if frappe.db.exists("User", frappe.session.user):
-                        override_user = frappe.session.user
-
-                # Fallback to Administrator if it exists
-                if not override_user and frappe.db.exists("User", "Administrator"):
-                    override_user = "Administrator"
-
-                # Final fallback - find any valid user
-                if not override_user:
-                    first_user = frappe.db.get_value("User", {"enabled": 1}, "name")
-                    if first_user:
-                        override_user = first_user
-
-                # Only set fee_override_by if we found a valid user
-                # Keep the custom amount data regardless - it's valid even without approver info
-                if override_user:
-                    member.fee_override_by = override_user
-                else:
-                    # Log warning but keep the custom amount data - don't discard it
-                    frappe.log_error(
-                        "No valid user found for fee_override_by field - custom amount preserved without approver",
-                        "Fee Override User Warning",
-                    )
-                    # Note: We intentionally do NOT reset dues_rate, fee_override_reason, fee_override_date
-                    # The custom amount is valid even if we can't record who approved it
-
-            # Legacy JSON storage in notes removed - data now stored in proper fields
-        except Exception as e:
-            # Log the error for debugging but don't fail the submission
-            frappe.log_error(f"Error storing custom amount data: {str(e)}", "Custom Amount Storage Error")
+    # Handle custom membership amount using fee override fields
+    _apply_custom_contribution_fee(member, data, context_label="application")
 
     # Add chapter information to notes for approver visibility
     try:
@@ -762,34 +760,7 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     member._suppress_customer_messages = True
 
     # Handle custom membership amount
-    if data.get("custom_contribution_fee") or data.get("uses_custom_amount"):
-        try:
-            custom_contribution_fee = 0
-            if data.get("custom_contribution_fee"):
-                try:
-                    custom_contribution_fee = float(data.get("custom_contribution_fee"))
-                except (ValueError, TypeError) as e:
-                    frappe.logger().error(f"Error converting custom_contribution_fee: {str(e)}")
-                    custom_contribution_fee = 0
-
-            if custom_contribution_fee > 0:
-                member.dues_rate = custom_contribution_fee
-                member.fee_override_reason = f"Custom amount from reapplication: {data.get('custom_amount_reason', 'Member-specified contribution level')}"
-                member.fee_override_date = today()
-                member.application_custom_fee = custom_contribution_fee
-
-                # Set override user
-                override_user = None
-                if frappe.session.user and frappe.session.user != "Guest":
-                    if frappe.db.exists("User", frappe.session.user):
-                        override_user = frappe.session.user
-                if not override_user and frappe.db.exists("User", "Administrator"):
-                    override_user = "Administrator"
-                if override_user:
-                    member.fee_override_by = override_user
-
-        except Exception as e:
-            frappe.log_error(f"Error updating custom amount data: {str(e)}", "Custom Amount Update Error")
+    _apply_custom_contribution_fee(member, data, context_label="reapplication")
 
     # Save with proper permissions
     system_user = get_system_user_for_operation("member_reapplication_update")
