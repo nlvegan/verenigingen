@@ -663,18 +663,19 @@ No single source of truth for contribution bounds.
 
 The `frappe.log_error(f"Error in {op}: {str(e)}\n{traceback.format_exc()}", "...")` pattern appears 20+ times across the codebase with inconsistent formatting.
 
-### 4.6 `OperationResult` vs `create_service_result()` Inconsistency
+### 4.6 `OperationResult` vs `create_service_result()` Inconsistency — RESOLVED
 
 **Confidence:** 80/100
 
-Two competing return type patterns:
+Migrated all 3 service files (21 usages) from `create_service_result()` dicts to `OperationResult`:
+- `member_approval_service.py` — 4 calls migrated
+- `membership_duration_service.py` — 1 call migrated + 2 callers updated
+- `email_service.py` — 14 calls migrated + ~15 callers updated across 13 files (including 4 pre-existing bugs in member_subscribers.py fixed)
 
-| Pattern | Used by |
-|---------|---------|
-| `OperationResult.ok(data)` / `OperationResult.fail(msg)` | Lifecycle service, validation service, duplicate detection |
-| `create_service_result(success=True, data={...})` (plain dict) | Approval service, membership creation service |
+Also fixed `email_api.py` which was double-wrapping email results in `OperationResult.ok(dict_result)`.
+Net: -63 LOC across 22 files. `create_service_result()` is no longer imported by any of the 3 target files.
 
-Callers must know which pattern each function uses. Some services mix both.
+**Remaining:** `membership_creation_service.py` and `member_id_service.py` import `create_service_result` but don't call it (unused imports).
 
 ### 4.7 Circular Invocation in Event Emission — RESOLVED
 
@@ -827,7 +828,7 @@ Both are written on every state change (lines 3201-3210). Form data collection h
 | **Consolidate chapter membership**: Route all chapter operations through `ChapterMembershipManager`. Remove 4 standalone functions from `application_helpers.py`. | `application_helpers.py`, `member_lifecycle_service.py`, `membership_application_review.py` | Single chapter state machine |
 | **Single payment method source**: Create constants or config DocType. All layers import from there. | 4+ files | Eliminates name mismatches |
 | **Decide on fraud detection**: Implement stubs or gate behind feature flag. | `fraud_detection.py` | Eliminates false security |
-| **Unify return types**: Standardize on `OperationResult` everywhere. Remove `create_service_result()`. | Multiple service files | Predictable error handling |
+| ~~**Unify return types**: Standardize on `OperationResult` everywhere. Remove `create_service_result()`.~~ **DONE** | 22 files | Predictable error handling |
 
 ### Phase 4: Long-Term Architecture (ongoing)
 
