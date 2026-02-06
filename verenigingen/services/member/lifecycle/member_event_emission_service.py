@@ -135,11 +135,16 @@ class MemberEventEmissionService(StatelessService):
         Args:
             member_doc: The Member document
         """
+        from verenigingen.services.member.lifecycle.member_status_notification_service import (
+            get_member_status_notification_service,
+        )
+
         old_status = member_doc.get_db_value("status")
         new_status = member_doc.status
 
-        # Delegate to member's notification method (which uses MemberStatusNotificationService)
-        member_doc._send_member_status_notification(old_status, new_status)
+        get_member_status_notification_service().send_status_change_notification(
+            member_doc, old_status, new_status
+        )
 
 
 # Module-level singleton accessor
