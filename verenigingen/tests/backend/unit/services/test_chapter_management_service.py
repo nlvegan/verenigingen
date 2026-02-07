@@ -20,10 +20,25 @@ class TestChapterManagementService(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.service = ChapterManagementService()
+        # Ensure chapter management is enabled for tests that depend on it
+        self._original_chapter_mgmt = frappe.db.get_single_value(
+            "Verenigingen Settings", "enable_chapter_management"
+        )
+        if not self._original_chapter_mgmt:
+            frappe.db.set_single_value("Verenigingen Settings", "enable_chapter_management", 1)
+            frappe.db.commit()
+
+    def tearDown(self):
+        # Restore original setting
+        if not self._original_chapter_mgmt:
+            frappe.db.set_single_value(
+                "Verenigingen Settings", "enable_chapter_management", self._original_chapter_mgmt or 0
+            )
+            frappe.db.commit()
+        super().tearDown()
 
     def test_is_chapter_management_enabled_true(self):
         """Test that chapter management check returns True when enabled"""
-        # Chapter management is enabled by default in test settings
         result = self.service.is_chapter_management_enabled()
         self.assertTrue(result)
 
