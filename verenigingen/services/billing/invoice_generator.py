@@ -213,7 +213,7 @@ class InvoiceGenerator(StatelessService):
                 return OperationResult.fail(validation_error)
 
             # Phase 3: Account configuration - Get invoice accounts with fallbacks
-            income_account, expense_account, cost_center = self._get_invoice_accounts()
+            income_account, expense_account, cost_center = self._get_invoice_accounts(member_doc)
             if not income_account:
                 return OperationResult.fail(
                     "Income account not configured. Check Vereinigingen Settings and Company defaults."
@@ -347,9 +347,14 @@ class InvoiceGenerator(StatelessService):
 
         return None  # Validation passed
 
-    def _get_invoice_accounts(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    def _get_invoice_accounts(
+        self, member_doc: Any = None
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Get income account, expense account, and cost center with fallback logic.
+
+        Args:
+            member_doc: Optional member document for chapter cost center resolution
 
         Returns:
             Tuple of (income_account, expense_account, cost_center)
@@ -363,8 +368,8 @@ class InvoiceGenerator(StatelessService):
         # Get expense account with fallback
         expense_account = self._get_expense_account(company)
 
-        # Get cost center with fallback
-        cost_center = self._get_cost_center(company)
+        # Get cost center with fallback (chapter cost center has priority)
+        cost_center = self._get_cost_center(company, member_doc)
 
         return income_account, expense_account, cost_center
 
@@ -426,21 +431,34 @@ class InvoiceGenerator(StatelessService):
 
         return None
 
-    def _get_cost_center(self, company: str) -> Optional[str]:
-        """Get cost center with fallback logic"""
-        # First: Check if company has a default cost center
+    def _get_cost_center(self, company: str, member_doc: Any = None) -> Optional[str]:
+        """Get cost center with fallback logic.
+
+        Priority chain:
+        1. Member's chapter cost center (if member has an active chapter with a cost center)
+        2. Company default cost center
+        3. "Main" cost center for company
+        4. "Main - {abbr}" cost center
+        """
+        # First: Try member's chapter cost center
+        if member_doc:
+            chapter_cost_center = self._get_chapter_cost_center(member_doc.name)
+            if chapter_cost_center:
+                return chapter_cost_center
+
+        # Second: Check if company has a default cost center
         company_cost_center = frappe.db.get_value("Company", company, "cost_center")
         if company_cost_center and frappe.db.exists("Cost Center", company_cost_center):
             return company_cost_center
 
-        # Second: Search for Main cost center belonging to this company
+        # Third: Search for Main cost center belonging to this company
         cost_centers = frappe.get_all(
             "Cost Center", filters={"company": company, "cost_center_name": "Main"}, limit=1
         )
         if cost_centers:
             return cost_centers[0]["name"]
 
-        # Third: Try Main - [Company Abbreviation] but verify it belongs to this company
+        # Fourth: Try Main - [Company Abbreviation] but verify it belongs to this company
         abbr = frappe.db.get_value("Company", company, "abbr")
         if abbr:
             main_cost_center = f"Main - {abbr}"
@@ -450,6 +468,28 @@ class InvoiceGenerator(StatelessService):
                 return main_cost_center
 
         self.logger.warning(f"Could not find Main cost center for company {company}")
+        return None
+
+    def _get_chapter_cost_center(self, member_name: str) -> Optional[str]:
+        """Look up the cost center for a member's primary chapter.
+
+        Args:
+            member_name: Member document name
+
+        Returns:
+            Cost center name if found, None otherwise
+        """
+        from verenigingen.utils.chapter_utils import get_member_primary_chapter
+
+        chapter = get_member_primary_chapter(member_name)
+        if not chapter:
+            return None
+
+        cost_center = frappe.db.get_value("Chapter", chapter, "cost_center")
+        if cost_center and frappe.db.exists("Cost Center", cost_center):
+            self.logger.info(f"Using chapter cost center {cost_center} for member {member_name}")
+            return cost_center
+
         return None
 
     def _create_membership_dues_item(

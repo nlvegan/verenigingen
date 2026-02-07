@@ -120,58 +120,46 @@ class ChapterFinanceService(StatelessService):
             # Generate cost center name
             cost_center_name = f"{chapter_doc.name} - Chapter"
 
-            # Use transaction to prevent race conditions
-            frappe.db.begin()
-            try:
-                # Check if cost center already exists by name (within transaction)
-                existing_cost_center = frappe.db.exists(
-                    "Cost Center", {"cost_center_name": cost_center_name, "company": company}
+            # Check if cost center already exists by name (race condition safe via db_set)
+            existing_cost_center = frappe.db.exists(
+                "Cost Center", {"cost_center_name": cost_center_name, "company": company}
+            )
+            if existing_cost_center:
+                # Link existing cost center to chapter
+                chapter_doc.db_set("cost_center", existing_cost_center, update_modified=False)
+                self.logger.info(
+                    f"Linked existing cost center {existing_cost_center} to chapter {chapter_doc.name}"
                 )
-                if existing_cost_center:
-                    # Link existing cost center to chapter
-                    chapter_doc.db_set("cost_center", existing_cost_center, update_modified=False)
-                    self.logger.info(
-                        f"Linked existing cost center {existing_cost_center} to chapter {chapter_doc.name}"
-                    )
-                    frappe.db.commit()
-                    return
+                return
 
-                # Create new cost center
-                cost_center_doc = frappe.new_doc("Cost Center")
-                cost_center_doc.cost_center_name = cost_center_name
-                cost_center_doc.company = company
-                cost_center_doc.is_group = 0  # Individual cost center, not a group
+            # Create new cost center
+            cost_center_doc = frappe.new_doc("Cost Center")
+            cost_center_doc.cost_center_name = cost_center_name
+            cost_center_doc.company = company
+            cost_center_doc.is_group = 0  # Individual cost center, not a group
 
-                # Find appropriate parent cost center
-                parent_cost_center = self.get_appropriate_parent_cost_center(chapter_doc, company)
+            # Find appropriate parent cost center
+            parent_cost_center = self.get_appropriate_parent_cost_center(chapter_doc, company)
 
-                if parent_cost_center:
-                    cost_center_doc.parent_cost_center = parent_cost_center
+            if parent_cost_center:
+                cost_center_doc.parent_cost_center = parent_cost_center
 
-                # Use secure operation instead of ignore_permissions
-                result = secure_document_operation(
-                    operation="insert",
-                    doc=cost_center_doc,
-                    justification=f"Auto-create cost center for chapter {chapter_doc.name}",
-                    required_permissions=["Cost Center:create"],
+            # Use secure operation instead of ignore_permissions
+            result = secure_document_operation(
+                operation="insert",
+                doc=cost_center_doc,
+                justification=f"Auto-create cost center for chapter {chapter_doc.name}",
+                required_permissions=["Cost Center:create"],
+            )
+
+            if result.success:
+                # Link the created cost center to this chapter
+                chapter_doc.db_set("cost_center", cost_center_doc.name, update_modified=False)
+                self.logger.info(f"Created cost center {cost_center_doc.name} for chapter {chapter_doc.name}")
+            else:
+                self.logger.error(
+                    f"Failed to create cost center for chapter {chapter_doc.name}: {'; '.join(result.errors)}"
                 )
-
-                if result.success:
-                    # Link the created cost center to this chapter
-                    chapter_doc.db_set("cost_center", cost_center_doc.name, update_modified=False)
-                    self.logger.info(
-                        f"Created cost center {cost_center_doc.name} for chapter {chapter_doc.name}"
-                    )
-                    frappe.db.commit()
-                else:
-                    frappe.db.rollback()
-                    self.logger.error(
-                        f"Failed to create cost center for chapter {chapter_doc.name}: {'; '.join(result.errors)}"
-                    )
-
-            except Exception as transaction_error:
-                frappe.db.rollback()
-                raise transaction_error
 
         except Exception as e:
             self.logger.error(f"Error creating cost center for chapter {chapter_doc.name}: {str(e)}")
@@ -205,15 +193,14 @@ class ChapterFinanceService(StatelessService):
         company = frappe.db.get_single_value("Global Defaults", "default_company")
 
         if company:
-            # Validate the company exists and is active
-            company_data = frappe.db.get_value("Company", company, ["name", "disabled"], as_dict=True)
-            if company_data and not company_data.disabled:
+            # Validate the company exists (Company DocType has no 'disabled' field in ERPNext v15+)
+            if frappe.db.exists("Company", company):
                 return company
             else:
-                self.logger.warning(f"Default company {company} is disabled or doesn't exist")
+                self.logger.warning(f"Default company {company} doesn't exist")
 
         # Fallback: get first active company, but only if there's exactly one
-        active_companies = frappe.get_all("Company", filters={"disabled": 0}, pluck="name")
+        active_companies = frappe.get_all("Company", pluck="name")
 
         if len(active_companies) == 1:
             self.logger.info(
@@ -261,7 +248,7 @@ class ChapterFinanceService(StatelessService):
             # First try to find the company's root cost center (should be the company name itself)
             root_cost_centers = frappe.get_all(
                 "Cost Center",
-                filters={"company": company, "is_group": 1, "is_disabled": 0, "cost_center_name": company},
+                filters={"company": company, "is_group": 1, "disabled": 0, "cost_center_name": company},
                 fields=["name"],
                 limit=1,
             )
@@ -272,7 +259,7 @@ class ChapterFinanceService(StatelessService):
             # Fallback: find any active group cost center, preferring one with minimal hierarchy depth
             fallback_cost_centers = frappe.get_all(
                 "Cost Center",
-                filters={"company": company, "is_group": 1, "is_disabled": 0},
+                filters={"company": company, "is_group": 1, "disabled": 0},
                 fields=["name", "cost_center_name"],
                 order_by="lft asc",  # Use nested set ordering for proper hierarchy
                 limit=1,

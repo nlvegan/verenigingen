@@ -583,6 +583,10 @@ class DuesPaymentProcessor:
             invoice.custom_coverage_start_date = coverage_start
             invoice.custom_coverage_end_date = coverage_end
 
+            # Set membership invoice flag and member link
+            invoice.is_membership_invoice = 1
+            invoice.member = member_doc.name
+
             # Audit logging for historical backdating
             frappe.logger().warning(
                 f"HISTORICAL INVOICE CREATION: User {frappe.session.user} creating backdated invoice "
@@ -590,19 +594,23 @@ class DuesPaymentProcessor:
                 f"(today={date.today()}), coverage={coverage_start} to {coverage_end}, amount=€{amount}"
             )
 
+            # Resolve chapter cost center with company fallback
+            cost_center = self._resolve_chapter_cost_center(member_doc, settings.company)
+
             # Add item
             item_name = f"Membership Dues - {membership_type}"
-            invoice.append(
-                "items",
-                {
-                    "item_code": self._get_or_create_dues_item(item_name, settings.company, income_account),
-                    "qty": 1,
-                    "rate": amount,
-                    "income_account": income_account,
-                    "description": f"Membership dues for {member_doc.full_name} ({membership_type}) - Period: {coverage_start} to {coverage_end}",
-                },
-            )
+            item_dict = {
+                "item_code": self._get_or_create_dues_item(item_name, settings.company, income_account),
+                "qty": 1,
+                "rate": amount,
+                "income_account": income_account,
+                "description": f"Membership dues for {member_doc.full_name} ({membership_type}) - Period: {coverage_start} to {coverage_end}",
+            }
+            if cost_center:
+                item_dict["cost_center"] = cost_center
+            invoice.append("items", item_dict)
 
+            invoice.flags.ignore_links = True
             invoice.insert()
             invoice.submit()
             return invoice.name
@@ -646,6 +654,34 @@ class DuesPaymentProcessor:
             if existing_item:
                 return existing_item[0].name
             return "Membership Dues"  # Fallback to generic name
+
+    def _resolve_chapter_cost_center(self, member_doc: Any, company: str) -> Optional[str]:
+        """
+        Resolve the cost center for a member's primary chapter.
+
+        Falls back to company default cost center if no chapter cost center is found.
+
+        Args:
+            member_doc: Member document instance
+            company: Company name for fallback
+
+        Returns:
+            Cost center name, or None if neither chapter nor company has one configured
+        """
+        from verenigingen.utils.chapter_utils import get_member_primary_chapter
+
+        chapter = get_member_primary_chapter(member_doc.name)
+        if chapter:
+            cost_center = frappe.db.get_value("Chapter", chapter, "cost_center")
+            if cost_center and frappe.db.exists("Cost Center", cost_center):
+                return cost_center
+
+        # Fallback to company default
+        company_cost_center = frappe.db.get_value("Company", company, "cost_center")
+        if company_cost_center and frappe.db.exists("Cost Center", company_cost_center):
+            return company_cost_center
+
+        return None
 
     def process_dues_payment(
         self,
