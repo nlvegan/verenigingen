@@ -102,20 +102,23 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
                 },
             )
 
-            # Add to cache after successful append (save still pending)
-            cache.add(history_key)
-
             frappe.logger().info(
                 f"Added membership history for member {member_id}: {assignment_type} at {chapter_name} with status {status}"
             )
             return None  # save needed
 
-        return ChapterMembershipHistoryManager._with_doc(
+        success = ChapterMembershipHistoryManager._with_doc(
             member_id,
             f"add chapter membership history: {assignment_type} at {chapter_name}",
             _callback,
             error_title="Chapter Membership History Add Failed",
         )
+
+        # Only cache after save succeeds to avoid stale cache on save failure
+        if success:
+            cache.add(history_key)
+
+        return success
 
     @staticmethod
     def end_chapter_membership(
@@ -296,7 +299,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
                 )
                 return None  # save needed
 
-            frappe.logger().info(
+            frappe.logger().warning(
                 f"Membership to remove not found for member {member_id}: {assignment_type} at {chapter_name}"
             )
             return False  # not found

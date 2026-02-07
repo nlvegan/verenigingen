@@ -286,7 +286,7 @@ class AssignmentHistoryManager(BaseHistoryManager):
                 )
                 return None  # save needed
 
-            frappe.logger().info(
+            frappe.logger().warning(
                 f"Assignment to remove not found for volunteer {volunteer_id}: {assignment_type} - {role}"
             )
             return False  # not found

@@ -4,7 +4,10 @@
 # safe saves, and error handling from AssignmentHistoryManager and
 # ChapterMembershipHistoryManager.
 
+from typing import Callable, Optional
+
 import frappe
+from frappe.model.document import Document
 
 from verenigingen.utils.history_manager_utils import (
     ensure_doc_exists,
@@ -30,7 +33,13 @@ class BaseHistoryManager:
     RECURSION_FLAG: str = ""
 
     @classmethod
-    def _with_doc(cls, doc_name, operation_name, callback, error_title="History Manager Error"):
+    def _with_doc(
+        cls,
+        doc_name: str,
+        operation_name: str,
+        callback: Callable[[Document], Optional[bool]],
+        error_title: str = "History Manager Error",
+    ) -> bool:
         """Execute *callback(doc)* with existence check, recursion guard, and safe save.
 
         Callback protocol – return value determines post-callback behaviour:
