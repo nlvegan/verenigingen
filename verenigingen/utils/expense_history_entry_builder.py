@@ -19,8 +19,6 @@ class ExpenseHistoryEntryBuilder:
     direct use from batch processors without loading the full Member document.
     """
 
-    VALID_PAYMENT_STATUSES = {"Pending", "Paid", "Draft"}
-
     @staticmethod
     def build_from_expense_doc(expense_doc, member_name: str) -> Dict[str, Any]:
         """

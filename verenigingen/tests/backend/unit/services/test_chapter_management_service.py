@@ -9,7 +9,7 @@ Uses EnhancedTestCase for proper test data management.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+
 from verenigingen.services.member.chapter import ChapterManagementService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -29,12 +29,11 @@ class TestChapterManagementService(EnhancedTestCase):
             frappe.db.commit()
 
     def tearDown(self):
-        # Restore original setting
-        if not self._original_chapter_mgmt:
-            frappe.db.set_single_value(
-                "Verenigingen Settings", "enable_chapter_management", self._original_chapter_mgmt or 0
-            )
-            frappe.db.commit()
+        # Always restore original setting (could be 0 or None)
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "enable_chapter_management", self._original_chapter_mgmt or 0
+        )
+        frappe.db.commit()
         super().tearDown()
 
     def test_is_chapter_management_enabled_true(self):

@@ -1,6 +1,7 @@
 # Assignment History Manager - Centralized volunteer assignment tracking
 
 import frappe
+from frappe.utils import getdate
 
 from verenigingen.utils.base_history_manager import BaseHistoryManager
 from verenigingen.utils.history_manager_utils import (
@@ -166,7 +167,7 @@ class AssignmentHistoryManager(BaseHistoryManager):
             )
 
             if existing_completed:
-                if str(existing_completed.end_date) != str(end_date):
+                if getdate(existing_completed.end_date) != getdate(end_date):
                     existing_completed.end_date = end_date
                     frappe.logger().info(
                         f"Updated end_date for existing completed assignment for volunteer {volunteer_id}"
