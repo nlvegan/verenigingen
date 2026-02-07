@@ -119,7 +119,7 @@ class BoardManager(BaseManager):
 
             # Send notification
             if notify:
-                self._notify_board_member_added(volunteer, role)
+                self.chapter_doc.communication_manager.notify_board_member_added(volunteer, role)
 
             self.log_action(
                 "Board member added",
@@ -209,7 +209,7 @@ class BoardManager(BaseManager):
 
             # Send notification
             if notify:
-                self._notify_board_member_removed(volunteer)
+                self.chapter_doc.communication_manager.notify_board_member_removed(volunteer)
 
             self.log_action(
                 "Board member removed",
@@ -280,7 +280,7 @@ class BoardManager(BaseManager):
             )
 
             # Send single notification for the transition
-            self._notify_role_transition(volunteer, current_role, new_role)
+            self.chapter_doc.communication_manager.notify_role_transition(volunteer, current_role, new_role)
 
             self.log_action(
                 "Board role transition",
@@ -1095,99 +1095,6 @@ class BoardManager(BaseManager):
             self.log_action(
                 "Error updating volunteer assignment history",
                 {"volunteer": volunteer_id, "role": role},
-                "error",
-            )
-
-    def _notify_board_member_added(self, volunteer: str, role: str):
-        """Send notification when a volunteer is added to the board"""
-        try:
-            volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-
-            if not volunteer_doc.member:
-                return
-
-            member_doc = frappe.get_doc("Member", volunteer_doc.member)
-
-            if not member_doc.email:
-                return
-
-            context = {
-                "member": member_doc,
-                "volunteer": volunteer_doc,
-                "chapter": self.chapter_doc,
-                "role": role,
-            }
-
-            self.send_notification(
-                "board_member_added",
-                [member_doc.email],
-                context,
-                f"Board Role Assignment: {self.chapter_name}",
-                notification_key="chapter_board_added",
-            )
-
-        except Exception as e:
-            self.log_action(
-                "Failed to send board member added notification",
-                {"volunteer": volunteer, "error": str(e)},
-                "error",
-            )
-
-    def _notify_board_member_removed(self, volunteer: str):
-        """Send notification when a volunteer is removed from the board"""
-        try:
-            volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-
-            if not volunteer_doc.member:
-                return
-
-            member_doc = frappe.get_doc("Member", volunteer_doc.member)
-
-            if not member_doc.email:
-                return
-
-            context = {"member": member_doc, "volunteer": volunteer_doc, "chapter": self.chapter_doc}
-
-            self.send_notification(
-                "board_member_removed", [member_doc.email], context, f"Board Role Ended: {self.chapter_name}"
-            )
-
-        except Exception as e:
-            self.log_action(
-                "Failed to send board member removed notification",
-                {"volunteer": volunteer, "error": str(e)},
-                "error",
-            )
-
-    def _notify_role_transition(self, volunteer: str, old_role: str, new_role: str):
-        """Send notification for role transition"""
-        try:
-            volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-
-            if not volunteer_doc.member:
-                return
-
-            member_doc = frappe.get_doc("Member", volunteer_doc.member)
-
-            if not member_doc.email:
-                return
-
-            context = {
-                "member": member_doc,
-                "volunteer": volunteer_doc,
-                "chapter": self.chapter_doc,
-                "old_role": old_role,
-                "new_role": new_role,
-            }
-
-            self.send_notification(
-                "board_role_transition", [member_doc.email], context, f"Role Transition: {self.chapter_name}"
-            )
-
-        except Exception as e:
-            self.log_action(
-                "Failed to send role transition notification",
-                {"volunteer": volunteer, "old_role": old_role, "new_role": new_role, "error": str(e)},
                 "error",
             )
 

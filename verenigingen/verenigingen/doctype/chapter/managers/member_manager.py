@@ -203,7 +203,7 @@ class MemberManager(BaseManager):
             # Send notification - don't fail member addition if this fails
             if notify:
                 try:
-                    self._notify_member_added(member_id)
+                    self.chapter_doc.communication_manager.notify_member_added(member_id)
                 except Exception as e:
                     # Log but don't fail - notification failures shouldn't prevent member addition
                     frappe.logger().warning(f"Failed to send notification for member {member_id}: {str(e)}")
@@ -653,7 +653,7 @@ class MemberManager(BaseManager):
             # Send notification - don't fail member removal if this fails
             if notify:
                 try:
-                    self._notify_member_removed(member_id, leave_reason)
+                    self.chapter_doc.communication_manager.notify_member_removed(member_id, leave_reason)
                 except Exception as e:
                     # Log but don't fail - notification failures shouldn't prevent removal
                     frappe.logger().warning(
@@ -1086,47 +1086,6 @@ class MemberManager(BaseManager):
         )
 
         return url_pattern.match(url) is not None
-
-    def _notify_member_added(self, member_id: str):
-        """Send notification when member is added"""
-        try:
-            member_doc = frappe.get_doc("Member", member_id)
-
-            if not member_doc.email:
-                return
-
-            context = {"member": member_doc, "chapter": self.chapter_doc}
-
-            self.send_notification(
-                "member_added_to_chapter", [member_doc.email], context, f"Welcome to {self.chapter_name}"
-            )
-
-        except Exception as e:
-            self.log_action(
-                "Failed to send member added notification", {"member": member_id, "error": str(e)}, "error"
-            )
-
-    def _notify_member_removed(self, member_id: str, reason: str = None):
-        """Send notification when member is removed"""
-        try:
-            member_doc = frappe.get_doc("Member", member_id)
-
-            if not member_doc.email:
-                return
-
-            context = {"member": member_doc, "chapter": self.chapter_doc, "reason": reason}
-
-            self.send_notification(
-                "member_removed_from_chapter",
-                [member_doc.email],
-                context,
-                f"Chapter Membership Update: {self.chapter_name}",
-            )
-
-        except Exception as e:
-            self.log_action(
-                "Failed to send member removed notification", {"member": member_id, "error": str(e)}, "error"
-            )
 
     def get_summary(self) -> Dict:
         """
