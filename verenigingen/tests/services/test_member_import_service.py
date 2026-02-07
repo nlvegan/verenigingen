@@ -159,14 +159,12 @@ class TestMemberImportServiceBulkContext(FrappeTestCase):
         """Clean up after tests."""
         # Restore original flag state
         if self._original_bulk_member is None:
-            if hasattr(frappe.flags, "bulk_member_operations"):
-                delattr(frappe.flags, "bulk_member_operations")
+            frappe.flags.pop("bulk_member_operations", None)
         else:
             frappe.flags.bulk_member_operations = self._original_bulk_member
 
         if self._original_in_bulk is None:
-            if hasattr(frappe.flags, "in_bulk_import"):
-                delattr(frappe.flags, "in_bulk_import")
+            frappe.flags.pop("in_bulk_import", None)
         else:
             frappe.flags.in_bulk_import = self._original_in_bulk
 
@@ -175,10 +173,8 @@ class TestMemberImportServiceBulkContext(FrappeTestCase):
     def test_bulk_context_sets_flags_when_missing(self):
         """Test that _bulk_context sets flags when they are not present."""
         # Ensure flags are not set
-        if hasattr(frappe.flags, "bulk_member_operations"):
-            delattr(frappe.flags, "bulk_member_operations")
-        if hasattr(frappe.flags, "in_bulk_import"):
-            delattr(frappe.flags, "in_bulk_import")
+        frappe.flags.pop("bulk_member_operations", None)
+        frappe.flags.pop("in_bulk_import", None)
 
         with self.service._bulk_context():
             # Flags should be set inside context
@@ -222,8 +218,7 @@ class TestMemberImportServiceBulkContext(FrappeTestCase):
     def test_bulk_context_restores_flags_on_exception(self):
         """Test that _bulk_context restores flags even when exception occurs."""
         # Ensure flags are not set
-        if hasattr(frappe.flags, "bulk_member_operations"):
-            delattr(frappe.flags, "bulk_member_operations")
+        frappe.flags.pop("bulk_member_operations", None)
 
         try:
             with self.service._bulk_context():
@@ -290,6 +285,7 @@ class TestMemberImportServiceTOCTOU(FrappeTestCase):
                 "doctype": "Member",
                 "first_name": "TOCTOU",
                 "last_name": "Test",
+                "full_name": "TOCTOU Test",
                 "email": unique_email,
                 "member_id": unique_id,
                 "status": "Pending",

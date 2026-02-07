@@ -290,8 +290,7 @@ class MemberImportService(StatelessService):
             for flag_name, previous_value in previous_values.items():
                 if previous_value is None:
                     # Flag didn't exist before, remove it
-                    if hasattr(frappe.flags, flag_name):
-                        delattr(frappe.flags, flag_name)
+                    frappe.flags.pop(flag_name, None)
                 else:
                     setattr(frappe.flags, flag_name, previous_value)
 
