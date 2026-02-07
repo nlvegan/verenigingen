@@ -189,6 +189,9 @@ class MijnRoodEventApplicationService(StatefulService):
                 "message": _("No linked member found for MijnRood ID {0}").format(new_data.get("id")),
             }
 
+        # Handle chapter transfer if division_id changed
+        chapter_result = self._handle_chapter_transfer(member_name, changed_fields, event)
+
         row_data = self._map_mijnrood_to_member_fields(new_data)
 
         from verenigingen.services.csv_import.member_import_service import get_member_import_service
@@ -199,9 +202,14 @@ class MijnRoodEventApplicationService(StatefulService):
             import_doc_name=f"MijnRood Sync: {event.name}",
         )
 
+        messages = []
+        if chapter_result:
+            messages.append(chapter_result)
+
         if status in ("created", "updated"):
             event.linked_member = updated_name
-            return {"success": True, "message": _("Member {0} updated").format(updated_name)}
+            messages.append(_("Member {0} updated").format(updated_name))
+            return {"success": True, "message": "; ".join(messages)}
         else:
             return {"success": False, "message": _("Member update {0}").format(status)}
 
@@ -371,6 +379,74 @@ class MijnRoodEventApplicationService(StatefulService):
                 division_name
             ),
         }
+
+    # ─── Chapter transfer ───────────────────────────────────────────
+
+    def _handle_chapter_transfer(self, member_name: str, changed_fields: list, event) -> Optional[str]:
+        """If division_id changed, reassign the member to the new chapter.
+
+        Returns a human-readable message, or None if no transfer was needed.
+        """
+        division_change = None
+        for change in changed_fields:
+            if change.get("field") == "division_id":
+                division_change = change
+                break
+
+        if not division_change:
+            return None
+
+        new_division_id = self._safe_int(division_change.get("new"))
+        if new_division_id is None:
+            return None
+
+        chapter_name = self._resolve_division_id(new_division_id)
+        if not chapter_name:
+            return _("Division ID {0} does not match any Chapter").format(new_division_id)
+
+        if not frappe.db.exists("Chapter", chapter_name):
+            return _("Chapter '{0}' does not exist in Frappe").format(chapter_name)
+
+        from verenigingen.services.chapter.chapter_assignment_service import (
+            ChapterAssignmentService,
+        )
+
+        service = ChapterAssignmentService()
+        try:
+            result = service.assign_with_cleanup(
+                member=member_name,
+                chapter=chapter_name,
+                note=f"MijnRood sync: division changed (event {event.name})",
+            )
+        except Exception as e:
+            self.logger.warning("Chapter transfer error for %s: %s", member_name, e)
+            return _("Chapter transfer error: {0}").format(str(e))
+
+        if result.get("success"):
+            self.logger.info(
+                "Transferred member %s to chapter %s",
+                member_name,
+                chapter_name,
+            )
+            return _("Transferred to chapter '{0}'").format(chapter_name)
+        else:
+            return _("Chapter transfer failed: {0}").format(result.get("message", "unknown"))
+
+    def _resolve_division_id(self, division_id: int) -> Optional[str]:
+        """Resolve a MijnRood division_id to a Chapter name.
+
+        Looks up the division name from stored sync state, which holds
+        the raw admin_division data including the 'name' field.
+        """
+        state = frappe.db.get_value(
+            "MijnRood Sync State",
+            {"mijnrood_table": "admin_division", "mijnrood_row_id": division_id},
+            "raw_data",
+        )
+        if state:
+            data = json.loads(state)
+            return data.get("name")
+        return None
 
     def _map_mijnrood_to_member_fields(self, mijnrood_data: dict) -> dict:
         """Map MijnRood database row to intermediate field names.
