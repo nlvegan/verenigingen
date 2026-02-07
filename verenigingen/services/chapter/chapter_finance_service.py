@@ -168,27 +168,31 @@ class ChapterFinanceService(StatelessService):
                 )
             else:
                 # Insert failed — possibly a concurrent process created the CC.
-                # Re-check existence before logging as a hard failure.
-                concurrent_cc = frappe.db.exists(
+                # Use get_value (not db.exists) to guarantee we get the name string.
+                concurrent_cc = frappe.db.get_value(
                     "Cost Center",
                     {"cost_center_name": cost_center_name, "company": company},
+                    "name",
                 )
                 if concurrent_cc:
                     chapter_doc.db_set(
                         "cost_center", concurrent_cc, update_modified=False
                     )
                     self.logger.info(
-                        f"Linked cost center {concurrent_cc} created concurrently "
-                        f"for chapter {chapter_doc.name}"
+                        f"[CHAPTER-CC-CREATE] Linked cost center {concurrent_cc} "
+                        f"created concurrently for chapter {chapter_doc.name}"
                     )
                 else:
                     self.logger.error(
-                        f"Failed to create cost center for chapter {chapter_doc.name}: "
-                        f"{'; '.join(result.errors)}"
+                        f"[CHAPTER-CC-CREATE-ERR] Failed to create cost center "
+                        f"for chapter {chapter_doc.name}: {'; '.join(result.errors)}"
                     )
 
         except Exception as e:
-            self.logger.error(f"Error creating cost center for chapter {chapter_doc.name}: {str(e)}")
+            self.logger.error(
+                f"[CHAPTER-CC-CREATE-ERR] Error creating cost center "
+                f"for chapter {chapter_doc.name}: {str(e)}"
+            )
             # Don't fail chapter creation if cost center creation fails
 
     def get_validated_company(self, chapter_doc: "Document") -> Optional[str]:

@@ -261,6 +261,23 @@ class TestCreateChapterCostCenter(unittest.TestCase):
         # Should NOT have linked anything
         chapter.db_set.assert_not_called()
 
+    @patch("verenigingen.services.chapter.chapter_finance_service.frappe")
+    def test_swallows_secure_op_exception_without_partial_state(self, mock_frappe):
+        """When secure_document_operation raises, should not leave partial state."""
+        chapter = _make_chapter()
+        mock_frappe.db.exists.return_value = False
+        mock_frappe.new_doc.return_value = MagicMock()
+
+        with patch.object(self.svc, "get_validated_company", return_value="TestCo"), \
+             patch.object(self.svc, "get_appropriate_parent_cost_center", return_value="Root"), \
+             patch(
+                 "verenigingen.utils.secure_operations.secure_document_operation",
+                 side_effect=RuntimeError("unexpected secure_op crash"),
+             ):
+            self.svc.create_chapter_cost_center(chapter)
+
+        chapter.db_set.assert_not_called()
+
     def test_does_not_raise_on_error(self):
         """Errors during creation should be swallowed (non-fatal)."""
         chapter = _make_chapter()

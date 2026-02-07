@@ -610,6 +610,9 @@ class DuesPaymentProcessor:
                 item_dict["cost_center"] = cost_center
             invoice.append("items", item_dict)
 
+            # Skip link validation on insert: custom Link fields (member, cost_center)
+            # are pre-validated above but Frappe's insert-time link check silently
+            # clears them when the target DocType uses non-standard naming.
             invoice.flags.ignore_links = True
             invoice.insert()
             invoice.submit()
