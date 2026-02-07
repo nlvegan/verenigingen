@@ -5,7 +5,6 @@ Utility functions for managing IBAN history for members
 """
 
 import frappe
-from frappe import _
 from frappe.utils import today
 
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -78,8 +77,7 @@ def create_initial_iban_history(member_name):
 
         return {
             "success": True,
-            "message": "Initial IBAN history created for {member_name}",
-            "history_name": history_doc.name,
+            "message": f"Initial IBAN history created for {member_name}",
         }
 
     except Exception as e:
@@ -122,70 +120,3 @@ def get_iban_history(member_name):
     except Exception as e:
         frappe.logger().error(f"Error fetching IBAN history for {member_name}: {str(e)}")
         return []
-
-
-def track_iban_change(member_doc):
-    """
-    Track IBAN change for a member (called from payment_mixin)
-
-    Args:
-        member_doc: Member document object
-    """
-    try:
-        # Get old IBAN from database
-        old_iban = frappe.db.get_value("Member", member_doc.name, "iban")
-
-        if old_iban and old_iban != member_doc.iban:
-            # Close the previous IBAN history record
-            history_records = frappe.get_all(
-                "Member IBAN History", filters={"parent": member_doc.name, "is_active": 1}, fields=["name"]
-            )
-
-            for record in history_records:
-                frappe.db.set_value("Member IBAN History", record.name, {"is_active": 0, "to_date": today()})
-
-            # Add new IBAN history record via parent document
-            member_doc.append(
-                "iban_history",
-                {
-                    "iban": member_doc.iban,
-                    "bic": getattr(member_doc, "bic", None),
-                    "bank_account_name": getattr(member_doc, "bank_account_name", None),
-                    "from_date": today(),
-                    "is_active": 1,
-                    "changed_by": frappe.session.user,
-                    "change_reason": "Bank Change",
-                },
-            )
-
-            # CORRECTED SECURE VERSION: Use robust child table operation with explicit permission validation
-            result = secure_document_operation(
-                operation="update_child_table",
-                doc=member_doc,
-                justification=f"Update IBAN history for member {member_doc.name} - financial information change tracking",
-                required_permissions=["Member:write"],
-                allow_system_user=True,  # Allow system user for automated financial data tracking
-                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to update IBAN history for member {member_doc.name}: {'; '.join(result.errors)}"
-                )
-                return {"success": False, "message": f"Failed to save member: {'; '.join(result.errors)}"}
-
-            # Log the change
-            frappe.logger().info(
-                "IBAN changed for member {member_doc.name} from {old_iban} to {member_doc.iban}"
-            )
-
-            # Check if SEPA mandates need to be updated
-            if hasattr(member_doc, "payment_method") and member_doc.payment_method == "SEPA Direct Debit":
-                frappe.msgprint(
-                    _("IBAN has been changed. Please review SEPA mandates as they may need to be updated."),
-                    indicator="orange",
-                    alert=True,
-                )
-
-    except Exception as e:
-        frappe.logger().error(f"Error tracking IBAN change for member {member_doc.name}: {str(e)}")

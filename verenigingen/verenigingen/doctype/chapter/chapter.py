@@ -337,8 +337,8 @@ class Chapter(Document):
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def update_volunteer_assignment_history(self, volunteer_id, role, start_date, end_date):
-        """Update volunteer assignment history - delegates to BoardManager"""
-        return self.board_manager.update_volunteer_assignment_history(
+        """Update volunteer assignment history - delegates to VolunteerIntegrationManager"""
+        return self.volunteer_integration_manager.update_volunteer_assignment_history(
             volunteer_id, role, start_date, end_date
         )
 

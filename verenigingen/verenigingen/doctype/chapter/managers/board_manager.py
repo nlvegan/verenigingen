@@ -359,7 +359,7 @@ class BoardManager(BaseManager):
                             processed_count += 1
 
                             # Update volunteer assignment history
-                            self.update_volunteer_assignment_history(
+                            self.chapter_doc.volunteer_integration_manager.update_volunteer_assignment_history(
                                 history_data["volunteer"],
                                 history_data["chapter_role"],
                                 history_data["from_date"],
@@ -459,7 +459,7 @@ class BoardManager(BaseManager):
                             processed_count += 1
 
                             # Update volunteer assignment history
-                            self.update_volunteer_assignment_history(
+                            self.chapter_doc.volunteer_integration_manager.update_volunteer_assignment_history(
                                 board_member.volunteer,
                                 board_member.chapter_role,
                                 board_member.from_date,
@@ -759,7 +759,7 @@ class BoardManager(BaseManager):
                 change_date = today()
 
                 # Complete old role assignment
-                self.update_volunteer_assignment_history(
+                self.chapter_doc.volunteer_integration_manager.update_volunteer_assignment_history(
                     board_member.volunteer,
                     old_board_member.chapter_role,  # Use old role
                     board_member.from_date,
@@ -767,7 +767,7 @@ class BoardManager(BaseManager):
                 )
 
                 # Start new role assignment
-                self.add_volunteer_assignment_history(
+                self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
                     board_member.volunteer, board_member.chapter_role, change_date  # Use new role
                 )
 
@@ -789,7 +789,7 @@ class BoardManager(BaseManager):
                     board_member.to_date = today()
 
                 # Update volunteer assignment history
-                self.update_volunteer_assignment_history(
+                self.chapter_doc.volunteer_integration_manager.update_volunteer_assignment_history(
                     board_member.volunteer,
                     board_member.chapter_role,
                     board_member.from_date,
@@ -837,7 +837,7 @@ class BoardManager(BaseManager):
                 end_date = today()
 
                 # Update volunteer assignment history
-                self.update_volunteer_assignment_history(
+                self.chapter_doc.volunteer_integration_manager.update_volunteer_assignment_history(
                     old_board_member.volunteer,
                     old_board_member.chapter_role,
                     old_board_member.from_date,
@@ -865,7 +865,7 @@ class BoardManager(BaseManager):
             # For new chapters, add all active board members to history
             for board_member in self.chapter_doc.board_members or []:
                 if board_member.is_active and board_member.volunteer:
-                    self.add_volunteer_assignment_history(
+                    self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
                         board_member.volunteer, board_member.chapter_role, board_member.from_date
                     )
             return
@@ -880,7 +880,7 @@ class BoardManager(BaseManager):
             current_key = (board_member.volunteer, board_member.chapter_role)
             if board_member.is_active and board_member.volunteer and current_key not in old_board_member_keys:
                 # Add volunteer assignment history
-                self.add_volunteer_assignment_history(
+                self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
                     board_member.volunteer, board_member.chapter_role, board_member.from_date
                 )
 
@@ -1044,59 +1044,6 @@ class BoardManager(BaseManager):
             if board_member.volunteer == volunteer and board_member.is_active:
                 return board_member
         return None
-
-    def add_volunteer_assignment_history(self, volunteer_id: str, role: str, start_date: str):
-        """Add active assignment to volunteer history when joining board"""
-        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
-
-        success = AssignmentHistoryManager.add_assignment_history(
-            volunteer_id=volunteer_id,
-            assignment_type="Board Position",
-            reference_doctype="Chapter",
-            reference_name=self.chapter_name,
-            role=role,
-            start_date=start_date,
-        )
-
-        if success:
-            self.log_action(
-                "Added volunteer assignment history",
-                {"volunteer": volunteer_id, "role": role, "start_date": start_date},
-            )
-        else:
-            self.log_action(
-                "Error adding volunteer assignment history",
-                {"volunteer": volunteer_id, "role": role},
-                "error",
-            )
-
-    def update_volunteer_assignment_history(
-        self, volunteer_id: str, role: str, start_date: str, end_date: str
-    ):
-        """Update volunteer assignment history when removing from board"""
-        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
-
-        success = AssignmentHistoryManager.complete_assignment_history(
-            volunteer_id=volunteer_id,
-            assignment_type="Board Position",
-            reference_doctype="Chapter",
-            reference_name=self.chapter_name,
-            role=role,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        if success:
-            self.log_action(
-                "Updated volunteer assignment history",
-                {"volunteer": volunteer_id, "role": role, "start_date": start_date, "end_date": end_date},
-            )
-        else:
-            self.log_action(
-                "Error updating volunteer assignment history",
-                {"volunteer": volunteer_id, "role": role},
-                "error",
-            )
 
     def _is_chair_role(self, role_name: str) -> bool:
         """Check if a role is a chair role"""
