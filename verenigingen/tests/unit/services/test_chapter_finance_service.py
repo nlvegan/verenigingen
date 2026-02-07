@@ -214,6 +214,53 @@ class TestCreateChapterCostCenter(unittest.TestCase):
             "cost_center", mock_cc_doc.name, update_modified=False
         )
 
+    @patch("verenigingen.services.chapter.chapter_finance_service.frappe")
+    def test_links_concurrent_cc_on_insert_failure(self, mock_frappe):
+        """When insert fails but a CC was created concurrently, should link it."""
+        chapter = _make_chapter()
+
+        # db.exists calls: (1) CC name-check → False, (2) post-failure re-check → found
+        # Note: skip-check at top doesn't call db.exists because chapter.cost_center is None
+        mock_frappe.db.exists.side_effect = [False, "Concurrent-CC-001"]
+
+        mock_cc_doc = MagicMock()
+        mock_cc_doc.name = "Test-Chapter-001 - Chapter - TC"
+        mock_frappe.new_doc.return_value = mock_cc_doc
+
+        with patch.object(self.svc, "get_validated_company", return_value="TestCo"), \
+             patch.object(self.svc, "get_appropriate_parent_cost_center", return_value="Root - TC"), \
+             patch(
+                 "verenigingen.utils.secure_operations.secure_document_operation",
+                 return_value=_make_secure_result(success=False, errors=["duplicate"]),
+             ):
+            self.svc.create_chapter_cost_center(chapter)
+
+        # Should have linked the concurrently-created CC
+        chapter.db_set.assert_called_once_with(
+            "cost_center", "Concurrent-CC-001", update_modified=False
+        )
+
+    @patch("verenigingen.services.chapter.chapter_finance_service.frappe")
+    def test_logs_error_on_insert_failure_with_no_concurrent_cc(self, mock_frappe):
+        """When insert fails and no concurrent CC exists, should log error."""
+        chapter = _make_chapter()
+        mock_frappe.db.exists.return_value = False
+
+        mock_cc_doc = MagicMock()
+        mock_cc_doc.name = "Test-Chapter-001 - Chapter - TC"
+        mock_frappe.new_doc.return_value = mock_cc_doc
+
+        with patch.object(self.svc, "get_validated_company", return_value="TestCo"), \
+             patch.object(self.svc, "get_appropriate_parent_cost_center", return_value="Root - TC"), \
+             patch(
+                 "verenigingen.utils.secure_operations.secure_document_operation",
+                 return_value=_make_secure_result(success=False, errors=["permission denied"]),
+             ):
+            self.svc.create_chapter_cost_center(chapter)
+
+        # Should NOT have linked anything
+        chapter.db_set.assert_not_called()
+
     def test_does_not_raise_on_error(self):
         """Errors during creation should be swallowed (non-fatal)."""
         chapter = _make_chapter()

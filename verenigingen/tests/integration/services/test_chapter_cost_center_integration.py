@@ -386,3 +386,31 @@ class TestChapterCostCenterMolliePath(EnhancedTestCase):
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
         self.assertEqual(len(invoice.items), 1)
         self.assertEqual(invoice.items[0].cost_center, cc_name)
+
+    def test_create_simple_invoice_succeeds_without_any_cost_center(self):
+        """_create_simple_invoice should succeed even when no cost center is configured."""
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        # Member has no chapter → no chapter CC.  Company may or may not have a default.
+        settings = frappe.get_single("Verenigingen Settings")
+        membership_type = settings.default_membership_type
+        if not membership_type:
+            self.skipTest("No default_membership_type configured in Verenigingen Settings")
+
+        processor = DuesPaymentProcessor.__new__(DuesPaymentProcessor)
+
+        invoice_name = processor._create_simple_invoice(
+            member_doc=self.member,
+            membership_type=membership_type,
+            coverage_start=date(2025, 7, 1),
+            coverage_end=date(2025, 9, 30),
+            amount=25.0,
+            payment_date=date(2025, 7, 15),
+        )
+
+        self.assertIsNotNone(invoice_name, "Invoice creation should succeed without a cost center")
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        self.assertEqual(invoice.is_membership_invoice, 1)
+        self.assertEqual(invoice.member, self.member.name)

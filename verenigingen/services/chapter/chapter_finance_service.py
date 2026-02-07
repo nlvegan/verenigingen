@@ -81,17 +81,25 @@ class ChapterFinanceService(StatelessService):
             Required permissions:
             - Cost Center:create for new cost center creation
 
-        Transaction Safety:
-            Uses explicit transaction handling (begin/commit/rollback) to prevent
-            race conditions when multiple processes attempt to create the same
-            cost center simultaneously.
+        Concurrency:
+            Runs inside the caller's transaction (typically after_insert).
+            If a concurrent process creates the same cost center between our
+            existence check and our insert attempt, the insert will fail.
+            On failure we re-check for an existing CC and link it, so the
+            chapter always ends up with the correct cost center.
+
+        Naming Convention:
+            Cost centers are named "{chapter_doc.name} - Chapter".  This is
+            the canonical pattern used by the auto-create path.  Integration
+            tests that create cost centers manually may use other patterns
+            (e.g. "{chapter.name} - {company_abbr}") for their own purposes.
 
         Business Logic:
             - Skips if cost center already exists and is linked
             - Validates company before creation
-            - Generates cost center name: "{chapter_name} - Chapter"
-            - Links existing cost center if found during transaction
+            - Links existing cost center if found by naming pattern
             - Creates new cost center with appropriate parent
+            - On insert failure, re-checks for concurrent creation and links
             - Links cost center to chapter on success
             - Non-fatal: Logs error but doesn't fail chapter creation
 
@@ -155,11 +163,29 @@ class ChapterFinanceService(StatelessService):
             if result.success:
                 # Link the created cost center to this chapter
                 chapter_doc.db_set("cost_center", cost_center_doc.name, update_modified=False)
-                self.logger.info(f"Created cost center {cost_center_doc.name} for chapter {chapter_doc.name}")
-            else:
-                self.logger.error(
-                    f"Failed to create cost center for chapter {chapter_doc.name}: {'; '.join(result.errors)}"
+                self.logger.info(
+                    f"Created cost center {cost_center_doc.name} for chapter {chapter_doc.name}"
                 )
+            else:
+                # Insert failed — possibly a concurrent process created the CC.
+                # Re-check existence before logging as a hard failure.
+                concurrent_cc = frappe.db.exists(
+                    "Cost Center",
+                    {"cost_center_name": cost_center_name, "company": company},
+                )
+                if concurrent_cc:
+                    chapter_doc.db_set(
+                        "cost_center", concurrent_cc, update_modified=False
+                    )
+                    self.logger.info(
+                        f"Linked cost center {concurrent_cc} created concurrently "
+                        f"for chapter {chapter_doc.name}"
+                    )
+                else:
+                    self.logger.error(
+                        f"Failed to create cost center for chapter {chapter_doc.name}: "
+                        f"{'; '.join(result.errors)}"
+                    )
 
         except Exception as e:
             self.logger.error(f"Error creating cost center for chapter {chapter_doc.name}: {str(e)}")
