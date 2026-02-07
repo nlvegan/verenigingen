@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 
@@ -55,19 +56,18 @@ class FinancialMixin:
 
             # Process payment based on member's payment method
             if self.payment_method == "SEPA Direct Debit":
-                # Check for active SEPA mandate
                 if not self.has_active_sepa_mandate():
                     return {
                         "success": False,
-                        "error": "No active SEPA mandate found for direct debit processing",
+                        "error": _("No active SEPA mandate found for direct debit processing"),
                     }
-
-                # Process SEPA direct debit
-                return self._process_sepa_payment()
+                return {
+                    "success": False,
+                    "error": _("SEPA direct debit batch processing is not yet implemented"),
+                }
 
             elif self.payment_method == "Bank Transfer":
-                # Process bank transfer
-                return self._process_bank_transfer()
+                return {"success": False, "error": _("Bank transfer processing is not yet implemented")}
 
             else:
                 return {"success": False, "error": f"Unsupported payment method: {self.payment_method}"}
@@ -165,30 +165,3 @@ class FinancialMixin:
         except Exception as e:
             frappe.log_error(f"Error getting financial summary for member {self.name}: {str(e)}")
             return {}
-
-    def _process_sepa_payment(self):
-        """Process SEPA direct debit payment"""
-        try:
-            # Get active SEPA mandate
-            mandate = self.get_default_sepa_mandate()
-            if not mandate:
-                return {"success": False, "error": "No active SEPA mandate found"}
-
-            # Create or add to SEPA direct debit batch
-            # This is a placeholder for actual SEPA batch processing
-            return {"success": True, "message": "SEPA payment processed successfully"}
-
-        except Exception as e:
-            frappe.log_error(f"Error processing SEPA payment for member {self.name}: {str(e)}")
-            return {"success": False, "error": str(e)}
-
-    def _process_bank_transfer(self):
-        """Process bank transfer payment"""
-        try:
-            # Generate bank transfer details
-            # This is a placeholder for actual bank transfer processing
-            return {"success": True, "message": "Bank transfer details generated"}
-
-        except Exception as e:
-            frappe.log_error(f"Error processing bank transfer for member {self.name}: {str(e)}")
-            return {"success": False, "error": str(e)}

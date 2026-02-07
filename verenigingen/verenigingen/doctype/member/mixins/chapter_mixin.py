@@ -10,11 +10,6 @@ class ChapterMixin:
     Domain logic methods (tracking, assignment) remain here.
     """
 
-    def handle_chapter_assignment(self):
-        """Handle chapter assignment changes - now managed through Chapter Member child table"""
-        # This method is now simplified since chapter assignment is managed
-        # through the Chapter Member child table instead of primary_chapter field
-
     def update_chapter_tracking_fields(self, old_chapter, new_chapter):
         """Update chapter tracking fields when chapter changes"""
 

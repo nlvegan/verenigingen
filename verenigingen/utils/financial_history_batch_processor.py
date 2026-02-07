@@ -218,12 +218,16 @@ class FinancialHistoryBatchProcessor:
                 data = op_data.get("data", {})
 
                 if operation == "add_update":
-                    # Build expense entry
+                    # Build expense entry using builder directly (avoids full Member doc dependency)
                     def build_expense_entry():
                         try:
+                            from verenigingen.utils.expense_history_entry_builder import (
+                                ExpenseHistoryEntryBuilder,
+                            )
+
                             expense_doc = frappe.get_doc("Expense Claim", expense_name)
-                            return member._build_expense_history_entry(expense_doc)
-                        except:
+                            return ExpenseHistoryEntryBuilder.build_from_expense_doc(expense_doc, member_name)
+                        except Exception:
                             return None
 
                     manager.add_or_update_entry(expense_name, build_expense_entry, "expense_claim")
