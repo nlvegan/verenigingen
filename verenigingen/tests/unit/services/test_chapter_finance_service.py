@@ -219,9 +219,10 @@ class TestCreateChapterCostCenter(unittest.TestCase):
         """When insert fails but a CC was created concurrently, should link it."""
         chapter = _make_chapter()
 
-        # db.exists calls: (1) CC name-check → False, (2) post-failure re-check → found
-        # Note: skip-check at top doesn't call db.exists because chapter.cost_center is None
-        mock_frappe.db.exists.side_effect = [False, "Concurrent-CC-001"]
+        # db.exists: CC name-check → False (no pre-existing CC)
+        mock_frappe.db.exists.return_value = False
+        # db.get_value: post-failure re-check finds the concurrently-created CC
+        mock_frappe.db.get_value.return_value = "Concurrent-CC-001"
 
         mock_cc_doc = MagicMock()
         mock_cc_doc.name = "Test-Chapter-001 - Chapter - TC"
@@ -245,6 +246,8 @@ class TestCreateChapterCostCenter(unittest.TestCase):
         """When insert fails and no concurrent CC exists, should log error."""
         chapter = _make_chapter()
         mock_frappe.db.exists.return_value = False
+        # db.get_value: post-failure re-check finds nothing
+        mock_frappe.db.get_value.return_value = None
 
         mock_cc_doc = MagicMock()
         mock_cc_doc.name = "Test-Chapter-001 - Chapter - TC"
