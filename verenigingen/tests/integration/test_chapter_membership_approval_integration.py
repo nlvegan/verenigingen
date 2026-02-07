@@ -24,7 +24,8 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         chapter_name = f"Test Chapter {int(now_datetime().timestamp())}"
         self.test_chapter = frappe.get_doc({
             "doctype": "Chapter",
-            "name": chapter_name
+            "name": chapter_name,
+            "status": "Active",
         })
         self.test_chapter.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -38,6 +39,18 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             })
             membership_type.insert(ignore_permissions=True)
             frappe.db.commit()
+
+    def _create_test_chapter(self, name=None):
+        """Create a test chapter for use in tests."""
+        chapter_name = name or f"Test Chapter {int(now_datetime().timestamp())}"
+        chapter = frappe.get_doc({
+            "doctype": "Chapter",
+            "name": chapter_name,
+            "status": "Active",
+        })
+        chapter.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return chapter
 
     def test_member_approval_no_attribute_error(self):
         """
@@ -410,7 +423,8 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         second_chapter_name = f"Test Chapter 2 {int(now_datetime().timestamp())}"
         second_chapter = frappe.get_doc({
             "doctype": "Chapter",
-            "name": second_chapter_name
+            "name": second_chapter_name,
+            "status": "Active",
         })
         second_chapter.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -873,6 +887,214 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             len(final_history), history_count_after_first,
             "Should not create duplicate history entries on second termination call"
         )
+
+
+    def test_rejection_removes_pending_chapter_membership(self):
+        """
+        Test that rejecting a membership application removes the pending
+        Chapter Member record AND terminates the history entry.
+        """
+        from verenigingen.utils.application_helpers import (
+            create_pending_chapter_membership,
+            remove_all_pending_chapter_memberships,
+        )
+
+        # Create pending member with chapter membership
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="RejectionUser",
+            email=f"test_rejection_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending",
+            application_id=f"TEST-{int(now_datetime().timestamp())}",
+            selected_membership_type="Standard Member",
+        )
+
+        chapter_member = create_pending_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member, "Should create pending chapter membership")
+
+        # Verify initial state
+        member.reload()
+        initial_history = [
+            h
+            for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name
+        ]
+        self.assertEqual(len(initial_history), 1, "Should have 1 history entry before rejection")
+        self.assertEqual(initial_history[0].status, "Pending", "History should be Pending")
+
+        # Simulate rejection cleanup
+        removed = remove_all_pending_chapter_memberships(member)
+        self.assertEqual(removed, [self.test_chapter.name], "Should remove chapter membership")
+
+        # Verify Chapter Member record is gone
+        chapter_doc = frappe.get_doc("Chapter", self.test_chapter.name)
+        pending = [m for m in chapter_doc.members if m.member == member.name and m.status == "Pending"]
+        self.assertEqual(len(pending), 0, "No pending Chapter Member records should remain")
+
+        # Verify history is Terminated with end_date
+        member.reload()
+        final_history = [
+            h
+            for h in (member.chapter_membership_history or [])
+            if h.chapter_name == self.test_chapter.name
+        ]
+        self.assertEqual(len(final_history), 1, "Should still have 1 history entry (updated)")
+        self.assertEqual(
+            final_history[0].status,
+            "Terminated",
+            "History should be Terminated after rejection",
+        )
+        self.assertIsNotNone(final_history[0].end_date, "History end_date should be set")
+
+    def test_rejection_removes_all_pending_chapter_memberships(self):
+        """
+        Test that rejection removes pending memberships from ALL chapters,
+        not just one.
+        """
+        from verenigingen.utils.application_helpers import (
+            create_pending_chapter_membership,
+            remove_all_pending_chapter_memberships,
+        )
+
+        # Create second chapter
+        second_chapter = self._create_test_chapter(
+            f"Test Chapter 2 {int(now_datetime().timestamp())}"
+        )
+        second_chapter_name = second_chapter.name
+
+        # Create pending member
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="MultiRejectionUser",
+            email=f"test_multi_reject_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending",
+            application_id=f"TEST-{int(now_datetime().timestamp())}",
+            selected_membership_type="Standard Member",
+        )
+
+        # Create pending memberships in both chapters
+        cm1 = create_pending_chapter_membership(member, self.test_chapter.name)
+        cm2 = create_pending_chapter_membership(member, second_chapter_name)
+        self.assertIsNotNone(cm1)
+        self.assertIsNotNone(cm2)
+
+        # Verify 2 pending Chapter Member records exist
+        pending_count = frappe.db.count(
+            "Chapter Member", {"member": member.name, "status": "Pending"}
+        )
+        self.assertEqual(pending_count, 2, "Should have 2 pending chapter memberships")
+
+        # Remove all pending memberships
+        removed = remove_all_pending_chapter_memberships(member)
+        self.assertEqual(len(removed), 2, "Should remove both chapter memberships")
+
+        # Verify no pending records remain
+        remaining = frappe.db.count(
+            "Chapter Member", {"member": member.name, "status": "Pending"}
+        )
+        self.assertEqual(remaining, 0, "No pending Chapter Member records should remain")
+
+        # Verify both history entries are Terminated
+        member.reload()
+        for chapter_name in [self.test_chapter.name, second_chapter_name]:
+            history = [
+                h
+                for h in (member.chapter_membership_history or [])
+                if h.chapter_name == chapter_name
+            ]
+            self.assertEqual(len(history), 1, f"Should have 1 history entry for {chapter_name}")
+            self.assertEqual(
+                history[0].status,
+                "Terminated",
+                f"History for {chapter_name} should be Terminated",
+            )
+
+    def test_rejection_with_no_pending_chapter_membership(self):
+        """
+        Test that rejection cleanup doesn't error when member has no pending
+        chapter memberships.
+        """
+        from verenigingen.utils.application_helpers import remove_all_pending_chapter_memberships
+
+        # Create pending member with NO chapter membership
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="NoChapterUser",
+            email=f"test_no_chapter_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending",
+        )
+
+        # Should not error and return empty list
+        removed = remove_all_pending_chapter_memberships(member)
+        self.assertEqual(removed, [], "Should return empty list when no pending memberships")
+
+    def test_rejection_cleanup_none_member(self):
+        """
+        Test that remove_all_pending_chapter_memberships handles None member gracefully.
+        """
+        from verenigingen.utils.application_helpers import remove_all_pending_chapter_memberships
+
+        removed = remove_all_pending_chapter_memberships(None)
+        self.assertEqual(removed, [], "Should return empty list for None member")
+
+    def test_rejection_partial_failure_still_removes_others(self):
+        """
+        Test that if one chapter removal fails, remaining chapters are still processed.
+
+        Simulates partial failure by creating a pending Chapter Member record
+        pointing to a non-existent chapter (orphaned data), alongside a valid one.
+        """
+        from verenigingen.utils.application_helpers import (
+            create_pending_chapter_membership,
+            remove_all_pending_chapter_memberships,
+        )
+
+        # Create pending member with valid chapter membership
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="PartialFailUser",
+            email=f"test_partial_{now_datetime().timestamp()}@example.com",
+            birth_date="1990-01-01",
+            status="Pending",
+            application_status="Pending",
+            application_id=f"TEST-{int(now_datetime().timestamp())}",
+            selected_membership_type="Standard Member",
+        )
+
+        chapter_member = create_pending_chapter_membership(member, self.test_chapter.name)
+        self.assertIsNotNone(chapter_member)
+
+        # Insert an orphaned Chapter Member row pointing to a fake chapter
+        # (simulates data inconsistency where chapter was deleted but child row remains)
+        fake_chapter_name = f"Deleted Chapter {int(now_datetime().timestamp())}"
+        frappe.db.sql(
+            """INSERT INTO `tabChapter Member`
+               (name, parent, parenttype, parentfield, member, status, idx)
+               VALUES (%s, %s, 'Chapter', 'members', %s, 'Pending', 99)""",
+            (frappe.generate_hash(length=10), fake_chapter_name, member.name),
+        )
+        frappe.db.commit()
+
+        # Should still remove the valid chapter even though fake one will fail
+        removed = remove_all_pending_chapter_memberships(member)
+        self.assertIn(
+            self.test_chapter.name,
+            removed,
+            "Valid chapter should still be removed despite fake chapter failure",
+        )
+
+        # Clean up orphaned row
+        frappe.db.sql(
+            "DELETE FROM `tabChapter Member` WHERE parent = %s AND member = %s",
+            (fake_chapter_name, member.name),
+        )
+        frappe.db.commit()
 
 
 def run_tests():

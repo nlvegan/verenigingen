@@ -1508,6 +1508,25 @@ def remove_pending_chapter_membership(member, chapter_name=None):
                 frappe.throw(
                     _("Failed to remove pending chapter member: {0}").format("; ".join(remove_result.errors))
                 )
+
+            # Update history entry to Terminated
+            try:
+                from verenigingen.utils.chapter_membership_history_manager import (
+                    ChapterMembershipHistoryManager,
+                )
+
+                ChapterMembershipHistoryManager.terminate_chapter_membership(
+                    member_id=member.name,
+                    chapter_name=chapter_name,
+                    assignment_type="Member",
+                    end_date=today(),
+                    reason="Membership application rejected",
+                )
+            except Exception as e:
+                frappe.logger().warning(
+                    f"Failed to update chapter membership history for {member.name} in {chapter_name}: {e}"
+                )
+
             frappe.logger().info(
                 f"Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
             )
@@ -1524,3 +1543,34 @@ def remove_pending_chapter_membership(member, chapter_name=None):
             "Chapter Removal Error",
         )
         return False
+
+
+def remove_all_pending_chapter_memberships(member):
+    """Find and remove ALL pending chapter memberships for a member.
+
+    Queries the Chapter Member child table directly to find all chapters where
+    this member has a Pending record, then removes each one (including history update).
+
+    Args:
+        member: Member document
+
+    Returns:
+        list: Chapter names where pending memberships were removed
+    """
+    if not member:
+        return []
+
+    pending_chapters = frappe.db.sql(
+        """SELECT DISTINCT parent as chapter
+           FROM `tabChapter Member`
+           WHERE member = %s AND status = 'Pending'""",
+        (member.name,),
+        as_dict=True,
+    )
+
+    removed = []
+    for record in pending_chapters:
+        if remove_pending_chapter_membership(member, record.chapter):
+            removed.append(record.chapter)
+
+    return removed

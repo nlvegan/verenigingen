@@ -7,18 +7,18 @@ from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.services.member.account.member_user_account_service import (
+    create_secure_user_account_for_member,
+)
 from verenigingen.services.member.approval.member_approval_service import (
     create_member_iban_history,
     resolve_membership_type,
     validate_membership_type_for_approval,
 )
+from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.safe_error_logging import safe_log_error
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
-from verenigingen.services.member.account.member_user_account_service import (
-    create_secure_user_account_for_member,
-)
-from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
 from verenigingen.utils.security.audit_logging import log_security_event
 from verenigingen.utils.validation.api_validators import APIValidator
 
@@ -197,9 +197,7 @@ def approve_membership_application(
     notes = sanitized["notes"]
 
     # Idempotency check - if already approved, return success
-    member_status = frappe.db.get_value(
-        "Member", member_name, ["application_status", "status"], as_dict=True
-    )
+    member_status = frappe.db.get_value("Member", member_name, ["application_status", "status"], as_dict=True)
     if member_status and member_status.application_status == "Approved":
         frappe.logger().info(
             f"Member {member_name} already approved (application_status=Approved), returning existing approval"
@@ -352,7 +350,10 @@ def approve_membership_application(
                 f"Activated volunteer record for {member.name} during approval (full activation)"
             )
         except Exception as e:
-            safe_log_error("Volunteer activation failed", f"Failed to activate volunteer record for {member.name}: {str(e)}")
+            safe_log_error(
+                "Volunteer activation failed",
+                f"Failed to activate volunteer record for {member.name}: {str(e)}",
+            )
             # Continue with approval - this is not critical
     elif has_volunteer_interest:
         # Interest-only: volunteer record exists but no full activation requested
@@ -373,7 +374,9 @@ def approve_membership_application(
             member, activate_as_volunteer=should_activate_volunteer
         )
     except Exception as e:
-        safe_log_error("User account creation failed", f"User account creation failed for {member.name}: {str(e)}")
+        safe_log_error(
+            "User account creation failed", f"User account creation failed for {member.name}: {str(e)}"
+        )
         user_creation_result = {"success": False, "error": "Account creation failed"}
         # Continue with approval - user accounts can be created manually later
 
@@ -576,6 +579,11 @@ def reject_membership_application(
             membership.cancel()
         else:
             frappe.delete_doc("Membership", membership.name)
+
+    # Remove pending chapter memberships
+    from verenigingen.utils.application_helpers import remove_all_pending_chapter_memberships
+
+    remove_all_pending_chapter_memberships(member)
 
     # Update CRM Lead status if exists
     if frappe.db.exists("Lead", {"member": member.name}):
@@ -925,7 +933,9 @@ def get_pending_reviews_for_member(member_name: str):
         return reviews
 
     except Exception as e:
-        safe_log_error("Pending reviews error", f"Error getting pending reviews for member {member_name}: {str(e)}")
+        safe_log_error(
+            "Pending reviews error", f"Error getting pending reviews for member {member_name}: {str(e)}"
+        )
         return []
 
 

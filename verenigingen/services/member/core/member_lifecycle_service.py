@@ -578,36 +578,17 @@ class MemberLifecycleService(StatelessService):
         return setup_results
 
     def _perform_post_rejection_cleanup(self, member) -> Dict[str, Any]:
-        """Perform post-rejection cleanup tasks"""
+        """Perform post-rejection cleanup tasks.
+
+        Removes ALL pending chapter memberships (not just one), updating both
+        Chapter Member records and chapter membership history.
+        """
         cleanup_results = {"chapters_removed": [], "errors": []}
 
         try:
-            from verenigingen.utils.application_helpers import remove_pending_chapter_membership
+            from verenigingen.utils.application_helpers import remove_all_pending_chapter_memberships
 
-            # Check for suggested chapter or current chapter display
-            chapter_to_remove = None
-            if hasattr(member, "current_chapter_display") and member.current_chapter_display:
-                chapter_to_remove = member.current_chapter_display
-            elif hasattr(member, "previous_chapter") and member.previous_chapter:
-                chapter_to_remove = member.previous_chapter
-
-            if chapter_to_remove:
-                try:
-                    success = remove_pending_chapter_membership(member, chapter_to_remove)
-                    if success:
-                        cleanup_results["chapters_removed"].append(chapter_to_remove)
-                        self.logger.info(
-                            f"Removed pending chapter membership for {member.name} from {chapter_to_remove}"
-                        )
-                    else:
-                        cleanup_results["errors"].append(
-                            f"Failed to remove pending chapter membership from {chapter_to_remove}"
-                        )
-                except Exception as e:
-                    cleanup_results["errors"].append(
-                        f"Error removing chapter membership from {chapter_to_remove}: {str(e)}"
-                    )
-
+            cleanup_results["chapters_removed"] = remove_all_pending_chapter_memberships(member)
         except Exception as e:
             cleanup_results["errors"].append(f"Post-rejection cleanup failed: {str(e)}")
 
