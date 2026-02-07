@@ -133,6 +133,23 @@ class MembershipImportService(StatelessService):
         # Set member fields for unified path
         member_doc.selected_membership_type = membership_type
 
+        # Resolve dues schedule template from CSV payment period (Betaalperiode)
+        # This uses csv_monthly/quarterly/annual_dues_schedule from Verenigingen Settings
+        if row_data.get("payment_period"):
+            try:
+                template_name = get_dues_schedule_template_from_payment_period(row_data)
+                member_doc.application_dues_schedule = template_name
+                self.logger.info(
+                    f"[CSV IMPORT] Using template '{template_name}' for payment period "
+                    f"'{row_data['payment_period']}' for {member_doc.name}"
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"[CSV IMPORT] Could not resolve template for payment period "
+                    f"'{row_data.get('payment_period')}': {e}. "
+                    f"Falling back to membership type default template."
+                )
+
         # Use normal approval workflow with CSV-specific parameters
         membership_doc = member_doc.create_membership_on_approval(
             start_date=row_data.get("member_since"),
@@ -171,7 +188,7 @@ class MembershipImportService(StatelessService):
         Returns:
             Dues Schedule Template name
         """
-        return get_dues_schedule_template_from_payment_period(row_data.get("payment_period"))
+        return get_dues_schedule_template_from_payment_period(row_data)
 
 
 # Module-level singleton accessor
