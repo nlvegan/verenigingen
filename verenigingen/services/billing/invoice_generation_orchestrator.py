@@ -22,7 +22,7 @@ Architecture:
     - Delegates to existing services: EligibilityChecker, CoverageCalculator, InvoiceGenerator
 """
 
-from typing import Any, Tuple
+from typing import Any, NoReturn, Tuple
 
 import frappe
 
@@ -227,7 +227,7 @@ class InvoiceGenerationOrchestrator(StatelessService):
         self.schedule.last_invoice_coverage_end = coverage_end
         self.schedule.update_schedule_dates(actual_invoice_date=invoice.posting_date)
 
-    def _handle_error(self, exc: Exception):
+    def _handle_error(self, exc: Exception) -> NoReturn:
         """
         Handle invoice generation exceptions.
 
