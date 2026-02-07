@@ -133,7 +133,7 @@
       "label": "Poll Interval (minutes)"
     },
     {
-      "default": "[\"admin_member\", \"admin_support_member\", \"admin_membership_application\", \"admin_contribution_payment\", \"admin_division\", \"admin_membershipstatus\"]",
+      "default": "[\"admin_member\", \"admin_support_member\", \"admin_membership_application\", \"admin_division\"]",
       "description": "JSON list of MijnRood database tables to poll",
       "fieldname": "tables_to_sync",
       "fieldtype": "Small Text",

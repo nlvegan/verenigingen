@@ -394,7 +394,7 @@ class MijnRoodPollingService(StatefulService):
         if event_type == "New":
             name_parts = []
             if new_data:
-                for field in ["firstName", "middleName", "lastName"]:
+                for field in ["first_name", "middle_name", "last_name"]:
                     val = new_data.get(field)
                     if val:
                         name_parts.append(str(val))
@@ -404,7 +404,7 @@ class MijnRoodPollingService(StatefulService):
         if event_type == "Deleted":
             name_parts = []
             if old_data:
-                for field in ["firstName", "middleName", "lastName"]:
+                for field in ["first_name", "middle_name", "last_name"]:
                     val = old_data.get(field)
                     if val:
                         name_parts.append(str(val))
@@ -419,7 +419,7 @@ class MijnRoodPollingService(StatefulService):
                 new_val = change["new"]
 
                 # Special handling for status changes
-                if field == "currentMembershipStatus_id":
+                if field == "current_membership_status_id":
                     old_label = STATUS_ID_LABELS.get(int(old_val) if old_val else None, str(old_val))
                     new_label = STATUS_ID_LABELS.get(int(new_val) if new_val else None, str(new_val))
                     summaries.append(f"Status: {old_label} → {new_label}")

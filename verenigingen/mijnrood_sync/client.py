@@ -8,6 +8,7 @@ All queries are SELECT-only — no writes to MijnRood.
 
 import base64
 import logging
+import os
 import re
 import time
 from typing import Optional
@@ -155,7 +156,12 @@ class MijnRoodDatabaseClient:
 
         # Authentication: prefer key file, fall back to password
         if s.ssh_private_key_path:
-            ssh_kwargs["ssh_pkey"] = s.ssh_private_key_path
+            import frappe
+
+            key_path = s.ssh_private_key_path
+            if not os.path.isabs(key_path) or key_path.startswith("/private/"):
+                key_path = frappe.get_site_path(key_path.lstrip("/"))
+            ssh_kwargs["ssh_pkey"] = key_path
             password = s.get_password("ssh_password") if s.ssh_password else None
             if password:
                 ssh_kwargs["ssh_private_key_password"] = password

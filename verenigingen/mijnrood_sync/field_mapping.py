@@ -1,7 +1,7 @@
 """
 MijnRood Database → Verenigingen Field Mapping Constants
 
-Maps MijnRood MariaDB column names (camelCase) to Verenigingen Member DocType fields.
+Maps MijnRood MariaDB column names (snake_case) to Verenigingen Member DocType fields.
 Reuses the same target field names as the CSV import (csv_data_validator.py FIELD_MAPPING)
 so the MemberImportService.update_member_fields() method works for both sources.
 
@@ -11,53 +11,94 @@ that MemberImportService.STATUS_MAP expects (e.g. "lid", "opgezegd").
 
 # Columns to include in MD5 checksum for each MijnRood table.
 # Order matters for checksum consistency — do not reorder.
+# NOTE: Sensitive columns (password_hash, new_password_token, etc.) are
+# deliberately excluded — they add noise (checksum changes on password resets)
+# and should never be synced.
 MEMBER_COLUMNS = [
     "id",
-    "firstName",
-    "middleName",
-    "lastName",
+    "first_name",
+    "middle_name",
+    "last_name",
     "email",
     "phone",
     "iban",
     "address",
     "city",
-    "postCode",
+    "post_code",
     "country",
-    "dateOfBirth",
+    "date_of_birth",
     "division_id",
-    "registrationTime",
-    "currentMembershipStatus_id",
-    "contributionPeriod",
-    "contributionPerPeriodInCents",
-    "mollieCustomerId",
-    "mollieSubscriptionId",
+    "registration_time",
+    "current_membership_status_id",
+    "contribution_per_period_in_cents",
+    "mollie_customer_id",
+    "mollie_subscription_id",
+    "roles",
+    "accept_use_personal_information",
     "comments",
 ]
 
 SUPPORT_MEMBER_COLUMNS = [
     "id",
-    "firstName",
-    "middleName",
-    "lastName",
+    "first_name",
+    "last_name",
     "email",
     "phone",
     "iban",
     "address",
     "city",
-    "postCode",
+    "post_code",
     "country",
-    "dateOfBirth",
-    "contributionPeriod",
-    "contributionPerPeriodInCents",
-    "mollieCustomerId",
-    "mollieSubscriptionId",
+    "date_of_birth",
+    "registration_time",
+    "mollie_customer_id",
+    "mollie_subscription_id",
+    "contribution_per_period_in_cents",
+    "original_id",
+    "original_registration_time",
+]
+
+DIVISION_COLUMNS = [
+    "id",
+    "name",
+    "email_id",
+    "phone",
+    "city",
+    "address",
+    "post_code",
+    "facebook",
+    "instagram",
+    "twitter",
+    "can_be_selected_on_application",
+]
+
+MEMBERSHIP_APPLICATION_COLUMNS = [
+    "id",
+    "preferred_division_id",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "email",
+    "phone",
+    "iban",
+    "address",
+    "city",
+    "post_code",
+    "country",
+    "date_of_birth",
+    "registration_time",
+    "contribution_per_period_in_cents",
+    "mollie_customer_id",
+    "paid",
+    "has_sent_initial_email",
 ]
 
 # Mapping of MijnRood table name → column list for checksum computation
 TABLE_COLUMNS = {
     "admin_member": MEMBER_COLUMNS,
     "admin_support_member": SUPPORT_MEMBER_COLUMNS,
-    # Additional tables use SELECT * (all columns) when not listed here
+    "admin_division": DIVISION_COLUMNS,
+    "admin_membership_application": MEMBERSHIP_APPLICATION_COLUMNS,
 }
 
 # Primary key column name per table (MijnRood uses 'id' for all known tables)
@@ -65,13 +106,15 @@ TABLE_PRIMARY_KEY = {
     "admin_member": "id",
     "admin_support_member": "id",
     "admin_membership_application": "id",
-    "admin_contribution_payment": "id",
     "admin_division": "id",
-    "admin_membershipstatus": "id",
 }
 
 # Whitelist of allowed table names — used by client.py to prevent SQL injection.
 # Built from TABLE_PRIMARY_KEY keys so any new table must be registered there first.
+# NOTE: admin_contribution_payment and admin_membershipstatus are excluded:
+# - admin_membershipstatus is a static lookup (6 rows), hardcoded in MIJNROOD_STATUS_ID_MAP
+# - admin_contribution_payment has no event handler and generates excessive noise (2400+ rows)
+# These can be re-added once proper event handlers exist for them.
 ALLOWED_TABLES = frozenset(TABLE_PRIMARY_KEY.keys())
 
 # ─────────────────────────────────────────────────────────────────────
@@ -81,28 +124,27 @@ ALLOWED_TABLES = frozenset(TABLE_PRIMARY_KEY.keys())
 # ─────────────────────────────────────────────────────────────────────
 MIJNROOD_TO_MEMBER_FIELD_MAP = {
     "id": "member_id",
-    "firstName": "first_name",
-    "middleName": "tussenvoegsel",
-    "lastName": "last_name",
+    "first_name": "first_name",
+    "middle_name": "tussenvoegsel",
+    "last_name": "last_name",
     "email": "email",
     "phone": "contact_number",
     "iban": "iban",
-    "dateOfBirth": "birth_date",
-    "registrationTime": "member_since",
+    "date_of_birth": "birth_date",
+    "registration_time": "member_since",
     "address": "address_line1",
     "city": "city",
-    "postCode": "postal_code",
+    "post_code": "postal_code",
     "country": "country",
     "division_id": "chapter",
-    "currentMembershipStatus_id": "membership_type",
-    "contributionPeriod": "payment_period",
-    "contributionPerPeriodInCents": "dues_rate",
-    "mollieCustomerId": "custom_mollie_customer_id",
-    "mollieSubscriptionId": "custom_mollie_subscription_id",
+    "current_membership_status_id": "membership_type",
+    "contribution_per_period_in_cents": "dues_rate",
+    "mollie_customer_id": "custom_mollie_customer_id",
+    "mollie_subscription_id": "custom_mollie_subscription_id",
 }
 
 # ─────────────────────────────────────────────────────────────────────
-# MijnRood currentMembershipStatus_id → membership type string
+# MijnRood current_membership_status_id → membership type string
 # These strings must match MemberImportService.STATUS_MAP keys
 # so that determine_member_status() returns the correct status.
 # ─────────────────────────────────────────────────────────────────────
@@ -142,15 +184,4 @@ STATUS_ID_LABELS = {
     4: "Expelled (geroyeerd)",
     5: "Deceased (overleden)",
     6: "Suspended (geschorst)",
-}
-
-# ─────────────────────────────────────────────────────────────────────
-# MijnRood contributionPeriod → billing frequency
-# Matches data_transformers.map_payment_period_to_billing_frequency()
-# ─────────────────────────────────────────────────────────────────────
-CONTRIBUTION_PERIOD_MAP = {
-    "monthly": "Monthly",
-    "quarterly": "Quarterly",
-    "yearly": "Yearly",
-    "annually": "Yearly",
 }

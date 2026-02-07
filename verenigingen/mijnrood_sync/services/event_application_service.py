@@ -85,19 +85,32 @@ class MijnRoodEventApplicationService(StatefulService):
 
             return {"success": False, "message": error_msg}
 
-    def _apply_new(self, event) -> dict:
-        """Apply a 'New' event — create a new Member from MijnRood data.
+    # ─── Table dispatch ───────────────────────────────────────────────
 
-        Uses MemberImportService patterns for field mapping and creation.
-        """
-        if event.mijnrood_table != "admin_member":
+    _TABLE_HANDLERS = {
+        "admin_member": "member",
+        "admin_division": "division",
+    }
+
+    def _dispatch(self, event, action: str) -> dict:
+        """Route event to the right table handler, or return a reference-only result."""
+        table_key = self._TABLE_HANDLERS.get(event.mijnrood_table)
+        if table_key is None:
             return {
                 "success": True,
-                "message": _("Non-member table '{0}' — recorded for reference only").format(
-                    event.mijnrood_table
-                ),
+                "message": _("Table '{0}' — recorded for reference only").format(event.mijnrood_table),
             }
+        handler = getattr(self, f"_apply_{action}_{table_key}")
+        return handler(event)
 
+    # ─── New ───────────────────────────────────────────────────────────
+
+    def _apply_new(self, event) -> dict:
+        """Apply a 'New' event — dispatch to the right table handler."""
+        return self._dispatch(event, "new")
+
+    def _apply_new_member(self, event) -> dict:
+        """Create a new Member from MijnRood admin_member data."""
         new_data = json.loads(event.new_data) if event.new_data else {}
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
@@ -130,21 +143,28 @@ class MijnRoodEventApplicationService(StatefulService):
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
 
+    def _apply_new_division(self, event) -> dict:
+        """Create or update a Chapter from MijnRood admin_division data."""
+        new_data = json.loads(event.new_data) if event.new_data else {}
+        if not new_data:
+            return {"success": False, "message": _("No new data in event")}
+
+        return self._sync_division_to_chapter(new_data, event)
+
+    # ─── Changed ────────────────────────────────────────────────────────
+
     def _apply_changed(self, event) -> dict:
-        """Apply a 'Changed' event — update existing Member fields.
+        """Apply a 'Changed' event — dispatch to the right table handler."""
+        return self._dispatch(event, "changed")
+
+    def _apply_changed_member(self, event) -> dict:
+        """Update existing Member fields from MijnRood admin_member data.
 
         For status changes to terminated statuses, creates a Membership
         Termination Request rather than directly modifying the member,
         since termination involves multiple documents (membership, mandates,
         user accounts, etc.) managed by the termination workflow.
         """
-        if event.mijnrood_table != "admin_member":
-            return {
-                "success": True,
-                "message": _("Non-member table '{0}' — recorded for reference only").format(
-                    event.mijnrood_table
-                ),
-            }
 
         new_data = json.loads(event.new_data) if event.new_data else {}
         old_data = json.loads(event.old_data) if event.old_data else {}
@@ -185,6 +205,16 @@ class MijnRoodEventApplicationService(StatefulService):
         else:
             return {"success": False, "message": _("Member update {0}").format(status)}
 
+    def _apply_changed_division(self, event) -> dict:
+        """Update Chapter from changed MijnRood admin_division data."""
+        new_data = json.loads(event.new_data) if event.new_data else {}
+        if not new_data:
+            return {"success": False, "message": _("No new data in event")}
+
+        return self._sync_division_to_chapter(new_data, event)
+
+    # ─── Deleted ──────────────────────────────────────────────────────
+
     def _apply_deleted(self, event) -> dict:
         """Handle a 'Deleted' event.
 
@@ -214,7 +244,7 @@ class MijnRoodEventApplicationService(StatefulService):
         # Find the status field change
         status_change = None
         for change in changed_fields:
-            if change.get("field") == "currentMembershipStatus_id":
+            if change.get("field") == "current_membership_status_id":
                 status_change = change
                 break
 
@@ -295,16 +325,60 @@ class MijnRoodEventApplicationService(StatefulService):
             ),
         }
 
+    # ─── Division → Chapter sync ─────────────────────────────────────
+
+    def _sync_division_to_chapter(self, division_data: dict, event) -> dict:
+        """Sync a MijnRood admin_division row to a Verenigingen Chapter.
+
+        Matches by name (string). Creates the Chapter if it doesn't exist,
+        updates `published` if it does.
+
+        Field mapping:
+            admin_division.name → Chapter name (match key)
+            admin_division.can_be_selected_on_application → Chapter.published
+        """
+        division_name = division_data.get("name")
+        if not division_name:
+            return {"success": False, "message": _("Division has no name")}
+
+        published = 1 if division_data.get("can_be_selected_on_application") else 0
+
+        if frappe.db.exists("Chapter", division_name):
+            chapter = frappe.get_doc("Chapter", division_name)
+            if chapter.published != published:
+                chapter.published = published
+                # Security: System-initiated sync from authoritative MijnRood data
+                chapter.save(ignore_permissions=True)
+                self.logger.info(
+                    "Updated Chapter %s: published=%s",
+                    division_name,
+                    published,
+                )
+                return {
+                    "success": True,
+                    "message": _("Chapter '{0}' updated (published={1})").format(division_name, published),
+                }
+            return {
+                "success": True,
+                "message": _("Chapter '{0}' already up to date").format(division_name),
+            }
+
+        # Chapter doesn't exist — flag for manual creation since Chapter
+        # requires fields (region, introduction) that MijnRood doesn't have
+        return {
+            "success": True,
+            "message": _("Chapter '{0}' does not exist. Create it manually and re-apply.").format(
+                division_name
+            ),
+        }
+
     def _map_mijnrood_to_member_fields(self, mijnrood_data: dict) -> dict:
         """Map MijnRood database row to intermediate field names.
 
         These intermediate names match what MemberImportService.update_member_fields()
         expects (same names as csv_data_validator.py FIELD_MAPPING values).
         """
-        from verenigingen.mijnrood_sync.field_mapping import (
-            CONTRIBUTION_PERIOD_MAP,
-            MIJNROOD_STATUS_ID_MAP,
-        )
+        from verenigingen.mijnrood_sync.field_mapping import MIJNROOD_STATUS_ID_MAP
 
         row_data = {}
         for mijnrood_col, member_field in MIJNROOD_TO_MEMBER_FIELD_MAP.items():
@@ -313,19 +387,14 @@ class MijnRoodEventApplicationService(StatefulService):
                 row_data[member_field] = value
 
         # Convert status ID to membership type string
-        status_id = self._safe_int(mijnrood_data.get("currentMembershipStatus_id"))
+        status_id = self._safe_int(mijnrood_data.get("current_membership_status_id"))
         if status_id and status_id in MIJNROOD_STATUS_ID_MAP:
             row_data["membership_type"] = MIJNROOD_STATUS_ID_MAP[status_id]
 
         # Convert contribution amount from cents to euros
-        cents = self._safe_int(mijnrood_data.get("contributionPerPeriodInCents"))
+        cents = self._safe_int(mijnrood_data.get("contribution_per_period_in_cents"))
         if cents:
             row_data["dues_rate"] = cents / 100.0
-
-        # Convert contribution period
-        period = mijnrood_data.get("contributionPeriod")
-        if period:
-            row_data["payment_period"] = CONTRIBUTION_PERIOD_MAP.get(str(period).lower(), str(period))
 
         return row_data
 

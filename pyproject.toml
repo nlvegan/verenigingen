@@ -35,6 +35,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     # MijnRood sync: SSH tunnel + MySQL client for remote DB polling
     "sshtunnel>=0.4.0",
+    "paramiko>=2.7.2,<4.0",  # sshtunnel 0.4.0 uses DSSKey, removed in paramiko 4.0
     "pymysql>=1.1.0",
 ]
 
