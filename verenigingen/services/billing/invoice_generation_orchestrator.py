@@ -22,7 +22,7 @@ Architecture:
     - Delegates to existing services: EligibilityChecker, CoverageCalculator, InvoiceGenerator
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Tuple
 
 import frappe
 
@@ -64,7 +64,7 @@ class InvoiceGenerationOrchestrator(StatelessService):
         """
         # 1. Eligibility check
         eligibility = self._check_eligibility(force)
-        if not eligibility.success:
+        if eligibility.metadata.get("skipped"):
             return eligibility
 
         # 2. Test mode early return
@@ -88,7 +88,7 @@ class InvoiceGenerationOrchestrator(StatelessService):
             return self._execute_generation()
 
         except Exception as e:
-            return self._handle_error(e)
+            self._handle_error(e)
 
         finally:
             frappe.flags.in_invoice_generation = False
@@ -105,9 +105,7 @@ class InvoiceGenerationOrchestrator(StatelessService):
         if not can_generate and not force:
             reason_lower = reason.lower()
             if "not eligible for billing" in reason_lower or "coverage overlap" in reason_lower:
-                frappe.logger().info(
-                    f"Invoice generation skipped for {self.schedule.name}: {reason}"
-                )
+                frappe.logger().info(f"Invoice generation skipped for {self.schedule.name}: {reason}")
             else:
                 frappe.log_error(
                     f"Cannot generate invoice: {reason}",
@@ -139,8 +137,7 @@ class InvoiceGenerationOrchestrator(StatelessService):
 
         lock_key = f"verenigingen_invoice_generation_{self.schedule.name}"
         lock_timeout = (
-            frappe.db.get_single_value("Verenigingen Settings", "invoice_generation_timeout")
-            or 300
+            frappe.db.get_single_value("Verenigingen Settings", "invoice_generation_timeout") or 300
         )
 
         # Attempt Redis connection
@@ -211,9 +208,7 @@ class InvoiceGenerationOrchestrator(StatelessService):
 
         # Validate coverage dates were set
         if not invoice.custom_coverage_start_date or not invoice.custom_coverage_end_date:
-            frappe.throw(
-                f"Coverage dates were not set during invoice creation for {invoice.name}"
-            )
+            frappe.throw(f"Coverage dates were not set during invoice creation for {invoice.name}")
 
         # Update coverage tracking on schedule
         self._update_coverage_tracking(invoice, coverage_start, coverage_end)
@@ -232,11 +227,12 @@ class InvoiceGenerationOrchestrator(StatelessService):
         self.schedule.last_invoice_coverage_end = coverage_end
         self.schedule.update_schedule_dates(actual_invoice_date=invoice.posting_date)
 
-    def _handle_error(self, exc: Exception) -> OperationResult:
+    def _handle_error(self, exc: Exception):
         """
         Handle invoice generation exceptions.
 
         Logs the error and re-raises as ValidationError to preserve existing contract.
+        Always raises -- never returns.
         """
         error_handler = get_invoice_error_handler_service()
         error_msg = error_handler._deduplicate_error_message(str(exc))
@@ -262,7 +258,6 @@ class InvoiceGenerationOrchestrator(StatelessService):
                 pass
 
         user_error_msg = (
-            f"Invoice gen failed for {self.schedule.name}: "
-            f"{error_msg[:MAX_USER_ERROR_LENGTH]}"
+            f"Invoice gen failed for {self.schedule.name}: " f"{error_msg[:MAX_USER_ERROR_LENGTH]}"
         )
         raise frappe.ValidationError(user_error_msg)
