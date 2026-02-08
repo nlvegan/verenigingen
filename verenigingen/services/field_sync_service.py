@@ -85,7 +85,45 @@ FIELD_SYNC_CONFIG = {
             },
             # Sync flag to prevent infinite loops
             "sync_flag": "syncing_member_user_fields",
-        }
+        },
+        "Volunteer": {
+            "link_field": "volunteer_record",
+            "field_mappings": {
+                "full_name": "volunteer_name",
+            },
+            "sync_flag": "syncing_member_volunteer_fields",
+        },
+        "Customer": {
+            "link_field": "customer",
+            "field_mappings": {
+                "full_name": "customer_name",
+            },
+            "sync_flag": "syncing_member_customer_fields",
+        },
+        "Donor": {
+            # No direct link on Member — Donor has member Link field pointing back
+            "reverse_lookup": {"member": "{source_name}"},
+            # One source field maps to multiple target fields
+            "field_transforms": {
+                "full_name": ["donor_name", "contact_person"],
+            },
+            "sync_flag": "syncing_member_donor_fields",
+        },
+        "Contact": {
+            "link_field": "contact",
+            "field_mappings": {
+                "first_name": "first_name",
+                "last_name": "last_name",
+            },
+            "sync_flag": "syncing_member_contact_fields",
+        },
+        "Address": {
+            "link_field": "primary_address",
+            "field_mappings": {
+                "full_name": "address_title",
+            },
+            "sync_flag": "syncing_member_address_fields",
+        },
     },
     "User": {
         "Member": {
@@ -160,7 +198,9 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
         return
 
     # Check if any configured fields have changed
-    changed_fields = _get_changed_fields(source_doc, config["field_mappings"])
+    field_mappings = config.get("field_mappings", {})
+    field_transforms = config.get("field_transforms", {})
+    changed_fields = _get_changed_fields(source_doc, field_mappings, field_transforms)
     if not changed_fields:
         # No relevant fields changed
         return
@@ -174,10 +214,16 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
         # Get target document
         target_doc = frappe.get_doc(target_doctype, target_name)
 
-        # Update fields
-        for source_field, target_field in changed_fields.items():
+        # Update fields from field_mappings (1:1)
+        for source_field, target_field in changed_fields.get("mappings", {}).items():
             source_value = getattr(source_doc, source_field, None)
             setattr(target_doc, target_field, source_value)
+
+        # Update fields from field_transforms (1:many)
+        for source_field, target_fields in changed_fields.get("transforms", {}).items():
+            source_value = getattr(source_doc, source_field, None)
+            for target_field in target_fields:
+                setattr(target_doc, target_field, source_value)
 
         # Save target document
         # Security: Hook-triggered sync - user has permission on source document, sync maintains consistency
@@ -185,7 +231,10 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
         target_doc.save(ignore_permissions=True)
 
         # Log success
-        field_names = ", ".join(changed_fields.keys())
+        all_source_fields = list(changed_fields.get("mappings", {}).keys()) + list(
+            changed_fields.get("transforms", {}).keys()
+        )
+        field_names = ", ".join(all_source_fields)
         logger.info(
             f"Synced fields [{field_names}] from {source_doc.doctype} {source_doc.name} "
             f"to {target_doctype} {target_name}"
@@ -244,29 +293,41 @@ def _find_target_document(source_doc, target_doctype: str, config: Dict) -> Opti
     return None
 
 
-def _get_changed_fields(doc, field_mappings: Dict[str, str]) -> Dict[str, str]:
+def _get_changed_fields(
+    doc, field_mappings: Dict[str, str], field_transforms: Optional[Dict[str, List[str]]] = None
+) -> Dict[str, dict]:
     """
     Get only the fields that have actually changed.
 
     Args:
         doc: Document being saved
-        field_mappings: Dictionary of source_field -> target_field mappings
+        field_mappings: Dictionary of source_field -> target_field (1:1 mappings)
+        field_transforms: Dictionary of source_field -> [target_fields] (1:many mappings)
 
     Returns:
-        Dictionary of changed source_field -> target_field mappings
+        Dict with "mappings" and "transforms" keys, each containing the changed subset.
+        Empty dict if nothing changed.
     """
-    changed = {}
+    changed_mappings = {}
+    changed_transforms = {}
 
     for source_field, target_field in field_mappings.items():
-        # Check if field exists on document
         if not hasattr(doc, source_field):
             continue
-
-        # Check if field has changed
         if hasattr(doc, "has_value_changed") and doc.has_value_changed(source_field):
-            changed[source_field] = target_field
+            changed_mappings[source_field] = target_field
 
-    return changed
+    if field_transforms:
+        for source_field, target_fields in field_transforms.items():
+            if not hasattr(doc, source_field):
+                continue
+            if hasattr(doc, "has_value_changed") and doc.has_value_changed(source_field):
+                changed_transforms[source_field] = target_fields
+
+    if not changed_mappings and not changed_transforms:
+        return {}
+
+    return {"mappings": changed_mappings, "transforms": changed_transforms}
 
 
 # ==================== UTILITY FUNCTIONS ====================
@@ -377,8 +438,12 @@ def test_sync_relationship(
 
         # Check if target was updated
         target_doc = frappe.get_doc(target_doctype, target_name)
-        target_field = config["field_mappings"].get(field_to_test)
-        target_value = getattr(target_doc, target_field, None)
+        target_field = config.get("field_mappings", {}).get(field_to_test)
+        if not target_field:
+            # Check field_transforms (use first target field for verification)
+            transform_targets = config.get("field_transforms", {}).get(field_to_test, [])
+            target_field = transform_targets[0] if transform_targets else None
+        target_value = getattr(target_doc, target_field, None) if target_field else None
 
         sync_success = target_value == test_value
         result_data = {
