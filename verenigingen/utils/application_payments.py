@@ -369,23 +369,19 @@ def calculate_membership_amount_with_discounts(membership_type, data):
     if not membership_type.dues_schedule_template:
         frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
     template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-    # Validate suggested amount - allow zero if minimum_amount is also zero (free membership)
-    if template.suggested_amount is None:
-        frappe.throw(f"Dues Schedule Template '{template.name}' must have a suggested_amount configured")
 
-    if template.suggested_amount < 0:
+    if getattr(template, "suggested_amount", None) and template.suggested_amount < 0:
         frappe.throw(
             f"Dues Schedule Template '{template.name}' cannot have negative suggested_amount: {template.suggested_amount}"
         )
 
-    # Allow zero amounts only if the membership type minimum is also zero (free membership)
-    if template.suggested_amount == 0:
-        membership_type_minimum = getattr(membership_type, "minimum_amount", None)
-        if membership_type_minimum is None or membership_type_minimum > 0:
-            frappe.throw(
-                f"Dues Schedule Template '{template.name}' has zero suggested_amount but Membership Type '{membership_type.name}' minimum_amount is {membership_type_minimum}. For free memberships, both must be zero."
-            )
-    base_amount = float(template.suggested_amount)
+    # Resolve base amount: suggested_amount → dues_rate → minimum_amount
+    base_amount = float(
+        template.suggested_amount
+        or getattr(template, "dues_rate", None)
+        or getattr(membership_type, "minimum_amount", None)
+        or 0
+    )
     final_amount = base_amount
     discounts_applied = []
 

@@ -132,6 +132,12 @@ class ProgressiveDuesService(StatelessService):
         if schedule_doc.contribution_mode != "Income-Based":
             return
 
+        # Only validate progressive fields when income_calculation_type is "Progressive"
+        # Percentage mode doesn't use reference_income or lower_threshold
+        income_calc_type = getattr(schedule_doc, "income_calculation_type", "Percentage")
+        if income_calc_type != "Progressive":
+            return
+
         reference_income = getattr(schedule_doc, "progressive_reference_income", None)
         lower_threshold = getattr(schedule_doc, "progressive_lower_threshold", None)
 

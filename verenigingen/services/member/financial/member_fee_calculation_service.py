@@ -88,20 +88,17 @@ class MemberFeeCalculationService(StatelessService):
                         "error": f"Membership Type '{membership_type.name}' must have a dues schedule template",
                     }
 
-                # Get template and validate amount
+                # Get template amount - use suggested_amount, dues_rate, or minimum_amount
                 template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                if not template.suggested_amount:
-                    self.logger.error(
-                        f"Template '{membership_type.dues_schedule_template}' missing suggested_amount"
-                    )
-                    return {
-                        "amount": 0,
-                        "source": "error",
-                        "error": f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured",
-                    }
+                amount = (
+                    template.suggested_amount
+                    or getattr(template, "dues_rate", None)
+                    or getattr(template, "minimum_amount", None)
+                    or 0
+                )
 
                 return {
-                    "amount": template.suggested_amount,
+                    "amount": amount,
                     "source": "template",
                     "membership_type": membership_type.membership_type_name,
                 }

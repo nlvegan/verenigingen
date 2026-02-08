@@ -331,10 +331,11 @@ class MembershipDuesSchedule(Document):
         if self.dues_rate is None and self.membership_type:
             # Get the fee from template values (explicit configuration)
             template_values = self.get_template_values()
-            if self.contribution_mode == "Income-Based":
-                self.dues_rate = template_values.get("suggested_amount", 0)
-            elif self.contribution_mode == "Flexible":
-                self.dues_rate = template_values.get("suggested_amount", 0)
+            if self.contribution_mode in ("Income-Based", "Flexible"):
+                # suggested_amount is optional; fall back to minimum_amount
+                self.dues_rate = (
+                    template_values.get("suggested_amount") or template_values.get("minimum_amount") or 0
+                )
 
     def set_billing_day(self):
         """

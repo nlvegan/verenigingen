@@ -145,6 +145,7 @@ class DuesScheduleValidationService(StatelessService):
         if schedule_doc.dues_rate is None:
             if schedule_doc.contribution_mode == "Income-Based":
                 # Income-Based: calculate from suggested_amount * multiplier
+                # suggested_amount is optional - fall back to minimum_amount
                 from verenigingen.services.billing.template_configuration_service import (
                     TemplateConfigurationService,
                 )
@@ -153,17 +154,13 @@ class DuesScheduleValidationService(StatelessService):
                     schedule_doc, schedule_doc.membership_type
                 )
                 suggested_amount = template_values.get("suggested_amount", 0)
-                if not suggested_amount:
-                    frappe.throw(
-                        "Cannot calculate dues: template has no suggested_amount configured. "
-                        "Please configure the template's suggested_amount."
-                    )
+                base_amount = suggested_amount or template_values.get("minimum_amount", 0)
 
                 multiplier = schedule_doc.base_multiplier if schedule_doc.base_multiplier is not None else 1.0
-                schedule_doc.dues_rate = suggested_amount * multiplier
+                schedule_doc.dues_rate = base_amount * multiplier
             elif schedule_doc.contribution_mode == "Flexible":
                 # Flexible: dues_rate should be set from user selection
-                # If not set, fall back to suggested_amount
+                # If not set, fall back to suggested_amount, then minimum_amount
                 from verenigingen.services.billing.template_configuration_service import (
                     TemplateConfigurationService,
                 )
@@ -171,7 +168,9 @@ class DuesScheduleValidationService(StatelessService):
                 template_values = TemplateConfigurationService().get_template_values(
                     schedule_doc, schedule_doc.membership_type
                 )
-                schedule_doc.dues_rate = template_values.get("suggested_amount", 0)
+                schedule_doc.dues_rate = (
+                    template_values.get("suggested_amount") or template_values.get("minimum_amount") or 0
+                )
 
     def validate_financial_constraints(self, schedule_doc: "Document") -> None:
         """

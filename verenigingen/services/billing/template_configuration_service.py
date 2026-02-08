@@ -132,12 +132,9 @@ class TemplateConfigurationService(StatelessService):
                     "Membership Dues Schedule", membership_type_doc.dues_schedule_template
                 )
 
-            # Validate template has required configuration based on contribution mode
-            if template.contribution_mode == "Income-Based" and not template.suggested_amount:
-                frappe.throw(
-                    f"Dues schedule template '{membership_type_doc.dues_schedule_template}' with Income-Based mode "
-                    f"must have a suggested_amount configured"
-                )
+            # Note: suggested_amount is optional for Income-Based mode.
+            # Members declare their own dues_rate based on income; the template's
+            # suggested_amount is only a reference point for multiplier calculations.
 
             values.update(
                 {
@@ -146,7 +143,7 @@ class TemplateConfigurationService(StatelessService):
                         if template.minimum_amount is not None
                         else membership_type_minimum
                     ),
-                    "suggested_amount": template.suggested_amount,
+                    "suggested_amount": template.suggested_amount or 0,
                     "billing_frequency": template.billing_frequency or "Annual",
                     "invoice_days_before": (
                         template.invoice_days_before if template.invoice_days_before is not None else 30
@@ -180,8 +177,10 @@ class TemplateConfigurationService(StatelessService):
                 template.dues_rate
                 if hasattr(template, "dues_rate") and template.dues_rate
                 else template_suggested
-            )
-            if effective_amount < membership_type_minimum:
+            ) or 0
+            # Only validate effective amount against minimum if the template has an amount configured.
+            # Income-Based templates may have no suggested_amount because members declare their own rate.
+            if effective_amount and effective_amount < membership_type_minimum:
                 amount_type = (
                     "dues rate"
                     if hasattr(template, "dues_rate") and template.dues_rate
