@@ -16,11 +16,12 @@
     "sync_run_id",
     "change_details_section",
     "change_summary",
-    "changed_fields",
+    "change_detail_html",
     "data_section",
     "old_data",
     "column_break_data",
     "new_data",
+    "changed_fields",
     "review_section",
     "reviewed_by",
     "reviewed_at",
@@ -107,11 +108,9 @@
       "read_only": 1
     },
     {
-      "description": "List of {field, old, new} dicts",
-      "fieldname": "changed_fields",
-      "fieldtype": "JSON",
-      "label": "Changed Fields",
-      "read_only": 1
+      "fieldname": "change_detail_html",
+      "fieldtype": "HTML",
+      "label": "Change Details"
     },
     {
       "fieldname": "data_section",
@@ -133,6 +132,13 @@
       "fieldname": "new_data",
       "fieldtype": "JSON",
       "label": "New Data",
+      "read_only": 1
+    },
+    {
+      "description": "List of {field, old, new, label} dicts with optional old_display/new_display",
+      "fieldname": "changed_fields",
+      "fieldtype": "JSON",
+      "label": "Changed Fields",
       "read_only": 1
     },
     {
@@ -178,7 +184,7 @@
   ],
   "index_web_pages_for_search": 0,
   "links": [],
-  "modified": "2026-02-06 10:00:00",
+  "modified": "2026-02-08 10:00:00",
   "modified_by": "Administrator",
   "module": "MijnRood Sync",
   "name": "MijnRood Sync Event",

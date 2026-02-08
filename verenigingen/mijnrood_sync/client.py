@@ -257,10 +257,13 @@ class MijnRoodDatabaseClient:
         return result
 
     def fetch_rows_by_ids(self, table: str, ids: list[int]) -> list[dict]:
-        """Fetch full row data for specific IDs.
+        """Fetch row data for specific IDs (explicit columns only).
 
         IDs are batched into chunks of _CHUNK_SIZE to stay within MariaDB's
         parameter limits. Results from all chunks are combined.
+
+        Only columns listed in TABLE_COLUMNS are fetched — sensitive columns
+        (password_hash, new_password_token, etc.) are never transferred.
 
         Args:
             table: MijnRood table name
@@ -275,12 +278,13 @@ class MijnRoodDatabaseClient:
         self._validate_table_name(table)
         pk = TABLE_PRIMARY_KEY[table]
         self._validate_identifier(pk, "primary key")
+        col_list = self._build_select_columns(table)
 
         all_rows: list[dict] = []
         for i in range(0, len(ids), _CHUNK_SIZE):
             chunk = ids[i : i + _CHUNK_SIZE]
             placeholders = ", ".join(["%s"] * len(chunk))
-            query = f"SELECT * FROM `{table}` WHERE `{pk}` IN ({placeholders})"  # noqa: S608
+            query = f"SELECT {col_list} FROM `{table}` WHERE `{pk}` IN ({placeholders})"  # noqa: S608
 
             with self._connection.cursor() as cursor:
                 cursor.execute(query, chunk)
@@ -290,7 +294,10 @@ class MijnRoodDatabaseClient:
         return all_rows
 
     def fetch_all_rows(self, table: str) -> list[dict]:
-        """Fetch all rows from a table.
+        """Fetch all rows from a table (explicit columns only).
+
+        Only columns listed in TABLE_COLUMNS are fetched — sensitive columns
+        (password_hash, new_password_token, etc.) are never transferred.
 
         Args:
             table: MijnRood table name
@@ -299,13 +306,34 @@ class MijnRoodDatabaseClient:
             List of row dicts
         """
         self._validate_table_name(table)
-        query = f"SELECT * FROM `{table}`"  # noqa: S608
+        col_list = self._build_select_columns(table)
+        query = f"SELECT {col_list} FROM `{table}`"  # noqa: S608
 
         with self._connection.cursor() as cursor:
             cursor.execute(query)
             rows = cursor.fetchall()
 
         return [self._serialize_row(row) for row in rows]
+
+    def _build_select_columns(self, table: str) -> str:
+        """Build a backtick-quoted, comma-separated column list for SELECT.
+
+        Uses TABLE_COLUMNS if available, otherwise falls back to
+        information_schema (for tables not yet registered in TABLE_COLUMNS).
+        Each column name is validated against the identifier regex.
+
+        Args:
+            table: MijnRood table name (already validated)
+
+        Returns:
+            SQL column list string, e.g. "`id`, `first_name`, `last_name`"
+        """
+        columns = TABLE_COLUMNS.get(table)
+        if not columns:
+            columns = self._get_table_columns(table)
+        for col in columns:
+            self._validate_identifier(col, "column")
+        return ", ".join(f"`{col}`" for col in columns)
 
     def _get_table_columns(self, table: str) -> list[str]:
         """Get column names for a table from information_schema."""

@@ -19,6 +19,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.mijnrood_sync.client import MijnRoodDatabaseClient
 from verenigingen.mijnrood_sync.field_mapping import (
+    MIJNROOD_FIELD_LABELS,
     MIJNROOD_TO_MEMBER_FIELD_MAP,
     STATUS_ID_LABELS,
     TABLE_PRIMARY_KEY,
@@ -364,7 +365,8 @@ class MijnRoodPollingService(StatefulService):
         """Compare old and new data to find changed fields.
 
         Returns:
-            List of {field, old, new} dicts
+            List of dicts with keys: field, old, new, label,
+            and optionally old_display/new_display for resolved values.
         """
         changed = []
         all_keys = set(old_data.keys()) | set(new_data.keys())
@@ -378,9 +380,53 @@ class MijnRoodPollingService(StatefulService):
             if new_val is None:
                 new_val = ""
             if str(old_val) != str(new_val):
-                changed.append({"field": key, "old": old_val, "new": new_val})
+                entry = {
+                    "field": key,
+                    "old": old_val,
+                    "new": new_val,
+                    "label": MIJNROOD_FIELD_LABELS.get(key, key),
+                }
+
+                # Resolve display values for special fields
+                if key == "current_membership_status_id":
+                    entry["old_display"] = STATUS_ID_LABELS.get(self._safe_int(old_val), str(old_val))
+                    entry["new_display"] = STATUS_ID_LABELS.get(self._safe_int(new_val), str(new_val))
+                elif key in ("division_id", "preferred_division_id"):
+                    entry["old_display"] = self._resolve_division_name(old_val) or str(old_val)
+                    entry["new_display"] = self._resolve_division_name(new_val) or str(new_val)
+
+                changed.append(entry)
 
         return changed
+
+    @staticmethod
+    def _safe_int(value) -> int | None:
+        """Convert a value to int, returning None on failure."""
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _resolve_division_name(self, division_id) -> str | None:
+        """Resolve a MijnRood division_id to a human-readable chapter name.
+
+        Looks up the admin_division sync state to find the division's name field.
+        """
+        div_id = self._safe_int(division_id)
+        if div_id is None:
+            return None
+
+        state = frappe.db.get_value(
+            "MijnRood Sync State",
+            {"mijnrood_table": "admin_division", "mijnrood_row_id": div_id},
+            "raw_data",
+        )
+        if state:
+            data = json.loads(state)
+            return data.get("name")
+        return None
 
     def _compute_change_summary(
         self,
@@ -390,16 +436,9 @@ class MijnRoodPollingService(StatefulService):
         new_data: Optional[dict],
         changed_fields: Optional[list],
     ) -> str:
-        """Generate human-readable change summary."""
+        """Generate human-readable change summary with values."""
         if event_type == "New":
-            name_parts = []
-            if new_data:
-                for field in ["first_name", "middle_name", "last_name"]:
-                    val = new_data.get(field)
-                    if val:
-                        name_parts.append(str(val))
-            name = " ".join(name_parts) if name_parts else f"row {new_data.get('id', '?')}"
-            return f"New {table} record: {name}"
+            return self._summary_for_new(table, new_data)
 
         if event_type == "Deleted":
             name_parts = []
@@ -412,28 +451,73 @@ class MijnRoodPollingService(StatefulService):
             return f"Deleted {table} record: {name}"
 
         if event_type == "Changed" and changed_fields:
-            summaries = []
-            for change in changed_fields[:5]:
-                field = change["field"]
-                old_val = change["old"]
-                new_val = change["new"]
-
-                # Special handling for status changes
-                if field == "current_membership_status_id":
-                    old_label = STATUS_ID_LABELS.get(int(old_val) if old_val else None, str(old_val))
-                    new_label = STATUS_ID_LABELS.get(int(new_val) if new_val else None, str(new_val))
-                    summaries.append(f"Status: {old_label} → {new_label}")
-                else:
-                    # Use mapped field name if available
-                    display_name = MIJNROOD_TO_MEMBER_FIELD_MAP.get(field, field)
-                    summaries.append(f"{display_name} changed")
-
-            summary = "; ".join(summaries)
-            if len(changed_fields) > 5:
-                summary += f" (+{len(changed_fields) - 5} more)"
-            return summary
+            return self._summary_for_changed(changed_fields)
 
         return f"{event_type} event for {table}"
+
+    def _summary_for_new(self, table: str, new_data: Optional[dict]) -> str:
+        """Build a summary for New events with key contextual fields."""
+        if not new_data:
+            return f"New {table} record"
+
+        name_parts = []
+        for field in ["first_name", "middle_name", "last_name"]:
+            val = new_data.get(field)
+            if val:
+                name_parts.append(str(val))
+        name = " ".join(name_parts) if name_parts else f"row {new_data.get('id', '?')}"
+
+        details = []
+        if table in ("admin_member", "admin_support_member", "admin_membership_application"):
+            if new_data.get("email"):
+                details.append(str(new_data["email"]))
+            if new_data.get("city"):
+                details.append(str(new_data["city"]))
+            div_id = new_data.get("division_id") or new_data.get("preferred_division_id")
+            if div_id:
+                chapter = self._resolve_division_name(div_id)
+                details.append(chapter or f"div#{div_id}")
+            status_id = new_data.get("current_membership_status_id")
+            if status_id is not None:
+                label = STATUS_ID_LABELS.get(self._safe_int(status_id), str(status_id))
+                details.append(label)
+        elif table == "admin_division":
+            if new_data.get("city"):
+                details.append(str(new_data["city"]))
+            if new_data.get("email_id"):
+                details.append(str(new_data["email_id"]))
+
+        summary = f"New {table} record: {name}"
+        if details:
+            summary += f" ({', '.join(details)})"
+        return summary
+
+    @staticmethod
+    def _summary_for_changed(changed_fields: list) -> str:
+        """Build a summary for Changed events including old→new values."""
+        summaries = []
+        for change in changed_fields[:5]:
+            label = change.get("label", change["field"])
+            old_display = change.get("old_display") or change.get("old", "")
+            new_display = change.get("new_display") or change.get("new", "")
+
+            # Truncate long values for summary readability
+            old_str = str(old_display)[:30]
+            new_str = str(new_display)[:30]
+
+            if old_str and new_str:
+                summaries.append(f"{label}: {old_str} → {new_str}")
+            elif new_str:
+                summaries.append(f"{label}: (empty) → {new_str}")
+            elif old_str:
+                summaries.append(f"{label}: {old_str} → (empty)")
+            else:
+                summaries.append(f"{label} changed")
+
+        summary = "; ".join(summaries)
+        if len(changed_fields) > 5:
+            summary += f" (+{len(changed_fields) - 5} more)"
+        return summary
 
     def _find_linked_member(self, table: str, row_id: int) -> Optional[str]:
         """Look up Verenigingen Member by member_id matching MijnRood row ID.
