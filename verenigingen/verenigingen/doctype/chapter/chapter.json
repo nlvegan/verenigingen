@@ -114,8 +114,7 @@
    "fieldtype": "Int",
    "label": "MijnRood Division ID",
    "no_copy": 1,
-   "read_only": 1,
-   "unique": 1
+   "read_only": 1
   },
   {
    "fieldname": "board_section",
