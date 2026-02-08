@@ -420,7 +420,8 @@
    "fieldname": "chapter_membership_history",
    "fieldtype": "Table",
    "label": "Chapter Membership History",
-   "options": "Chapter Membership History"
+   "options": "Chapter Membership History",
+   "permlevel": 2
   },
   {
    "default": "Board Only",
@@ -1066,6 +1067,28 @@
    "if_owner": 1,
    "read": 1,
    "role": "Verenigingen Member",
+   "write": 1
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "write": 1
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "Verenigingen Staff"
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "Verenigingen Chapter Board Member"
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "System Manager",
    "write": 1
   }
  ],
