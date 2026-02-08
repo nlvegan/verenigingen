@@ -173,7 +173,8 @@ class TestProgressiveDuesValidation(EnhancedTestCase):
     def test_validate_requires_reference_income_for_templates(self):
         """Test that templates require reference income."""
         mock_schedule = MagicMock()
-        mock_schedule.contribution_mode = "Progressive"
+        mock_schedule.contribution_mode = "Income-Based"
+        mock_schedule.income_calculation_type = "Progressive"
         mock_schedule.is_template = True
         mock_schedule.progressive_reference_income = None
         mock_schedule.progressive_lower_threshold = 1000
@@ -184,7 +185,8 @@ class TestProgressiveDuesValidation(EnhancedTestCase):
     def test_validate_requires_lower_threshold_for_templates(self):
         """Test that templates require lower threshold."""
         mock_schedule = MagicMock()
-        mock_schedule.contribution_mode = "Progressive"
+        mock_schedule.contribution_mode = "Income-Based"
+        mock_schedule.income_calculation_type = "Progressive"
         mock_schedule.is_template = True
         mock_schedule.progressive_reference_income = 3000
         mock_schedule.progressive_lower_threshold = None
@@ -195,7 +197,8 @@ class TestProgressiveDuesValidation(EnhancedTestCase):
     def test_validate_threshold_less_than_reference(self):
         """Test that lower threshold must be less than reference income."""
         mock_schedule = MagicMock()
-        mock_schedule.contribution_mode = "Progressive"
+        mock_schedule.contribution_mode = "Income-Based"
+        mock_schedule.income_calculation_type = "Progressive"
         mock_schedule.is_template = True
         mock_schedule.progressive_reference_income = 2000
         mock_schedule.progressive_lower_threshold = 3000  # Greater than reference

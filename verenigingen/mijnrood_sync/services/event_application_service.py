@@ -104,6 +104,147 @@ class MijnRoodEventApplicationService(StatefulService):
         handler = getattr(self, f"_apply_{action}_{table_key}")
         return handler(event)
 
+    # ─── Shared helpers ────────────────────────────────────────────────
+
+    # Fields shared between new and changed application handlers.
+    # Keys = row_data keys (from _map_mijnrood_to_member_fields),
+    # values = Member DocType field names.
+    _APPLICATION_FIELDS = {
+        "member_id": "member_id",
+        "first_name": "first_name",
+        "tussenvoegsel": "tussenvoegsel",
+        "last_name": "last_name",
+        "email": "email",
+        "contact_number": "contact_number",
+        "birth_date": "birth_date",
+        "iban": "iban",
+        "dues_rate": "dues_rate",
+    }
+
+    def _find_existing_member_or_conflict(self, mijnrood_id, email) -> tuple[Optional[str], Optional[dict]]:
+        """Look up existing member by member_id (authoritative) then email.
+
+        Returns:
+            (member_name, result_dict) — found or conflict
+            (None, None) — no match
+        """
+        if mijnrood_id:
+            existing = frappe.db.get_value("Member", {"member_id": str(mijnrood_id)}, "name")
+            if existing:
+                return existing, {
+                    "success": True,
+                    "message": _("Member {0} already exists (member_id={1})").format(existing, mijnrood_id),
+                }
+        if email:
+            match = frappe.db.get_value("Member", {"email": email}, ["name", "member_id"], as_dict=True)
+            if match:
+                if match.member_id and mijnrood_id and str(match.member_id) != str(mijnrood_id):
+                    return None, {
+                        "success": False,
+                        "message": _(
+                            "Email {0} already used by {1} (member_id={2}), " "conflicts with MijnRood ID {3}"
+                        ).format(email, match.name, match.member_id, mijnrood_id),
+                    }
+                return match.name, {
+                    "success": True,
+                    "message": _("Member {0} already exists (email={1})").format(match.name, email),
+                }
+        return None, None
+
+    def _set_application_fields(self, member, row_data: dict, is_new: bool = False) -> bool:
+        """Apply mapped MijnRood fields to a Member document.
+
+        Handles member_id stringification and payment method inference.
+
+        Args:
+            is_new: If True, infer payment_method from IBAN when not already set.
+
+        Returns:
+            True if any field was changed.
+        """
+        changed = False
+        for row_key, member_field in self._APPLICATION_FIELDS.items():
+            val = row_data.get(row_key)
+            if val is None or val == "":
+                continue
+            if row_key == "member_id":
+                val = str(val)
+            current = member.get(member_field)
+            if str(val).strip() != str(current or "").strip():
+                member.set(member_field, val)
+                changed = True
+
+        # For new applications, infer payment method from IBAN
+        if is_new and member.iban and not member.payment_method:
+            member.payment_method = "Bank Transfer"
+
+        # Mollie overrides payment method for both new and changed
+        mollie_id = row_data.get("custom_mollie_customer_id")
+        if mollie_id and mollie_id != member.mollie_customer_id:
+            member.mollie_customer_id = mollie_id
+            member.payment_method = "Mollie"
+            changed = True
+
+        return changed
+
+    def _assign_chapter_from_division(self, member_name: str, division_id: int, event) -> Optional[str]:
+        """Resolve a division_id to a chapter and assign the member.
+
+        Returns a human-readable message, or None if nothing was done.
+        """
+        chapter_name = self._resolve_division_id(division_id)
+        if not chapter_name:
+            return _("Division ID {0} does not match any Chapter").format(division_id)
+
+        if not frappe.db.exists("Chapter", chapter_name):
+            return _("Chapter '{0}' does not exist in Frappe").format(chapter_name)
+
+        from verenigingen.services.chapter.chapter_assignment_service import (
+            ChapterAssignmentService,
+        )
+
+        try:
+            result = ChapterAssignmentService().assign_with_cleanup(
+                member=member_name,
+                chapter=chapter_name,
+                note=f"MijnRood sync: chapter assignment (event {event.name})",
+            )
+        except frappe.ValidationError as e:
+            self.logger.info("Chapter assignment skipped for %s: %s", member_name, e)
+            return None
+        except Exception as e:
+            self.logger.error("Chapter assignment failed for %s: %s", member_name, e)
+            frappe.log_error(frappe.get_traceback(), f"MijnRood Chapter Assignment Failed: {member_name}")
+            return _("Chapter assignment error: {0}").format(str(e))
+
+        if result.get("success"):
+            self.logger.info("Assigned member %s to chapter %s", member_name, chapter_name)
+            return _("Assigned to chapter '{0}'").format(chapter_name)
+        return _("Chapter assignment failed: {0}").format(result.get("message", "unknown"))
+
+    def _handle_division_field_change(
+        self, member_name: str, changed_fields: list, event, field_name: str = "division_id"
+    ) -> Optional[str]:
+        """Handle division_id or preferred_division_id changes as chapter reassignment.
+
+        Scans changed_fields for the given field_name, resolves the new
+        division to a chapter, and reassigns the member.
+        """
+        division_change = None
+        for change in changed_fields:
+            if change.get("field") == field_name:
+                division_change = change
+                break
+
+        if not division_change:
+            return None
+
+        new_division_id = self._safe_int(division_change.get("new"))
+        if new_division_id is None:
+            return None
+
+        return self._assign_chapter_from_division(member_name, new_division_id, event)
+
     # ─── New ───────────────────────────────────────────────────────────
 
     def _apply_new(self, event) -> dict:
@@ -118,15 +259,14 @@ class MijnRoodEventApplicationService(StatefulService):
 
         row_data = self._map_mijnrood_to_member_fields(new_data)
 
-        # Check if member already exists (idempotency)
-        existing = frappe.db.get_value("Member", {"member_id": row_data.get("member_id")}, "name")
-        if existing:
-            return {
-                "success": True,
-                "message": _("Member {0} already exists (member_id={1})").format(
-                    existing, row_data.get("member_id")
-                ),
-            }
+        # Idempotency — member_id is authoritative, email is fallback
+        existing_name, existing_result = self._find_existing_member_or_conflict(
+            row_data.get("member_id"), row_data.get("email")
+        )
+        if existing_result is not None:
+            if existing_name:
+                event.linked_member = existing_name
+            return existing_result
 
         # Use MemberImportService for consistent creation logic
         from verenigingen.services.csv_import.member_import_service import get_member_import_service
@@ -162,70 +302,28 @@ class MijnRoodEventApplicationService(StatefulService):
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
-        # Map common fields using the shared mapping
         row_data = self._map_mijnrood_to_member_fields(new_data)
-        mijnrood_id = row_data.get("member_id")
-        email = row_data.get("email")
 
-        # Idempotency: check if member already exists
-        if mijnrood_id:
-            existing = frappe.db.get_value("Member", {"member_id": str(mijnrood_id)}, "name")
-            if existing:
-                event.linked_member = existing
-                return {
-                    "success": True,
-                    "message": _("Member {0} already exists (member_id={1})").format(existing, mijnrood_id),
-                }
-        if email:
-            existing = frappe.db.get_value("Member", {"email": email}, "name")
-            if existing:
-                event.linked_member = existing
-                return {
-                    "success": True,
-                    "message": _("Application for {0} already exists as {1}").format(email, existing),
-                }
+        # Idempotency — member_id is authoritative, email is fallback
+        existing_name, existing_result = self._find_existing_member_or_conflict(
+            row_data.get("member_id"), row_data.get("email")
+        )
+        if existing_result is not None:
+            if existing_name:
+                event.linked_member = existing_name
+            return existing_result
 
         # Create Member document as a pending application
         member = frappe.new_doc("Member")
         member.flags.ignore_workflow = True
         member._system_update = True
         member._csv_import = True
-
-        # Application status
         member.application_status = "Pending"
         member.status = "Pending"
         member.application_date = new_data.get("registration_time") or today()
-
-        # Basic fields
-        if row_data.get("member_id"):
-            member.member_id = str(row_data["member_id"])
-        if row_data.get("first_name"):
-            member.first_name = row_data["first_name"]
-        if row_data.get("tussenvoegsel"):
-            member.tussenvoegsel = row_data["tussenvoegsel"]
-        if row_data.get("last_name"):
-            member.last_name = row_data["last_name"]
-        if row_data.get("email"):
-            member.email = row_data["email"]
-        if row_data.get("contact_number"):
-            member.contact_number = row_data["contact_number"]
-        if row_data.get("birth_date"):
-            member.birth_date = row_data["birth_date"]
-
-        # Financial
-        if row_data.get("iban"):
-            member.iban = row_data["iban"]
-            member.payment_method = "Bank Transfer"
-        if row_data.get("dues_rate"):
-            member.dues_rate = row_data["dues_rate"]
-
-        # Mollie
-        if row_data.get("custom_mollie_customer_id"):
-            member.mollie_customer_id = row_data["custom_mollie_customer_id"]
-            member.payment_method = "Mollie"
-
-        # Track source
         member.review_notes = f"Imported from MijnRood application (event {event.name})"
+
+        self._set_application_fields(member, row_data, is_new=True)
 
         # Security: System-initiated creation from authoritative MijnRood data
         member.insert(ignore_permissions=True)
@@ -234,20 +332,7 @@ class MijnRoodEventApplicationService(StatefulService):
         # Assign to preferred chapter
         preferred_div_id = self._safe_int(new_data.get("preferred_division_id"))
         if preferred_div_id:
-            chapter_name = self._resolve_division_id(preferred_div_id)
-            if chapter_name and frappe.db.exists("Chapter", chapter_name):
-                try:
-                    from verenigingen.services.chapter.chapter_assignment_service import (
-                        ChapterAssignmentService,
-                    )
-
-                    ChapterAssignmentService().assign_with_cleanup(
-                        member=member.name,
-                        chapter=chapter_name,
-                        note=f"MijnRood application preferred chapter (event {event.name})",
-                    )
-                except Exception as e:
-                    self.logger.warning("Chapter assignment error for application %s: %s", member.name, e)
+            self._assign_chapter_from_division(member.name, preferred_div_id, event)
 
         event.linked_member = member.name
         self.logger.info(
@@ -299,7 +384,9 @@ class MijnRoodEventApplicationService(StatefulService):
             }
 
         # Handle chapter transfer if division_id changed
-        chapter_result = self._handle_chapter_transfer(member_name, changed_fields, event)
+        chapter_result = self._handle_division_field_change(
+            member_name, changed_fields, event, field_name="division_id"
+        )
 
         row_data = self._map_mijnrood_to_member_fields(new_data)
 
@@ -342,16 +429,16 @@ class MijnRoodEventApplicationService(StatefulService):
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
-        # Find the linked member
+        # Find the linked member — event link first, then member_id, then email
         member_name = event.linked_member
         if not member_name:
-            member_name = frappe.db.get_value("Member", {"member_id": str(new_data.get("id", ""))}, "name")
-
-        if not member_name:
-            # Try email fallback
-            email = new_data.get("email")
-            if email:
-                member_name = frappe.db.get_value("Member", {"email": email}, "name")
+            mijnrood_id = str(new_data.get("id", ""))
+            existing_name, existing_result = self._find_existing_member_or_conflict(
+                mijnrood_id, new_data.get("email")
+            )
+            if existing_result and not existing_result.get("success"):
+                return existing_result  # Conflict
+            member_name = existing_name
 
         if not member_name:
             return {
@@ -361,8 +448,18 @@ class MijnRoodEventApplicationService(StatefulService):
                 ),
             }
 
+        # Guard: don't overwrite data on already-approved/rejected applications
+        app_status = frappe.db.get_value("Member", member_name, "application_status")
+        if app_status and app_status not in ("Pending", ""):
+            return {
+                "success": True,
+                "message": _("Application {0} already {1}, skipping update").format(member_name, app_status),
+            }
+
         # Handle preferred_division_id change as chapter reassignment
-        chapter_msg = self._handle_preferred_division_change(member_name, changed_fields, event)
+        chapter_msg = self._handle_division_field_change(
+            member_name, changed_fields, event, field_name="preferred_division_id"
+        )
 
         # Update basic fields on the member
         row_data = self._map_mijnrood_to_member_fields(new_data)
@@ -370,29 +467,7 @@ class MijnRoodEventApplicationService(StatefulService):
         member.flags.ignore_workflow = True
         member._system_update = True
 
-        changed_something = False
-        field_map = {
-            "first_name": "first_name",
-            "tussenvoegsel": "tussenvoegsel",
-            "last_name": "last_name",
-            "email": "email",
-            "contact_number": "contact_number",
-            "birth_date": "birth_date",
-            "iban": "iban",
-            "dues_rate": "dues_rate",
-        }
-        for row_key, member_field in field_map.items():
-            val = row_data.get(row_key)
-            if val and str(val) != str(member.get(member_field) or ""):
-                member.set(member_field, val)
-                changed_something = True
-
-        # Mollie customer ID
-        mollie_id = row_data.get("custom_mollie_customer_id")
-        if mollie_id and mollie_id != member.mollie_customer_id:
-            member.mollie_customer_id = mollie_id
-            member.payment_method = "Mollie"
-            changed_something = True
+        changed_something = self._set_application_fields(member, row_data)
 
         if changed_something:
             # Security: System-initiated update from authoritative MijnRood data
@@ -406,52 +481,6 @@ class MijnRoodEventApplicationService(StatefulService):
 
         event.linked_member = member_name
         return {"success": True, "message": "; ".join(messages)}
-
-    def _handle_preferred_division_change(
-        self, member_name: str, changed_fields: list, event
-    ) -> Optional[str]:
-        """Handle preferred_division_id changes for applications.
-
-        Similar to _handle_chapter_transfer but uses preferred_division_id.
-        """
-        division_change = None
-        for change in changed_fields:
-            if change.get("field") == "preferred_division_id":
-                division_change = change
-                break
-
-        if not division_change:
-            return None
-
-        new_division_id = self._safe_int(division_change.get("new"))
-        if new_division_id is None:
-            return None
-
-        chapter_name = self._resolve_division_id(new_division_id)
-        if not chapter_name:
-            return _("Division ID {0} does not match any Chapter").format(new_division_id)
-
-        if not frappe.db.exists("Chapter", chapter_name):
-            return _("Chapter '{0}' does not exist in Frappe").format(chapter_name)
-
-        from verenigingen.services.chapter.chapter_assignment_service import (
-            ChapterAssignmentService,
-        )
-
-        try:
-            result = ChapterAssignmentService().assign_with_cleanup(
-                member=member_name,
-                chapter=chapter_name,
-                note=f"MijnRood application: preferred chapter changed (event {event.name})",
-            )
-        except Exception as e:
-            self.logger.warning("Chapter reassignment error for %s: %s", member_name, e)
-            return _("Chapter reassignment error: {0}").format(str(e))
-
-        if result.get("success"):
-            return _("Reassigned to preferred chapter '{0}'").format(chapter_name)
-        else:
-            return _("Chapter reassignment failed: {0}").format(result.get("message", "unknown"))
 
     # ─── Deleted ──────────────────────────────────────────────────────
 
@@ -611,58 +640,6 @@ class MijnRoodEventApplicationService(StatefulService):
                 division_name
             ),
         }
-
-    # ─── Chapter transfer ───────────────────────────────────────────
-
-    def _handle_chapter_transfer(self, member_name: str, changed_fields: list, event) -> Optional[str]:
-        """If division_id changed, reassign the member to the new chapter.
-
-        Returns a human-readable message, or None if no transfer was needed.
-        """
-        division_change = None
-        for change in changed_fields:
-            if change.get("field") == "division_id":
-                division_change = change
-                break
-
-        if not division_change:
-            return None
-
-        new_division_id = self._safe_int(division_change.get("new"))
-        if new_division_id is None:
-            return None
-
-        chapter_name = self._resolve_division_id(new_division_id)
-        if not chapter_name:
-            return _("Division ID {0} does not match any Chapter").format(new_division_id)
-
-        if not frappe.db.exists("Chapter", chapter_name):
-            return _("Chapter '{0}' does not exist in Frappe").format(chapter_name)
-
-        from verenigingen.services.chapter.chapter_assignment_service import (
-            ChapterAssignmentService,
-        )
-
-        service = ChapterAssignmentService()
-        try:
-            result = service.assign_with_cleanup(
-                member=member_name,
-                chapter=chapter_name,
-                note=f"MijnRood sync: division changed (event {event.name})",
-            )
-        except Exception as e:
-            self.logger.warning("Chapter transfer error for %s: %s", member_name, e)
-            return _("Chapter transfer error: {0}").format(str(e))
-
-        if result.get("success"):
-            self.logger.info(
-                "Transferred member %s to chapter %s",
-                member_name,
-                chapter_name,
-            )
-            return _("Transferred to chapter '{0}'").format(chapter_name)
-        else:
-            return _("Chapter transfer failed: {0}").format(result.get("message", "unknown"))
 
     def _resolve_division_id(self, division_id: int) -> Optional[str]:
         """Resolve a MijnRood division_id to a Chapter name.

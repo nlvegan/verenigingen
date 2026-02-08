@@ -45,6 +45,14 @@ const MEMBER_SUMMARY_FIELDS = [
     "iban", "registration_time",
 ];
 
+const APPLICATION_SUMMARY_FIELDS = [
+    "first_name", "middle_name", "last_name", "email", "phone",
+    "address", "city", "post_code", "country",
+    "preferred_division_id", "contribution_per_period_in_cents",
+    "date_of_birth", "iban", "registration_time",
+    "paid", "has_sent_initial_email",
+];
+
 const DIVISION_SUMMARY_FIELDS = [
     "name", "city", "email_id", "phone",
     "address", "post_code",
@@ -139,6 +147,8 @@ function render_new_card(table, new_data) {
     var fields = MEMBER_SUMMARY_FIELDS;
     if (table === "admin_division") {
         fields = DIVISION_SUMMARY_FIELDS;
+    } else if (table === "admin_membership_application") {
+        fields = APPLICATION_SUMMARY_FIELDS;
     }
 
     // Build name header
@@ -351,6 +361,103 @@ frappe.ui.form.on("MijnRood Sync Event", {
     },
 });
 
+// Terminated status IDs (mirrors Python TERMINATED_STATUS_IDS)
+const TERMINATED_STATUS_IDS = [3, 4, 5, 6];
+
+/**
+ * Compute a list of human-readable implications describing what will happen
+ * when this event is applied.
+ */
+function compute_implications(event_type, table, new_data, changed_fields) {
+    var items = [];
+
+    if (event_type === "New") {
+        if (table === "admin_member") {
+            items.push("Will create a new active Member via import service");
+        } else if (table === "admin_membership_application") {
+            items.push("Will create a new pending membership application");
+            if (new_data && new_data.preferred_division_id) {
+                items.push("Will assign to preferred chapter (Division ID " + new_data.preferred_division_id + ")");
+            }
+        } else if (table === "admin_division") {
+            var div_name = (new_data && new_data.name) ? new_data.name : "unknown";
+            items.push("Will create/update Chapter '" + div_name + "'");
+        }
+    } else if (event_type === "Changed") {
+        if (!Array.isArray(changed_fields) || !changed_fields.length) return items;
+
+        if (table === "admin_member") {
+            var has_status_change = false;
+            var has_division_change = false;
+            var other_field_count = 0;
+
+            for (var i = 0; i < changed_fields.length; i++) {
+                var c = changed_fields[i];
+                if (c.field === "current_membership_status_id") {
+                    has_status_change = true;
+                    var new_id = parseInt(c.new, 10);
+                    if (TERMINATED_STATUS_IDS.indexOf(new_id) !== -1) {
+                        var type_label = STATUS_LABELS[new_id] || String(new_id);
+                        items.push("Will create a Membership Termination Request (" + type_label + ")");
+                    } else {
+                        var new_label = c.new_display || STATUS_LABELS[new_id] || String(c.new);
+                        items.push("Will update membership status to " + new_label);
+                    }
+                } else if (c.field === "division_id") {
+                    has_division_change = true;
+                    var chapter_name = c.new_display || ("Division ID " + c.new);
+                    items.push("Will transfer member to chapter '" + chapter_name + "'");
+                } else {
+                    other_field_count++;
+                }
+            }
+            if (other_field_count > 0) {
+                items.push("Will update " + other_field_count + " member field(s) via import service");
+            }
+        } else if (table === "admin_membership_application") {
+            var has_div_change = false;
+            var app_field_count = 0;
+
+            for (var j = 0; j < changed_fields.length; j++) {
+                var cf = changed_fields[j];
+                if (cf.field === "preferred_division_id") {
+                    has_div_change = true;
+                    var ch_name = cf.new_display || ("Division ID " + cf.new);
+                    items.push("Will reassign to preferred chapter '" + ch_name + "'");
+                } else {
+                    app_field_count++;
+                }
+            }
+            if (app_field_count > 0) {
+                items.push("Will update " + app_field_count + " pending application field(s)");
+            }
+        } else if (table === "admin_division") {
+            items.push("Will update Chapter fields");
+        }
+    } else if (event_type === "Deleted") {
+        items.push("Deleted events require manual review (no auto-action)");
+    }
+
+    return items;
+}
+
+/**
+ * Render an implications panel as an alert-info box with bullet list.
+ */
+function render_implications(event_type, table, new_data, changed_fields) {
+    var items = compute_implications(event_type, table, new_data, changed_fields);
+    if (!items.length) return "";
+
+    var html = '<div class="alert alert-info" style="margin-top:10px; margin-bottom:10px">';
+    html += '<strong>What will happen</strong>';
+    html += '<ul style="margin-bottom:0; margin-top:5px">';
+    for (var i = 0; i < items.length; i++) {
+        html += "<li>" + esc(items[i]) + "</li>";
+    }
+    html += "</ul></div>";
+    return html;
+}
+
 function render_change_details(frm) {
     var wrapper = frm.fields_dict.change_detail_html;
     if (!wrapper) return;
@@ -362,6 +469,9 @@ function render_change_details(frm) {
     var old_data = safe_parse_json(frm.doc.old_data);
 
     var html = "";
+
+    // Implications panel — shows what will happen when event is applied
+    html += render_implications(event_type, table, new_data, changed_fields);
 
     if (event_type === "Changed") {
         html += render_changed_table(changed_fields);

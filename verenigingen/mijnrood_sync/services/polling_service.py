@@ -522,10 +522,10 @@ class MijnRoodPollingService(StatefulService):
     def _find_linked_member(self, table: str, row_id: int) -> Optional[str]:
         """Look up Verenigingen Member by member_id matching MijnRood row ID.
 
-        Only applies to admin_member table — other tables need different
-        matching logic or don't link directly to members.
+        Applies to admin_member and admin_membership_application tables,
+        which both use member_id to link to Verenigingen Members.
         """
-        if table != "admin_member":
+        if table not in ("admin_member", "admin_membership_application"):
             return None
 
         member = frappe.db.get_value(
