@@ -578,6 +578,9 @@ class MijnRoodEventApplicationService(StatefulService):
         # Pre-approve since this is a sync from the authoritative system
         termination_doc.status = "Approved"
         termination_doc._csv_import = True  # Bypass workflow validation
+        termination_doc.flags.skip_termination_validation = (
+            True  # System-initiated, skip commitment/doc checks
+        )
 
         # Security: System-initiated termination from authoritative MijnRood data
         termination_doc.insert(ignore_permissions=True)
@@ -588,9 +591,36 @@ class MijnRoodEventApplicationService(StatefulService):
             termination_type,
         )
 
+        # Auto-execute: MijnRood is authoritative, termination already happened there
+        from verenigingen.services.termination import TerminationExecutionService
+
+        try:
+            TerminationExecutionService().execute(termination_doc)
+            self.logger.info(
+                "Executed termination %s for member %s",
+                termination_doc.name,
+                member_name,
+            )
+        except Exception as e:
+            self.logger.error(
+                "Termination request %s created but execution failed: %s",
+                termination_doc.name,
+                e,
+            )
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Termination Execution Failed: {termination_doc.name}",
+            )
+            return {
+                "success": False,
+                "message": _("Termination request {0} created but execution failed: {1}").format(
+                    termination_doc.name, str(e)
+                ),
+            }
+
         return {
             "success": True,
-            "message": _("Termination request {0} created for member {1} (type: {2})").format(
+            "message": _("Termination request {0} executed for member {1} (type: {2})").format(
                 termination_doc.name, member_name, termination_type
             ),
         }

@@ -422,7 +422,7 @@ function compute_implications(event_type, table, new_data, changed_fields) {
                     var new_id = parseInt(c.new, 10);
                     if (is_terminated_status(new_id)) {
                         var type_label = get_status_label(new_id);
-                        items.push("Will create a Membership Termination Request (" + type_label + ")");
+                        items.push("Will create and execute a Membership Termination Request (" + type_label + ")");
                     } else {
                         var new_label = c.new_display || get_status_label(new_id);
                         items.push("Will update membership status to " + new_label);

@@ -181,6 +181,10 @@ class MembershipTerminationRequest(Document):
 
     def validate_permissions(self):
         """Validate user permissions for different termination types"""
+        # Skip for system-initiated operations (e.g. MijnRood sync)
+        if getattr(self.flags, "skip_termination_validation", False):
+            return
+
         from verenigingen.permissions import can_access_termination_functions, can_terminate_member
 
         # Check if user can access termination functions in general

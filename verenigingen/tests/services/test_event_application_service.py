@@ -11,6 +11,7 @@ Tests cover:
 - _apply_new_membership_application: idempotent, email conflict, email match
 - _apply_changed_membership_application: approved guard, email conflict, no-change skip
 - _apply_new_member: idempotency via _find_existing_member_or_conflict
+- _check_and_handle_termination: status routing, auto-execution, execution failure
 """
 
 import json
@@ -487,3 +488,199 @@ class TestDispatchRouting(EnhancedTestCase):
 
         mock_handler.assert_called_once_with(event)
         self.assertTrue(result["success"])
+
+
+class TestCheckAndHandleTermination(EnhancedTestCase):
+    """Tests for _check_and_handle_termination() and auto-execution."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def _make_status_change(self, old_id, new_id):
+        """Helper: build a changed_fields list with a status change."""
+        return [{"field": "current_membership_status_id", "old": str(old_id), "new": str(new_id)}]
+
+    def test_no_status_change_returns_none(self):
+        """When changed_fields has no status change, returns None (not handled)."""
+        changed_fields = [{"field": "first_name", "old": "A", "new": "B"}]
+        event = MagicMock()
+
+        result = self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        self.assertIsNone(result)
+
+    def test_non_terminated_target_returns_none(self):
+        """Status change to an active status (not terminated) returns None."""
+        # 1 and 2 are active status IDs
+        changed_fields = self._make_status_change(1, 2)
+        event = MagicMock()
+
+        result = self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        self.assertIsNone(result)
+
+    def test_non_active_source_returns_none(self):
+        """Status change FROM a non-active state returns None (already non-active)."""
+        # old=3 (terminated) → new=5 (deceased) — both non-active
+        changed_fields = self._make_status_change(3, 5)
+        event = MagicMock()
+
+        result = self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_no_linked_member_returns_error(self, mock_frappe):
+        """When no member can be found, returns error."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = None  # No member found by member_id
+
+        changed_fields = self._make_status_change(1, 3)  # active → terminated
+        event = MagicMock()
+        event.linked_member = None
+
+        result = self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("no linked member", result["message"])
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_already_terminated_member_skips(self, mock_frappe):
+        """When member is already Terminated, returns skip success."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.status = "Terminated"
+        mock_frappe.get_doc.return_value = member_doc
+
+        changed_fields = self._make_status_change(1, 3)  # active → terminated
+        event = MagicMock()
+        event.linked_member = "MEM-001"
+
+        result = self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        self.assertTrue(result["success"])
+        self.assertIn("already has status Terminated", result["message"])
+
+    @patch("verenigingen.services.termination.TerminationExecutionService")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_creates_and_executes_termination(self, mock_frappe, mock_exec_cls):
+        """Happy path: creates termination request AND auto-executes it."""
+        mock_frappe._ = frappe._
+        mock_frappe.utils.today.return_value = "2026-02-08"
+
+        # Member is active
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+
+        # Termination request doc
+        term_doc = MagicMock()
+        term_doc.name = "TR-001"
+        mock_frappe.new_doc.return_value = term_doc
+
+        # Execution succeeds
+        mock_exec_instance = MagicMock()
+        mock_exec_cls.return_value = mock_exec_instance
+
+        changed_fields = self._make_status_change(1, 3)  # active → voluntary termination
+        event = MagicMock()
+        event.name = "EVT-001"
+        event.linked_member = "MEM-001"
+
+        result = self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        # Verify request was created with correct fields
+        self.assertEqual(term_doc.member, "MEM-001")
+        self.assertEqual(term_doc.status, "Approved")
+        self.assertEqual(term_doc.termination_type, "Voluntary")
+        self.assertTrue(term_doc.flags.skip_termination_validation)
+        term_doc.insert.assert_called_once()
+
+        # Verify auto-execution was called
+        mock_exec_instance.execute.assert_called_once_with(term_doc)
+
+        # Verify success result
+        self.assertTrue(result["success"])
+        self.assertIn("executed", result["message"])
+
+    @patch("verenigingen.services.termination.TerminationExecutionService")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_execution_failure_returns_error(self, mock_frappe, mock_exec_cls):
+        """When execution fails, request is created but error is returned."""
+        mock_frappe._ = frappe._
+        mock_frappe.utils.today.return_value = "2026-02-08"
+        mock_frappe.get_traceback.return_value = "traceback"
+
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+
+        term_doc = MagicMock()
+        term_doc.name = "TR-002"
+        mock_frappe.new_doc.return_value = term_doc
+
+        # Execution fails
+        mock_exec_instance = MagicMock()
+        mock_exec_instance.execute.side_effect = Exception("DB lock timeout")
+        mock_exec_cls.return_value = mock_exec_instance
+
+        changed_fields = self._make_status_change(1, 4)  # active → disciplinary
+        event = MagicMock()
+        event.name = "EVT-002"
+        event.linked_member = "MEM-002"
+
+        result = self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        # Request was still inserted
+        term_doc.insert.assert_called_once()
+        # But result is failure
+        self.assertFalse(result["success"])
+        self.assertIn("execution failed", result["message"])
+        self.assertIn("DB lock timeout", result["message"])
+        # Error was logged
+        mock_frappe.log_error.assert_called_once()
+
+    @patch("verenigingen.services.termination.TerminationExecutionService")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_deceased_sets_member_request_date(self, mock_frappe, mock_exec_cls):
+        """Deceased termination type sets member_request_date."""
+        mock_frappe._ = frappe._
+        mock_frappe.utils.today.return_value = "2026-02-08"
+
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+
+        term_doc = MagicMock()
+        term_doc.name = "TR-003"
+        mock_frappe.new_doc.return_value = term_doc
+
+        mock_exec_cls.return_value = MagicMock()
+
+        changed_fields = self._make_status_change(1, 5)  # active → deceased
+        event = MagicMock()
+        event.name = "EVT-003"
+        event.linked_member = "MEM-003"
+
+        self.service._check_and_handle_termination(
+            event, {}, {"id": 42}, changed_fields
+        )
+
+        self.assertEqual(term_doc.termination_type, "Deceased")
+        # member_request_date should be set for Deceased type
+        self.assertIsNotNone(term_doc.member_request_date)

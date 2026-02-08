@@ -330,6 +330,10 @@ class MijnRoodDatabaseClient:
         """
         columns = TABLE_COLUMNS.get(table)
         if not columns:
+            logger.warning(
+                "Table '%s' not in TABLE_COLUMNS — falling back to information_schema (all columns selected)",
+                table,
+            )
             columns = self._get_table_columns(table)
         for col in columns:
             self._validate_identifier(col, "column")
