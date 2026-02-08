@@ -21,8 +21,8 @@ from verenigingen.mijnrood_sync.client import MijnRoodDatabaseClient
 from verenigingen.mijnrood_sync.field_mapping import (
     MIJNROOD_FIELD_LABELS,
     MIJNROOD_TO_MEMBER_FIELD_MAP,
-    STATUS_ID_LABELS,
     TABLE_PRIMARY_KEY,
+    get_status_labels,
 )
 from verenigingen.services.infrastructure.base_service import StatefulService
 
@@ -389,8 +389,9 @@ class MijnRoodPollingService(StatefulService):
 
                 # Resolve display values for special fields
                 if key == "current_membership_status_id":
-                    entry["old_display"] = STATUS_ID_LABELS.get(self._safe_int(old_val), str(old_val))
-                    entry["new_display"] = STATUS_ID_LABELS.get(self._safe_int(new_val), str(new_val))
+                    labels = get_status_labels()
+                    entry["old_display"] = labels.get(self._safe_int(old_val), str(old_val))
+                    entry["new_display"] = labels.get(self._safe_int(new_val), str(new_val))
                 elif key in ("division_id", "preferred_division_id"):
                     entry["old_display"] = self._resolve_division_name(old_val) or str(old_val)
                     entry["new_display"] = self._resolve_division_name(new_val) or str(new_val)
@@ -479,7 +480,7 @@ class MijnRoodPollingService(StatefulService):
                 details.append(chapter or f"div#{div_id}")
             status_id = new_data.get("current_membership_status_id")
             if status_id is not None:
-                label = STATUS_ID_LABELS.get(self._safe_int(status_id), str(status_id))
+                label = get_status_labels().get(self._safe_int(status_id), str(status_id))
                 details.append(label)
         elif table == "admin_division":
             if new_data.get("city"):

@@ -22,10 +22,10 @@ from frappe import _
 from frappe.utils import now_datetime, today
 
 from verenigingen.mijnrood_sync.field_mapping import (
-    ACTIVE_STATUS_IDS,
     MIJNROOD_TO_MEMBER_FIELD_MAP,
-    STATUS_ID_TO_TERMINATION_TYPE,
-    TERMINATED_STATUS_IDS,
+    get_active_status_ids,
+    get_terminated_status_ids,
+    get_termination_type_map,
 )
 from verenigingen.services.infrastructure.base_service import StatefulService
 
@@ -318,6 +318,7 @@ class MijnRoodEventApplicationService(StatefulService):
         member.flags.ignore_workflow = True
         member._system_update = True
         member._csv_import = True
+        member.application_id = f"MR-APP-{new_data.get('id', event.name)}"
         member.application_status = "Pending"
         member.status = "Pending"
         member.application_date = new_data.get("registration_time") or today()
@@ -524,9 +525,9 @@ class MijnRoodEventApplicationService(StatefulService):
         new_status_id = self._safe_int(status_change.get("new"))
 
         # Only handle transitions FROM active TO terminated
-        if new_status_id not in TERMINATED_STATUS_IDS:
+        if new_status_id not in get_terminated_status_ids():
             return None
-        if old_status_id not in ACTIVE_STATUS_IDS:
+        if old_status_id not in get_active_status_ids():
             # Already in a non-active state, just update the status field
             return None
 
@@ -555,7 +556,7 @@ class MijnRoodEventApplicationService(StatefulService):
             }
 
         # Create Membership Termination Request
-        termination_type = STATUS_ID_TO_TERMINATION_TYPE.get(new_status_id, "Administrative")
+        termination_type = get_termination_type_map().get(new_status_id, "Administrative")
 
         termination_doc = frappe.new_doc("Membership Termination Request")
         termination_doc.member = member_name
@@ -663,7 +664,7 @@ class MijnRoodEventApplicationService(StatefulService):
         These intermediate names match what MemberImportService.update_member_fields()
         expects (same names as csv_data_validator.py FIELD_MAPPING values).
         """
-        from verenigingen.mijnrood_sync.field_mapping import MIJNROOD_STATUS_ID_MAP
+        from verenigingen.mijnrood_sync.field_mapping import get_status_id_map
 
         row_data = {}
         for mijnrood_col, member_field in MIJNROOD_TO_MEMBER_FIELD_MAP.items():
@@ -673,8 +674,9 @@ class MijnRoodEventApplicationService(StatefulService):
 
         # Convert status ID to membership type string
         status_id = self._safe_int(mijnrood_data.get("current_membership_status_id"))
-        if status_id and status_id in MIJNROOD_STATUS_ID_MAP:
-            row_data["membership_type"] = MIJNROOD_STATUS_ID_MAP[status_id]
+        status_id_map = get_status_id_map()
+        if status_id and status_id in status_id_map:
+            row_data["membership_type"] = status_id_map[status_id]
 
         # Convert contribution amount from cents to euros
         cents = self._safe_int(mijnrood_data.get("contribution_per_period_in_cents"))

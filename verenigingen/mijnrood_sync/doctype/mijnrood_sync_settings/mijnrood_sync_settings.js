@@ -25,6 +25,27 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             });
         });
 
+        // Load Defaults button for status mapping
+        if (!frm.doc.status_mapping || !frm.doc.status_mapping.length) {
+            frm.add_custom_button(__("Load Defaults"), function () {
+                frappe.call({
+                    method: "populate_default_status_mapping",
+                    doc: frm.doc,
+                    freeze: true,
+                    freeze_message: __("Loading default status mappings..."),
+                    callback: function (r) {
+                        if (r.message && r.message.success) {
+                            frappe.show_alert({
+                                message: r.message.message,
+                                indicator: "green",
+                            });
+                        }
+                        frm.reload_doc();
+                    },
+                });
+            }, __("Status Mapping"));
+        }
+
         frm.add_custom_button(__("Sync Now"), function () {
             frappe.confirm(
                 __("Start an immediate sync with MijnRood? This will run in the background."),

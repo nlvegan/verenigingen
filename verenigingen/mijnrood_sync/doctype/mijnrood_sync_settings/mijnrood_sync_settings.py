@@ -56,3 +56,83 @@ class MijnRoodSyncSettings(Document):
 
         if self.db_port and (self.db_port < 1 or self.db_port > 65535):
             frappe.throw(_("Database port must be between 1 and 65535"))
+
+        self._validate_status_mapping()
+
+    def _validate_status_mapping(self):
+        """Validate status mapping child table entries."""
+        if not self.status_mapping:
+            return
+
+        seen_ids = set()
+        for row in self.status_mapping:
+            if row.mijnrood_status_id in seen_ids:
+                frappe.throw(
+                    _("Duplicate Status ID {0} in row {1}").format(
+                        row.mijnrood_status_id, row.idx
+                    )
+                )
+            seen_ids.add(row.mijnrood_status_id)
+
+            if not row.is_active and not row.termination_type:
+                frappe.msgprint(
+                    _("Row {0} (Status ID {1}): non-active status has no termination type set").format(
+                        row.idx, row.mijnrood_status_id
+                    ),
+                    indicator="orange",
+                    alert=True,
+                )
+
+    def on_update(self):
+        """Clear cached status mapping when settings change."""
+        frappe.cache.delete_value("mijnrood_status_mapping")
+
+    @frappe.whitelist()
+    def populate_default_status_mapping(self):
+        """Load default status mapping values into the child table.
+
+        Only populates if the table is empty to avoid overwriting
+        admin customizations.
+        """
+        if self.status_mapping:
+            frappe.throw(_("Status mapping table is not empty. Clear it first to reload defaults."))
+
+        from verenigingen.mijnrood_sync.field_mapping import (
+            _DEFAULT_ACTIVE_STATUS_IDS,
+            _DEFAULT_STATUS_ID_LABELS,
+            _DEFAULT_STATUS_ID_MAP,
+            _DEFAULT_STATUS_ID_TO_TERMINATION_TYPE,
+        )
+
+        for status_id, type_string in _DEFAULT_STATUS_ID_MAP.items():
+            self.append("status_mapping", {
+                "mijnrood_status_id": status_id,
+                "label": _DEFAULT_STATUS_ID_LABELS.get(status_id, type_string),
+                "membership_type_string": type_string,
+                "is_active": 1 if status_id in _DEFAULT_ACTIVE_STATUS_IDS else 0,
+                "termination_type": _DEFAULT_STATUS_ID_TO_TERMINATION_TYPE.get(status_id, ""),
+            })
+
+        self.save()
+        return {"success": True, "message": _("Loaded {0} default status mappings").format(len(self.status_mapping))}
+
+
+@frappe.whitelist()
+def get_status_mapping_for_client():
+    """Return status mapping for JS client rendering.
+
+    Returns dict keyed by status_id with label, is_active, termination_type.
+    Used by mijnrood_sync_event.js for implications panel and diff display.
+    """
+    from verenigingen.mijnrood_sync.field_mapping import get_status_labels, get_terminated_status_ids
+
+    labels = get_status_labels()
+    terminated = get_terminated_status_ids()
+
+    result = {}
+    for status_id, label in labels.items():
+        result[str(status_id)] = {
+            "label": label,
+            "is_terminated": status_id in terminated,
+        }
+    return result

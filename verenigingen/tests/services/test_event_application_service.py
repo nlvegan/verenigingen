@@ -277,6 +277,41 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
         self.assertFalse(result["success"])
         self.assertIn("No new data", result["message"])
 
+    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_sets_application_id_to_prevent_user_creation(self, mock_frappe, mock_chapter, mock_map, mock_find):
+        """New application sets application_id so is_application_member() returns True.
+
+        Without application_id, after_save creates a User account (wrong for
+        pending applications). Regression test for MR-APP ID assignment.
+        """
+        mock_find.return_value = (None, None)
+        mock_map.return_value = {
+            "member_id": "99",
+            "first_name": "Jan",
+            "last_name": "Test",
+            "email": "jan@test.nl",
+        }
+        mock_frappe._ = frappe._
+        mock_frappe.utils.today = lambda: "2026-01-01"
+
+        # Capture the Member doc passed to insert
+        inserted_doc = MagicMock()
+        mock_frappe.new_doc.return_value = inserted_doc
+        inserted_doc.name = "MEM-099"
+
+        event = MagicMock()
+        event.name = "EVT-001"
+        event.new_data = json.dumps({"id": 99, "email": "jan@test.nl"})
+
+        self.service._apply_new_membership_application(event)
+
+        # Verify application_id was set before insert
+        self.assertEqual(inserted_doc.application_id, "MR-APP-99")
+        self.assertEqual(inserted_doc.application_status, "Pending")
+
 
 class TestApplyChangedMembershipApplication(EnhancedTestCase):
     """Tests for _apply_changed_membership_application()."""

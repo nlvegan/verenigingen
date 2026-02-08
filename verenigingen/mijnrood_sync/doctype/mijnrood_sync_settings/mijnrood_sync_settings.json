@@ -24,6 +24,8 @@
     "tables_to_sync",
     "column_break_sync",
     "auto_apply_safe_changes",
+    "status_mapping_section",
+    "status_mapping",
     "status_section",
     "last_sync_time",
     "last_sync_status",
@@ -149,6 +151,18 @@
       "fieldname": "auto_apply_safe_changes",
       "fieldtype": "Check",
       "label": "Auto-apply Safe Changes"
+    },
+    {
+      "fieldname": "status_mapping_section",
+      "fieldtype": "Section Break",
+      "label": "Status Mapping",
+      "description": "Maps MijnRood membership status IDs to Verenigingen status types. Click 'Load Defaults' to populate with standard values."
+    },
+    {
+      "fieldname": "status_mapping",
+      "fieldtype": "Table",
+      "label": "Status Mapping",
+      "options": "MijnRood Status Mapping"
     },
     {
       "fieldname": "status_section",

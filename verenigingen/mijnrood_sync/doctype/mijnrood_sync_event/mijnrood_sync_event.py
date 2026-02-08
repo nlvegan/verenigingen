@@ -68,7 +68,7 @@ class MijnRoodSyncEvent(Document):
 
         from verenigingen.mijnrood_sync.field_mapping import (
             MIJNROOD_TO_MEMBER_FIELD_MAP,
-            STATUS_ID_LABELS,
+            get_status_labels,
         )
 
         # Reverse map: Frappe field → MijnRood column(s)
@@ -93,7 +93,7 @@ class MijnRoodSyncEvent(Document):
             # Build reverse lookup: match Frappe status to MijnRood label
             # e.g. "Active" matches "Active (lid)", "Suspended" matches "Suspended (geschorst)"
             matched_label = frappe_status
-            for _sid, label in STATUS_ID_LABELS.items():
+            for _sid, label in get_status_labels().items():
                 if label.lower().startswith(frappe_status.lower()):
                     matched_label = label
                     break

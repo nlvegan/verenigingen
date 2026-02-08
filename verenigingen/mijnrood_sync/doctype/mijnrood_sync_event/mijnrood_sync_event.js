@@ -60,15 +60,40 @@ const DIVISION_SUMMARY_FIELDS = [
     "can_be_selected_on_application",
 ];
 
-// MijnRood status ID → human-readable label (mirrors Python STATUS_ID_LABELS)
-const STATUS_LABELS = {
-    1: "Active (lid)",
-    2: "Aspirant",
-    3: "Resigned (opgezegd)",
-    4: "Expelled (geroyeerd)",
-    5: "Deceased (overleden)",
-    6: "Suspended (geschorst)",
-};
+// Status mapping loaded from MijnRood Sync Settings (configurable child table).
+// Cached after first load to avoid repeated server calls.
+var _status_mapping_cache = null;
+
+function load_status_mapping(callback) {
+    if (_status_mapping_cache) {
+        callback(_status_mapping_cache);
+        return;
+    }
+    frappe.call({
+        method: "verenigingen.mijnrood_sync.doctype.mijnrood_sync_settings.mijnrood_sync_settings.get_status_mapping_for_client",
+        async: true,
+        callback: function (r) {
+            _status_mapping_cache = r.message || {};
+            callback(_status_mapping_cache);
+        },
+        error: function () {
+            _status_mapping_cache = {};
+            callback(_status_mapping_cache);
+        },
+    });
+}
+
+function get_status_label(status_id) {
+    if (!_status_mapping_cache) return String(status_id);
+    var entry = _status_mapping_cache[String(status_id)];
+    return entry ? entry.label : String(status_id);
+}
+
+function is_terminated_status(status_id) {
+    if (!_status_mapping_cache) return false;
+    var entry = _status_mapping_cache[String(status_id)];
+    return entry ? entry.is_terminated : false;
+}
 
 function get_label(field) {
     return FIELD_LABELS[field] || field;
@@ -82,7 +107,7 @@ function resolve_display_value(field, val) {
     if (val === null || val === undefined || val === "") return "";
     if (field === "current_membership_status_id") {
         var int_val = parseInt(val, 10);
-        return STATUS_LABELS[int_val] || String(val);
+        return get_status_label(int_val);
     }
     return String(val);
 }
@@ -356,13 +381,12 @@ frappe.ui.form.on("MijnRood Sync Event", {
             frm.page.set_indicator(__(frm.doc.status), status_colors[frm.doc.status]);
         }
 
-        // Render rich change details
-        render_change_details(frm);
+        // Load status mapping then render rich change details
+        load_status_mapping(function () {
+            render_change_details(frm);
+        });
     },
 });
-
-// Terminated status IDs (mirrors Python TERMINATED_STATUS_IDS)
-const TERMINATED_STATUS_IDS = [3, 4, 5, 6];
 
 /**
  * Compute a list of human-readable implications describing what will happen
@@ -396,11 +420,11 @@ function compute_implications(event_type, table, new_data, changed_fields) {
                 if (c.field === "current_membership_status_id") {
                     has_status_change = true;
                     var new_id = parseInt(c.new, 10);
-                    if (TERMINATED_STATUS_IDS.indexOf(new_id) !== -1) {
-                        var type_label = STATUS_LABELS[new_id] || String(new_id);
+                    if (is_terminated_status(new_id)) {
+                        var type_label = get_status_label(new_id);
                         items.push("Will create a Membership Termination Request (" + type_label + ")");
                     } else {
-                        var new_label = c.new_display || STATUS_LABELS[new_id] || String(c.new);
+                        var new_label = c.new_display || get_status_label(new_id);
                         items.push("Will update membership status to " + new_label);
                     }
                 } else if (c.field === "division_id") {

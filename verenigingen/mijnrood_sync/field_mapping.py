@@ -144,11 +144,11 @@ MIJNROOD_TO_MEMBER_FIELD_MAP = {
 }
 
 # ─────────────────────────────────────────────────────────────────────
-# MijnRood current_membership_status_id → membership type string
-# These strings must match MemberImportService.STATUS_MAP keys
-# so that determine_member_status() returns the correct status.
+# Default status mappings — used as fallback when MijnRood Sync Settings
+# child table is empty (e.g. during migration or fresh install).
+# Consumers should use the get_* functions below instead of these dicts.
 # ─────────────────────────────────────────────────────────────────────
-MIJNROOD_STATUS_ID_MAP = {
+_DEFAULT_STATUS_ID_MAP = {
     1: "lid",  # Active member
     2: "aspirant",  # Aspirant member
     3: "opgezegd",  # Resigned / terminated
@@ -157,27 +157,18 @@ MIJNROOD_STATUS_ID_MAP = {
     6: "geschorst",  # Suspended
 }
 
-# Status IDs that indicate the member is no longer active.
-# When a status change TO one of these is detected, the event application
-# service creates a Membership Termination Request instead of directly
-# setting the member status.
-TERMINATED_STATUS_IDS = frozenset([3, 4, 5, 6])
+_DEFAULT_TERMINATED_STATUS_IDS = frozenset([3, 4, 5, 6])
 
-# Status IDs that are considered active (no termination needed)
-ACTIVE_STATUS_IDS = frozenset([1, 2])
+_DEFAULT_ACTIVE_STATUS_IDS = frozenset([1, 2])
 
-# ─────────────────────────────────────────────────────────────────────
-# MijnRood status ID → termination type for Membership Termination Request
-# ─────────────────────────────────────────────────────────────────────
-STATUS_ID_TO_TERMINATION_TYPE = {
+_DEFAULT_STATUS_ID_TO_TERMINATION_TYPE = {
     3: "Voluntary",  # opgezegd → Voluntary resignation
     4: "Disciplinary Action",  # geroyeerd → Expelled
     5: "Deceased",  # overleden
     6: "Policy Violation",  # geschorst → Suspended
 }
 
-# Human-readable label for MijnRood status IDs (for change summaries)
-STATUS_ID_LABELS = {
+_DEFAULT_STATUS_ID_LABELS = {
     1: "Active (lid)",
     2: "Aspirant",
     3: "Resigned (opgezegd)",
@@ -185,6 +176,99 @@ STATUS_ID_LABELS = {
     5: "Deceased (overleden)",
     6: "Suspended (geschorst)",
 }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Cached reader functions — load from MijnRood Sync Settings child
+# table, falling back to the defaults above when the table is empty.
+# ─────────────────────────────────────────────────────────────────────
+def _load_status_mapping() -> dict:
+    """Load status mapping from MijnRood Sync Settings child table.
+
+    Returns dict keyed by mijnrood_status_id with sub-dict:
+    {type_string, label, is_active, termination_type}
+    """
+    import frappe
+
+    try:
+        settings = frappe.get_cached_doc("MijnRood Sync Settings")
+    except Exception:
+        return {}
+
+    if not settings.status_mapping:
+        return {}
+
+    mapping = {}
+    for row in settings.status_mapping:
+        mapping[row.mijnrood_status_id] = {
+            "type_string": row.membership_type_string,
+            "label": row.label,
+            "is_active": bool(row.is_active),
+            "termination_type": row.termination_type or "",
+        }
+    return mapping
+
+
+def _get_cached_mapping() -> dict:
+    """Get status mapping with Redis caching."""
+    import frappe
+
+    return frappe.cache.get_value(
+        "mijnrood_status_mapping", generator=_load_status_mapping
+    )
+
+
+def get_status_id_map() -> dict:
+    """Status ID → membership type string (replaces MIJNROOD_STATUS_ID_MAP)."""
+    mapping = _get_cached_mapping()
+    if mapping:
+        return {k: v["type_string"] for k, v in mapping.items()}
+    return dict(_DEFAULT_STATUS_ID_MAP)
+
+
+def get_active_status_ids() -> frozenset:
+    """Frozenset of active status IDs (replaces ACTIVE_STATUS_IDS)."""
+    mapping = _get_cached_mapping()
+    if mapping:
+        return frozenset(k for k, v in mapping.items() if v["is_active"])
+    return _DEFAULT_ACTIVE_STATUS_IDS
+
+
+def get_terminated_status_ids() -> frozenset:
+    """Frozenset of terminated status IDs (replaces TERMINATED_STATUS_IDS)."""
+    mapping = _get_cached_mapping()
+    if mapping:
+        return frozenset(k for k, v in mapping.items() if not v["is_active"])
+    return _DEFAULT_TERMINATED_STATUS_IDS
+
+
+def get_termination_type_map() -> dict:
+    """Status ID → termination type string (replaces STATUS_ID_TO_TERMINATION_TYPE)."""
+    mapping = _get_cached_mapping()
+    if mapping:
+        return {
+            k: v["termination_type"]
+            for k, v in mapping.items()
+            if not v["is_active"] and v["termination_type"]
+        }
+    return dict(_DEFAULT_STATUS_ID_TO_TERMINATION_TYPE)
+
+
+def get_status_labels() -> dict:
+    """Status ID → display label (replaces STATUS_ID_LABELS)."""
+    mapping = _get_cached_mapping()
+    if mapping:
+        return {k: v["label"] for k, v in mapping.items()}
+    return dict(_DEFAULT_STATUS_ID_LABELS)
+
+
+# Backward-compatible aliases for existing imports that haven't been migrated yet.
+# These will be removed once all consumers use the get_* functions.
+MIJNROOD_STATUS_ID_MAP = _DEFAULT_STATUS_ID_MAP
+ACTIVE_STATUS_IDS = _DEFAULT_ACTIVE_STATUS_IDS
+TERMINATED_STATUS_IDS = _DEFAULT_TERMINATED_STATUS_IDS
+STATUS_ID_TO_TERMINATION_TYPE = _DEFAULT_STATUS_ID_TO_TERMINATION_TYPE
+STATUS_ID_LABELS = _DEFAULT_STATUS_ID_LABELS
 
 # ─────────────────────────────────────────────────────────────────────
 # Human-readable display labels for MijnRood column names
