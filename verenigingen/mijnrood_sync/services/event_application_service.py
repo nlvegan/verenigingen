@@ -630,37 +630,90 @@ class MijnRoodEventApplicationService(StatefulService):
     def _sync_division_to_chapter(self, division_data: dict, event) -> dict:
         """Sync a MijnRood admin_division row to a Verenigingen Chapter.
 
-        Matches by name (string). Creates the Chapter if it doesn't exist,
-        updates `published` if it does.
+        Matches by mijnrood_division_id first (rename-safe), then falls back
+        to name matching for chapters that predate the ID field.
 
         Field mapping:
-            admin_division.name → Chapter name (match key)
+            admin_division.id → Chapter.mijnrood_division_id (match key)
+            admin_division.name → Chapter name (fallback match / rename detection)
             admin_division.can_be_selected_on_application → Chapter.published
         """
         division_name = division_data.get("name")
+        division_id = division_data.get("id")
         if not division_name:
             return {"success": False, "message": _("Division has no name")}
 
         published = 1 if division_data.get("can_be_selected_on_application") else 0
 
-        if frappe.db.exists("Chapter", division_name):
-            chapter = frappe.get_doc("Chapter", division_name)
+        # Try to find chapter by MijnRood ID first (rename-safe)
+        chapter_name = None
+        if division_id:
+            chapter_name = frappe.db.get_value("Chapter", {"mijnrood_division_id": division_id}, "name")
+
+        # Fall back to name matching for chapters without the ID set
+        if not chapter_name and frappe.db.exists("Chapter", division_name):
+            chapter_name = division_name
+
+        if chapter_name:
+            chapter = frappe.get_doc("Chapter", chapter_name)
+            changed = False
+
+            if division_id and chapter.mijnrood_division_id:
+                if chapter.mijnrood_division_id != division_id:
+                    # ID conflict — chapter is linked to a different MijnRood division
+                    self.logger.error(
+                        "MijnRood division ID conflict: Chapter %s has ID %s but sync received ID %s",
+                        chapter_name,
+                        chapter.mijnrood_division_id,
+                        division_id,
+                    )
+                    return {
+                        "success": False,
+                        "message": _(
+                            "Division ID conflict on Chapter '{0}': existing={1}, received={2}. "
+                            "Resolve manually."
+                        ).format(chapter_name, chapter.mijnrood_division_id, division_id),
+                    }
+            elif division_id and not chapter.mijnrood_division_id:
+                # First-time linking — store the MijnRood ID
+                chapter.mijnrood_division_id = division_id
+                changed = True
+
             if chapter.published != published:
                 chapter.published = published
-                # Security: System-initiated sync from authoritative MijnRood data
-                chapter.save(ignore_permissions=True)
+                changed = True
+
+            if changed:
+                try:
+                    # Security: System-initiated sync from authoritative MijnRood data
+                    chapter.save(ignore_permissions=True)
+                except frappe.UniqueValidationError:
+                    # Another worker already linked this division_id to a different chapter
+                    self.logger.error(
+                        "MijnRood division ID %s already assigned to another chapter "
+                        "(race condition during sync of Chapter %s)",
+                        division_id,
+                        chapter_name,
+                    )
+                    return {
+                        "success": False,
+                        "message": _(
+                            "Division ID {0} is already linked to another chapter. " "Resolve manually."
+                        ).format(division_id),
+                    }
                 self.logger.info(
-                    "Updated Chapter %s: published=%s",
-                    division_name,
+                    "Updated Chapter %s: published=%s, mijnrood_division_id=%s",
+                    chapter_name,
                     published,
+                    division_id,
                 )
                 return {
                     "success": True,
-                    "message": _("Chapter '{0}' updated (published={1})").format(division_name, published),
+                    "message": _("Chapter '{0}' updated (published={1})").format(chapter_name, published),
                 }
             return {
                 "success": True,
-                "message": _("Chapter '{0}' already up to date").format(division_name),
+                "message": _("Chapter '{0}' already up to date").format(chapter_name),
             }
 
         # Chapter doesn't exist — flag for manual creation since Chapter
@@ -675,9 +728,15 @@ class MijnRoodEventApplicationService(StatefulService):
     def _resolve_division_id(self, division_id: int) -> Optional[str]:
         """Resolve a MijnRood division_id to a Chapter name.
 
-        Looks up the division name from stored sync state, which holds
-        the raw admin_division data including the 'name' field.
+        Checks the Chapter's mijnrood_division_id field first (direct lookup),
+        then falls back to Sync State for chapters that predate the ID field.
         """
+        # Direct lookup via the ID field on Chapter
+        chapter_name = frappe.db.get_value("Chapter", {"mijnrood_division_id": division_id}, "name")
+        if chapter_name:
+            return chapter_name
+
+        # Fallback: resolve via stored sync state raw data
         state = frappe.db.get_value(
             "MijnRood Sync State",
             {"mijnrood_table": "admin_division", "mijnrood_row_id": division_id},
