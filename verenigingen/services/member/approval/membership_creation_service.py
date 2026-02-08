@@ -214,9 +214,11 @@ class MembershipCreationService(StatelessService):
 
         membership_type = frappe.get_doc("Membership Type", member_doc.selected_membership_type)
 
-        # Validate that membership type has a dues schedule template
-        # This is required for the new category-based membership type system
-        if not membership_type.dues_schedule_template:
+        # Validate that a dues schedule template is available.
+        # Either the membership type has one configured, or the member already has
+        # one resolved (e.g. from CSV import via Verenigingen Settings payment period mapping).
+        has_application_template = getattr(member_doc, "application_dues_schedule", None)
+        if not membership_type.dues_schedule_template and not has_application_template:
             frappe.throw(
                 _(
                     "Membership Type '{0}' has no dues schedule template configured. "
@@ -224,8 +226,10 @@ class MembershipCreationService(StatelessService):
                 ).format(membership_type.name)
             )
 
-        # Validate that the template exists
-        if not frappe.db.exists("Membership Dues Schedule", membership_type.dues_schedule_template):
+        # Validate that the membership type's template exists (if it has one)
+        if membership_type.dues_schedule_template and not frappe.db.exists(
+            "Membership Dues Schedule", membership_type.dues_schedule_template
+        ):
             frappe.throw(
                 _(
                     "Dues schedule template '{0}' configured for membership type '{1}' does not exist. "

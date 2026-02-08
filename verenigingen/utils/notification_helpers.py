@@ -322,8 +322,6 @@ def create_system_notification(
             notification_key="member_status_changed"
         )
     """
-    from verenigingen.utils.secure_operations import secure_document_operation
-
     # Check Email Configuration if notification_key provided
     config_service = _get_email_config_service()
     if config_service and notification_key:
@@ -416,22 +414,10 @@ def create_system_notification(
 
             notification.from_user = sender
 
-            # Use secure_document_operation instead of ignore_permissions
-            # This maintains proper security patterns consistent with the rest of the codebase
-            result = secure_document_operation(
-                operation="insert",
-                doc=notification,
-                justification=f"System notification for {recipient}: {subject[:50]}",
-                required_permissions=["Notification Log:create"],
-            )
-
-            if result.success:
-                notifications_created += 1
-            else:
-                error_msg = f"Failed to create notification for {recipient}: {'; '.join(result.errors)}"
-                frappe.log_error(error_msg, "Notification Creation Error")
-                if len(errors) < MAX_ERRORS_TO_COLLECT:
-                    errors.append(error_msg)
+            # Notification Log is a Frappe system DocType — Frappe itself always
+            # creates these with ignore_permissions. No user-data security concern here.
+            notification.insert(ignore_permissions=True)
+            notifications_created += 1
 
         except Exception as e:
             error_msg = f"Failed to create notification for {recipient}: {str(e)}"
