@@ -1,153 +1,162 @@
 {
-  "actions": [],
-  "autoname": "field:sync_run_id",
-  "creation": "2026-02-06 10:00:00",
-  "doctype": "DocType",
-  "engine": "InnoDB",
-  "field_order": [
-    "sync_run_id",
-    "status",
-    "started_at",
-    "completed_at",
-    "duration_seconds",
-    "column_break_log",
-    "tables_polled",
-    "rows_scanned",
-    "stats_section",
-    "new_events",
-    "changed_events",
-    "deleted_events",
-    "column_break_stats",
-    "unchanged_rows",
-    "error_section",
-    "error_message"
-  ],
-  "fields": [
-    {
-      "fieldname": "sync_run_id",
-      "fieldtype": "Data",
-      "in_list_view": 1,
-      "label": "Sync Run ID",
-      "read_only": 1,
-      "reqd": 1,
-      "unique": 1
-    },
-    {
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "label": "Status",
-      "options": "Running\nSuccess\nFailed\nPartial",
-      "read_only": 1
-    },
-    {
-      "fieldname": "started_at",
-      "fieldtype": "Datetime",
-      "in_list_view": 1,
-      "label": "Started At",
-      "read_only": 1
-    },
-    {
-      "fieldname": "completed_at",
-      "fieldtype": "Datetime",
-      "label": "Completed At",
-      "read_only": 1
-    },
-    {
-      "fieldname": "duration_seconds",
-      "fieldtype": "Float",
-      "label": "Duration (seconds)",
-      "read_only": 1
-    },
-    {
-      "fieldname": "column_break_log",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "tables_polled",
-      "fieldtype": "Small Text",
-      "label": "Tables Polled",
-      "read_only": 1
-    },
-    {
-      "fieldname": "rows_scanned",
-      "fieldtype": "Int",
-      "label": "Rows Scanned",
-      "read_only": 1
-    },
-    {
-      "fieldname": "stats_section",
-      "fieldtype": "Section Break",
-      "label": "Event Statistics"
-    },
-    {
-      "default": "0",
-      "fieldname": "new_events",
-      "fieldtype": "Int",
-      "in_list_view": 1,
-      "label": "New Events",
-      "read_only": 1
-    },
-    {
-      "default": "0",
-      "fieldname": "changed_events",
-      "fieldtype": "Int",
-      "in_list_view": 1,
-      "label": "Changed Events",
-      "read_only": 1
-    },
-    {
-      "default": "0",
-      "fieldname": "deleted_events",
-      "fieldtype": "Int",
-      "label": "Deleted Events",
-      "read_only": 1
-    },
-    {
-      "fieldname": "column_break_stats",
-      "fieldtype": "Column Break"
-    },
-    {
-      "default": "0",
-      "fieldname": "unchanged_rows",
-      "fieldtype": "Int",
-      "label": "Unchanged Rows",
-      "read_only": 1
-    },
-    {
-      "fieldname": "error_section",
-      "fieldtype": "Section Break",
-      "collapsible": 1,
-      "label": "Errors"
-    },
-    {
-      "fieldname": "error_message",
-      "fieldtype": "Long Text",
-      "label": "Error Message",
-      "read_only": 1
-    }
-  ],
-  "index_web_pages_for_search": 0,
-  "links": [],
-  "modified": "2026-02-06 10:00:00",
-  "modified_by": "Administrator",
-  "module": "MijnRood Sync",
-  "name": "MijnRood Sync Log",
-  "naming_rule": "By fieldname",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "read": 1,
-      "role": "System Manager"
-    },
-    {
-      "read": 1,
-      "role": "Verenigingen Administrator"
-    }
-  ],
-  "sort_field": "started_at",
-  "sort_order": "DESC",
-  "states": [],
-  "track_changes": 0
+ "actions": [],
+ "autoname": "field:sync_run_id",
+ "creation": "2026-02-06 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sync_run_id",
+  "status",
+  "started_at",
+  "completed_at",
+  "duration_seconds",
+  "column_break_log",
+  "tables_polled",
+  "rows_scanned",
+  "stats_section",
+  "new_events",
+  "changed_events",
+  "deleted_events",
+  "column_break_stats",
+  "unchanged_rows",
+  "error_section",
+  "error_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "sync_run_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sync Run ID",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Running\nSuccess\nFailed\nPartial",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration_seconds",
+   "fieldtype": "Float",
+   "label": "Duration (seconds)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_log",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tables_polled",
+   "fieldtype": "Small Text",
+   "label": "Tables Polled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rows_scanned",
+   "fieldtype": "Int",
+   "label": "Rows Scanned",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stats_section",
+   "fieldtype": "Section Break",
+   "label": "Event Statistics"
+  },
+  {
+   "default": "0",
+   "fieldname": "new_events",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "New Events",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "changed_events",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Changed Events",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "deleted_events",
+   "fieldtype": "Int",
+   "label": "Deleted Events",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_stats",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "unchanged_rows",
+   "fieldtype": "Int",
+   "label": "Unchanged Rows",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "error_section",
+   "fieldtype": "Section Break",
+   "label": "Errors"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-02-09 00:31:46.447886",
+ "modified_by": "Administrator",
+ "module": "MijnRood Sync",
+ "name": "MijnRood Sync Log",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "System Manager"
+  },
+  {
+   "delete": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Staff",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "started_at",
+ "sort_order": "DESC",
+ "states": []
 }

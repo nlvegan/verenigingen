@@ -489,6 +489,7 @@ class MemberImportService(StatelessService):
         # Generate lock key from canonical identifier (member_id or email)
         lock_key = row_data.get("member_id") or row_data.get("email", "")
         if lock_key:
+            lock_key = str(lock_key)
             # Hash to ensure safe lock name (no special chars, bounded length)
             lock_hash = hashlib.md5(lock_key.lower().strip().encode()).hexdigest()[:16]
             lock_name = f"member_create_{lock_hash}"

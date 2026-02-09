@@ -716,13 +716,24 @@ class MijnRoodEventApplicationService(StatefulService):
                 "message": _("Chapter '{0}' already up to date").format(chapter_name),
             }
 
-        # Chapter doesn't exist — flag for manual creation since Chapter
-        # requires fields (region, introduction) that MijnRood doesn't have
+        # Chapter doesn't exist — auto-create with defaults
+        from verenigingen.services.chapter.chapter_provisioning_service import ensure_chapter
+
+        created = ensure_chapter(
+            chapter_name=division_name,
+            published=published,
+            mijnrood_division_id=division_id,
+            contact_email=division_data.get("email_id"),
+        )
+        if created:
+            self.logger.info("Auto-created Chapter '%s' from division sync", division_name)
+            return {
+                "success": True,
+                "message": _("Chapter '{0}' created from MijnRood division").format(division_name),
+            }
         return {
-            "success": True,
-            "message": _("Chapter '{0}' does not exist. Create it manually and re-apply.").format(
-                division_name
-            ),
+            "success": False,
+            "message": _("Failed to auto-create Chapter '{0}'. Check error logs.").format(division_name),
         }
 
     def _resolve_division_id(self, division_id: int) -> Optional[str]:
@@ -827,9 +838,21 @@ def batch_approve(event_names: str | list) -> dict:
     return {"approved": approved, "errors": errors}
 
 
+# Table processing priority: divisions (chapters) must exist before
+# members or applications that reference them.
+_TABLE_PRIORITY = {
+    "admin_division": 0,
+    "admin_member": 1,
+    "admin_membership_application": 2,
+}
+
+
 @frappe.whitelist()
 def batch_apply(event_names: str | list) -> dict:
     """Apply multiple approved sync events.
+
+    Events are sorted by table dependency order so that division/chapter
+    events are processed before member events that may reference them.
 
     Args:
         event_names: JSON string or list of event names
@@ -837,10 +860,19 @@ def batch_apply(event_names: str | list) -> dict:
     if isinstance(event_names, str):
         event_names = json.loads(event_names)
 
+    # Fetch table info and sort by dependency priority
+    events_with_table = frappe.get_all(
+        "MijnRood Sync Event",
+        filters={"name": ["in", event_names]},
+        fields=["name", "mijnrood_table"],
+    )
+    events_with_table.sort(key=lambda e: _TABLE_PRIORITY.get(e.mijnrood_table, 99))
+    sorted_names = [e.name for e in events_with_table]
+
     service = get_event_application_service()
     applied = 0
     errors = []
-    for name in event_names:
+    for name in sorted_names:
         result = service.apply_event(name)
         if result.get("success"):
             applied += 1
