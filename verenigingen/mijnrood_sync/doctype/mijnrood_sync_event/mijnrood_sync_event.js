@@ -44,6 +44,7 @@ const MEMBER_SUMMARY_FIELDS = [
     "contribution_per_period_in_cents", "date_of_birth",
     "iban", "registration_time",
     "mollie_customer_id", "mollie_subscription_id",
+    "comments",
 ];
 
 const APPLICATION_SUMMARY_FIELDS = [

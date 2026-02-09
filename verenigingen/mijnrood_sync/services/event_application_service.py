@@ -188,7 +188,7 @@ class MijnRoodEventApplicationService(StatefulService):
         return changed
 
     def _create_related_records(self, member_name: str, row_data: dict) -> list[str]:
-        """Create related records (address, Mollie, membership) for a synced member.
+        """Create related records (address, Mollie, membership, notes) for a synced member.
 
         Mirrors the CSV import's _create_related_records_via_services() but
         adapted for the sync event path. Each operation is independent —
@@ -211,7 +211,32 @@ class MijnRoodEventApplicationService(StatefulService):
         if membership_msg:
             messages.append(membership_msg)
 
+        notes_msg = self._apply_mijnrood_comments(member_name, row_data)
+        if notes_msg:
+            messages.append(notes_msg)
+
         return messages
+
+    def _apply_mijnrood_comments(self, member_name: str, row_data: dict) -> Optional[str]:
+        """Append MijnRood comments to the Member's notes field.
+
+        Skips if the comment text is already present in notes (idempotent).
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        comment = (row_data.get("mijnrood_comments") or "").strip()
+        if not comment:
+            return None
+
+        current_notes = frappe.db.get_value("Member", member_name, "notes") or ""
+        if comment in current_notes:
+            return None
+
+        prefix = "MijnRood notitie"
+        new_notes = f"{current_notes}<br>{prefix}: {comment}" if current_notes else f"{prefix}: {comment}"
+        frappe.db.set_value("Member", member_name, "notes", new_notes, update_modified=False)
+        return _("MijnRood comments added to notes")
 
     def _ensure_address(self, member_name: str, row_data: dict) -> Optional[str]:
         """Create or update Address document for a synced member.

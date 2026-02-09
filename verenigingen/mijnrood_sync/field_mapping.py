@@ -141,6 +141,7 @@ MIJNROOD_TO_MEMBER_FIELD_MAP = {
     "contribution_per_period_in_cents": "dues_rate",
     "mollie_customer_id": "custom_mollie_customer_id",
     "mollie_subscription_id": "custom_mollie_subscription_id",
+    "comments": "mijnrood_comments",
 }
 
 # ─────────────────────────────────────────────────────────────────────
@@ -213,9 +214,7 @@ def _get_cached_mapping() -> dict:
     """Get status mapping with Redis caching."""
     import frappe
 
-    return frappe.cache.get_value(
-        "mijnrood_status_mapping", generator=_load_status_mapping
-    )
+    return frappe.cache.get_value("mijnrood_status_mapping", generator=_load_status_mapping)
 
 
 def get_status_id_map() -> dict:
