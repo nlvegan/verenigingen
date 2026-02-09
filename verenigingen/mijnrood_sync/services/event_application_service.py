@@ -357,8 +357,14 @@ class MijnRoodEventApplicationService(StatefulService):
         Returns:
             Human-readable status message, or None if skipped.
         """
-        # Cheap check first — skip if no dues rate in sync data
+        # Require both dues_rate and payment_period from MijnRood data.
+        # No defaults — if the data is missing, skip and let the operator investigate.
         if "dues_rate" not in row_data:
+            return None
+        if "payment_period" not in row_data:
+            self.logger.warning(
+                "Skipping membership creation for %s: no payment_period in sync data", member_name
+            )
             return None
 
         member_doc = frappe.get_doc("Member", member_name)
@@ -376,11 +382,6 @@ class MijnRoodEventApplicationService(StatefulService):
         from verenigingen.services.csv_import.membership_import_service import (
             get_membership_import_service,
         )
-
-        # Fallback if contribution_period was null in MijnRood data —
-        # members default to quarterly in MijnRood (Member.php:128).
-        if "payment_period" not in row_data:
-            row_data = {**row_data, "payment_period": "Per kwartaal"}
 
         try:
             membership_name = get_membership_import_service().create_membership_from_csv(member_doc, row_data)
@@ -1096,8 +1097,15 @@ class MijnRoodEventApplicationService(StatefulService):
         # MijnRood: 0=Monthly, 1=Quarterly, 2=Annually (see Member.php constants)
         period_int = self._safe_int(mijnrood_data.get("contribution_period"))
         period_map = {0: "Maandelijks", 1: "Per kwartaal", 2: "Jaarlijks"}
-        if period_int is not None and period_int in period_map:
-            row_data["payment_period"] = period_map[period_int]
+        if period_int is not None:
+            if period_int in period_map:
+                row_data["payment_period"] = period_map[period_int]
+            else:
+                self.logger.warning(
+                    "Unknown contribution_period value %s for MijnRood ID %s",
+                    period_int,
+                    mijnrood_data.get("id"),
+                )
 
         return row_data
 

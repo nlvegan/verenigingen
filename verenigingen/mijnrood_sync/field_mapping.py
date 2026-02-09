@@ -142,7 +142,8 @@ MIJNROOD_TO_MEMBER_FIELD_MAP = {
     "division_id": "chapter",
     "current_membership_status_id": "membership_type",
     "contribution_per_period_in_cents": "dues_rate",
-    "contribution_period": "payment_period",
+    # contribution_period is NOT mapped here — it requires integer→string
+    # conversion handled by _map_mijnrood_to_member_fields() custom logic.
     "mollie_customer_id": "custom_mollie_customer_id",
     "mollie_subscription_id": "custom_mollie_subscription_id",
     "accept_use_personal_information": "accepts_optional_communications",

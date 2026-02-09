@@ -684,3 +684,611 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
         self.assertEqual(term_doc.termination_type, "Deceased")
         # member_request_date should be set for Deceased type
         self.assertIsNotNone(term_doc.member_request_date)
+
+
+class TestMapMijnRoodToMemberFields(EnhancedTestCase):
+    """Tests for _map_mijnrood_to_member_fields() field mapping and conversions."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_contribution_period_monthly(self, mock_status_map):
+        """contribution_period=0 maps to 'Maandelijks'."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields({"contribution_period": 0})
+        self.assertEqual(result.get("payment_period"), "Maandelijks")
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_contribution_period_quarterly(self, mock_status_map):
+        """contribution_period=1 maps to 'Per kwartaal'."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields({"contribution_period": 1})
+        self.assertEqual(result.get("payment_period"), "Per kwartaal")
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_contribution_period_annually(self, mock_status_map):
+        """contribution_period=2 maps to 'Jaarlijks'."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields({"contribution_period": 2})
+        self.assertEqual(result.get("payment_period"), "Jaarlijks")
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_contribution_period_missing_no_payment_period(self, mock_status_map):
+        """Missing contribution_period does not produce payment_period key."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields({"first_name": "Jan"})
+        self.assertNotIn("payment_period", result)
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_contribution_period_string_value(self, mock_status_map):
+        """contribution_period as string '1' still maps correctly (via _safe_int)."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields({"contribution_period": "1"})
+        self.assertEqual(result.get("payment_period"), "Per kwartaal")
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_cents_to_euros_conversion(self, mock_status_map):
+        """contribution_per_period_in_cents is converted to euros."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields(
+            {"contribution_per_period_in_cents": 1250}
+        )
+        self.assertEqual(result.get("dues_rate"), 12.50)
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_status_id_mapped_to_membership_type(self, mock_status_map):
+        """current_membership_status_id is resolved via status map."""
+        mock_status_map.return_value = {1: "lid", 3: "opgezegd"}
+        result = self.service._map_mijnrood_to_member_fields(
+            {"current_membership_status_id": 1}
+        )
+        self.assertEqual(result.get("membership_type"), "lid")
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_unknown_contribution_period_logs_warning(self, mock_status_map):
+        """Unknown contribution_period value logs a warning and omits payment_period."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields(
+            {"id": 42, "contribution_period": 99}
+        )
+        self.assertNotIn("payment_period", result)
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_privacy_field_mapped(self, mock_status_map):
+        """accept_use_personal_information maps to accepts_optional_communications."""
+        mock_status_map.return_value = {}
+        result = self.service._map_mijnrood_to_member_fields(
+            {"accept_use_personal_information": 1}
+        )
+        self.assertEqual(result.get("accepts_optional_communications"), 1)
+
+
+class TestApplyMijnRoodComments(EnhancedTestCase):
+    """Tests for _apply_mijnrood_comments()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_skips_empty_comment(self, mock_frappe):
+        """Returns None when comment is empty."""
+        result = self.service._apply_mijnrood_comments("MEM-001", {"mijnrood_comments": ""})
+        self.assertIsNone(result)
+        mock_frappe.db.set_value.assert_not_called()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_skips_missing_comment(self, mock_frappe):
+        """Returns None when mijnrood_comments key is missing."""
+        result = self.service._apply_mijnrood_comments("MEM-001", {})
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_skips_duplicate_comment(self, mock_frappe):
+        """Returns None when comment already exists in notes (idempotent)."""
+        mock_frappe.db.get_value.return_value = "MijnRood notitie: test comment"
+        result = self.service._apply_mijnrood_comments("MEM-001", {"mijnrood_comments": "test comment"})
+        self.assertIsNone(result)
+        mock_frappe.db.set_value.assert_not_called()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_appends_comment_to_existing_notes(self, mock_frappe):
+        """Appends comment to existing notes with <br> separator."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "Existing note"
+        self.service._apply_mijnrood_comments("MEM-001", {"mijnrood_comments": "new comment"})
+        mock_frappe.db.set_value.assert_called_once()
+        args = mock_frappe.db.set_value.call_args
+        new_notes = args[0][3]
+        self.assertIn("Existing note", new_notes)
+        self.assertIn("<br>", new_notes)
+        self.assertIn("new comment", new_notes)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_creates_notes_when_empty(self, mock_frappe):
+        """Creates notes from scratch when member has no notes."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = ""
+        result = self.service._apply_mijnrood_comments("MEM-001", {"mijnrood_comments": "first comment"})
+        self.assertIsNotNone(result)
+        args = mock_frappe.db.set_value.call_args
+        new_notes = args[0][3]
+        self.assertNotIn("<br>", new_notes)  # No separator for first note
+        self.assertIn("first comment", new_notes)
+
+
+class TestEnsureAddress(EnhancedTestCase):
+    """Tests for _ensure_address()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def test_skips_when_no_address(self):
+        """Returns None when address_line1 is missing."""
+        result = self.service._ensure_address("MEM-001", {"city": "Amsterdam"})
+        self.assertIsNone(result)
+
+    def test_skips_when_no_city(self):
+        """Returns None when city is missing."""
+        result = self.service._ensure_address("MEM-001", {"address_line1": "Kerkstraat 1"})
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_happy_path_creates_address(self, mock_frappe):
+        """Creates address via AddressImportService and links to member."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        mock_frappe.get_doc.return_value = member_doc
+
+        with patch(
+            "verenigingen.services.csv_import.address_import_service.get_address_import_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.create_or_update_address.return_value = "ADDR-001"
+            mock_get_svc.return_value = mock_svc
+
+            result = self.service._ensure_address(
+                "MEM-001", {"address_line1": "Kerkstraat 1", "city": "Amsterdam"}
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIn("ADDR-001", result)
+        mock_frappe.db.set_value.assert_called_once()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_handles_service_error(self, mock_frappe):
+        """Returns error message when address service throws."""
+        mock_frappe._ = frappe._
+        mock_frappe.get_traceback.return_value = "traceback"
+        mock_frappe.get_doc.side_effect = Exception("DB error")
+
+        result = self.service._ensure_address(
+            "MEM-001", {"address_line1": "Kerkstraat 1", "city": "Amsterdam"}
+        )
+
+        self.assertIn("failed", result)
+        mock_frappe.log_error.assert_called_once()
+
+
+class TestEnsureMollieData(EnhancedTestCase):
+    """Tests for _ensure_mollie_data() including subscription_status logic."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def test_skips_when_no_mollie_ids(self):
+        """Returns None when neither customer_id nor subscription_id present."""
+        result = self.service._ensure_mollie_data("MEM-001", {})
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_active_member_with_subscription_gets_active_status(self, mock_frappe):
+        """Active member with subscription_id gets status='active'."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+
+        with patch(
+            "verenigingen.services.csv_import.mollie_sync_service.get_mollie_sync_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_get_svc.return_value = mock_svc
+
+            self.service._ensure_mollie_data("MEM-001", {
+                "custom_mollie_customer_id": "cus_abc",
+                "custom_mollie_subscription_id": "sub_123",
+            })
+
+            # Verify sync was called with status="active"
+            call_args = mock_svc.sync_mollie_data.call_args
+            mollie_data = call_args[0][1]
+            self.assertEqual(mollie_data["custom_subscription_status"], "active")
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_terminated_member_with_subscription_gets_cancelled_status(self, mock_frappe):
+        """Terminated member with subscription_id gets status='cancelled'."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.status = "Terminated"
+        mock_frappe.get_doc.return_value = member_doc
+
+        with patch(
+            "verenigingen.services.csv_import.mollie_sync_service.get_mollie_sync_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_get_svc.return_value = mock_svc
+
+            self.service._ensure_mollie_data("MEM-001", {
+                "custom_mollie_customer_id": "cus_abc",
+                "custom_mollie_subscription_id": "sub_123",
+            })
+
+            call_args = mock_svc.sync_mollie_data.call_args
+            mollie_data = call_args[0][1]
+            self.assertEqual(mollie_data["custom_subscription_status"], "cancelled")
+
+            # Also verify subscription_status overridden on Member
+            mock_frappe.db.set_value.assert_called_once_with(
+                "Member", "MEM-001", "subscription_status", "cancelled",
+                update_modified=False,
+            )
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_member_without_subscription_gets_none_status(self, mock_frappe):
+        """Member without subscription_id gets status=None (no transition)."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.status = "Terminated"
+        mock_frappe.get_doc.return_value = member_doc
+
+        with patch(
+            "verenigingen.services.csv_import.mollie_sync_service.get_mollie_sync_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_get_svc.return_value = mock_svc
+
+            self.service._ensure_mollie_data("MEM-001", {
+                "custom_mollie_customer_id": "cus_abc",
+            })
+
+            call_args = mock_svc.sync_mollie_data.call_args
+            mollie_data = call_args[0][1]
+            self.assertIsNone(mollie_data["custom_subscription_status"])
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_handles_service_error(self, mock_frappe):
+        """Returns error message when Mollie sync throws."""
+        mock_frappe._ = frappe._
+        mock_frappe.get_traceback.return_value = "traceback"
+        mock_frappe.get_doc.side_effect = Exception("Mollie API error")
+
+        result = self.service._ensure_mollie_data("MEM-001", {
+            "custom_mollie_customer_id": "cus_abc",
+        })
+
+        self.assertIn("failed", result)
+        mock_frappe.log_error.assert_called_once()
+
+
+class TestEnsureMembershipAndDues(EnhancedTestCase):
+    """Tests for _ensure_membership_and_dues()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def test_skips_when_no_dues_rate(self):
+        """Returns None when dues_rate not in row_data."""
+        result = self.service._ensure_membership_and_dues("MEM-001", {"first_name": "Jan"})
+        self.assertIsNone(result)
+
+    def test_skips_when_no_payment_period(self):
+        """Returns None when payment_period not in row_data (no defaults)."""
+        result = self.service._ensure_membership_and_dues(
+            "MEM-001", {"dues_rate": 12.50}
+        )
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_skips_when_member_not_active(self, mock_frappe):
+        """Returns None when member status is not Active."""
+        member_doc = MagicMock()
+        member_doc.status = "Terminated"
+        mock_frappe.get_doc.return_value = member_doc
+
+        result = self.service._ensure_membership_and_dues(
+            "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+        )
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_skips_when_existing_active_membership(self, mock_frappe):
+        """Returns None when member already has an active submitted Membership."""
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+        mock_frappe.db.exists.return_value = "MEMB-001"
+
+        result = self.service._ensure_membership_and_dues(
+            "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+        )
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_happy_path_creates_membership(self, mock_frappe):
+        """Creates membership and returns success message."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+        mock_frappe.db.exists.return_value = None
+
+        with patch(
+            "verenigingen.services.csv_import.membership_import_service.get_membership_import_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.create_membership_from_csv.return_value = "MEMB-NEW"
+            mock_get_svc.return_value = mock_svc
+
+            result = self.service._ensure_membership_and_dues(
+                "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIn("MEMB-NEW", result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_handles_creation_error(self, mock_frappe):
+        """Returns error message when membership creation throws."""
+        mock_frappe._ = frappe._
+        mock_frappe.get_traceback.return_value = "traceback"
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+        mock_frappe.db.exists.return_value = None
+
+        with patch(
+            "verenigingen.services.csv_import.membership_import_service.get_membership_import_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.create_membership_from_csv.side_effect = Exception("Template not found")
+            mock_get_svc.return_value = mock_svc
+
+            result = self.service._ensure_membership_and_dues(
+                "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+            )
+
+        self.assertIn("failed", result)
+        mock_frappe.log_error.assert_called_once()
+
+
+class TestCreateRelatedRecords(EnhancedTestCase):
+    """Tests for _create_related_records() orchestration."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    def test_calls_chapter_assignment_with_division_id(
+        self, mock_chapter, mock_addr, mock_mollie, mock_membership, mock_comments
+    ):
+        """Calls _assign_chapter_from_division when chapter (division_id) present."""
+        mock_chapter.return_value = "Assigned to chapter 'Amsterdam'"
+        event = MagicMock()
+
+        messages = self.service._create_related_records(
+            "MEM-001", {"chapter": "5"}, event
+        )
+
+        mock_chapter.assert_called_once_with("MEM-001", 5, event)
+        self.assertIn("Assigned to chapter 'Amsterdam'", messages)
+
+    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    def test_skips_chapter_when_no_event(
+        self, mock_chapter, mock_addr, mock_mollie, mock_membership, mock_comments
+    ):
+        """Skips chapter assignment when event is None."""
+        self.service._create_related_records("MEM-001", {"chapter": "5"}, event=None)
+        mock_chapter.assert_not_called()
+
+    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value="Notes added")
+    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value="Membership created")
+    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value="Mollie synced")
+    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value="Address linked")
+    def test_collects_all_messages(self, mock_addr, mock_mollie, mock_membership, mock_comments):
+        """Collects messages from all sub-operations."""
+        messages = self.service._create_related_records("MEM-001", {})
+
+        self.assertEqual(len(messages), 4)
+        self.assertIn("Address linked", messages)
+        self.assertIn("Mollie synced", messages)
+        self.assertIn("Membership created", messages)
+        self.assertIn("Notes added", messages)
+
+    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
+    def test_returns_empty_when_all_skipped(self, mock_addr, mock_mollie, mock_membership, mock_comments):
+        """Returns empty list when all sub-operations are skipped."""
+        messages = self.service._create_related_records("MEM-001", {})
+        self.assertEqual(messages, [])
+
+
+class TestTryPromoteApplication(EnhancedTestCase):
+    """Tests for _try_promote_application()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_returns_none_when_no_email_match(self, mock_frappe):
+        """Returns None when no member found by email."""
+        mock_frappe.db.get_value.return_value = None
+        event = MagicMock()
+
+        result = self.service._try_promote_application(event, {"email": "new@example.com"})
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_returns_none_when_not_pending(self, mock_frappe):
+        """Returns None when existing member's application_status is not Pending."""
+        mock_frappe.db.get_value.return_value = frappe._dict({
+            "name": "MEM-001",
+            "member_id": "813",
+            "application_status": "Approved",
+        })
+        event = MagicMock()
+
+        result = self.service._try_promote_application(
+            event, {"email": "test@example.com", "member_id": "1700"}
+        )
+        self.assertIsNone(result)
+
+    @patch.object(MijnRoodEventApplicationService, "_create_related_records", return_value=[])
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_happy_path_promotes_and_updates(self, mock_frappe, mock_related):
+        """Promotes pending application: updates member_id, clears app status, creates records."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = frappe._dict({
+            "name": "MEM-001",
+            "member_id": "813",
+            "application_status": "Pending",
+        })
+
+        event = MagicMock()
+        event.name = "EVT-001"
+
+        with patch(
+            "verenigingen.services.csv_import.member_import_service.get_member_import_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.create_or_update_member.return_value = ("updated", "MEM-001")
+            mock_get_svc.return_value = mock_svc
+
+            result = self.service._try_promote_application(
+                event, {"email": "test@example.com", "member_id": "1700"}
+            )
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result["success"])
+        self.assertIn("promoted", result["message"])
+        self.assertEqual(event.linked_member, "MEM-001")
+
+        # Verify application_status was set to Approved
+        set_value_call = mock_frappe.db.set_value.call_args
+        self.assertEqual(set_value_call[0][1], "MEM-001")
+        self.assertEqual(set_value_call[0][2]["application_status"], "Approved")
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_returns_error_on_import_failure(self, mock_frappe):
+        """Returns error when MemberImportService fails during promotion."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = frappe._dict({
+            "name": "MEM-001",
+            "member_id": "813",
+            "application_status": "Pending",
+        })
+
+        event = MagicMock()
+        event.name = "EVT-001"
+
+        with patch(
+            "verenigingen.services.csv_import.member_import_service.get_member_import_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.create_or_update_member.return_value = ("error", None)
+            mock_get_svc.return_value = mock_svc
+
+            result = self.service._try_promote_application(
+                event, {"email": "test@example.com", "member_id": "1700"}
+            )
+
+        self.assertFalse(result["success"])
+        self.assertIn("failed", result["message"])
+
+
+class TestApplyNewMemberPromotionPath(EnhancedTestCase):
+    """Tests for _apply_new_member() promotion via _try_promote_application()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
+    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    def test_conflict_triggers_promotion_check(self, mock_map, mock_find, mock_promote):
+        """Email conflict calls _try_promote_application before returning error."""
+        mock_map.return_value = {"member_id": "1700", "email": "test@example.com"}
+        mock_find.return_value = (
+            None,
+            {"success": False, "message": "Email conflicts with MijnRood ID 813"},
+        )
+        mock_promote.return_value = {
+            "success": True,
+            "message": "Application promoted",
+        }
+
+        event = MagicMock()
+        event.new_data = json.dumps({"id": 1700, "email": "test@example.com"})
+
+        result = self.service._apply_new_member(event)
+
+        mock_promote.assert_called_once()
+        self.assertTrue(result["success"])
+        self.assertIn("promoted", result["message"])
+
+    @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
+    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    def test_conflict_without_promotion_returns_error(self, mock_map, mock_find, mock_promote):
+        """Email conflict returns error when promotion is not applicable."""
+        mock_map.return_value = {"member_id": "1700", "email": "test@example.com"}
+        mock_find.return_value = (
+            None,
+            {"success": False, "message": "Email conflicts with MijnRood ID 813"},
+        )
+        mock_promote.return_value = None  # Not a promotion
+
+        event = MagicMock()
+        event.new_data = json.dumps({"id": 1700, "email": "test@example.com"})
+
+        result = self.service._apply_new_member(event)
+
+        self.assertFalse(result["success"])
+        self.assertIn("conflicts", result["message"])
+
+    @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
+    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    def test_idempotent_success_does_not_trigger_promotion(self, mock_map, mock_find, mock_promote):
+        """Existing member match (success) does NOT trigger promotion check."""
+        mock_map.return_value = {"member_id": "42", "email": "test@example.com"}
+        mock_find.return_value = (
+            "MEM-001",
+            {"success": True, "message": "Already exists"},
+        )
+
+        event = MagicMock()
+        event.new_data = json.dumps({"id": 42, "email": "test@example.com"})
+
+        result = self.service._apply_new_member(event)
+
+        mock_promote.assert_not_called()
+        self.assertTrue(result["success"])
