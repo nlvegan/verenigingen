@@ -31,6 +31,7 @@ MEMBER_COLUMNS = [
     "registration_time",
     "current_membership_status_id",
     "contribution_per_period_in_cents",
+    "contribution_period",
     "mollie_customer_id",
     "mollie_subscription_id",
     "roles",
@@ -54,6 +55,7 @@ SUPPORT_MEMBER_COLUMNS = [
     "mollie_customer_id",
     "mollie_subscription_id",
     "contribution_per_period_in_cents",
+    "contribution_period",
     "original_id",
     "original_registration_time",
 ]
@@ -88,6 +90,7 @@ MEMBERSHIP_APPLICATION_COLUMNS = [
     "date_of_birth",
     "registration_time",
     "contribution_per_period_in_cents",
+    "contribution_period",
     "mollie_customer_id",
     "paid",
     "has_sent_initial_email",
@@ -139,8 +142,10 @@ MIJNROOD_TO_MEMBER_FIELD_MAP = {
     "division_id": "chapter",
     "current_membership_status_id": "membership_type",
     "contribution_per_period_in_cents": "dues_rate",
+    "contribution_period": "payment_period",
     "mollie_customer_id": "custom_mollie_customer_id",
     "mollie_subscription_id": "custom_mollie_subscription_id",
+    "accept_use_personal_information": "accepts_optional_communications",
     "comments": "mijnrood_comments",
 }
 
@@ -292,6 +297,7 @@ MIJNROOD_FIELD_LABELS = {
     "registration_time": "Registration Date",
     "current_membership_status_id": "Membership Status",
     "contribution_per_period_in_cents": "Contribution (cents/period)",
+    "contribution_period": "Payment Period",
     "mollie_customer_id": "Mollie Customer ID",
     "mollie_subscription_id": "Mollie Subscription ID",
     "roles": "Roles",

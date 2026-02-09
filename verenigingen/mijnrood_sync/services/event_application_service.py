@@ -119,6 +119,7 @@ class MijnRoodEventApplicationService(StatefulService):
         "birth_date": "birth_date",
         "iban": "iban",
         "dues_rate": "dues_rate",
+        "accepts_optional_communications": "accepts_optional_communications",
     }
 
     def _find_existing_member_or_conflict(self, mijnrood_id, email) -> tuple[Optional[str], Optional[dict]]:
@@ -187,8 +188,8 @@ class MijnRoodEventApplicationService(StatefulService):
 
         return changed
 
-    def _create_related_records(self, member_name: str, row_data: dict) -> list[str]:
-        """Create related records (address, Mollie, membership, notes) for a synced member.
+    def _create_related_records(self, member_name: str, row_data: dict, event=None) -> list[str]:
+        """Create related records (chapter, address, Mollie, membership, notes) for a synced member.
 
         Mirrors the CSV import's _create_related_records_via_services() but
         adapted for the sync event path. Each operation is independent —
@@ -198,6 +199,13 @@ class MijnRoodEventApplicationService(StatefulService):
             List of human-readable status messages (empty if all skipped).
         """
         messages = []
+
+        # Chapter assignment from division_id
+        division_id = self._safe_int(row_data.get("chapter"))
+        if division_id and event:
+            chapter_msg = self._assign_chapter_from_division(member_name, division_id, event)
+            if chapter_msg:
+                messages.append(chapter_msg)
 
         address_msg = self._ensure_address(member_name, row_data)
         if address_msg:
@@ -306,7 +314,7 @@ class MijnRoodEventApplicationService(StatefulService):
         try:
             member_doc = frappe.get_doc("Member", member_name)
             is_terminal = member_doc.status in self._TERMINAL_STATUSES
-            sub_status = "cancelled" if is_terminal else ("active" if subscription_id else None)
+            sub_status = ("cancelled" if is_terminal else "active") if subscription_id else None
             mollie_data = {
                 "custom_mollie_customer_id": customer_id,
                 "custom_mollie_subscription_id": subscription_id,
@@ -368,6 +376,11 @@ class MijnRoodEventApplicationService(StatefulService):
         from verenigingen.services.csv_import.membership_import_service import (
             get_membership_import_service,
         )
+
+        # Fallback if contribution_period was null in MijnRood data —
+        # members default to quarterly in MijnRood (Member.php:128).
+        if "payment_period" not in row_data:
+            row_data = {**row_data, "payment_period": "Per kwartaal"}
 
         try:
             membership_name = get_membership_import_service().create_membership_from_csv(member_doc, row_data)
@@ -489,7 +502,7 @@ class MijnRoodEventApplicationService(StatefulService):
             event.linked_member = member_name
 
             # Create related records: address, Mollie IDs, membership + dues
-            related_msgs = self._create_related_records(member_name, row_data)
+            related_msgs = self._create_related_records(member_name, row_data, event)
 
             messages = [_("Member {0} {1}").format(member_name, status)]
             messages.extend(related_msgs)
@@ -566,7 +579,7 @@ class MijnRoodEventApplicationService(StatefulService):
         event.linked_member = member_name
 
         # Create related records (address, Mollie, membership + dues)
-        related_msgs = self._create_related_records(member_name, row_data)
+        related_msgs = self._create_related_records(member_name, row_data, event)
 
         messages = [
             _("Application {0} promoted to member (ID {1} → {2})").format(
@@ -700,7 +713,7 @@ class MijnRoodEventApplicationService(StatefulService):
             messages.append(_("Member {0} updated").format(updated_name))
 
             # Create related records: address, Mollie IDs, membership + dues
-            messages.extend(self._create_related_records(updated_name, row_data))
+            messages.extend(self._create_related_records(updated_name, row_data, event))
 
             return {"success": True, "message": "; ".join(messages)}
         else:
@@ -1078,6 +1091,13 @@ class MijnRoodEventApplicationService(StatefulService):
         cents = self._safe_int(mijnrood_data.get("contribution_per_period_in_cents"))
         if cents:
             row_data["dues_rate"] = cents / 100.0
+
+        # Convert contribution period integer to Dutch string for template resolution
+        # MijnRood: 0=Monthly, 1=Quarterly, 2=Annually (see Member.php constants)
+        period_int = self._safe_int(mijnrood_data.get("contribution_period"))
+        period_map = {0: "Maandelijks", 1: "Per kwartaal", 2: "Jaarlijks"}
+        if period_int is not None and period_int in period_map:
+            row_data["payment_period"] = period_map[period_int]
 
         return row_data
 
