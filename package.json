@@ -74,18 +74,19 @@
   "author": "Verenigingen Team",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "@anthropic-ai/claude-code": "^2.0.55",
     "frappe-ui": "^0.1.205",
     "js-yaml": "^4.1.1"
   },
   "resolutions": {
     "cookie": "^0.7.0",
     "js-yaml": "^4.1.1",
-    "glob": "^10.5.0"
+    "glob": "^10.5.0",
+    "lodash": "^4.17.23"
   },
   "overrides": {
     "cookie": "^0.7.0",
     "js-yaml": "^4.1.1",
-    "glob": "^10.5.0"
+    "glob": "^10.5.0",
+    "lodash": "^4.17.23"
   }
 }
