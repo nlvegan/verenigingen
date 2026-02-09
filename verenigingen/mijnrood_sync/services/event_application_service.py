@@ -861,7 +861,7 @@ _TABLE_PRIORITY = {
 
 @frappe.whitelist()
 def batch_apply(event_names: str | list) -> dict:
-    """Apply multiple approved sync events.
+    """Enqueue batch application of approved sync events as a background job.
 
     Events are sorted by table dependency order so that division/chapter
     events are processed before member events that may reference them.
@@ -872,7 +872,20 @@ def batch_apply(event_names: str | list) -> dict:
     if isinstance(event_names, str):
         event_names = json.loads(event_names)
 
-    # Fetch table info and sort by dependency priority
+    job_id = frappe.generate_hash(length=10)
+    frappe.enqueue(
+        _batch_apply_worker,
+        queue="long",
+        timeout=600,
+        job_id=job_id,
+        event_names=event_names,
+        job_name=f"batch_apply_sync_events_{job_id}",
+    )
+    return {"job_id": job_id, "total": len(event_names)}
+
+
+def _batch_apply_worker(event_names: list, job_id: str) -> None:
+    """Background worker for batch applying sync events."""
     events_with_table = frappe.get_all(
         "MijnRood Sync Event",
         filters={"name": ["in", event_names]},
@@ -881,14 +894,26 @@ def batch_apply(event_names: str | list) -> dict:
     events_with_table.sort(key=lambda e: _TABLE_PRIORITY.get(e.mijnrood_table, 99))
     sorted_names = [e.name for e in events_with_table]
 
+    total = len(sorted_names)
     service = get_event_application_service()
     applied = 0
     errors = []
-    for name in sorted_names:
+
+    for i, name in enumerate(sorted_names):
         result = service.apply_event(name)
         if result.get("success"):
             applied += 1
         else:
             errors.append(f"{name}: {result.get('message', 'Unknown error')}")
+        frappe.db.commit()
+        frappe.publish_realtime(
+            "batch_apply_progress",
+            {"job_id": job_id, "current": i + 1, "total": total, "applied": applied, "errors": len(errors)},
+            user=frappe.session.user,
+        )
 
-    return {"applied": applied, "errors": errors}
+    frappe.publish_realtime(
+        "batch_apply_complete",
+        {"job_id": job_id, "applied": applied, "total": total, "errors": errors},
+        user=frappe.session.user,
+    )
