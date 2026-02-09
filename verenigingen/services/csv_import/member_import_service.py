@@ -318,7 +318,7 @@ class MemberImportService(StatelessService):
         """
         # Use context manager to ensure bulk flags are set and restored
         with self._bulk_context():
-            row_num = row_data.get("row_number", "?")
+            row_num = row_data.get("row_number", "unknown")
 
             # Check if member exists using cascade lookup (member_id -> email)
             lookup_service = get_member_lookup_service()
@@ -356,7 +356,8 @@ class MemberImportService(StatelessService):
         row_num: Any,
     ) -> Tuple[str, Optional[str]]:
         """Update an existing member with row data."""
-        savepoint_name = f"member_update_{row_num}_{int(time.time() * 1000)}"
+        safe_row = re.sub(r"[^a-zA-Z0-9_]", "", str(row_num)) or "0"
+        savepoint_name = f"member_update_{safe_row}_{int(time.time() * 1000)}"
 
         try:
             frappe.db.sql(f"SAVEPOINT {savepoint_name}")
@@ -497,7 +498,8 @@ class MemberImportService(StatelessService):
             # Fallback to row-based lock if no identifier
             lock_name = f"member_create_row_{row_num}_{int(time.time() * 1000)}"
 
-        savepoint_name = f"sp_member_{row_num}_{int(time.time() * 1000)}"
+        safe_row = re.sub(r"[^a-zA-Z0-9_]", "", str(row_num)) or "0"
+        savepoint_name = f"sp_member_{safe_row}_{int(time.time() * 1000)}"
         lock_acquired = False
 
         try:
