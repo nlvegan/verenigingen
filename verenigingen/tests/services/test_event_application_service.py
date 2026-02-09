@@ -930,11 +930,11 @@ class TestEnsureMollieData(EnhancedTestCase):
 
             call_args = mock_svc.sync_mollie_data.call_args
             mollie_data = call_args[0][1]
-            self.assertEqual(mollie_data["custom_subscription_status"], "cancelled")
+            self.assertEqual(mollie_data["custom_subscription_status"], "canceled")
 
             # Also verify subscription_status overridden on Member
             mock_frappe.db.set_value.assert_called_once_with(
-                "Member", "MEM-001", "subscription_status", "cancelled",
+                "Member", "MEM-001", "subscription_status", "canceled",
                 update_modified=False,
             )
 
@@ -1007,12 +1007,13 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         self.assertIsNone(result)
 
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
-    def test_skips_when_existing_active_membership(self, mock_frappe):
-        """Returns None when member already has an active submitted Membership."""
+    def test_skips_when_existing_active_membership_with_schedule(self, mock_frappe):
+        """Returns None when member has active Membership AND dues schedule."""
         member_doc = MagicMock()
         member_doc.status = "Active"
         mock_frappe.get_doc.return_value = member_doc
-        mock_frappe.db.exists.return_value = "MEMB-001"
+        mock_frappe.db.get_value.return_value = "MEMB-001"
+        mock_frappe.db.exists.return_value = "SCHED-001"
 
         result = self.service._ensure_membership_and_dues(
             "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
@@ -1020,13 +1021,35 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         self.assertIsNone(result)
 
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_backfills_when_membership_exists_without_schedule(self, mock_frappe):
+        """Calls _backfill_dues_schedule when membership exists but has no schedule."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        member_doc.name = "MEM-001"
+        mock_frappe.get_doc.return_value = member_doc
+        mock_frappe.db.get_value.return_value = "MEMB-001"
+        mock_frappe.db.exists.return_value = None  # no dues schedule
+
+        with patch.object(
+            self.service, "_backfill_dues_schedule",
+            return_value="Dues schedule SCHED-NEW created for existing membership",
+        ) as mock_backfill:
+            result = self.service._ensure_membership_and_dues(
+                "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+            )
+
+        mock_backfill.assert_called_once_with(member_doc, "MEMB-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"})
+        self.assertIn("SCHED-NEW", result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_happy_path_creates_membership(self, mock_frappe):
-        """Creates membership and returns success message."""
+        """Creates membership and returns success message when no existing membership."""
         mock_frappe._ = frappe._
         member_doc = MagicMock()
         member_doc.status = "Active"
         mock_frappe.get_doc.return_value = member_doc
-        mock_frappe.db.exists.return_value = None
+        mock_frappe.db.get_value.return_value = None  # no existing membership
 
         with patch(
             "verenigingen.services.csv_import.membership_import_service.get_membership_import_service"
@@ -1050,7 +1073,7 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         member_doc = MagicMock()
         member_doc.status = "Active"
         mock_frappe.get_doc.return_value = member_doc
-        mock_frappe.db.exists.return_value = None
+        mock_frappe.db.get_value.return_value = None  # no existing membership
 
         with patch(
             "verenigingen.services.csv_import.membership_import_service.get_membership_import_service"
@@ -1061,6 +1084,105 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
 
             result = self.service._ensure_membership_and_dues(
                 "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+            )
+
+        self.assertIn("failed", result)
+        mock_frappe.log_error.assert_called_once()
+
+
+class TestBackfillDuesSchedule(EnhancedTestCase):
+    """Tests for _backfill_dues_schedule()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_happy_path_creates_schedule(self, mock_frappe):
+        """Creates dues schedule from template and returns success message."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "Regulier"
+        member_doc = MagicMock()
+        member_doc.name = "MEM-001"
+        row_data = {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+
+        with patch(
+            "verenigingen.utils.csv.data_transformers."
+            "get_dues_schedule_template_from_payment_period",
+            return_value="Quarterly Template",
+        ), patch(
+            "verenigingen.verenigingen.doctype.membership_dues_schedule."
+            "membership_dues_schedule.MembershipDuesSchedule"
+        ) as mock_mds:
+            mock_mds.create_from_template.return_value = "SCHED-NEW"
+
+            result = self.service._backfill_dues_schedule(member_doc, "MEMB-001", row_data)
+
+        self.assertIn("SCHED-NEW", result)
+        mock_mds.create_from_template.assert_called_once_with(
+            "MEM-001",
+            template_name="Quarterly Template",
+            membership_type="Regulier",
+            membership_name="MEMB-001",
+            custom_amount=12.50,
+            custom_amount_reason="Backfilled from MijnRood sync data",
+        )
+
+    def test_skips_when_template_resolution_returns_none(self):
+        """Returns None when get_dues_schedule_template_from_payment_period returns None."""
+        member_doc = MagicMock()
+        member_doc.name = "MEM-001"
+
+        with patch(
+            "verenigingen.utils.csv.data_transformers."
+            "get_dues_schedule_template_from_payment_period",
+            return_value=None,
+        ):
+            result = self.service._backfill_dues_schedule(
+                member_doc, "MEMB-001", {"payment_period": "Per kwartaal"}
+            )
+
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_handles_template_resolution_error(self, mock_frappe):
+        """Returns skip message when template resolution raises."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.name = "MEM-001"
+
+        with patch(
+            "verenigingen.utils.csv.data_transformers."
+            "get_dues_schedule_template_from_payment_period",
+            side_effect=Exception("No quarterly template configured"),
+        ):
+            result = self.service._backfill_dues_schedule(
+                member_doc, "MEMB-001", {"payment_period": "Per kwartaal"}
+            )
+
+        self.assertIn("skipped", result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_handles_create_from_template_error(self, mock_frappe):
+        """Returns error message when create_from_template raises."""
+        mock_frappe._ = frappe._
+        mock_frappe.get_traceback.return_value = "traceback"
+        mock_frappe.db.get_value.return_value = "Regulier"
+        member_doc = MagicMock()
+        member_doc.name = "MEM-001"
+
+        with patch(
+            "verenigingen.utils.csv.data_transformers."
+            "get_dues_schedule_template_from_payment_period",
+            return_value="Quarterly Template",
+        ), patch(
+            "verenigingen.verenigingen.doctype.membership_dues_schedule."
+            "membership_dues_schedule.MembershipDuesSchedule"
+        ) as mock_mds:
+            mock_mds.create_from_template.side_effect = Exception("Template invalid")
+
+            result = self.service._backfill_dues_schedule(
+                member_doc, "MEMB-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
             )
 
         self.assertIn("failed", result)

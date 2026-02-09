@@ -113,6 +113,11 @@ function resolve_display_value(field, val) {
         var int_val = parseInt(val, 10);
         return get_status_label(int_val);
     }
+    if (field === "contribution_period") {
+        var period_map = {0: "Maandelijks (Monthly)", 1: "Per kwartaal (Quarterly)", 2: "Jaarlijks (Annually)"};
+        var period_int = parseInt(val, 10);
+        return period_map[period_int] || String(val);
+    }
     return String(val);
 }
 
@@ -149,8 +154,8 @@ function render_changed_table(changed_fields) {
     for (var i = 0; i < changed_fields.length; i++) {
         var c = changed_fields[i];
         var label = c.label || get_label(c.field);
-        var old_val = c.old_display || c.old;
-        var new_val = c.new_display || c.new;
+        var old_val = c.old_display || resolve_display_value(c.field, c.old);
+        var new_val = c.new_display || resolve_display_value(c.field, c.new);
 
         html += "<tr>"
             + "<td><strong>" + esc(label) + "</strong></td>"

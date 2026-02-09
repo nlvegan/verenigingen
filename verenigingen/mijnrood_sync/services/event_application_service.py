@@ -314,7 +314,7 @@ class MijnRoodEventApplicationService(StatefulService):
         try:
             member_doc = frappe.get_doc("Member", member_name)
             is_terminal = member_doc.status in self._TERMINAL_STATUSES
-            sub_status = ("cancelled" if is_terminal else "active") if subscription_id else None
+            sub_status = ("canceled" if is_terminal else "active") if subscription_id else None
             mollie_data = {
                 "custom_mollie_customer_id": customer_id,
                 "custom_mollie_subscription_id": subscription_id,
@@ -328,7 +328,7 @@ class MijnRoodEventApplicationService(StatefulService):
                     "Member",
                     member_name,
                     "subscription_status",
-                    "cancelled",
+                    "canceled",
                     update_modified=False,
                 )
 
@@ -372,12 +372,22 @@ class MijnRoodEventApplicationService(StatefulService):
         if member_doc.status != "Active":
             return None
 
-        existing = frappe.db.exists(
+        existing_membership = frappe.db.get_value(
             "Membership",
             {"member": member_name, "status": "Active", "docstatus": 1},
+            "name",
         )
-        if existing:
-            return None
+
+        if existing_membership:
+            # Membership exists — but does it have a dues schedule?
+            has_schedule = frappe.db.exists(
+                "Membership Dues Schedule",
+                {"member": member_name, "is_template": 0},
+            )
+            if has_schedule:
+                return None
+            # Membership exists without a dues schedule — backfill it
+            return self._backfill_dues_schedule(member_doc, existing_membership, row_data)
 
         from verenigingen.services.csv_import.membership_import_service import (
             get_membership_import_service,
@@ -397,6 +407,62 @@ class MijnRoodEventApplicationService(StatefulService):
             return _("Membership creation failed: {0}").format(str(e)[:200])
 
         return None
+
+    def _backfill_dues_schedule(self, member_doc, membership_name: str, row_data: dict) -> Optional[str]:
+        """Create a missing dues schedule for an existing membership.
+
+        Resolves the template from payment_period via Verenigingen Settings
+        (same logic as the CSV import), then calls create_from_template.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        from verenigingen.utils.csv.data_transformers import (
+            get_dues_schedule_template_from_payment_period,
+        )
+
+        try:
+            template_name = get_dues_schedule_template_from_payment_period(row_data)
+        except Exception as e:
+            self.logger.warning(
+                "Cannot resolve dues template for %s (payment_period=%s): %s",
+                member_doc.name,
+                row_data.get("payment_period"),
+                e,
+            )
+            return _("Dues schedule backfill skipped: {0}").format(str(e)[:200])
+
+        if not template_name:
+            return None
+
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        try:
+            membership_type = frappe.db.get_value("Membership", membership_name, "membership_type")
+            schedule_name = MembershipDuesSchedule.create_from_template(
+                member_doc.name,
+                template_name=template_name,
+                membership_type=membership_type,
+                membership_name=membership_name,
+                custom_amount=row_data.get("dues_rate"),
+                custom_amount_reason="Backfilled from MijnRood sync data",
+            )
+            self.logger.info(
+                "Backfilled dues schedule %s for member %s (membership %s)",
+                schedule_name,
+                member_doc.name,
+                membership_name,
+            )
+            return _("Dues schedule {0} created for existing membership").format(schedule_name)
+        except Exception as e:
+            self.logger.error("Dues schedule backfill failed for %s: %s", member_doc.name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Dues Schedule Backfill Failed: {member_doc.name}",
+            )
+            return _("Dues schedule backfill failed: {0}").format(str(e)[:200])
 
     def _assign_chapter_from_division(self, member_name: str, division_id: int, event) -> Optional[str]:
         """Resolve a division_id to a chapter and assign the member.
