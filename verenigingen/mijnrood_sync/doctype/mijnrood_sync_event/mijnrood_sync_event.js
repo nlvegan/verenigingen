@@ -588,7 +588,7 @@ frappe.listview_settings["MijnRood Sync Event"] = {
                         args: { event_names: names },
                         callback: function (r) {
                             if (!r.message) return;
-                            var job_id = r.message.job_id;
+                            var batch_id = r.message.batch_id;
                             var total = r.message.total;
                             var dialog = new frappe.ui.Dialog({
                                 title: __("Applying {0} events...", [total]),
@@ -604,7 +604,7 @@ frappe.listview_settings["MijnRood Sync Event"] = {
                             dialog.$wrapper.find(".modal-footer").hide();
 
                             function onProgress(data) {
-                                if (data.job_id !== job_id) return;
+                                if (data.batch_id !== batch_id) return;
                                 var pct = Math.round((data.current / data.total) * 100);
                                 dialog.fields_dict.progress_area.$wrapper
                                     .find(".progress-bar").css("width", pct + "%");
@@ -616,7 +616,7 @@ frappe.listview_settings["MijnRood Sync Event"] = {
                             }
 
                             function onComplete(data) {
-                                if (data.job_id !== job_id) return;
+                                if (data.batch_id !== batch_id) return;
                                 frappe.realtime.off("batch_apply_progress", onProgress);
                                 frappe.realtime.off("batch_apply_complete", onComplete);
                                 dialog.hide();

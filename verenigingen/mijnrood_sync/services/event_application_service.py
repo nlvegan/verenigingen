@@ -187,6 +187,160 @@ class MijnRoodEventApplicationService(StatefulService):
 
         return changed
 
+    def _create_related_records(self, member_name: str, row_data: dict) -> list[str]:
+        """Create related records (address, Mollie, membership) for a synced member.
+
+        Mirrors the CSV import's _create_related_records_via_services() but
+        adapted for the sync event path. Each operation is independent —
+        a failure in one does not block the others.
+
+        Returns:
+            List of human-readable status messages (empty if all skipped).
+        """
+        messages = []
+
+        address_msg = self._ensure_address(member_name, row_data)
+        if address_msg:
+            messages.append(address_msg)
+
+        mollie_msg = self._ensure_mollie_data(member_name, row_data)
+        if mollie_msg:
+            messages.append(mollie_msg)
+
+        membership_msg = self._ensure_membership_and_dues(member_name, row_data)
+        if membership_msg:
+            messages.append(membership_msg)
+
+        return messages
+
+    def _ensure_address(self, member_name: str, row_data: dict) -> Optional[str]:
+        """Create or update Address document for a synced member.
+
+        Uses AddressImportService which handles duplicate detection,
+        link management, and stale-link cleanup.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        address_line1 = (row_data.get("address_line1") or "").strip()
+        city = (row_data.get("city") or "").strip()
+        if not address_line1 or not city:
+            return None
+
+        from verenigingen.services.csv_import.address_import_service import (
+            get_address_import_service,
+        )
+
+        try:
+            member_doc = frappe.get_doc("Member", member_name)
+            address_name = get_address_import_service().create_or_update_address(member_doc, row_data)
+            if address_name:
+                # Persist the primary_address link (set by the service on member_doc)
+                frappe.db.set_value(
+                    "Member",
+                    member_name,
+                    "primary_address",
+                    address_name,
+                    update_modified=False,
+                )
+                self.logger.info("Address %s linked to member %s", address_name, member_name)
+                return _("Address {0} linked").format(address_name)
+        except Exception as e:
+            self.logger.error("Address creation failed for %s: %s", member_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Address Creation Failed: {member_name}",
+            )
+            return _("Address creation failed: {0}").format(str(e)[:200])
+
+        return None
+
+    def _ensure_mollie_data(self, member_name: str, row_data: dict) -> Optional[str]:
+        """Sync Mollie customer/subscription IDs to Member and Customer records.
+
+        Uses MollieSyncService which handles validation, Customer creation
+        if needed, and writing IDs to both Member and Customer records.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        customer_id = row_data.get("custom_mollie_customer_id")
+        subscription_id = row_data.get("custom_mollie_subscription_id")
+        if not customer_id and not subscription_id:
+            return None
+
+        from verenigingen.services.csv_import.mollie_sync_service import (
+            get_mollie_sync_service,
+        )
+
+        try:
+            member_doc = frappe.get_doc("Member", member_name)
+            mollie_data = {
+                "custom_mollie_customer_id": customer_id,
+                "custom_mollie_subscription_id": subscription_id,
+                "custom_subscription_status": "active" if subscription_id else None,
+            }
+            get_mollie_sync_service().sync_mollie_data(member_doc, mollie_data)
+            self.logger.info("Mollie data synced for member %s", member_name)
+            return _("Mollie data synced")
+        except Exception as e:
+            self.logger.error("Mollie sync failed for %s: %s", member_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Mollie Sync Failed: {member_name}",
+            )
+            return _("Mollie sync failed: {0}").format(str(e)[:200])
+
+    def _ensure_membership_and_dues(self, member_name: str, row_data: dict) -> Optional[str]:
+        """Create Membership + Dues Schedule for a synced member if eligible.
+
+        Eligibility mirrors the CSV import's _should_create_membership():
+        - row_data must contain dues_rate
+        - Member status must be Active
+        - No existing active submitted Membership
+
+        Uses MembershipImportService.create_membership_from_csv() which handles
+        membership type determination, dues schedule template resolution, and
+        start_date from row_data["member_since"].
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        # Cheap check first — skip if no dues rate in sync data
+        if "dues_rate" not in row_data:
+            return None
+
+        member_doc = frappe.get_doc("Member", member_name)
+
+        if member_doc.status != "Active":
+            return None
+
+        existing = frappe.db.exists(
+            "Membership",
+            {"member": member_name, "status": "Active", "docstatus": 1},
+        )
+        if existing:
+            return None
+
+        from verenigingen.services.csv_import.membership_import_service import (
+            get_membership_import_service,
+        )
+
+        try:
+            membership_name = get_membership_import_service().create_membership_from_csv(member_doc, row_data)
+            if membership_name:
+                self.logger.info("Created membership %s for synced member %s", membership_name, member_name)
+                return _("Membership {0} created").format(membership_name)
+        except Exception as e:
+            self.logger.error("Membership creation failed for %s: %s", member_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Membership Creation Failed: {member_name}",
+            )
+            return _("Membership creation failed: {0}").format(str(e)[:200])
+
+        return None
+
     def _assign_chapter_from_division(self, member_name: str, division_id: int, event) -> Optional[str]:
         """Resolve a division_id to a chapter and assign the member.
 
@@ -280,7 +434,13 @@ class MijnRoodEventApplicationService(StatefulService):
         if status in ("created", "updated"):
             # Link the event to the member
             event.linked_member = member_name
-            return {"success": True, "message": _("Member {0} {1}").format(member_name, status)}
+
+            # Create related records: address, Mollie IDs, membership + dues
+            related_msgs = self._create_related_records(member_name, row_data)
+
+            messages = [_("Member {0} {1}").format(member_name, status)]
+            messages.extend(related_msgs)
+            return {"success": True, "message": "; ".join(messages)}
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
 
@@ -406,6 +566,10 @@ class MijnRoodEventApplicationService(StatefulService):
         if status in ("created", "updated"):
             event.linked_member = updated_name
             messages.append(_("Member {0} updated").format(updated_name))
+
+            # Create related records: address, Mollie IDs, membership + dues
+            messages.extend(self._create_related_records(updated_name, row_data))
+
             return {"success": True, "message": "; ".join(messages)}
         else:
             return {"success": False, "message": _("Member update {0}").format(status)}
@@ -872,19 +1036,20 @@ def batch_apply(event_names: str | list) -> dict:
     if isinstance(event_names, str):
         event_names = json.loads(event_names)
 
-    job_id = frappe.generate_hash(length=10)
+    batch_id = frappe.generate_hash(length=10)
     frappe.enqueue(
         _batch_apply_worker,
         queue="long",
         timeout=600,
-        job_id=job_id,
+        job_id=batch_id,
         event_names=event_names,
-        job_name=f"batch_apply_sync_events_{job_id}",
+        batch_id=batch_id,
+        job_name=f"batch_apply_sync_events_{batch_id}",
     )
-    return {"job_id": job_id, "total": len(event_names)}
+    return {"batch_id": batch_id, "total": len(event_names)}
 
 
-def _batch_apply_worker(event_names: list, job_id: str) -> None:
+def _batch_apply_worker(event_names: list, batch_id: str) -> None:
     """Background worker for batch applying sync events."""
     events_with_table = frappe.get_all(
         "MijnRood Sync Event",
@@ -908,12 +1073,18 @@ def _batch_apply_worker(event_names: list, job_id: str) -> None:
         frappe.db.commit()
         frappe.publish_realtime(
             "batch_apply_progress",
-            {"job_id": job_id, "current": i + 1, "total": total, "applied": applied, "errors": len(errors)},
+            {
+                "batch_id": batch_id,
+                "current": i + 1,
+                "total": total,
+                "applied": applied,
+                "errors": len(errors),
+            },
             user=frappe.session.user,
         )
 
     frappe.publish_realtime(
         "batch_apply_complete",
-        {"job_id": job_id, "applied": applied, "total": total, "errors": errors},
+        {"batch_id": batch_id, "applied": applied, "total": total, "errors": errors},
         user=frappe.session.user,
     )
