@@ -105,11 +105,11 @@ class TemplateConfigurationService(StatelessService):
             "invoice_days_before": 30,
         }
 
-        # Get values from template (now required)
+        # If the membership type has no template assigned, return defaults.
+        # The schedule may have been created from an explicit template resolved
+        # elsewhere (e.g. payment-period mapping in Verenigingen Settings).
         if not membership_type_doc.dues_schedule_template:
-            frappe.throw(
-                f"Membership Type '{membership_type_doc.name}' must have a dues schedule template assigned"
-            )
+            return values
 
         # Calculate membership type minimum first to use as fallback
         membership_type_minimum = (

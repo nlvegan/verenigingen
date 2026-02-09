@@ -253,11 +253,11 @@ class DuesScheduleValidationService(StatelessService):
             if schedule_doc.membership_type:
                 membership_type = frappe.get_doc("Membership Type", schedule_doc.membership_type)
 
-                # Get suggested amount from template (explicit configuration)
+                # If no template configured, skip multiplier check — the schedule
+                # may have been created from a template resolved via payment-period
+                # settings rather than the Membership Type's default.
                 if not membership_type.dues_schedule_template:
-                    frappe.throw(
-                        f"Membership Type '{membership_type.name}' must have a dues schedule template"
-                    )
+                    return
 
         except Exception as e:
             # Re-raise validation errors

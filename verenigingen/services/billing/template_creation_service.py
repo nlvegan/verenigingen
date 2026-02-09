@@ -330,24 +330,18 @@ class TemplateCreationService(StatelessService):
         # Insert and return
         schedule.insert()
 
-        # Link back to member with concurrency handling
-        member.current_dues_schedule = schedule.name
-        member.dues_rate = schedule.dues_rate
-
-        # Check if we're in a bulk operation and mark the member document accordingly
-        # This flag will persist through the save() call and prevent fee override validation
-        bulk_flag = getattr(frappe.flags, "bulk_member_operations", False)
-        if bulk_flag:
-            member._system_update = True
-
-        try:
-            member.save()
-        except frappe.TimestampMismatchError:
-            # Reload member and retry save once
-            member.reload()
-            member.current_dues_schedule = schedule.name
-            member.dues_rate = schedule.dues_rate
-            member.save()
+        # Link schedule back to member.  Use db.set_value to avoid
+        # TimestampMismatchError — after_insert hooks and the caller's
+        # consolidated save will also touch this member record.
+        frappe.db.set_value(
+            "Member",
+            member_name,
+            {
+                "current_dues_schedule": schedule.name,
+                "dues_rate": schedule.dues_rate,
+            },
+            update_modified=False,
+        )
 
         return schedule.name
 

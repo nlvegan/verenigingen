@@ -356,6 +356,11 @@ class MembershipCreationService(StatelessService):
         if is_csv_import:
             membership._is_csv_import = True
 
+        # Skip the on_submit hook's dues schedule creation — the service layer
+        # handles it in _ensure_dues_schedule_exists with proper template resolution
+        # (application_dues_schedule, payment_period, etc.).
+        membership.flags.skip_dues_schedule_creation = True
+
         # Use context manager to skip member updates in membership.on_submit()
         # We'll consolidate all updates into one save later for performance
         from verenigingen.utils.document_coordination import skip_child_document_updates
@@ -529,9 +534,13 @@ class MembershipCreationService(StatelessService):
             )
         except Exception as e:
             self.logger.error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"Dues Schedule Creation Failed: {member_doc.name}",
+            )
             # Don't fail approval if dues schedule creation fails
             frappe.msgprint(
-                _("Warning: Dues schedule creation failed. It will be retried automatically."),
+                _("Warning: Dues schedule creation failed: {0}").format(str(e)[:200]),
                 alert=True,
                 indicator="orange",
             )
