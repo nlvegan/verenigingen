@@ -723,7 +723,7 @@ class MijnRoodEventApplicationService(StatefulService):
             chapter_name=division_name,
             published=published,
             mijnrood_division_id=division_id,
-            contact_email=division_data.get("email_id"),
+            contact_email=self._extract_email(division_data.get("email_id")),
         )
         if created:
             self.logger.info("Auto-created Chapter '%s' from division sync", division_name)
@@ -794,6 +794,18 @@ class MijnRoodEventApplicationService(StatefulService):
             return int(value)
         except (ValueError, TypeError):
             return None
+
+    @staticmethod
+    def _extract_email(value: Any) -> Optional[str]:
+        """Return value only if it looks like an email address.
+
+        MijnRood's email_id column may contain a numeric FK rather than
+        an actual email string. Passing a bare number to a Frappe Data
+        field with options=Email causes a validation error.
+        """
+        if not value or not isinstance(value, str):
+            return None
+        return value if "@" in value else None
 
 
 # Module-level singleton accessor

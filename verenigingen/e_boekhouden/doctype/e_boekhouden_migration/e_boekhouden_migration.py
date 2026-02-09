@@ -163,9 +163,7 @@ class EBoekhoudenMigration(Document):
                 self.db_set({"current_operation": "Migrating Cost Centers...", "progress_percentage": 20})
                 frappe.db.commit()
 
-                # Use getattr to avoid field/method name conflict
-                migrate_method = getattr(self.__class__, "migrate_cost_centers")
-                result = migrate_method(self, settings)
+                result = self.do_migrate_cost_centers(settings)
                 migration_log.append(f"Cost Centers: {result}")
 
             # Phase 3: Transactions
@@ -220,7 +218,7 @@ class EBoekhoudenMigration(Document):
             frappe.log_error(f"E-Boekhouden migration failed: {str(e)}", "E-Boekhouden Migration")
             raise
 
-    def clear_existing_accounts(self, settings):
+    def do_clear_existing_accounts(self, settings):
         """Clear all existing imported accounts before importing new ones"""
         try:
             company = settings.default_company
@@ -357,7 +355,7 @@ class EBoekhoudenMigration(Document):
                 self.db_set({"current_operation": "Clearing existing accounts...", "progress_percentage": 5})
                 frappe.db.commit()
 
-                clear_result = self.clear_existing_accounts(settings)
+                clear_result = self.do_clear_existing_accounts(settings)
                 if not clear_result["success"]:
                     return f"Failed to clear existing accounts: {clear_result['error']}"
                 else:
@@ -394,7 +392,7 @@ class EBoekhoudenMigration(Document):
             if self.dry_run:
                 dry_run_msg = f"Dry Run: Found {len(accounts_data)} accounts to migrate"
                 if getattr(self, "clear_existing_accounts", 0):
-                    clear_result = self.clear_existing_accounts(settings)
+                    clear_result = self.do_clear_existing_accounts(settings)
                     dry_run_msg += f"\n{clear_result['message']}"
                 return dry_run_msg
 
@@ -661,7 +659,7 @@ class EBoekhoudenMigration(Document):
         service = self._get_account_migration_service(settings)
         return service.ensure_root_accounts()
 
-    def migrate_cost_centers(self, settings):
+    def do_migrate_cost_centers(self, settings):
         """Migrate Cost Centers from e-Boekhouden with proper hierarchy"""
         try:
             # Use the fixed cost center migration

@@ -291,6 +291,9 @@ class MijnRoodDatabaseClient:
                 rows = cursor.fetchall()
             all_rows.extend(self._serialize_row(row) for row in rows)
 
+        if table == "admin_division":
+            self._resolve_division_emails(all_rows)
+
         return all_rows
 
     def fetch_all_rows(self, table: str) -> list[dict]:
@@ -351,6 +354,46 @@ class MijnRoodDatabaseClient:
             cursor.execute(query, (self._settings.db_name or "rood", table))
             rows = cursor.fetchall()
         return [row["COLUMN_NAME"] for row in rows]
+
+    def _resolve_division_emails(self, rows: list[dict]) -> None:
+        """Resolve email_id FKs on admin_division rows to actual email addresses.
+
+        MijnRood stores division emails as a FK chain:
+            admin_division.email_id → admin_email.id (user + domain_id)
+            admin_email.domain_id → admin_email_domain.id (domain)
+            Full address = admin_email.user + '@' + admin_email_domain.domain
+
+        This method batch-resolves all email_id values in the given rows and
+        replaces the numeric FK with the resolved email string (or None).
+        """
+        email_ids = [r["email_id"] for r in rows if r.get("email_id")]
+        if not email_ids:
+            return
+
+        placeholders = ", ".join(["%s"] * len(email_ids))
+        query = (
+            f"SELECT e.`id`, CONCAT(e.`user`, '@', d.`domain`) AS `email_address` "  # noqa: S608
+            f"FROM `admin_email` e "
+            f"JOIN `admin_email_domain` d ON e.`domain_id` = d.`id` "
+            f"WHERE e.`id` IN ({placeholders})"
+        )
+
+        try:
+            with self._connection.cursor() as cursor:
+                cursor.execute(query, email_ids)
+                result = cursor.fetchall()
+            email_map = {r["id"]: r["email_address"] for r in result}
+        except Exception:
+            logger.warning("Failed to resolve division email_id FKs — leaving as numeric IDs", exc_info=True)
+            return
+
+        for row in rows:
+            eid = row.get("email_id")
+            if eid and eid in email_map:
+                row["email_id"] = email_map[eid]
+            elif eid:
+                # FK exists but no matching email record — clear rather than keep numeric ID
+                row["email_id"] = None
 
     @staticmethod
     def _serialize_row(row: dict) -> dict:

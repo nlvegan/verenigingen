@@ -126,7 +126,7 @@ class MigrationOrchestrator:
         )
         frappe.db.commit()
 
-        result = self.migration_doc.migrate_cost_centers(settings)
+        result = self.migration_doc.do_migrate_cost_centers(settings)
         migration_log.append(f"Cost Centers: {result}")
 
     def _execute_customers_phase(self, settings, migration_log):
