@@ -461,6 +461,16 @@ class MijnRoodEventApplicationService(StatefulService):
             row_data.get("member_id"), row_data.get("email")
         )
         if existing_result is not None:
+            # Check for application→member promotion: MijnRood deletes the
+            # application row and creates a new member row with a different ID.
+            # _find_existing_member_or_conflict sees this as a conflict (email
+            # match, member_id mismatch). If the existing member is a pending
+            # application, this is actually a promotion, not a conflict.
+            if not existing_result.get("success") and row_data.get("email"):
+                promotion_result = self._try_promote_application(event, row_data)
+                if promotion_result:
+                    return promotion_result
+
             if existing_name:
                 event.linked_member = existing_name
             return existing_result
@@ -486,6 +496,85 @@ class MijnRoodEventApplicationService(StatefulService):
             return {"success": True, "message": "; ".join(messages)}
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
+
+    def _try_promote_application(self, event, row_data: dict) -> Optional[dict]:
+        """Handle MijnRood application→member promotion.
+
+        When MijnRood approves an application, the admin_membership_application
+        row is deleted and a new admin_member row is created with a different ID
+        (different table, different auto-increment sequence). The polling service
+        detects a "Deleted" event for the application and a "New" event for the
+        member. The "New" event hits an email conflict because the Member (created
+        from the application event) has the old application's member_id.
+
+        Detection: email match where existing member has application_status=Pending.
+
+        Returns:
+            Result dict if promotion was handled, None if not a promotion.
+        """
+        email = row_data.get("email")
+        match = frappe.db.get_value(
+            "Member",
+            {"email": email},
+            ["name", "member_id", "application_status"],
+            as_dict=True,
+        )
+        if not match or match.application_status != "Pending":
+            return None
+
+        old_member_id = match.member_id
+        new_member_id = row_data.get("member_id")
+
+        self.logger.info(
+            "Promoting application %s (member_id %s → %s) via event %s",
+            match.name,
+            old_member_id,
+            new_member_id,
+            event.name,
+        )
+
+        # Delegate to MemberImportService — it will find the existing member
+        # by email (member_id won't match) and update all fields, including
+        # overwriting member_id with the new admin_member ID.
+        from verenigingen.services.csv_import.member_import_service import get_member_import_service
+
+        service = get_member_import_service()
+        status, member_name = service.create_or_update_member(
+            row_data=row_data,
+            import_doc_name=f"MijnRood Sync: {event.name}",
+        )
+
+        if status not in ("created", "updated"):
+            return {
+                "success": False,
+                "message": _("Application promotion failed: {0}").format(status),
+            }
+
+        # Clear application-specific fields now that the member is promoted
+        frappe.db.set_value(
+            "Member",
+            member_name,
+            {
+                "application_status": "Approved",
+                "review_notes": (
+                    f"Approved via MijnRood (event {event.name}). "
+                    f"Application member_id {old_member_id} → member_id {new_member_id}."
+                ),
+            },
+        )
+
+        event.linked_member = member_name
+
+        # Create related records (address, Mollie, membership + dues)
+        related_msgs = self._create_related_records(member_name, row_data)
+
+        messages = [
+            _("Application {0} promoted to member (ID {1} → {2})").format(
+                member_name, old_member_id, new_member_id
+            )
+        ]
+        messages.extend(related_msgs)
+        return {"success": True, "message": "; ".join(messages)}
 
     def _apply_new_division(self, event) -> dict:
         """Create or update a Chapter from MijnRood admin_division data."""
