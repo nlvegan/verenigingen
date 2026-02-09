@@ -428,17 +428,22 @@ class SEPAAuditLogger:
             # Lazy import to avoid circular dependency
             from verenigingen.services.communication.email_service import get_email_service
 
-            # Get admin users
-            admin_users = frappe.get_all("User", filters={"enabled": 1}, fields=["email", "full_name"])
-
-            # Filter to users with security roles
+            # Get users with security roles via direct query (avoids loading all users)
             security_roles = ["System Manager", "Verenigingen Administrator"]
-            admin_emails = []
-
-            for user in admin_users:
-                user_roles = frappe.get_roles(user.email)
-                if any(role in security_roles for role in user_roles):
-                    admin_emails.append(user.email)
+            role_holders = frappe.get_all(
+                "Has Role",
+                filters={"role": ["in", security_roles], "parenttype": "User"},
+                pluck="parent",
+            )
+            if role_holders:
+                admin_emails = frappe.get_all(
+                    "User",
+                    filters={"name": ["in", list(set(role_holders))], "enabled": 1},
+                    pluck="email",
+                )
+                admin_emails = [e for e in admin_emails if e]
+            else:
+                admin_emails = []
 
             if admin_emails:
                 # Send email notification

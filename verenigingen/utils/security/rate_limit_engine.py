@@ -203,8 +203,10 @@ class RateLimitEngine:
             Tuple of (max_calls, period_seconds, limit_type)
         """
         # Start with interactive limits as defaults
-        max_calls = cor_record.get("rate_limit_calls") or 10
-        period_seconds = cor_record.get("rate_limit_period_seconds") or 3600
+        _calls = cor_record.get("rate_limit_calls")
+        max_calls = _calls if _calls is not None else 10
+        _period = cor_record.get("rate_limit_period_seconds")
+        period_seconds = _period if _period is not None else 3600
         limit_type = "interactive"
 
         # Use batch limits if in background/scheduled context
@@ -294,8 +296,10 @@ class RateLimitEngine:
             if not cor_record:
                 return {}
 
-            max_calls = cor_record.get("rate_limit_calls") or 10
-            period_seconds = cor_record.get("rate_limit_period_seconds") or 3600
+            _calls = cor_record.get("rate_limit_calls")
+            max_calls = _calls if _calls is not None else 10
+            _period = cor_record.get("rate_limit_period_seconds")
+            period_seconds = _period if _period is not None else 3600
             scope = cor_record.get("rate_limit_scope") or "per_user"
 
             # Build cache key (headers are for HTTP, use interactive limit_type)

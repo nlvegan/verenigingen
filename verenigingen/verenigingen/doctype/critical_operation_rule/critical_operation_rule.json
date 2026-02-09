@@ -132,10 +132,11 @@
       "fieldtype": "Column Break"
     },
     {
-      "default": "1",
+      "default": "0",
       "fieldname": "allow_system_user",
       "fieldtype": "Check",
-      "label": "Allow System User Fallback"
+      "label": "Allow System User Fallback",
+      "description": "Enable only when this operation must run in automated/webhook contexts where the triggering user lacks direct permissions. Requires justification for critical operations."
     },
     {
       "fieldname": "bypass_validations",

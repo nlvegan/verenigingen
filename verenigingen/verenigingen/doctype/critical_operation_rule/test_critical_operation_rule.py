@@ -61,40 +61,32 @@ class TestCriticalOperationRule(FrappeTestCase):
         self.assertEqual(rule.security_level, "low")
 
     def test_rate_limit_validation(self):
-        """Test rate limit validation"""
-        # Note: rate_limit_calls validation has a logic bug - when rate_limit_calls is 0 (falsy),
-        # the condition `if self.rate_limit_calls and self.rate_limit_calls < 1` fails on first check
-        # So validation is skipped. This test now validates current behavior, not expected behavior.
-        # TODO: Fix validation logic to check `if self.rate_limit_calls is not None and self.rate_limit_calls < 1`
-
-        # Test that rate_limit_calls = 0 is currently ALLOWED (due to validation bug)
-        rule = frappe.get_doc(
-            {
-                "doctype": "Critical Operation Rule",
-                "operation_name": "test_zero_rate_limit",
-                "operation_type": "financial",
-                "security_level": "critical",
-                "rate_limit_calls": 0,  # Currently allowed due to validation bug
-                "enabled": 1,
-            }
-        )
-        rule.insert()  # Should succeed (bug allows 0)
-        self.assertEqual(rule.rate_limit_calls, 0)
-
-        # Test that negative rate_limit_calls would be caught if it passes the first check
-        # (but only if rate_limit_calls is truthy)
+        """Test rate limit validation rejects zero and negative values"""
+        # rate_limit_calls=0 must be rejected (must be at least 1)
         with self.assertRaises(frappe.ValidationError):
-            rule2 = frappe.get_doc(
+            frappe.get_doc(
+                {
+                    "doctype": "Critical Operation Rule",
+                    "operation_name": "test_zero_rate_limit",
+                    "operation_type": "financial",
+                    "security_level": "critical",
+                    "rate_limit_calls": 0,
+                    "enabled": 1,
+                }
+            ).insert()
+
+        # Negative values must also be rejected
+        with self.assertRaises(frappe.ValidationError):
+            frappe.get_doc(
                 {
                     "doctype": "Critical Operation Rule",
                     "operation_name": "test_negative_rate_limit",
                     "operation_type": "financial",
                     "security_level": "critical",
-                    "rate_limit_calls": -1,  # Negative is truthy, so validation runs
+                    "rate_limit_calls": -1,
                     "enabled": 1,
                 }
-            )
-            rule2.insert()
+            ).insert()
 
     def test_notification_validation(self):
         """Test notification settings validation"""

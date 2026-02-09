@@ -24,6 +24,7 @@ class CriticalOperationRule(Document):
         self.validate_rate_limit_settings()
         self.validate_business_rules()
         self.validate_notification_settings()
+        self.validate_system_user_settings()
 
     def validate_operation_name(self):
         """Ensure operation name follows naming conventions"""
@@ -64,14 +65,14 @@ class CriticalOperationRule(Document):
 
     def validate_rate_limit_settings(self):
         """Validate rate limiting configuration"""
-        if self.rate_limit_calls and self.rate_limit_calls < 1:
+        if self.rate_limit_calls is not None and self.rate_limit_calls < 1:
             frappe.throw(_("Rate limit calls must be at least 1"))
 
-        if self.rate_limit_period_seconds and self.rate_limit_period_seconds < 60:
+        if self.rate_limit_period_seconds is not None and self.rate_limit_period_seconds < 60:
             frappe.throw(_("Rate limit period must be at least 60 seconds"))
 
         # Validate batch rate limits if configured
-        if self.batch_rate_limit_calls:
+        if self.batch_rate_limit_calls is not None:
             if self.batch_rate_limit_calls < 1:
                 frappe.throw(_("Batch rate limit calls must be at least 1"))
 
@@ -83,7 +84,7 @@ class CriticalOperationRule(Document):
                     ).format(self.batch_rate_limit_calls, self.rate_limit_calls)
                 )
 
-        if self.batch_rate_limit_period_seconds and self.batch_rate_limit_period_seconds < 60:
+        if self.batch_rate_limit_period_seconds is not None and self.batch_rate_limit_period_seconds < 60:
             frappe.throw(_("Batch rate limit period must be at least 60 seconds"))
 
         # Warn about very permissive rate limits for critical operations
@@ -138,11 +139,28 @@ class CriticalOperationRule(Document):
                 frappe.throw(_("Notification recipients are required when alert on execution is enabled"))
 
         if self.notification_recipients:
-            # Basic email validation for recipients
+            from frappe.utils import validate_email_address
+
             recipients = [r.strip() for r in self.notification_recipients.split(",")]
             for recipient in recipients:
-                if "@" not in recipient:
+                if not validate_email_address(recipient, throw=False):
                     frappe.throw(_("Invalid email address: {0}").format(recipient))
+
+    def validate_system_user_settings(self):
+        """Warn when system user fallback is enabled on high-security operations"""
+        if self.allow_system_user and self.security_level in ("critical", "high"):
+            frappe.msgprint(
+                _(
+                    "System user fallback is enabled for a {0}-level operation. "
+                    "This allows privilege escalation when the triggering user lacks permissions. "
+                    "Only enable this for operations that run in automated/webhook contexts."
+                ).format(self.security_level),
+                indicator="orange",
+            )
+
+    def on_trash(self):
+        """Clear cached rule configurations when a rule is deleted"""
+        self.clear_rule_cache()
 
     def on_update(self):
         """Handle rule updates with security considerations"""
@@ -273,8 +291,10 @@ class CriticalOperationRule(Document):
                             p.strip() for p in (rule.required_permissions or "").split(",") if p.strip()
                         ],
                         "rate_limit": {
-                            "calls": rule.rate_limit_calls or 10,
-                            "period_seconds": rule.rate_limit_period_seconds or 3600,
+                            "calls": rule.rate_limit_calls if rule.rate_limit_calls is not None else 10,
+                            "period_seconds": rule.rate_limit_period_seconds
+                            if rule.rate_limit_period_seconds is not None
+                            else 3600,
                             "scope": rule.rate_limit_scope or "per_user",
                         },
                         "allow_system_user": rule.allow_system_user,
@@ -295,8 +315,8 @@ class CriticalOperationRule(Document):
                         },
                     }
 
-                    # Cache for 2 hours - CORs are configuration data that rarely changes
-                    frappe.cache().set_value(cache_key, config, expires_in_sec=7200)
+                    # Cache for 5 minutes with explicit invalidation on update/delete
+                    frappe.cache().set_value(cache_key, config, expires_in_sec=300)
                 else:
                     config = None
 
@@ -322,8 +342,8 @@ class CriticalOperationRule(Document):
                 if config:
                     rules[rule_doc.operation_name] = config
 
-            # Cache for 2 hours - CORs are configuration data that rarely changes
-            frappe.cache().set_value(cache_key, rules, expires_in_sec=7200)
+            # Cache for 5 minutes with explicit invalidation on update/delete
+            frappe.cache().set_value(cache_key, rules, expires_in_sec=300)
 
         return rules or {}
 
