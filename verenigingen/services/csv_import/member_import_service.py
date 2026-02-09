@@ -19,6 +19,7 @@ Usage:
     )
 """
 
+import re
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, Generator, Optional, Tuple
