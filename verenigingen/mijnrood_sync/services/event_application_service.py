@@ -255,11 +255,16 @@ class MijnRoodEventApplicationService(StatefulService):
 
         return None
 
+    _TERMINAL_STATUSES = frozenset(("Terminated", "Banned", "Deceased"))
+
     def _ensure_mollie_data(self, member_name: str, row_data: dict) -> Optional[str]:
         """Sync Mollie customer/subscription IDs to Member and Customer records.
 
         Uses MollieSyncService which handles validation, Customer creation
         if needed, and writing IDs to both Member and Customer records.
+
+        For terminated members, corrects subscription_status after the service
+        call (the service hard-codes "active" which is wrong for non-active members).
 
         Returns:
             Human-readable status message, or None if skipped.
@@ -275,13 +280,26 @@ class MijnRoodEventApplicationService(StatefulService):
 
         try:
             member_doc = frappe.get_doc("Member", member_name)
+            is_terminal = member_doc.status in self._TERMINAL_STATUSES
+            sub_status = "cancelled" if is_terminal else ("active" if subscription_id else None)
             mollie_data = {
                 "custom_mollie_customer_id": customer_id,
                 "custom_mollie_subscription_id": subscription_id,
-                "custom_subscription_status": "active" if subscription_id else None,
+                "custom_subscription_status": sub_status,
             }
             get_mollie_sync_service().sync_mollie_data(member_doc, mollie_data)
-            self.logger.info("Mollie data synced for member %s", member_name)
+
+            # MollieSyncService hard-codes subscription_status="active" — correct it
+            if subscription_id and is_terminal:
+                frappe.db.set_value(
+                    "Member",
+                    member_name,
+                    "subscription_status",
+                    "cancelled",
+                    update_modified=False,
+                )
+
+            self.logger.info("Mollie data synced for member %s (terminal=%s)", member_name, is_terminal)
             return _("Mollie data synced")
         except Exception as e:
             self.logger.error("Mollie sync failed for %s: %s", member_name, e)

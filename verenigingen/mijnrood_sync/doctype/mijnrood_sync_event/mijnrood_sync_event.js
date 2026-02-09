@@ -43,6 +43,7 @@ const MEMBER_SUMMARY_FIELDS = [
     "division_id", "current_membership_status_id",
     "contribution_per_period_in_cents", "date_of_birth",
     "iban", "registration_time",
+    "mollie_customer_id", "mollie_subscription_id",
 ];
 
 const APPLICATION_SUMMARY_FIELDS = [
@@ -50,6 +51,7 @@ const APPLICATION_SUMMARY_FIELDS = [
     "address", "city", "post_code", "country",
     "preferred_division_id", "contribution_per_period_in_cents",
     "date_of_birth", "iban", "registration_time",
+    "mollie_customer_id",
     "paid", "has_sent_initial_email",
 ];
 
