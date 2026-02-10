@@ -8,31 +8,9 @@ from frappe.model.document import Document
 
 
 class TeamMember(Document):
-    def after_insert(self):
-        """Assign Team Lead role when someone becomes a team leader"""
-        if self.is_team_leader_role():
-            self.assign_team_lead_role()
-        # Send notification to the new team member
-        self._send_team_member_added_notification()
-
-    def on_trash(self):
-        """Remove Team Lead role if no longer on any team as leader"""
-        if self.is_team_leader_role():
-            self.remove_team_lead_role()
-        # Send notification to the removed team member
-        self._send_team_member_removed_notification()
-
-    def on_update(self):
-        """Handle role changes when team member status changes"""
-        if self.is_team_leader_role():
-            # If marked inactive or past end date, check if role should be removed
-            if not self.is_active or (
-                self.to_date and frappe.utils.getdate(self.to_date) < frappe.utils.today()
-            ):
-                self.remove_team_lead_role()
-            else:
-                # If reactivated, ensure they have the role
-                self.assign_team_lead_role()
+    # NOTE: after_insert(), on_update(), on_trash() are NOT called for child tables
+    # managed via parent save. Team Lead role assignment and role profile sync are
+    # handled by Team.on_update hooks (team_role_profile_hooks.py).
 
     def validate(self):
         """Validate team member data"""
@@ -57,129 +35,6 @@ class TeamMember(Document):
             self.status = "Inactive"
         elif self.is_active and self.status != "Active":
             self.is_active = 0
-
-    def assign_team_lead_role(self):
-        """Assign the Team Lead role to the volunteer's user"""
-        if not self.volunteer:
-            return
-
-        # Get the member and user associated with this volunteer
-        volunteer_doc = frappe.get_doc("Volunteer", self.volunteer)
-        if not volunteer_doc.member:
-            return
-
-        user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-        if not user:
-            return
-
-        # Check if user already has the role
-        existing_role = frappe.db.exists("Has Role", {"parent": user, "role": "Team Lead"})
-
-        if not existing_role:
-            try:
-                # Create the role assignment with proper permission check
-                if frappe.has_permission("User", "write", user) or frappe.session.user == "Administrator":
-                    # Create the role assignment via parent document
-                    user_doc = frappe.get_doc("User", user)
-                    user_doc.append(
-                        "roles",
-                        {
-                            "role": "Team Lead",
-                        },
-                    )
-                    user_doc.save()
-                    frappe.logger().info(f"Assigned Team Lead role to {user}")
-                else:
-                    frappe.logger().warning(f"Insufficient permissions to assign Team Lead role to {user}")
-            except Exception as e:
-                frappe.log_error(
-                    f"Failed to assign Team Lead role to {user}: {str(e)}", "Team Role Assignment Error"
-                )
-
-    def remove_team_lead_role(self):
-        """Remove Team Lead role if user is no longer a team leader on any team"""
-        if not self.volunteer:
-            return
-
-        # Get the member and user associated with this volunteer
-        volunteer_doc = frappe.get_doc("Volunteer", self.volunteer)
-        if not volunteer_doc.member:
-            return
-
-        user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-        if not user:
-            return
-
-        # Check if this volunteer has any other ACTIVE team leader positions
-        # Get all team roles that are marked as team leader roles
-        leader_roles = frappe.db.get_all("Team Role", {"is_team_leader": 1}, pluck="name")
-
-        if not leader_roles:
-            return  # No team leader roles defined
-
-        active_leader_positions = frappe.db.count(
-            "Team Member",
-            {
-                "volunteer": self.volunteer,
-                "name": ["!=", self.name],
-                "team_role": ["in", leader_roles],
-                "is_active": 1,
-                "to_date": ["is", "null"],
-            },
-        )
-
-        # Also check for positions with future end dates
-        future_leader_positions = frappe.db.count(
-            "Team Member",
-            {
-                "volunteer": self.volunteer,
-                "name": ["!=", self.name],
-                "team_role": ["in", leader_roles],
-                "is_active": 1,
-                "to_date": [">=", frappe.utils.today()],
-            },
-        )
-
-        total_active_leader_positions = active_leader_positions + future_leader_positions
-
-        # Only remove role if they're not a team leader on any other active teams
-        if total_active_leader_positions == 0:
-            # Remove the role assignment
-            role_assignment = frappe.db.exists("Has Role", {"parent": user, "role": "Team Lead"})
-
-            if role_assignment:
-                try:
-                    if frappe.has_permission("User", "write", user) or frappe.session.user == "Administrator":
-                        frappe.delete_doc("Has Role", role_assignment)
-                        frappe.logger().info(f"Removed Team Lead role from {user}")
-                    else:
-                        frappe.logger().warning(
-                            f"Insufficient permissions to remove Team Lead role from {user}"
-                        )
-                except Exception as e:
-                    frappe.log_error(
-                        f"Failed to remove Team Lead role from {user}: {str(e)}", "Team Role Removal Error"
-                    )
-
-    def validate_team_leader_account(self):
-        """Ensure team leader has a linked user account"""
-        if self.volunteer and self.is_team_leader_role():
-            volunteer_doc = frappe.get_doc("Volunteer", self.volunteer)
-            if volunteer_doc.member:
-                user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-                if not user:
-                    frappe.msgprint(
-                        f"Warning: Team Leader {self.volunteer} does not have a linked user account. Team Lead role cannot be assigned.",
-                        indicator="orange",
-                    )
-
-    def is_team_leader_role(self):
-        """Check if the assigned role is marked as a team leader role"""
-        if not self.team_role:
-            return False
-
-        team_role_doc = frappe.get_cached_doc("Team Role", self.team_role)
-        return team_role_doc.is_team_leader if team_role_doc else False
 
     def validate_unique_role(self):
         """Validate that unique roles are not assigned to multiple people in the same team"""
@@ -267,48 +122,7 @@ class TeamMember(Document):
                 title="Unique Role Violation",
             )
 
-    def _send_team_member_added_notification(self):
-        """Send notification when a volunteer is added to the team."""
-        from verenigingen.utils.notification_helpers import send_volunteer_email
-
-        # Get team name from parent
-        team_name = frappe.db.get_value("Team", self.parent, "team_name") or self.parent
-
-        send_volunteer_email(
-            volunteer=self.volunteer,
-            template_name="team_role_notification",
-            notification_key="team_member_added",
-            subject=f"Team Assignment - {team_name}",
-            extra_context={
-                "team_name": team_name,
-                "team_role": self.team_role,
-                "from_date": frappe.utils.formatdate(self.from_date),
-                "change_type": "Team Assignment",
-                "additional_message": "Welcome to the team!",
-            },
-            reference_doctype="Team",
-            reference_name=self.parent,
-        )
-
-    def _send_team_member_removed_notification(self):
-        """Send notification when a volunteer is removed from the team."""
-        from verenigingen.utils.notification_helpers import send_volunteer_email
-
-        # Get team name from parent
-        team_name = frappe.db.get_value("Team", self.parent, "team_name") or self.parent
-
-        send_volunteer_email(
-            volunteer=self.volunteer,
-            template_name="team_role_notification",
-            notification_key="team_member_removed",
-            subject=f"Team Assignment Ended - {team_name}",
-            extra_context={
-                "team_name": team_name,
-                "team_role": self.team_role,
-                "to_date": frappe.utils.formatdate(self.to_date) if self.to_date else frappe.utils.today(),
-                "change_type": "Team Assignment Ended",
-                "additional_message": "Thank you for your contribution!",
-            },
-            reference_doctype="Team",
-            reference_name=self.parent,
-        )
+    # REMOVED: _send_team_member_added_notification, _send_team_member_removed_notification
+    # These were called from the dead after_insert/on_trash methods above.
+    # Team notifications are handled separately by the event subscriber system
+    # (events/subscribers/team_subscribers.py).

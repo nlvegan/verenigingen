@@ -65,9 +65,9 @@ class Team(Document):
         finally:
             if hasattr(self, "_team_member_changes_processed"):
                 delattr(self, "_team_member_changes_processed")
-            # Clean up stored document state
-            if hasattr(self, "_doc_before_save"):
-                delattr(self, "_doc_before_save")
+            # NOTE: Do NOT delete _doc_before_save here. Frappe manages this attribute,
+            # and doc_event hooks (on_team_lead_change, on_team_members_change) run AFTER
+            # the controller's on_update() and need it for has_value_changed().
             if hasattr(self, "_original_members"):
                 delattr(self, "_original_members")
 

@@ -31,26 +31,56 @@ def on_team_lead_change(doc, method):
     """
     Hook called when Team is updated.
 
-    Triggers role profile recalculation when team_lead changes.
+    Triggers role profile recalculation and Team Lead role sync when team_lead changes.
 
     Args:
         doc: Team document
         method: Hook method name
     """
-    # Only recalculate if team_lead changed
-    if doc.has_value_changed("team_lead"):
-        old_lead = doc.get_db_value("team_lead")
-        new_lead = doc.team_lead
+    if not doc.has_value_changed("team_lead"):
+        return
 
-        from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+    # get_db_value() returns the NEW value after save; use _doc_before_save for the old one
+    old_lead = doc._doc_before_save.team_lead if getattr(doc, "_doc_before_save", None) else None
+    new_lead = doc.team_lead
 
-        # Recalculate for old team lead (may lose Team Leader profile)
-        if old_lead:
-            auto_sync_on_role_change(old_lead)
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-        # Recalculate for new team lead (may gain Team Leader profile)
-        if new_lead:
-            auto_sync_on_role_change(new_lead)
+    # Recalculate for old team lead (may lose Team Leader profile and role)
+    if old_lead:
+        auto_sync_on_role_change(old_lead)
+        _sync_team_lead_role(old_lead)
+
+    # Recalculate for new team lead (may gain Team Leader profile and role)
+    if new_lead:
+        auto_sync_on_role_change(new_lead)
+        _sync_team_lead_role(new_lead)
+
+
+def _sync_team_lead_role(user):
+    """Assign or remove 'Team Lead' Has Role based on current team leadership positions.
+
+    After save, the DB reflects the new state. So checking Team.team_lead == user
+    correctly finds OTHER teams (current team already updated) plus the current team
+    if the user is the new lead.
+    """
+    try:
+        is_still_leading = frappe.db.exists("Team", {"team_lead": user})
+        has_role = frappe.db.exists("Has Role", {"parent": user, "role": "Team Lead"})
+
+        if is_still_leading and not has_role:
+            user_doc = frappe.get_doc("User", user)
+            user_doc.append("roles", {"role": "Team Lead"})
+            user_doc.save(ignore_permissions=True)
+            frappe.logger().info(f"Assigned Team Lead role to {user}")
+        elif not is_still_leading and has_role:
+            frappe.delete_doc("Has Role", has_role, ignore_permissions=True)
+            frappe.logger().info(f"Removed Team Lead role from {user}")
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to sync Team Lead role for {user}: {e}",
+            "Team Lead Role Sync",
+        )
 
 
 def on_team_members_change(doc, method):

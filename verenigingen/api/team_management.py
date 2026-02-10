@@ -132,35 +132,49 @@ def get_role_profile_preview(team_name):
 @standard_api
 @handle_api_error
 def bulk_apply_team_role_profiles(team_name):
-    """Apply role profiles to all current team members based on team configuration"""
+    """Recalculate role profiles for all active members of a team.
+
+    Uses auto_sync_on_role_change() which derives the correct profile from
+    ground truth (actual DB state) rather than trying to assign a specific profile.
+    """
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
     if not frappe.has_permission("Team", "write", team_name):
         frappe.throw(_("Insufficient permissions to modify team"))
 
-    team_doc = frappe.get_doc("Team", team_name)
-    applied_count = 0
+    if not frappe.db.exists("Team", team_name):
+        return {"success": False, "applied_count": 0, "message": f"Team '{team_name}' does not exist"}
 
-    for member in team_doc.team_members:
-        if member.is_active and member.volunteer and member.team_role:
-            # Find matching role profile from role_specific_profiles child table
-            role_profile = None
-            if team_doc.role_specific_profiles:
-                for mapping in team_doc.role_specific_profiles:
-                    if mapping.team_role == member.team_role:
-                        role_profile = mapping.role_profile
-                        break
+    # Get active team members: TM.volunteer → Volunteer.member → Member.user
+    team_members = frappe.db.sql(
+        """
+        SELECT DISTINCT m.user
+        FROM `tabTeam Member` tm
+        JOIN `tabVolunteer` v ON tm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        WHERE tm.parent = %s
+          AND tm.is_active = 1
+          AND m.user IS NOT NULL
+          AND m.user != ''
+        """,
+        (team_name,),
+        as_dict=True,
+    )
 
-            if role_profile:
-                # Note: Volunteer DocType doesn't have a role_profile field currently
-                # This is a placeholder for future role profile integration
-                # For now, just count as applied without modifying volunteer
-                applied_count += 1
-                frappe.logger().info(
-                    f"Role profile {role_profile} would be applied to {member.volunteer_name}"
-                )
+    updated = 0
+    for row in team_members:
+        user = row["user"] if isinstance(row, dict) else row.user
+        try:
+            auto_sync_on_role_change(user)
+            updated += 1
+        except Exception as e:
+            frappe.log_error(
+                f"Role profile sync failed for {user}: {e}",
+                "Bulk Team Role Profile Sync",
+            )
 
     return {
-        "success": True,
-        "applied_count": applied_count,
-        "message": f"Applied role profiles to {applied_count} team members",
+        "success": updated > 0 or len(team_members) == 0,
+        "applied_count": updated,
+        "message": f"Synced role profiles for {updated} team members",
     }

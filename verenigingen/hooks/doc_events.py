@@ -101,10 +101,9 @@ doc_events = {
             "verenigingen.utils.team_role_profile_hooks.invalidate_team_profile_cache",
         ],
     },
-    "Team Member": {
-        "after_insert": "verenigingen.utils.team_role_profile_manager.on_team_member_add",
-        "on_update": "verenigingen.utils.team_role_profile_manager.on_team_member_update",
-    },
+    # NOTE: Team Member is a child table (istable=1). Child table doc_events
+    # (after_insert, on_update, on_trash) never fire when rows are managed via
+    # parent save. Role profile sync is handled by Team.on_update hooks above.
     # =========================================================================
     # VOLUNTEER SYSTEM
     # =========================================================================

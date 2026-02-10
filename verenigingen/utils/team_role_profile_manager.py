@@ -241,67 +241,10 @@ def get_teams_for_role_profile(role_profile):
     return _team_manager.get_entities_using_role_profile(role_profile)
 
 
-def setup_team_hooks():
-    """
-    Setup hooks to automatically call role profile assignment/removal
-    This should be called from hooks.py
-    """
-    # Hook into Team Member creation/update
-    # This would be configured in hooks.py as:
-    # doc_events = {
-    #     "Team Member": {
-    #         "after_insert": "verenigingen.utils.team_role_profile_manager.on_team_member_add",
-    #         "before_delete": "verenigingen.utils.team_role_profile_manager.on_team_member_remove",
-    #         "on_update": "verenigingen.utils.team_role_profile_manager.on_team_member_update"
-    #     }
-    # }
-    pass
-
-
-# Hook functions for Team Member document events
-def on_team_member_add(doc: "frappe._dict", method: str):
-    """Hook called when Team Member is added
-
-    Args:
-        doc: TeamMember document with volunteer, parent, and team_role fields
-        method: Hook method name
-    """
-    if doc.status == "Active":
-        user = _team_manager._get_user_from_team_member_doc(doc)
-        if user:
-            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-            auto_sync_on_role_change(user)
-
-
-def on_team_member_remove(doc: "frappe._dict", method: str):
-    """Hook called when Team Member is removed
-
-    Args:
-        doc: TeamMember document with volunteer, parent, and team_role fields
-        method: Hook method name
-    """
-    user = _team_manager._get_user_from_team_member_doc(doc)
-    if user:
-        from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-        auto_sync_on_role_change(user)
-
-
-def on_team_member_update(doc: "frappe._dict", method: str):
-    """Hook called when Team Member is updated
-
-    Args:
-        doc: TeamMember document with volunteer, parent, and team_role fields
-        method: Hook method name
-    """
-    # Handle status changes or role changes
-    if doc.has_value_changed("status") or doc.has_value_changed("team_role"):
-        user = _team_manager._get_user_from_team_member_doc(doc)
-        if user:
-            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-            auto_sync_on_role_change(user)
+# REMOVED: Child table hook functions (on_team_member_add/remove/update, setup_team_hooks).
+# Team Member is a child table (istable=1). Child table doc_events (after_insert,
+# on_update, on_trash) never fire when rows are managed via parent save. Role profile
+# sync is now handled by Team.on_update hooks in team_role_profile_hooks.py.
 
 
 # For backward compatibility - maintain the old validation function
