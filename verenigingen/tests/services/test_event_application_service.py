@@ -13,6 +13,7 @@ Tests cover:
 - _apply_new_member: idempotency via _find_existing_member_or_conflict
 - _check_and_handle_termination: status routing, auto-execution, execution failure
 - _ensure_user_account: setting disabled, member has user, success, failure, exception
+- ACR deduplication: set clearing, skip on duplicate, volunteer→ACR tracking, dual scenario
 """
 
 import json
@@ -1367,10 +1368,11 @@ class TestEnsureUserAccount(EnhancedTestCase):
         self.assertIsNone(result)
 
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
-    def test_returns_none_on_exception(self, mock_frappe):
-        """Returns None when queue function raises an exception."""
+    def test_returns_error_message_on_exception(self, mock_frappe):
+        """Returns error message when queue function raises an exception."""
         mock_frappe.db.get_single_value.return_value = 1
         mock_frappe.db.get_value.return_value = None  # no user
+        mock_frappe._ = frappe._
 
         with patch(
             "verenigingen.utils.account_creation_manager.queue_account_creation_for_member",
@@ -1378,7 +1380,8 @@ class TestEnsureUserAccount(EnhancedTestCase):
         ):
             result = self.service._ensure_user_account("MEM-001")
 
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("Permission denied", result)
 
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_handles_none_result_data(self, mock_frappe):
@@ -1399,6 +1402,110 @@ class TestEnsureUserAccount(EnhancedTestCase):
 
         self.assertIsNotNone(result)
         self.assertIn("Account creation queued", result)
+
+
+class TestAcrDeduplication(EnhancedTestCase):
+    """Tests for per-run ACR deduplication via _acr_queued_members."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def test_acr_set_cleared_on_apply_event(self):
+        """_acr_queued_members is cleared at the start of each apply_event() call."""
+        self.service._acr_queued_members.add("MEM-OLD")
+        # Calling apply_event on a non-existent event will fail, but the set
+        # should already be cleared before the event is fetched.
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application_service.frappe"
+        ) as mock_frappe:
+            mock_frappe.get_doc.side_effect = Exception("not found")
+            try:
+                self.service.apply_event("FAKE-001")
+            except Exception:
+                pass
+        self.assertEqual(len(self.service._acr_queued_members), 0)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_skips_when_already_queued(self, mock_frappe):
+        """_ensure_user_account skips when member already in _acr_queued_members."""
+        mock_frappe.db.get_single_value.return_value = 1
+        mock_frappe.db.get_value.return_value = None  # no user
+
+        self.service._acr_queued_members.add("MEM-001")
+
+        with patch(
+            "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
+        ) as mock_queue:
+            result = self.service._ensure_user_account("MEM-001")
+
+        self.assertIsNone(result)
+        mock_queue.assert_not_called()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_adds_to_set_on_success(self, mock_frappe):
+        """Member added to _acr_queued_members after successful queue."""
+        mock_frappe.db.get_single_value.return_value = 1
+        mock_frappe.db.get_value.return_value = None  # no user
+        mock_frappe._ = frappe._
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.data = {"request_name": "ACR-001"}
+
+        with patch(
+            "verenigingen.utils.account_creation_manager.queue_account_creation_for_member",
+            return_value=mock_result,
+        ):
+            self.service._ensure_user_account("MEM-001")
+
+        self.assertIn("MEM-001", self.service._acr_queued_members)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_volunteer_creation_marks_acr_queued(self, mock_frappe):
+        """_ensure_volunteer marks member in _acr_queued_members when creating account."""
+        mock_frappe._ = frappe._
+
+        config = {"create_volunteer": True, "verenigingen_role": "Admin", "role_profile": None}
+
+        with patch(
+            "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+            return_value=None,
+        ), patch(
+            "verenigingen.verenigingen.doctype.volunteer.volunteer.create_volunteer_from_member",
+            return_value={"success": True, "volunteer": "VOL-001"},
+        ):
+            self.service._ensure_volunteer("MEM-001", config, event=None)
+
+        self.assertIn("MEM-001", self.service._acr_queued_members)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_dual_acr_scenario_second_call_skipped(self, mock_frappe):
+        """When _ensure_volunteer queues ACR, _ensure_user_account skips for same member."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_single_value.return_value = 1
+        mock_frappe.db.get_value.return_value = None  # no user
+
+        config = {"create_volunteer": True, "verenigingen_role": "Admin", "role_profile": None}
+
+        # First: volunteer creation marks ACR as queued
+        with patch(
+            "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+            return_value=None,
+        ), patch(
+            "verenigingen.verenigingen.doctype.volunteer.volunteer.create_volunteer_from_member",
+            return_value={"success": True, "volunteer": "VOL-001"},
+        ):
+            self.service._ensure_volunteer("MEM-001", config, event=None)
+
+        # Second: _ensure_user_account should skip
+        with patch(
+            "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
+        ) as mock_queue:
+            result = self.service._ensure_user_account("MEM-001")
+
+        self.assertIsNone(result)
+        mock_queue.assert_not_called()
 
 
 class TestTryPromoteApplication(EnhancedTestCase):

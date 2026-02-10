@@ -86,6 +86,20 @@ class MijnRoodSyncSettings(Document):
                     ).format(row.idx, row.mijnrood_role)
                 )
 
+            if row.verenigingen_role and not frappe.db.exists("Role", row.verenigingen_role):
+                frappe.throw(
+                    _("Row {0} ({1}): Verenigingen Rol '{2}' does not exist").format(
+                        row.idx, row.mijnrood_role, row.verenigingen_role
+                    )
+                )
+
+            if row.chapter_role and not frappe.db.exists("Chapter Role", row.chapter_role):
+                frappe.throw(
+                    _("Row {0} ({1}): Bestuursrol '{2}' does not exist").format(
+                        row.idx, row.mijnrood_role, row.chapter_role
+                    )
+                )
+
             if row.mijnrood_role == "ROLE_ADMIN" and row.add_to_chapter_board:
                 frappe.msgprint(
                     _(

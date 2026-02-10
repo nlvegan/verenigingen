@@ -36,6 +36,7 @@ class MijnRoodEventApplicationService(StatefulService):
 
     def __init__(self):
         super().__init__(service_name="MijnRoodEventApplicationService")
+        self._acr_queued_members: set[str] = set()
 
     def apply_event(self, event_name: str) -> dict:
         """Apply a single approved sync event.
@@ -46,6 +47,7 @@ class MijnRoodEventApplicationService(StatefulService):
         Returns:
             Dict with success status and message
         """
+        self._acr_queued_members.clear()
         event = frappe.get_doc("MijnRood Sync Event", event_name)
 
         if event.status != "Approved":
@@ -487,6 +489,11 @@ class MijnRoodEventApplicationService(StatefulService):
         if user:
             return None
 
+        # Skip if ACR was already queued for this member in the current event
+        # (e.g. via _ensure_volunteer → create_volunteer_from_member)
+        if member_name in self._acr_queued_members:
+            return None
+
         from verenigingen.utils.account_creation_manager import (
             queue_account_creation_for_member,
         )
@@ -499,6 +506,7 @@ class MijnRoodEventApplicationService(StatefulService):
                 priority="Low",
             )
             if result.success:
+                self._acr_queued_members.add(member_name)
                 request_name = result.data.get("request_name", "") if result.data else ""
                 self.logger.info(
                     "Queued account creation for member %s (request=%s)",
@@ -515,8 +523,8 @@ class MijnRoodEventApplicationService(StatefulService):
                 )
                 return None
         except Exception as e:
-            self.logger.debug("Account creation skipped for %s: %s", member_name, e)
-            return None
+            self.logger.warning("Account creation failed for %s: %s", member_name, e)
+            return _("Account creation failed: {0}").format(str(e)[:200])
 
     def _assign_chapter_from_division(self, member_name: str, division_id: int, event) -> Optional[str]:
         """Resolve a division_id to a chapter and assign the member.
@@ -1252,6 +1260,8 @@ class MijnRoodEventApplicationService(StatefulService):
                 return _("Volunteer creation skipped: {0}").format(error)
 
             volunteer_name = result.get("volunteer")
+            if create_account:
+                self._acr_queued_members.add(member_name)
             self.logger.info(
                 "Created volunteer %s for member %s (event %s, role=%s)",
                 volunteer_name,
