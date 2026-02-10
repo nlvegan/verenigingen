@@ -25,8 +25,12 @@
     "tables_to_sync",
     "column_break_sync",
     "auto_apply_safe_changes",
+    "create_member_accounts",
     "status_mapping_section",
     "status_mapping",
+    "role_mapping_section",
+    "role_mapping",
+    "last_division_contacts_hash",
     "status_section",
     "last_sync_time",
     "last_sync_status",
@@ -160,6 +164,13 @@
       "label": "Auto-apply Safe Changes"
     },
     {
+      "default": "0",
+      "description": "Queue Account Creation Requests for all synced members who don't have a user account yet. Uses the standard ACR pipeline with deduplication.",
+      "fieldname": "create_member_accounts",
+      "fieldtype": "Check",
+      "label": "Maak Gebruikersaccounts Aan"
+    },
+    {
       "fieldname": "status_mapping_section",
       "fieldtype": "Section Break",
       "label": "MijnRood Lidmaatschapstypes",
@@ -170,6 +181,25 @@
       "fieldtype": "Table",
       "label": "Lidmaatschapstypes",
       "options": "MijnRood Status Mapping"
+    },
+    {
+      "description": "Maps MijnRood admin roles (ROLE_ADMIN, ROLE_DIVISION_CONTACT) to actions in Verenigingen. Configure whether to create Volunteer records, assign Frappe roles, or add members to Chapter boards.",
+      "fieldname": "role_mapping_section",
+      "fieldtype": "Section Break",
+      "label": "MijnRood Rollen"
+    },
+    {
+      "fieldname": "role_mapping",
+      "fieldtype": "Table",
+      "label": "Rollen",
+      "options": "MijnRood Role Mapping"
+    },
+    {
+      "fieldname": "last_division_contacts_hash",
+      "fieldtype": "Small Text",
+      "hidden": 1,
+      "label": "Last Division Contacts Hash",
+      "read_only": 1
     },
     {
       "fieldname": "status_section",

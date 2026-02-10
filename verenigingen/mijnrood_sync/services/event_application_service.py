@@ -24,6 +24,7 @@ from frappe.utils import now_datetime, today
 from verenigingen.mijnrood_sync.field_mapping import (
     MIJNROOD_TO_MEMBER_FIELD_MAP,
     get_active_status_ids,
+    get_role_mapping,
     get_terminated_status_ids,
     get_termination_type_map,
 )
@@ -218,6 +219,10 @@ class MijnRoodEventApplicationService(StatefulService):
         membership_msg = self._ensure_membership_and_dues(member_name, row_data)
         if membership_msg:
             messages.append(membership_msg)
+
+        account_msg = self._ensure_user_account(member_name)
+        if account_msg:
+            messages.append(account_msg)
 
         notes_msg = self._apply_mijnrood_comments(member_name, row_data)
         if notes_msg:
@@ -464,6 +469,55 @@ class MijnRoodEventApplicationService(StatefulService):
             )
             return _("Dues schedule backfill failed: {0}").format(str(e)[:200])
 
+    def _ensure_user_account(self, member_name: str) -> Optional[str]:
+        """Queue an Account Creation Request for a synced member if enabled.
+
+        Checks the 'create_member_accounts' setting. If disabled or the member
+        already has a user account, returns None. Otherwise delegates to the
+        standard ACR pipeline which handles deduplication (existing user,
+        pending request) automatically.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        if not frappe.db.get_single_value("MijnRood Sync Settings", "create_member_accounts"):
+            return None
+
+        user = frappe.db.get_value("Member", member_name, "user")
+        if user:
+            return None
+
+        from verenigingen.utils.account_creation_manager import (
+            queue_account_creation_for_member,
+        )
+
+        try:
+            result = queue_account_creation_for_member(
+                member_name,
+                roles=["Verenigingen Member"],
+                role_profile="Verenigingen Member",
+                priority="Low",
+            )
+            if result.success:
+                request_name = result.data.get("request_name", "") if result.data else ""
+                self.logger.info(
+                    "Queued account creation for member %s (request=%s)",
+                    member_name,
+                    request_name,
+                )
+                return _("Account creation queued ({0})").format(request_name)
+            else:
+                # Expected skips (no email, duplicate request) — debug only
+                self.logger.debug(
+                    "Account creation skipped for %s: %s",
+                    member_name,
+                    result.error_message,
+                )
+                return None
+        except Exception as e:
+            self.logger.debug("Account creation skipped for %s: %s", member_name, e)
+            return None
+
     def _assign_chapter_from_division(self, member_name: str, division_id: int, event) -> Optional[str]:
         """Resolve a division_id to a chapter and assign the member.
 
@@ -570,6 +624,10 @@ class MijnRoodEventApplicationService(StatefulService):
 
             # Create related records: address, Mollie IDs, membership + dues
             related_msgs = self._create_related_records(member_name, row_data, event)
+
+            # Process admin roles (ROLE_ADMIN, ROLE_DIVISION_CONTACT)
+            role_msgs = self._process_member_roles(member_name, new_data, event=event)
+            related_msgs.extend(role_msgs)
 
             messages = [_("Member {0} {1}").format(member_name, status)]
             messages.extend(related_msgs)
@@ -781,6 +839,10 @@ class MijnRoodEventApplicationService(StatefulService):
 
             # Create related records: address, Mollie IDs, membership + dues
             messages.extend(self._create_related_records(updated_name, row_data, event))
+
+            # Process admin roles (ROLE_ADMIN, ROLE_DIVISION_CONTACT)
+            role_msgs = self._process_member_roles(updated_name, new_data, old_data=old_data, event=event)
+            messages.extend(role_msgs)
 
             return {"success": True, "message": "; ".join(messages)}
         else:
@@ -1000,6 +1062,342 @@ class MijnRoodEventApplicationService(StatefulService):
                 termination_doc.name, member_name, termination_type
             ),
         }
+
+    # ─── Role processing (ROLE_ADMIN, ROLE_DIVISION_CONTACT) ─────────
+
+    def _process_member_roles(
+        self,
+        member_name: str,
+        mijnrood_data: dict,
+        old_data: Optional[dict] = None,
+        event=None,
+    ) -> list[str]:
+        """Process MijnRood admin roles for a member.
+
+        Reads the roles JSON column and managed_division_ids to determine
+        which roles the member holds, then applies configured actions
+        (volunteer creation, Frappe role assignment, chapter board membership).
+
+        Role removals are flagged for review, never auto-removed.
+
+        Args:
+            member_name: Vereinigingen Member name
+            mijnrood_data: Current MijnRood row data (new_data from event)
+            old_data: Previous MijnRood row data (for removal detection)
+            event: The sync event (for logging context)
+
+        Returns:
+            List of human-readable status messages.
+        """
+        role_config = get_role_mapping()
+        if not role_config:
+            return []
+
+        messages = []
+
+        # 1. Parse ROLE_ADMIN from the roles JSON column
+        current_roles = self._parse_mijnrood_roles(mijnrood_data.get("roles"))
+        old_roles = self._parse_mijnrood_roles(old_data.get("roles")) if old_data else set()
+
+        # Process ROLE_ADMIN
+        if "ROLE_ADMIN" in current_roles and "ROLE_ADMIN" in role_config:
+            config = role_config["ROLE_ADMIN"]
+            msgs = self._apply_role_actions(member_name, config, event=event)
+            messages.extend(msgs)
+        elif "ROLE_ADMIN" in old_roles and "ROLE_ADMIN" not in current_roles:
+            # Role removed — flag for review
+            messages.append(
+                _("ROLE_ADMIN removed from member {0} — review volunteer/board status manually").format(
+                    member_name
+                )
+            )
+            self.logger.warning(
+                "ROLE_ADMIN removed from member %s (event %s) — flagged for manual review",
+                member_name,
+                event.name if event else "N/A",
+            )
+
+        # 2. Process ROLE_DIVISION_CONTACT from managed_division_ids
+        new_division_ids = mijnrood_data.get("managed_division_ids")
+        old_division_ids = old_data.get("managed_division_ids") if old_data else None
+
+        if new_division_ids and "ROLE_DIVISION_CONTACT" in role_config:
+            config = role_config["ROLE_DIVISION_CONTACT"]
+            msgs = self._apply_role_actions(member_name, config, division_ids=new_division_ids, event=event)
+            messages.extend(msgs)
+
+        # Detect division contact removal (normalize [] and None to empty set)
+        old_set = set(old_division_ids) if old_division_ids else set()
+        new_set = set(new_division_ids) if new_division_ids else set()
+        removed_divs = old_set - new_set
+
+        if old_set and not new_set:
+            # Complete removal — was a contact, no longer
+            messages.append(
+                _(
+                    "ROLE_DIVISION_CONTACT removed from member {0} — "
+                    "review volunteer/board status manually"
+                ).format(member_name)
+            )
+            self.logger.warning(
+                "ROLE_DIVISION_CONTACT removed from member %s (event %s) — flagged for manual review",
+                member_name,
+                event.name if event else "N/A",
+            )
+        elif removed_divs:
+            # Partial removal — some divisions dropped
+            messages.append(
+                _(
+                    "Member {0} no longer manages division(s) {1} — " "review board membership manually"
+                ).format(member_name, sorted(removed_divs))
+            )
+            self.logger.warning(
+                "Member %s lost division contact for divisions %s (event %s)",
+                member_name,
+                sorted(removed_divs),
+                event.name if event else "N/A",
+            )
+
+        return messages
+
+    def _apply_role_actions(
+        self,
+        member_name: str,
+        config: dict,
+        division_ids: Optional[list[int]] = None,
+        event=None,
+    ) -> list[str]:
+        """Apply the configured actions for a single role mapping entry.
+
+        Args:
+            member_name: Verenigingen Member name
+            config: Role mapping config dict from get_role_mapping()
+            division_ids: Division IDs for ROLE_DIVISION_CONTACT (None for ROLE_ADMIN)
+            event: Sync event for logging context
+
+        Returns:
+            List of human-readable status messages.
+        """
+        messages = []
+
+        # Create Volunteer if configured
+        if config.get("create_volunteer"):
+            vol_msg = self._ensure_volunteer(member_name, config, event=event)
+            if vol_msg:
+                messages.append(vol_msg)
+
+        # Add to chapter board if configured (only meaningful with division_ids)
+        chapter_role = config.get("chapter_role")
+        if config.get("add_to_chapter_board") and division_ids:
+            if not chapter_role:
+                messages.append(_("add_to_chapter_board enabled but no chapter_role configured"))
+            else:
+                for div_id in division_ids:
+                    board_msg = self._ensure_chapter_board_membership(
+                        member_name, div_id, chapter_role, event=event
+                    )
+                    if board_msg:
+                        messages.append(board_msg)
+
+        return messages
+
+    def _ensure_volunteer(
+        self,
+        member_name: str,
+        config: dict,
+        event=None,
+    ) -> Optional[str]:
+        """Create Volunteer record and assign role if configured.
+
+        Uses the existing create_volunteer_from_member() function which
+        handles account creation, deduplication, etc.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+            get_volunteer_for_member,
+        )
+
+        existing = get_volunteer_for_member(member_name)
+        if existing:
+            # Volunteer already exists — just ensure role assignment
+            role = config.get("verenigingen_role")
+            if role:
+                role_msg = self._ensure_user_role(member_name, role)
+                if role_msg:
+                    return role_msg
+            return None
+
+        # Create volunteer with optional user account + roles
+        roles = None
+        create_account = False
+        role = config.get("verenigingen_role")
+        role_profile = config.get("role_profile")
+        if role:
+            create_account = True
+            roles = [role]
+
+        try:
+            result = create_volunteer_from_member(
+                member_name=member_name,
+                create_user_account=create_account,
+                roles=roles,
+                role_profile=role_profile,
+            )
+            if result.get("success") is False:
+                error = result.get("error", "Unknown error")
+                self.logger.warning("Volunteer creation skipped for %s: %s", member_name, error)
+                return _("Volunteer creation skipped: {0}").format(error)
+
+            volunteer_name = result.get("volunteer")
+            self.logger.info(
+                "Created volunteer %s for member %s (event %s, role=%s)",
+                volunteer_name,
+                member_name,
+                event.name if event else "N/A",
+                role,
+            )
+            msg = _("Volunteer {0} created").format(volunteer_name)
+            if role:
+                msg += _("; role '{0}' assigned").format(role)
+            return msg
+
+        except Exception as e:
+            self.logger.error("Volunteer creation failed for %s: %s", member_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Volunteer Creation Failed: {member_name}",
+            )
+            return _("Volunteer creation failed: {0}").format(str(e)[:200])
+
+    def _ensure_user_role(self, member_name: str, role: str) -> Optional[str]:
+        """Ensure a member's user account has the specified role.
+
+        Returns:
+            Message if role was added, None if already present or no user.
+        """
+        user = frappe.db.get_value("Member", member_name, "user")
+        if not user:
+            return None
+
+        if not frappe.db.exists("Role", role):
+            self.logger.warning("Role '%s' does not exist, skipping assignment", role)
+            return _("Role '{0}' does not exist").format(role)
+
+        try:
+            existing_roles = frappe.get_roles(user)
+            if role in existing_roles:
+                return None
+
+            user_doc = frappe.get_doc("User", user)
+            user_doc.add_roles(role)
+            self.logger.info("Assigned role '%s' to user %s (member %s)", role, user, member_name)
+            return _("Role '{0}' assigned to {1}").format(role, user)
+        except Exception as e:
+            self.logger.error("Role assignment failed for %s (role %s): %s", user, role, e)
+            return _("Role assignment failed: {0}").format(str(e)[:200])
+
+    def _ensure_chapter_board_membership(
+        self,
+        member_name: str,
+        division_id: int,
+        chapter_role: str,
+        event=None,
+    ) -> Optional[str]:
+        """Add member to a chapter's board if not already present.
+
+        Resolves division_id → Chapter, checks for existing board membership,
+        and appends to the Chapter's board_members child table.
+
+        The Chapter Board Member after_insert controller automatically assigns
+        the 'Verenigingen Chapter Board Member' Frappe role.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        chapter_name = self._resolve_division_id(division_id)
+        if not chapter_name:
+            return _("Division ID {0} does not match any Chapter").format(division_id)
+
+        if not frappe.db.exists("Chapter", chapter_name):
+            return _("Chapter '{0}' does not exist").format(chapter_name)
+
+        # Need a Volunteer record for the board member
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            get_volunteer_for_member,
+        )
+
+        volunteer_name = get_volunteer_for_member(member_name)
+        if not volunteer_name:
+            return _("No Volunteer record for {0} — cannot add to chapter board").format(member_name)
+
+        if not frappe.db.exists("Chapter Role", chapter_role):
+            self.logger.warning("Chapter Role '%s' does not exist, skipping board assignment", chapter_role)
+            return _("Chapter Role '{0}' does not exist").format(chapter_role)
+
+        # Check if already on this chapter's board (active)
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        for bm in chapter_doc.board_members or []:
+            if bm.volunteer == volunteer_name and bm.is_active:
+                return None  # Already on board
+
+        # Add to board
+        try:
+            chapter_doc.append(
+                "board_members",
+                {
+                    "volunteer": volunteer_name,
+                    "chapter_role": chapter_role,
+                    "from_date": today(),
+                    "is_active": 1,
+                    "notes": "Added via MijnRood sync (event {0})".format(event.name if event else "N/A"),
+                },
+            )
+            # Security: System-initiated board assignment from authoritative MijnRood data
+            chapter_doc.save(ignore_permissions=True)
+            self.logger.info(
+                "Added %s to chapter %s board as %s (event %s)",
+                volunteer_name,
+                chapter_name,
+                chapter_role,
+                event.name if event else "N/A",
+            )
+            return _("Added to chapter '{0}' board as {1}").format(chapter_name, chapter_role)
+        except Exception as e:
+            self.logger.error(
+                "Failed to add %s to chapter %s board: %s",
+                volunteer_name,
+                chapter_name,
+                e,
+            )
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Chapter Board Addition Failed: {member_name}",
+            )
+            return _("Chapter board addition failed: {0}").format(str(e)[:200])
+
+    @staticmethod
+    def _parse_mijnrood_roles(roles_value) -> set[str]:
+        """Parse the MijnRood roles JSON column into a set of role strings.
+
+        The roles column contains a JSON array like '["ROLE_ADMIN"]' or null.
+        """
+        if not roles_value:
+            return set()
+
+        if isinstance(roles_value, str):
+            try:
+                parsed = json.loads(roles_value)
+            except (json.JSONDecodeError, ValueError):
+                return set()
+        elif isinstance(roles_value, list):
+            parsed = roles_value
+        else:
+            return set()
+
+        return {r for r in parsed if isinstance(r, str) and r.startswith("ROLE_")}
 
     # ─── Division → Chapter sync ─────────────────────────────────────
 

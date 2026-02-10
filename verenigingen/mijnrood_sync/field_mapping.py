@@ -273,6 +273,53 @@ def get_verenigingen_membership_type_for_status_id(status_id: int) -> str | None
     return None
 
 
+def get_role_mapping() -> dict[str, dict]:
+    """Return role mapping config keyed by mijnrood_role string.
+
+    Returns e.g.:
+    {
+        "ROLE_ADMIN": {
+            "create_volunteer": True,
+            "verenigingen_role": "Verenigingen Staff",
+            "add_to_chapter_board": False,
+            "chapter_role": None,
+        },
+        "ROLE_DIVISION_CONTACT": { ... }
+    }
+
+    Cached in Redis; invalidated on settings save via on_update().
+    Returns empty dict if no role mapping is configured.
+    """
+    import frappe
+
+    return frappe.cache.get_value("mijnrood_role_mapping", generator=_load_role_mapping)
+
+
+def _load_role_mapping() -> dict:
+    """Load role mapping from MijnRood Sync Settings child table."""
+    import frappe
+
+    try:
+        settings = frappe.get_cached_doc("MijnRood Sync Settings")
+    except Exception:
+        return {}
+
+    if not settings.role_mapping:
+        return {}
+
+    mapping = {}
+    for row in settings.role_mapping:
+        mapping[row.mijnrood_role] = {
+            "label": row.label,
+            "create_volunteer": bool(row.create_volunteer),
+            "verenigingen_role": row.verenigingen_role or None,
+            "role_profile": row.role_profile or None,
+            "add_to_chapter_board": bool(row.add_to_chapter_board),
+            "chapter_role": row.chapter_role or None,
+        }
+    return mapping
+
+
 def get_status_labels() -> dict:
     """Status ID → display label (replaces STATUS_ID_LABELS)."""
     mapping = _get_cached_mapping()

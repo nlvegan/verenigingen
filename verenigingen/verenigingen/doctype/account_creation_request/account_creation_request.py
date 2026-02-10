@@ -126,6 +126,9 @@ class AccountCreationRequest(Document):
             if self.request_type == "Member":
                 member = frappe.get_doc("Member", self.source_record)
 
+                # Assign any pending board member roles now that the user exists
+                self._assign_pending_board_member_roles(member.name)
+
                 # Skip approval emails for CSV-imported members (they have no application_id)
                 # CSV imports set application_id = None explicitly
                 if not member.application_id:
@@ -161,6 +164,52 @@ class AccountCreationRequest(Document):
         if not self.creation:
             return 0
         return time_diff_in_hours(now(), self.creation)
+
+    def _assign_pending_board_member_roles(self, member_name):
+        """Assign board member Frappe roles for any active Chapter Board Member records.
+
+        When a volunteer is created and added to a chapter board before their user
+        account exists, the after_insert hook on Chapter Board Member silently fails
+        because there's no user to assign the role to. This method runs after the ACR
+        completes (user now exists) and retroactively assigns the role.
+        """
+        try:
+            from verenigingen.utils.member_utils import get_volunteer_for_member
+
+            volunteer_name = get_volunteer_for_member(member_name)
+            if not volunteer_name:
+                return
+
+            board_members = frappe.get_all(
+                "Chapter Board Member",
+                filters={
+                    "volunteer": volunteer_name,
+                    "is_active": 1,
+                    "parenttype": "Chapter",
+                },
+                fields=["name"],
+            )
+            if not board_members:
+                return
+
+            for bm in board_members:
+                try:
+                    doc = frappe.get_doc("Chapter Board Member", bm.name)
+                    doc.assign_board_member_role()
+                    frappe.logger().info(
+                        "Assigned board member role for %s (volunteer %s, member %s)",
+                        bm.name,
+                        volunteer_name,
+                        member_name,
+                    )
+                except Exception as e:
+                    frappe.logger().warning("Failed to assign board member role for %s: %s", bm.name, e)
+        except Exception as e:
+            frappe.logger().warning(
+                "Error assigning pending board member roles for member %s: %s",
+                member_name,
+                e,
+            )
 
     def send_member_approval_email(self, member):
         """Send approval email with login credentials when account is ready"""

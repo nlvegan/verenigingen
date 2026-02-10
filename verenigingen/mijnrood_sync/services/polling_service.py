@@ -77,6 +77,10 @@ class MijnRoodPollingService(StatefulService):
                     totals["unchanged"] += table_stats["unchanged"]
                     totals["rows_scanned"] += table_stats["rows_scanned"]
 
+                # Poll division_member junction table for role changes
+                dc_events = self._poll_division_contacts(client, settings, sync_run_id)
+                totals["changed"] += dc_events
+
             # Update sync log
             completed_at = now_datetime()
             duration = (completed_at - started_at).total_seconds()
@@ -294,6 +298,85 @@ class MijnRoodPollingService(StatefulService):
             stats["unchanged"],
         )
         return stats
+
+    def _poll_division_contacts(
+        self,
+        client: MijnRoodDatabaseClient,
+        settings,
+        sync_run_id: str,
+    ) -> int:
+        """Poll the division_member junction table for ROLE_DIVISION_CONTACT changes.
+
+        Fetches the full table (~50 rows), compares against last-seen state stored
+        in settings.last_division_contacts_hash, and creates synthetic Changed events
+        on admin_member for any members whose managed divisions changed.
+
+        Returns:
+            Number of events created.
+        """
+        try:
+            current = client.fetch_division_contacts()
+        except Exception as e:
+            self.logger.warning("Failed to fetch division_member table (may not exist): %s", e)
+            return 0
+
+        # Load previous state
+        previous: dict[int, list[int]] = {}
+        if settings.last_division_contacts_hash:
+            try:
+                raw = json.loads(settings.last_division_contacts_hash)
+                # JSON keys are strings — convert back to int
+                previous = {int(k): v for k, v in raw.items()}
+            except (json.JSONDecodeError, ValueError):
+                self.logger.warning("Invalid last_division_contacts_hash, treating as empty")
+
+        # Diff: find members whose managed divisions changed
+        all_member_ids = set(current.keys()) | set(previous.keys())
+        events_created = 0
+        now = now_datetime()
+
+        for member_id in all_member_ids:
+            old_divs = previous.get(member_id, [])
+            new_divs = current.get(member_id, [])
+
+            if old_divs == new_divs:
+                continue
+
+            # Create a synthetic Changed event on admin_member
+            linked_member = self._find_linked_member("admin_member", member_id)
+            self._create_sync_event(
+                event_type="Changed",
+                table="admin_member",
+                row_id=member_id,
+                old_data={"managed_division_ids": old_divs},
+                new_data={"managed_division_ids": new_divs},
+                changed_fields=[
+                    {
+                        "field": "managed_division_ids",
+                        "old": old_divs,
+                        "new": new_divs,
+                        "label": "Managed Divisions (Afdelingscontact)",
+                    }
+                ],
+                linked_member=linked_member,
+                sync_run_id=sync_run_id,
+                detected_at=now,
+            )
+            events_created += 1
+
+        # Store current state — use string keys for JSON
+        new_hash = json.dumps({str(k): v for k, v in current.items()}, sort_keys=True)
+        settings.db_set("last_division_contacts_hash", new_hash, update_modified=False)
+        frappe.db.commit()
+
+        if events_created:
+            self.logger.info(
+                "Division contacts: %d changes detected (%d total contacts)",
+                events_created,
+                len(current),
+            )
+
+        return events_created
 
     def _create_sync_event(
         self,

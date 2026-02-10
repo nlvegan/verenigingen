@@ -431,6 +431,34 @@ class MijnRoodDatabaseClient:
                 # FK exists but no matching email record — clear rather than keep numeric ID
                 row["email_id"] = None
 
+    def fetch_division_contacts(self) -> dict[int, list[int]]:
+        """Fetch division_member join table, grouped by member_id.
+
+        This is a junction table (~50 rows) mapping admin_member ↔ admin_division
+        for ROLE_DIVISION_CONTACT assignments. Not part of the regular sync
+        (no ALLOWED_TABLES entry) — queried directly with hardcoded column names.
+
+        Returns:
+            Dict mapping member_id → sorted list of division_ids they manage.
+        """
+        query = "SELECT `member_id`, `division_id` FROM `division_member` ORDER BY `member_id`"
+        with self._connection.cursor() as cursor:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+        contacts: dict[int, list[int]] = {}
+        for row in rows:
+            mid = row["member_id"]
+            did = row["division_id"]
+            contacts.setdefault(mid, []).append(did)
+
+        # Sort division lists for consistent comparison
+        for mid in contacts:
+            contacts[mid].sort()
+
+        logger.info("Fetched %d division contact assignments (%d members)", len(rows), len(contacts))
+        return contacts
+
     def fetch_membership_statuses(self) -> list[dict]:
         """Fetch all rows from admin_membershipstatus (id, name, allowed_access).
 

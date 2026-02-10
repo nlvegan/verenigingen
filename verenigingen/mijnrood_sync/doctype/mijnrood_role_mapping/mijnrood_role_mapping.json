@@ -1,0 +1,99 @@
+{
+  "actions": [],
+  "creation": "2026-02-10 12:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "mijnrood_role",
+    "label",
+    "column_break_1",
+    "create_volunteer",
+    "verenigingen_role",
+    "role_profile",
+    "column_break_2",
+    "add_to_chapter_board",
+    "chapter_role"
+  ],
+  "fields": [
+    {
+      "fieldname": "mijnrood_role",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "MijnRood Rol",
+      "options": "ROLE_ADMIN\nROLE_DIVISION_CONTACT",
+      "reqd": 1,
+      "width": "180px"
+    },
+    {
+      "fieldname": "label",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Label",
+      "reqd": 1,
+      "width": "180px"
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "fieldname": "create_volunteer",
+      "fieldtype": "Check",
+      "in_list_view": 1,
+      "label": "Maak Vrijwilliger Aan",
+      "width": "80px"
+    },
+    {
+      "depends_on": "eval:doc.create_volunteer",
+      "fieldname": "verenigingen_role",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Verenigingen Rol",
+      "options": "Role",
+      "width": "160px"
+    },
+    {
+      "depends_on": "eval:doc.create_volunteer",
+      "fieldname": "role_profile",
+      "fieldtype": "Link",
+      "label": "Rolprofiel",
+      "options": "Role Profile",
+      "width": "160px"
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "fieldname": "add_to_chapter_board",
+      "fieldtype": "Check",
+      "in_list_view": 1,
+      "label": "Toevoegen aan Afdelingsbestuur",
+      "width": "80px"
+    },
+    {
+      "depends_on": "eval:doc.add_to_chapter_board",
+      "fieldname": "chapter_role",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Bestuursrol",
+      "options": "Chapter Role",
+      "width": "140px"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 1,
+  "links": [],
+  "modified": "2026-02-10 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "MijnRood Sync",
+  "name": "MijnRood Role Mapping",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

@@ -76,6 +76,27 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             }, __("Lidmaatschapstypes"));
         }
 
+        // Load Role Defaults — pre-populate role mapping table
+        if (!frm.doc.role_mapping || !frm.doc.role_mapping.length) {
+            frm.add_custom_button(__("Load Defaults"), function () {
+                frappe.call({
+                    method: "populate_default_role_mapping",
+                    doc: frm.doc,
+                    freeze: true,
+                    freeze_message: __("Loading default role mappings..."),
+                    callback: function (r) {
+                        if (r.message && r.message.success) {
+                            frappe.show_alert({
+                                message: r.message.message,
+                                indicator: "green",
+                            });
+                        }
+                        frm.reload_doc();
+                    },
+                });
+            }, __("MijnRood Rollen"));
+        }
+
         // Set SSH Key — dialog with Code field for multi-line key paste
         frm.add_custom_button(__("Set SSH Key"), function () {
             const d = new frappe.ui.Dialog({

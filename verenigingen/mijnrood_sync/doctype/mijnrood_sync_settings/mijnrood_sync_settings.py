@@ -58,6 +58,43 @@ class MijnRoodSyncSettings(Document):
             frappe.throw(_("Database port must be between 1 and 65535"))
 
         self._validate_status_mapping()
+        self._validate_role_mapping()
+
+    def _validate_role_mapping(self):
+        """Validate role mapping child table entries."""
+        if not self.role_mapping:
+            return
+
+        seen_roles = set()
+        for row in self.role_mapping:
+            if row.mijnrood_role in seen_roles:
+                frappe.throw(_("Duplicate MijnRood role '{0}' in row {1}").format(row.mijnrood_role, row.idx))
+            seen_roles.add(row.mijnrood_role)
+
+            if row.add_to_chapter_board and not row.chapter_role:
+                frappe.throw(
+                    _(
+                        "Row {0} ({1}): 'Toevoegen aan Afdelingsbestuur' is checked but no Bestuursrol is set"
+                    ).format(row.idx, row.mijnrood_role)
+                )
+
+            if row.verenigingen_role and not row.create_volunteer:
+                frappe.throw(
+                    _(
+                        "Row {0} ({1}): Verenigingen Rol is set but 'Maak Vrijwilliger Aan' is not checked. "
+                        "A user account (via Volunteer creation) is needed to assign a role."
+                    ).format(row.idx, row.mijnrood_role)
+                )
+
+            if row.mijnrood_role == "ROLE_ADMIN" and row.add_to_chapter_board:
+                frappe.msgprint(
+                    _(
+                        "Row {0} (ROLE_ADMIN): 'Toevoegen aan Afdelingsbestuur' is enabled but global admins "
+                        "are not tied to a specific chapter. This setting will have no effect for ROLE_ADMIN."
+                    ),
+                    indicator="orange",
+                    alert=True,
+                )
 
     def _validate_status_mapping(self):
         """Validate status mapping child table entries."""
@@ -90,8 +127,9 @@ class MijnRoodSyncSettings(Document):
                 )
 
     def on_update(self):
-        """Clear cached status mapping when settings change."""
+        """Clear cached mappings when settings change."""
         frappe.cache.delete_value("mijnrood_status_mapping")
+        frappe.cache.delete_value("mijnrood_role_mapping")
 
     @frappe.whitelist()
     def fetch_lidmaatschapstypes_from_mijnrood(self):
@@ -224,6 +262,42 @@ class MijnRoodSyncSettings(Document):
         return {
             "success": True,
             "message": _("Loaded {0} default status mappings").format(len(self.status_mapping)),
+        }
+
+    @frappe.whitelist()
+    def populate_default_role_mapping(self):
+        """Load default role mapping values into the child table.
+
+        Pre-populates ROLE_ADMIN and ROLE_DIVISION_CONTACT with safe defaults
+        (all actions disabled). Admin then enables desired actions.
+        Only populates if the table is empty to avoid overwriting customizations.
+        """
+        if self.role_mapping:
+            frappe.throw(_("Role mapping table is not empty. Clear it first to reload defaults."))
+
+        defaults = [
+            {
+                "mijnrood_role": "ROLE_ADMIN",
+                "label": "Landelijk Beheerder",
+                "create_volunteer": 0,
+                "add_to_chapter_board": 0,
+            },
+            {
+                "mijnrood_role": "ROLE_DIVISION_CONTACT",
+                "label": "Afdelingscontact",
+                "create_volunteer": 0,
+                "add_to_chapter_board": 0,
+            },
+        ]
+
+        for row_data in defaults:
+            self.append("role_mapping", row_data)
+
+        self.save()
+        frappe.cache.delete_value("mijnrood_role_mapping")
+        return {
+            "success": True,
+            "message": _("Loaded {0} default role mappings").format(len(self.role_mapping)),
         }
 
 

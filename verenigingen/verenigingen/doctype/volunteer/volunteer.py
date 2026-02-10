@@ -670,6 +670,7 @@ def create_volunteer_from_member(
     interested_skills=None,
     create_user_account=False,
     roles=None,
+    role_profile=None,
 ):
     """Create a volunteer record from an existing member
 
@@ -680,6 +681,7 @@ def create_volunteer_from_member(
         interested_skills: Optional list/string of skills the volunteer is interested in
         create_user_account: Whether to create user account via AccountCreationManager (default: False)
         roles: List of roles to assign if creating user account (default: ["Verenigingen Volunteer"])
+        role_profile: Explicit Role Profile to assign to the user account (default: None, ACR infers from role)
 
     Returns:
         dict: Result with volunteer name if successful, error message if failed
@@ -799,7 +801,7 @@ def create_volunteer_from_member(
         account_request_name = None
         if create_user_account:
             account_request_name = _queue_volunteer_account_creation(
-                member_name=member_name, volunteer_name=volunteer.name, roles=roles
+                member_name=member_name, volunteer_name=volunteer.name, roles=roles, role_profile=role_profile
             )
 
         result = {
@@ -827,13 +829,14 @@ def create_volunteer_from_member(
         return {"success": False, "error": f"Failed to create volunteer: {str(e)}"}
 
 
-def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None):
+def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None, role_profile=None):
     """Queue account creation for volunteer via AccountCreationManager
 
     Args:
         member_name: Member record name
         volunteer_name: Volunteer record name
-        roles: List of roles to assign (default: ["Vereinigingen Volunteer"])
+        roles: List of roles to assign (default: ["Verenigingen Volunteer"])
+        role_profile: Explicit Role Profile to assign (default: None, ACR infers from role)
 
     Returns:
         str: Account Creation Request name if successful, None otherwise
@@ -854,7 +857,9 @@ def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None):
 
         # Queue account creation via centralized manager
         # Returns OperationResult or dict (if decorated function serializes it)
-        result = queue_account_creation_for_member(member_name=member_name, roles=roles, priority="Normal")
+        result = queue_account_creation_for_member(
+            member_name=member_name, roles=roles, role_profile=role_profile, priority="Normal"
+        )
 
         # Handle both OperationResult (has .success) and dict (from decorator serialization)
         is_success = (

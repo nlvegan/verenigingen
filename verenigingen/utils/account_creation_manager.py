@@ -1056,6 +1056,7 @@ class AccountCreationManager:
             allowed_roles = [
                 "Verenigingen Member",
                 "Verenigingen Volunteer",
+                "Verenigingen Staff",
                 "Verenigingen Chapter Board Member",
                 "Employee",
                 "Employee Self Service",
