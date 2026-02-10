@@ -771,6 +771,9 @@ class BoardManager(BaseManager):
                     board_member.volunteer, board_member.chapter_role, change_date  # Use new role
                 )
 
+                # Recalculate role profile (may change if chapter uses role-specific profiles)
+                self._sync_role_profile_for_volunteer(board_member.volunteer)
+
                 self.log_action(
                     "Board member role changed",
                     {
