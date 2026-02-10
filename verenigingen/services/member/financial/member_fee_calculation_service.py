@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
@@ -77,19 +78,17 @@ class MemberFeeCalculationService(StatelessService):
             try:
                 membership_type = frappe.get_doc("Membership Type", active_membership.membership_type)
 
-                # Check if membership type has template
-                if not membership_type.dues_schedule_template:
+                # Load template (graceful — returns error dict if missing)
+                template = load_template_for_membership_type(membership_type, required=False)
+                if not template:
                     self.logger.error(
                         f"Membership Type '{membership_type.name}' missing dues schedule template"
                     )
                     return {
                         "amount": 0,
                         "source": "error",
-                        "error": f"Membership Type '{membership_type.name}' must have a dues schedule template",
+                        "error": f"Membership Type '{membership_type.name}' has no dues schedule template assigned",
                     }
-
-                # Get template amount - use suggested_amount, dues_rate, or minimum_amount
-                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
                 amount = (
                     template.suggested_amount
                     or getattr(template, "dues_rate", None)

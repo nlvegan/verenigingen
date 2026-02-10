@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
 
 
@@ -875,21 +876,17 @@ def get_membership_type_fee_info(membership_type):
         # Resolve amount from dues schedule template
         amount = 0
         billing_frequency = "Annual"
-        has_template = bool(membership_type_doc.dues_schedule_template)
         raw_suggested_amount = None  # Preserved for strict validation in suggest_membership_amounts
         template_name = None
 
-        if has_template:
-            try:
-                template = frappe.get_doc(
-                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
-                )
-                amount = template.dues_rate or template.suggested_amount or 0
-                billing_frequency = template.billing_frequency or "Annual"
-                raw_suggested_amount = template.suggested_amount
-                template_name = template.name
-            except Exception:
-                pass
+        template = load_template_for_membership_type(membership_type_doc, required=False)
+        has_template = template is not None
+
+        if template:
+            amount = template.dues_rate or template.suggested_amount or 0
+            billing_frequency = template.billing_frequency or "Annual"
+            raw_suggested_amount = template.suggested_amount
+            template_name = template.name
 
         # Fallback to minimum_amount if template has no amount
         if not amount:

@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.member_utils import get_active_membership_for_member
 
 
@@ -52,9 +53,7 @@ def create_dues_schedule_from_application(membership_application):
     # Get amount
     if not membership_application.fee_amount:
         # Fallback to template amount
-        if not membership_type.dues_schedule_template:
-            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+        template = load_template_for_membership_type(membership_type)
         amount = membership_application.fee_amount or (template.suggested_amount or 0)
     else:
         amount = membership_application.fee_amount

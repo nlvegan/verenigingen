@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, today
 
+from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
@@ -63,9 +64,7 @@ def get_context(context):
     context.current_fee = current_fee
 
     # Get standard fee for template display
-    if not membership_type.dues_schedule_template:
-        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    template = load_template_for_membership_type(membership_type)
 
     # Get standard fee with proper fallback chain
     standard_fee = (
@@ -246,9 +245,7 @@ def get_effective_fee_for_member(member, membership):
 def get_minimum_fee(member, membership_type, membership=None):
     """Calculate minimum fee for a member considering billing frequency"""
     # Get the base amount from template for calculations
-    if not membership_type.dues_schedule_template:
-        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    template = load_template_for_membership_type(membership_type)
     base_amount = template.suggested_amount or 0
 
     # CRITICAL: Use template's minimum_amount as the absolute floor
@@ -386,9 +383,7 @@ def submit_fee_adjustment_request(new_amount, reason="", effective_date=None):
     # Get current fee
     current_fee = member_doc.get_current_membership_fee()
     # Fallback to template suggested amount if no current fee
-    if not membership_type.dues_schedule_template:
-        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    template = load_template_for_membership_type(membership_type)
     current_amount = current_fee.get("amount", template.suggested_amount or 0)
 
     # Validate amount is different and reasonable
@@ -579,9 +574,7 @@ def get_fee_calculation_info():
     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
     # Calculate fees using new priority system
-    if not membership_type.dues_schedule_template:
-        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    template = load_template_for_membership_type(membership_type)
 
     # Get standard fee with proper fallback chain
     standard_fee = (

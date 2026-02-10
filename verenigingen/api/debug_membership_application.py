@@ -8,6 +8,7 @@ Extracted from membership_application_review.py for separation of concerns.
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     development_only_api,
@@ -231,9 +232,7 @@ def debug_membership_type_settings(membership_type_name: str):
         membership_type = frappe.get_doc("Membership Type", membership_type_name)
 
         # Get amount from template
-        if not membership_type.dues_schedule_template:
-            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+        template = load_template_for_membership_type(membership_type)
 
         result = {
             "membership_type_name": membership_type_name,

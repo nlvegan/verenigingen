@@ -71,6 +71,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
+from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import (
     PermissionError,
@@ -729,9 +730,7 @@ def create_application_invoice(member, membership):
     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
     # Determine amount to use from template
-    if not membership_type.dues_schedule_template:
-        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    template = load_template_for_membership_type(membership_type)
     amount = template.suggested_amount or 0
     # Custom amounts are handled via Membership Dues Schedule
 

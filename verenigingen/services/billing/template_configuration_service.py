@@ -27,7 +27,7 @@ Dependencies:
 - Configuration validation with clear error messages
 """
 
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
 
@@ -35,6 +35,37 @@ from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
+
+
+def load_template_for_membership_type(
+    membership_type,
+    required: bool = True,
+) -> Optional["Document"]:
+    """Load the dues schedule template for a membership type.
+
+    Centralizes the check+load pattern used across many locations.
+
+    Args:
+        membership_type: Membership Type name (str) or document.
+        required: If True (default), throws when no template assigned.
+                  If False, returns None.
+
+    Returns:
+        Membership Dues Schedule template document, or None if not required
+        and no template is assigned.
+    """
+    if isinstance(membership_type, str):
+        membership_type = frappe.get_doc("Membership Type", membership_type)
+
+    if not membership_type.dues_schedule_template:
+        if required:
+            frappe.throw(
+                f"Membership Type '{membership_type.name}' has no dues schedule template assigned. "
+                f"Please configure a template in the Membership Type settings."
+            )
+        return None
+
+    return frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
 
 
 class TemplateConfigurationService(StatelessService):
@@ -105,10 +136,19 @@ class TemplateConfigurationService(StatelessService):
             "invoice_days_before": 30,
         }
 
-        # If the membership type has no template assigned, return defaults.
-        # The schedule may have been created from an explicit template resolved
-        # elsewhere (e.g. payment-period mapping in Verenigingen Settings).
-        if not membership_type_doc.dues_schedule_template:
+        # Special case: if this template is calling get_template_values() on itself during validation,
+        # use the current unsaved values instead of loading from database
+        if (
+            is_template
+            and hasattr(schedule_doc, "name")
+            and schedule_doc.name == membership_type_doc.dues_schedule_template
+        ):
+            template = schedule_doc
+        else:
+            # Use centralized helper — returns None if no template assigned
+            template = load_template_for_membership_type(membership_type_doc, required=False)
+
+        if not template:
             return values
 
         # Calculate membership type minimum first to use as fallback
@@ -116,44 +156,24 @@ class TemplateConfigurationService(StatelessService):
             membership_type_doc.minimum_amount if membership_type_doc.minimum_amount is not None else 0
         )
 
-        try:
-            # Special case: if this template is calling get_template_values() on itself during validation,
-            # use the current unsaved values instead of loading from database
-            if (
-                is_template
-                and hasattr(schedule_doc, "name")
-                and schedule_doc.name == membership_type_doc.dues_schedule_template
-            ):
-                # Template is looking up its own values - use current state, not database state
-                template = schedule_doc
-            else:
-                # Load the template from database (normal case for member schedules)
-                template = frappe.get_doc(
-                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
-                )
+        # Note: suggested_amount is optional for Income-Based mode.
+        # Members declare their own dues_rate based on income; the template's
+        # suggested_amount is only a reference point for multiplier calculations.
 
-            # Note: suggested_amount is optional for Income-Based mode.
-            # Members declare their own dues_rate based on income; the template's
-            # suggested_amount is only a reference point for multiplier calculations.
-
-            values.update(
-                {
-                    "minimum_amount": (
-                        template.minimum_amount
-                        if template.minimum_amount is not None
-                        else membership_type_minimum
-                    ),
-                    "suggested_amount": template.suggested_amount or 0,
-                    "billing_frequency": template.billing_frequency or "Annual",
-                    "invoice_days_before": (
-                        template.invoice_days_before if template.invoice_days_before is not None else 30
-                    ),
-                }
-            )
-        except Exception as e:
-            frappe.throw(
-                f"Failed to load dues schedule template '{membership_type_doc.dues_schedule_template}': {str(e)}"
-            )
+        values.update(
+            {
+                "minimum_amount": (
+                    template.minimum_amount
+                    if template.minimum_amount is not None
+                    else membership_type_minimum
+                ),
+                "suggested_amount": template.suggested_amount or 0,
+                "billing_frequency": template.billing_frequency or "Annual",
+                "invoice_days_before": (
+                    template.invoice_days_before if template.invoice_days_before is not None else 30
+                ),
+            }
+        )
 
         # Validate template respects membership type minimum (both required)
         # Skip this validation when updating existing schedules to allow flexible dues rates

@@ -4,6 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
+from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -102,13 +103,7 @@ class ContributionAmendmentRequest(Document):
                 membership = frappe.get_doc("Membership", self.membership)
                 if membership.membership_type:
                     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-                    if not membership_type.dues_schedule_template:
-                        frappe.throw(
-                            f"Membership Type '{membership_type.name}' must have a dues schedule template"
-                        )
-                    template = frappe.get_doc(
-                        "Membership Dues Schedule", membership_type.dues_schedule_template
-                    )
+                    template = load_template_for_membership_type(membership_type)
                     # Validate template configuration before proceeding
                     if not template.suggested_amount:
                         frappe.throw(
