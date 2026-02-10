@@ -796,6 +796,19 @@ class BoardManager(BaseManager):
                     board_member.to_date,
                 )
 
+                # Remove Frappe role if no longer on any active board
+                try:
+                    board_member.remove_board_member_role()
+                except Exception as e:
+                    self.log_action(
+                        "Failed to remove board member role",
+                        {"volunteer": board_member.volunteer, "error": str(e)},
+                        "error",
+                    )
+
+                # Recalculate role profile (may downgrade from Board Member to Volunteer/Member)
+                self._sync_role_profile_for_volunteer(board_member.volunteer)
+
                 self.log_action(
                     "Deactivated board member",
                     {
@@ -844,6 +857,19 @@ class BoardManager(BaseManager):
                     end_date,
                 )
 
+                # Remove Frappe role if no longer on any active board
+                try:
+                    old_board_member.remove_board_member_role()
+                except Exception as e:
+                    self.log_action(
+                        "Failed to remove board member role on deletion",
+                        {"volunteer": old_board_member.volunteer, "error": str(e)},
+                        "error",
+                    )
+
+                # Recalculate role profile (may downgrade from Board Member to Volunteer/Member)
+                self._sync_role_profile_for_volunteer(old_board_member.volunteer)
+
                 self.log_action(
                     "Board member deleted from chapter",
                     {
@@ -862,12 +888,20 @@ class BoardManager(BaseManager):
             old_doc: Previous version of the chapter document
         """
         if not old_doc:
-            # For new chapters, add all active board members to history
+            # For new chapters, add all active board members to history + assign roles
             for board_member in self.chapter_doc.board_members or []:
                 if board_member.is_active and board_member.volunteer:
                     self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
                         board_member.volunteer, board_member.chapter_role, board_member.from_date
                     )
+                    try:
+                        board_member.assign_board_member_role()
+                    except Exception as e:
+                        self.log_action(
+                            "Failed to assign board member role",
+                            {"volunteer": board_member.volunteer, "error": str(e)},
+                            "error",
+                        )
             return
 
         # Create lookup for old board members (volunteer + role combination)
@@ -883,6 +917,21 @@ class BoardManager(BaseManager):
                 self.chapter_doc.volunteer_integration_manager.add_volunteer_assignment_history(
                     board_member.volunteer, board_member.chapter_role, board_member.from_date
                 )
+
+                # Assign Frappe role and role profile to the volunteer's user account.
+                # Child table after_insert doesn't fire when rows are added via parent save,
+                # so we call this explicitly here instead.
+                try:
+                    board_member.assign_board_member_role()
+                except Exception as e:
+                    self.log_action(
+                        "Failed to assign board member role",
+                        {"volunteer": board_member.volunteer, "error": str(e)},
+                        "error",
+                    )
+
+                # Sync role profile (separate from the Frappe role above)
+                self._sync_role_profile_for_volunteer(board_member.volunteer)
 
                 # Add to chapter members if they have an associated member
                 try:
@@ -1055,6 +1104,30 @@ class BoardManager(BaseManager):
             return role.is_chair and role.is_active
         except frappe.DoesNotExistError:
             return False
+
+    def _sync_role_profile_for_volunteer(self, volunteer_name: str):
+        """Recalculate and apply the correct role profile for a volunteer's user account.
+
+        Looks up volunteer → member → member.user, then calls auto_sync_on_role_change()
+        which derives the correct profile from the user's current organizational roles.
+        Fire-and-forget: logs errors but does not raise.
+        """
+        try:
+            member_name = frappe.db.get_value("Volunteer", volunteer_name, "member")
+            if not member_name:
+                return
+            user = frappe.db.get_value("Member", member_name, "user")
+            if not user:
+                return
+            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+
+            auto_sync_on_role_change(user)
+        except Exception as e:
+            self.log_action(
+                "Failed to sync role profile for volunteer",
+                {"volunteer": volunteer_name, "error": str(e)},
+                "error",
+            )
 
     def _get_recent_board_changes(self, days: int = 30) -> List[Dict]:
         """Get recent board changes"""

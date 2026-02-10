@@ -1326,8 +1326,8 @@ class MijnRoodEventApplicationService(StatefulService):
         Resolves division_id → Chapter, checks for existing board membership,
         and appends to the Chapter's board_members child table.
 
-        The Chapter Board Member after_insert controller automatically assigns
-        the 'Verenigingen Chapter Board Member' Frappe role.
+        Saving the Chapter triggers BoardManager.handle_board_member_additions(),
+        which assigns the Frappe role and syncs the user's role profile.
 
         Returns:
             Human-readable status message, or None if skipped.
@@ -1371,7 +1371,9 @@ class MijnRoodEventApplicationService(StatefulService):
                 },
             )
             # Security: System-initiated board assignment from authoritative MijnRood data
+            # Role assignment is handled by Chapter.before_save → BoardManager.handle_board_member_additions
             chapter_doc.save(ignore_permissions=True)
+
             self.logger.info(
                 "Added %s to chapter %s board as %s (event %s)",
                 volunteer_name,

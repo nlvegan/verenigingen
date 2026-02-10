@@ -75,18 +75,25 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
         return False
 
     def _get_bulk_members_data(self, entity_name: str) -> List[Dict]:
-        """Get chapter board members data for bulk operations"""
+        """Get chapter board members data for bulk operations.
+
+        Chapter Board Member has a `volunteer` field (not `member`), so the
+        join path is: CBM.volunteer → Volunteer.member → Member.user → User.
+        """
         CBM = DocType("Chapter Board Member")
+        Volunteer = DocType("Volunteer")
         Member = DocType("Member")
         User = DocType("User")
 
         return (
             frappe.qb.from_(CBM)
+            .left_join(Volunteer)
+            .on(CBM.volunteer == Volunteer.name)
             .left_join(Member)
-            .on(CBM.member == Member.name)
+            .on(Volunteer.member == Member.name)
             .left_join(User)
             .on(Member.user == User.name)
-            .select(CBM.member, CBM.chapter_role, Member.user, User.enabled.as_("user_enabled"))
+            .select(Member.name.as_("member"), CBM.chapter_role, Member.user, User.enabled.as_("user_enabled"))
             .where(
                 (CBM.parent == entity_name)
                 & (CBM.is_active == 1)
@@ -177,11 +184,45 @@ def remove_chapter_board_role_profile(user, chapter_name, board_role=None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def bulk_assign_chapter_board_role_profiles(chapter_name):
+    """Recalculate role profiles for all active board members of a chapter.
+
+    Uses auto_sync_on_role_change() which derives the correct profile from
+    ground truth (actual DB state) rather than trying to assign a specific profile.
     """
-    Bulk assign role profiles to all existing board members of a chapter
-    Useful for initial setup or fixing missing assignments
-    """
-    return _chapter_manager.bulk_assign_role_profiles(chapter_name)
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+
+    if not frappe.db.exists("Chapter", chapter_name):
+        return {"success": False, "members_updated": 0, "message": f"Chapter '{chapter_name}' does not exist"}
+
+    # Get active board members: CBM.volunteer → Volunteer.member → Member.user
+    board_members = frappe.db.sql(
+        """
+        SELECT DISTINCT m.user
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        JOIN `tabMember` m ON v.member = m.name
+        WHERE cbm.parent = %s
+          AND cbm.is_active = 1
+          AND m.user IS NOT NULL
+          AND m.user != ''
+        """,
+        (chapter_name,),
+        as_dict=True,
+    )
+
+    updated = 0
+    for row in board_members:
+        user = row["user"] if isinstance(row, dict) else row.user
+        try:
+            auto_sync_on_role_change(user)
+            updated += 1
+        except Exception as e:
+            frappe.log_error(
+                f"Role profile sync failed for {user}: {e}",
+                "Bulk Board Role Profile Sync",
+            )
+
+    return {"success": updated > 0 or len(board_members) == 0, "members_updated": updated}
 
 
 @frappe.whitelist()
@@ -231,50 +272,10 @@ def get_chapters_for_role_profile(role_profile):
     return _chapter_manager.get_entities_using_role_profile(role_profile)
 
 
-# Hook functions for Chapter Board Member document events
-def on_chapter_board_member_add(doc: "frappe._dict", method: str):
-    """Hook called when Chapter Board Member is added
-
-    Args:
-        doc: ChapterBoardMember document with volunteer, parent, and chapter_role fields
-        method: Hook method name
-    """
-    if doc.is_active:
-        user = _chapter_manager._get_user_from_member_doc(doc)
-        if user:
-            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-            auto_sync_on_role_change(user)
-
-
-def on_chapter_board_member_remove(doc: "frappe._dict", method: str):
-    """Hook called when Chapter Board Member is removed
-
-    Args:
-        doc: ChapterBoardMember document with volunteer, parent, and chapter_role fields
-        method: Hook method name
-    """
-    user = _chapter_manager._get_user_from_member_doc(doc)
-    if user:
-        from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-        auto_sync_on_role_change(user)
-
-
-def on_chapter_board_member_update(doc: "frappe._dict", method: str):
-    """Hook called when Chapter Board Member is updated
-
-    Args:
-        doc: ChapterBoardMember document with volunteer, parent, and chapter_role fields
-        method: Hook method name
-    """
-    # Handle is_active status changes or role changes
-    if doc.has_value_changed("is_active") or doc.has_value_changed("chapter_role"):
-        user = _chapter_manager._get_user_from_member_doc(doc)
-        if user:
-            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-            auto_sync_on_role_change(user)
+# REMOVED: Child table hook functions (on_chapter_board_member_add/remove/update).
+# Frappe child table doc_events (after_insert, on_update, on_trash) never fire when
+# rows are managed via parent save. Role assignment and role profile sync are now
+# handled by BoardManager.handle_board_member_additions/changes/deletions.
 
 
 # For backward compatibility - maintain the old validation function

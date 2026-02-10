@@ -80,30 +80,16 @@ doc_events = {
         "after_save": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
         # on_update: runs ONLY for existing documents - use for update-specific logic
         "on_update": [
-            "verenigingen.utils.chapter_role_profile_hooks.on_chapter_board_members_change",
             "verenigingen.utils.chapter_role_profile_hooks.invalidate_chapter_profile_cache",
         ],
+        # NOTE: Role assignment and role profile sync for board members is handled
+        # explicitly by BoardManager.handle_board_member_additions/changes/deletions
+        # (called from Chapter.before_save). Child table doc_events (after_insert,
+        # on_update, on_trash) never fire for rows managed via parent save, so those
+        # hooks were removed.
     },
-    # Note: "Verenigingen Chapter Board Member" is a ROLE, not a DocType.
-    # The actual DocType is "Chapter Board Member" - handlers consolidated below.
     "Chapter Role": {
         "on_update": "verenigingen.utils.chapter_role_events.on_chapter_role_on_update",
-    },
-    "Chapter Board Member": {
-        "after_insert": [
-            "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_add",
-            "verenigingen.utils.chapter_role_events.on_chapter_board_member_after_insert",
-            "verenigingen.utils.department_approver_sync.on_board_member_change",
-        ],
-        "on_update": [
-            "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_update",
-            "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_update",
-            "verenigingen.utils.department_approver_sync.on_board_member_change",
-        ],
-        "on_trash": [
-            "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_trash",
-            "verenigingen.utils.department_approver_sync.on_board_member_change",
-        ],
     },
     # =========================================================================
     # TEAM SYSTEM
