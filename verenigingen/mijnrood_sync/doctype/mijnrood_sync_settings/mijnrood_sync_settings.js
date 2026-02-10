@@ -76,6 +76,42 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             }, __("Lidmaatschapstypes"));
         }
 
+        // Set SSH Key — dialog with Code field for multi-line key paste
+        frm.add_custom_button(__("Set SSH Key"), function () {
+            const d = new frappe.ui.Dialog({
+                title: __("Paste SSH Private Key"),
+                fields: [
+                    {
+                        fieldname: "ssh_key_content",
+                        fieldtype: "Code",
+                        label: __("SSH Private Key"),
+                        description: __("Paste the full private key including -----BEGIN ... KEY----- and -----END ... KEY----- lines"),
+                        options: "Text",
+                    },
+                ],
+                primary_action_label: __("Save Key"),
+                primary_action(values) {
+                    const key = (values.ssh_key_content || "").trim();
+                    if (!key.startsWith("-----BEGIN ")) {
+                        frappe.msgprint({
+                            title: __("Invalid Key"),
+                            indicator: "red",
+                            message: __("Key must start with '-----BEGIN ... KEY-----'"),
+                        });
+                        return;
+                    }
+                    frm.set_value("ssh_private_key", key);
+                    frm.dirty();
+                    d.hide();
+                    frappe.show_alert({
+                        message: __("SSH key set. Save the document to store it encrypted."),
+                        indicator: "green",
+                    });
+                },
+            });
+            d.show();
+        }, __("SSH Tunnel"));
+
         frm.add_custom_button(__("Sync Now"), function () {
             frappe.confirm(
                 __("Start an immediate sync with MijnRood? This will run in the background."),

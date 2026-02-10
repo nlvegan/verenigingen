@@ -11,6 +11,7 @@
     "ssh_username",
     "column_break_ssh",
     "ssh_private_key_path",
+    "ssh_private_key",
     "ssh_password",
     "database_section",
     "db_host",
@@ -70,10 +71,16 @@
       "fieldtype": "Column Break"
     },
     {
-      "description": "Absolute path to SSH private key file on the server",
+      "description": "Alternative to stored key: absolute path to SSH private key file on the server (file must have 0600 permissions)",
       "fieldname": "ssh_private_key_path",
       "fieldtype": "Data",
       "label": "SSH Private Key Path"
+    },
+    {
+      "description": "Paste the SSH private key content directly. Stored encrypted. Use the 'Set SSH Key' button for multi-line paste. Takes priority over Key Path.",
+      "fieldname": "ssh_private_key",
+      "fieldtype": "Password",
+      "label": "SSH Private Key"
     },
     {
       "description": "SSH key passphrase (if key is encrypted) or SSH password",
@@ -208,7 +215,7 @@
   ],
   "issingle": 1,
   "links": [],
-  "modified": "2026-02-06 10:00:00",
+  "modified": "2026-02-10 12:00:00",
   "modified_by": "Administrator",
   "module": "MijnRood Sync",
   "name": "MijnRood Sync Settings",

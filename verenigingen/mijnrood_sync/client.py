@@ -7,12 +7,14 @@ All queries are SELECT-only — no writes to MijnRood.
 """
 
 import base64
+import io
 import logging
 import os
 import re
 import time
 from typing import Optional
 
+import paramiko
 import pymysql
 import pymysql.cursors
 from sshtunnel import SSHTunnelForwarder
@@ -38,9 +40,9 @@ class MijnRoodDatabaseClient:
     - Table and column names are validated against ALLOWED_TABLES and a strict
       identifier regex before interpolation into SQL. No user-supplied strings
       reach SQL without validation.
-    - SSH authentication uses key files or passwords stored in Frappe's encrypted
-      password store. SSH key file permissions must be restricted to 0600 by the
-      administrator.
+    - SSH authentication uses private keys stored in Frappe's encrypted password
+      store (preferred) or key files on the filesystem. When using file-based keys,
+      file permissions must be restricted to 0600 by the administrator.
     - sshtunnel does NOT verify SSH host keys by default. Administrators must
       ensure host authenticity via known_hosts, network-level controls, or VPN.
     - Credentials and secrets are never written to logs. Only table names, row
@@ -145,6 +147,35 @@ class MijnRoodDatabaseClient:
         if not _IDENTIFIER_RE.match(table):
             raise ValueError(f"Invalid table name: {table!r}")
 
+    @staticmethod
+    def _parse_pkey_from_string(key_content: str, passphrase: str | None = None) -> paramiko.PKey:
+        """Parse an SSH private key from a string into a paramiko PKey object.
+
+        Tries RSA, Ed25519, ECDSA, and DSS key types in order.
+
+        Args:
+            key_content: PEM-encoded private key string.
+            passphrase: Optional passphrase for encrypted keys.
+
+        Returns:
+            A paramiko PKey instance.
+
+        Raises:
+            ValueError: If the key cannot be parsed as any supported type.
+        """
+        key_classes = (
+            paramiko.RSAKey,
+            paramiko.Ed25519Key,
+            paramiko.ECDSAKey,
+            paramiko.DSSKey,
+        )
+        for key_class in key_classes:
+            try:
+                return key_class.from_private_key(io.StringIO(key_content), password=passphrase)
+            except (paramiko.SSHException, ValueError):
+                continue
+        raise ValueError("Unable to parse SSH private key — unsupported key type or wrong passphrase")
+
     def _open_tunnel(self):
         """Open SSH tunnel to MijnRood server."""
         s = self._settings
@@ -154,21 +185,26 @@ class MijnRoodDatabaseClient:
             "remote_bind_address": (s.db_host or "127.0.0.1", int(s.db_port or 3306)),
         }
 
-        # Authentication: prefer key file, fall back to password
-        if s.ssh_private_key_path:
+        passphrase = s.get_password("ssh_password") if s.ssh_password else None
+
+        # Authentication priority: stored key > key file > password
+        stored_key = s.get_password("ssh_private_key") if s.ssh_private_key else None
+        if stored_key:
+            pkey = self._parse_pkey_from_string(stored_key, passphrase)
+            ssh_kwargs["ssh_pkey"] = pkey
+            logger.info("Using stored SSH private key (parsed in-memory)")
+        elif s.ssh_private_key_path:
             import frappe
 
             key_path = s.ssh_private_key_path
             if not os.path.isabs(key_path) or key_path.startswith("/private/"):
                 key_path = frappe.get_site_path(key_path.lstrip("/"))
             ssh_kwargs["ssh_pkey"] = key_path
-            password = s.get_password("ssh_password") if s.ssh_password else None
-            if password:
-                ssh_kwargs["ssh_private_key_password"] = password
-        else:
-            password = s.get_password("ssh_password") if s.ssh_password else None
-            if password:
-                ssh_kwargs["ssh_password"] = password
+            if passphrase:
+                ssh_kwargs["ssh_private_key_password"] = passphrase
+            logger.info("Using SSH private key from file: %s", key_path)
+        elif passphrase:
+            ssh_kwargs["ssh_password"] = passphrase
 
         # NOTE: SSHTunnelForwarder does not verify SSH host keys by default.
         # Administrators must ensure host authenticity through one of:
