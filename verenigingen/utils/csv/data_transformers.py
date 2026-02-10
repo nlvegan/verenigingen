@@ -317,8 +317,35 @@ def determine_membership_type_for_csv_import(row_data: dict) -> str:
         row_data = {"membership_type": "Aspirant"}
         → Returns settings.default_aspirant_membership_type
     """
-    settings = frappe.get_single("Verenigingen Settings")
     membership_type_value = row_data.get("membership_type", "") if row_data else ""
+
+    # Known MijnRood/CSV status strings that must go through pattern-matching
+    # even if a Membership Type with the same name exists. These are intermediate
+    # status values, not Membership Type names.
+    _KNOWN_STATUS_STRINGS = frozenset(
+        {
+            "lid",
+            "aspirant",
+            "opgezegd",
+            "geroyeerd",
+            "overleden",
+            "geschorst",
+            "dubbel",
+            "uitgeschreven",
+        }
+    )
+
+    # If the value is already a valid Membership Type name (e.g. from explicit
+    # MijnRood mapping), return it directly — but only if it's not a known
+    # status string that needs pattern-matching.
+    if (
+        membership_type_value
+        and membership_type_value.lower().strip() not in _KNOWN_STATUS_STRINGS
+        and frappe.db.exists("Membership Type", membership_type_value)
+    ):
+        return membership_type_value
+
+    settings = frappe.get_single("Verenigingen Settings")
 
     # Check if this is an aspirant member
     is_aspirant = membership_type_value and "aspirant" in membership_type_value.lower()

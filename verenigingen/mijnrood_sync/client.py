@@ -395,6 +395,19 @@ class MijnRoodDatabaseClient:
                 # FK exists but no matching email record — clear rather than keep numeric ID
                 row["email_id"] = None
 
+    def fetch_membership_statuses(self) -> list[dict]:
+        """Fetch all rows from admin_membershipstatus (id, name, allowed_access).
+
+        This is a static lookup table, not part of the regular sync.
+        Column names are hardcoded — no user input reaches SQL.
+        """
+        query = "SELECT `id`, `name`, `allowed_access` FROM `admin_membershipstatus` ORDER BY `id`"
+        with self._connection.cursor() as cursor:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+        logger.info("Fetched %d membership statuses from admin_membershipstatus", len(rows))
+        return [self._serialize_row(row) for row in rows]
+
     @staticmethod
     def _serialize_row(row: dict) -> dict:
         """Convert row values to JSON-serializable types.

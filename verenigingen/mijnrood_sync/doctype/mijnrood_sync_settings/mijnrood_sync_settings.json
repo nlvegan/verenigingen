@@ -155,13 +155,13 @@
     {
       "fieldname": "status_mapping_section",
       "fieldtype": "Section Break",
-      "label": "Status Mapping",
-      "description": "Maps MijnRood membership status IDs to Verenigingen status types. Click 'Load Defaults' to populate with standard values."
+      "label": "MijnRood Lidmaatschapstypes",
+      "description": "Maps MijnRood membership status IDs to Verenigingen membership types. Use 'Fetch from MijnRood' to populate from the live database."
     },
     {
       "fieldname": "status_mapping",
       "fieldtype": "Table",
-      "label": "Status Mapping",
+      "label": "Lidmaatschapstypes",
       "options": "MijnRood Status Mapping"
     },
     {

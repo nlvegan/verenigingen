@@ -11,7 +11,10 @@
     "membership_type_string",
     "is_active",
     "column_break_2",
-    "termination_type"
+    "verenigingen_membership_type",
+    "termination_type",
+    "column_break_3",
+    "allows_login"
   ],
   "fields": [
     {
@@ -35,12 +38,12 @@
       "fieldtype": "Column Break"
     },
     {
+      "description": "Status name from MijnRood admin_membershipstatus table",
       "fieldname": "membership_type_string",
       "fieldtype": "Data",
       "in_list_view": 1,
-      "label": "Membership Type",
+      "label": "MijnRood Naam",
       "reqd": 1,
-      "description": "Import service key (e.g. lid, opgezegd)",
       "width": "120px"
     },
     {
@@ -56,6 +59,14 @@
       "fieldtype": "Column Break"
     },
     {
+      "fieldname": "verenigingen_membership_type",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Verenigingen Lidmaatschapstype",
+      "options": "Membership Type",
+      "width": "180px"
+    },
+    {
       "fieldname": "termination_type",
       "fieldtype": "Select",
       "in_list_view": 1,
@@ -63,12 +74,25 @@
       "options": "\nVoluntary\nDisciplinary Action\nDeceased\nPolicy Violation\nAdministrative",
       "depends_on": "eval:!doc.is_active",
       "width": "140px"
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "From MijnRood allowed_access \u2014 indicates whether members with this status should have system login",
+      "fieldname": "allows_login",
+      "fieldtype": "Check",
+      "in_list_view": 1,
+      "label": "Heeft Toegang",
+      "default": 0,
+      "width": "80px"
     }
   ],
   "index_web_pages_for_search": 0,
   "istable": 1,
   "links": [],
-  "modified": "2026-02-08 00:00:00.000000",
+  "modified": "2026-02-10 00:00:00.000000",
   "modified_by": "Administrator",
   "module": "MijnRood Sync",
   "name": "MijnRood Status Mapping",

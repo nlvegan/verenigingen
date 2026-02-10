@@ -1148,11 +1148,27 @@ class MijnRoodEventApplicationService(StatefulService):
             if value is not None and value != "":
                 row_data[member_field] = value
 
-        # Convert status ID to membership type string
+        # Convert status ID to membership type — prefer explicit mapping, fall back to status string
         status_id = self._safe_int(mijnrood_data.get("current_membership_status_id"))
-        status_id_map = get_status_id_map()
-        if status_id and status_id in status_id_map:
-            row_data["membership_type"] = status_id_map[status_id]
+        if status_id:
+            from verenigingen.mijnrood_sync.field_mapping import (
+                get_verenigingen_membership_type_for_status_id,
+            )
+
+            explicit_type = get_verenigingen_membership_type_for_status_id(status_id)
+            if explicit_type:
+                row_data["membership_type"] = explicit_type
+            else:
+                status_id_map = get_status_id_map()
+                if status_id in status_id_map:
+                    row_data["membership_type"] = status_id_map[status_id]
+                else:
+                    self.logger.warning(
+                        "MijnRood status ID %s (member %s) has no mapping configured. "
+                        "Configure it in MijnRood Sync Settings → Lidmaatschapstypes.",
+                        status_id,
+                        mijnrood_data.get("id"),
+                    )
 
         # Convert contribution amount from cents to euros
         cents = self._safe_int(mijnrood_data.get("contribution_per_period_in_cents"))

@@ -497,6 +497,30 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
+        # Mock status mapping functions so tests don't depend on DB state.
+        # Uses the hardcoded defaults: active={1,2}, terminated={3,4,5,6}.
+        self._status_patches = [
+            patch(
+                "verenigingen.mijnrood_sync.services.event_application_service.get_terminated_status_ids",
+                return_value=frozenset([3, 4, 5, 6]),
+            ),
+            patch(
+                "verenigingen.mijnrood_sync.services.event_application_service.get_active_status_ids",
+                return_value=frozenset([1, 2]),
+            ),
+            patch(
+                "verenigingen.mijnrood_sync.services.event_application_service.get_termination_type_map",
+                return_value={3: "Voluntary", 4: "Disciplinary Action", 5: "Deceased", 6: "Policy Violation"},
+            ),
+        ]
+        for p in self._status_patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self._status_patches:
+            p.stop()
+        super().tearDown()
+
     def _make_status_change(self, old_id, new_id):
         """Helper: build a changed_fields list with a status change."""
         return [{"field": "current_membership_status_id", "old": str(old_id), "new": str(new_id)}]
@@ -737,14 +761,27 @@ class TestMapMijnRoodToMemberFields(EnhancedTestCase):
         )
         self.assertEqual(result.get("dues_rate"), 12.50)
 
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_verenigingen_membership_type_for_status_id", return_value=None)
     @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
-    def test_status_id_mapped_to_membership_type(self, mock_status_map):
-        """current_membership_status_id is resolved via status map."""
+    def test_status_id_mapped_to_membership_type(self, mock_status_map, _mock_explicit):
+        """current_membership_status_id is resolved via status map when no explicit mapping."""
         mock_status_map.return_value = {1: "lid", 3: "opgezegd"}
         result = self.service._map_mijnrood_to_member_fields(
             {"current_membership_status_id": 1}
         )
         self.assertEqual(result.get("membership_type"), "lid")
+
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_verenigingen_membership_type_for_status_id")
+    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    def test_explicit_membership_type_takes_priority(self, mock_status_map, mock_explicit):
+        """Explicit verenigingen_membership_type is used when configured."""
+        mock_explicit.return_value = "Lid"
+        mock_status_map.return_value = {1: "lid"}
+        result = self.service._map_mijnrood_to_member_fields(
+            {"current_membership_status_id": 1}
+        )
+        self.assertEqual(result.get("membership_type"), "Lid")
+        mock_status_map.assert_not_called()
 
     @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
     def test_unknown_contribution_period_logs_warning(self, mock_status_map):

@@ -212,6 +212,8 @@ def _load_status_mapping() -> dict:
             "label": row.label,
             "is_active": bool(row.is_active),
             "termination_type": row.termination_type or "",
+            "verenigingen_membership_type": row.verenigingen_membership_type or "",
+            "allows_login": bool(row.allows_login),
         }
     return mapping
 
@@ -257,6 +259,18 @@ def get_termination_type_map() -> dict:
             if not v["is_active"] and v["termination_type"]
         }
     return dict(_DEFAULT_STATUS_ID_TO_TERMINATION_TYPE)
+
+
+def get_verenigingen_membership_type_for_status_id(status_id: int) -> str | None:
+    """Get the explicit Verenigingen Membership Type for a MijnRood status ID.
+
+    Returns the configured Membership Type name, or None if not configured.
+    """
+    mapping = _get_cached_mapping()
+    if mapping and status_id in mapping:
+        mt = mapping[status_id].get("verenigingen_membership_type")
+        return mt if mt else None
+    return None
 
 
 def get_status_labels() -> dict:
