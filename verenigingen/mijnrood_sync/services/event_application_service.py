@@ -829,32 +829,37 @@ class MijnRoodEventApplicationService(StatefulService):
 
         row_data = self._map_mijnrood_to_member_fields(new_data)
 
-        from verenigingen.services.csv_import.member_import_service import get_member_import_service
-
-        service = get_member_import_service()
-        status, updated_name = service.create_or_update_member(
-            row_data=row_data,
-            import_doc_name=f"MijnRood Sync: {event.name}",
-        )
-
         messages = []
         if chapter_result:
             messages.append(chapter_result)
 
-        if status in ("created", "updated"):
-            event.linked_member = updated_name
-            messages.append(_("Member {0} updated").format(updated_name))
+        # Role-only events (e.g. synthetic division contact changes from _poll_division_contacts)
+        # carry only managed_division_ids / roles — no mappable member fields.  Skip the
+        # member create/update path and go straight to role processing.
+        if row_data:
+            from verenigingen.services.csv_import.member_import_service import get_member_import_service
 
-            # Create related records: address, Mollie IDs, membership + dues
-            messages.extend(self._create_related_records(updated_name, row_data, event))
+            service = get_member_import_service()
+            status, updated_name = service.create_or_update_member(
+                row_data=row_data,
+                import_doc_name=f"MijnRood Sync: {event.name}",
+            )
 
-            # Process admin roles (ROLE_ADMIN, ROLE_DIVISION_CONTACT)
-            role_msgs = self._process_member_roles(updated_name, new_data, old_data=old_data, event=event)
-            messages.extend(role_msgs)
+            if status in ("created", "updated"):
+                event.linked_member = updated_name
+                member_name = updated_name
+                messages.append(_("Member {0} updated").format(updated_name))
 
-            return {"success": True, "message": "; ".join(messages)}
-        else:
-            return {"success": False, "message": _("Member update {0}").format(status)}
+                # Create related records: address, Mollie IDs, membership + dues
+                messages.extend(self._create_related_records(updated_name, row_data, event))
+            else:
+                return {"success": False, "message": _("Member update {0}").format(status)}
+
+        # Process admin roles (ROLE_ADMIN, ROLE_DIVISION_CONTACT)
+        role_msgs = self._process_member_roles(member_name, new_data, old_data=old_data, event=event)
+        messages.extend(role_msgs)
+
+        return {"success": True, "message": "; ".join(messages) if messages else _("No changes applied")}
 
     def _apply_changed_division(self, event) -> dict:
         """Update Chapter from changed MijnRood admin_division data."""
