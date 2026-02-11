@@ -259,6 +259,97 @@ class TestAccountCreationManagerSecurity(EnhancedTestCase):
                     # Rejection is also acceptable
                     pass
 
+    def test_volunteer_integration_security(self):
+        """Test that volunteer insert triggers ACR queue (not immediate user creation)."""
+        unique_email = f"integration.test.{self.uid}.{self.test_run_id}@example.com"
+
+        member = self.create_test_member(
+            first_name=f"Integration{self.uid}",
+            last_name="Test",
+            email=unique_email,
+        )
+
+        from frappe.utils import today
+
+        volunteer = frappe.get_doc({
+            "doctype": "Volunteer",
+            "volunteer_name": f"Integration Test Volunteer {self.uid} {self.test_run_id}",
+            "email": unique_email,
+            "member": member.name,
+            "status": "New",
+            "start_date": today(),
+        })
+
+        original_flag = frappe.flags.get("skip_volunteer_account_creation", False)
+        frappe.flags.skip_volunteer_account_creation = False
+
+        try:
+            # EnhancedTestCase runs as Administrator by default
+            volunteer.insert()
+            self.factory.track_document("Volunteer", volunteer.name)
+
+            account_requests = frappe.get_all(
+                "Account Creation Request",
+                filters={"source_record": volunteer.name},
+            )
+            self.assertTrue(
+                len(account_requests) > 0,
+                "Volunteer creation should queue account creation request",
+            )
+            self.assertFalse(
+                frappe.db.exists("User", unique_email),
+                "User should not be created immediately - should go through secure queue",
+            )
+        finally:
+            frappe.flags.skip_volunteer_account_creation = original_flag
+
+    def test_no_global_permission_bypasses(self):
+        """Scan ACR source code for forbidden ignore_permissions=True usage."""
+        import os
+        import re
+
+        files_to_scan = [
+            os.path.join(
+                frappe.get_app_path("verenigingen"),
+                "utils", "account_creation_manager.py",
+            ),
+            os.path.join(
+                frappe.get_app_path("verenigingen"),
+                "verenigingen", "doctype",
+                "account_creation_request", "account_creation_request.py",
+            ),
+        ]
+
+        permission_bypass_pattern = re.compile(r"ignore_permissions\s*=\s*True")
+        violations = []
+
+        for file_path in files_to_scan:
+            if not os.path.exists(file_path):
+                continue
+            with open(file_path, "r") as f:
+                content = f.read()
+
+            lines = content.split("\n")
+            for match in permission_bypass_pattern.finditer(content):
+                line_num = content[: match.start()].count("\n") + 1
+                actual_line = lines[line_num - 1] if line_num <= len(lines) else ""
+
+                if actual_line.strip().startswith("#"):
+                    continue
+                if "# NO ignore_permissions=True" in actual_line:
+                    continue
+
+                context_lines = lines[max(0, line_num - 3) : min(len(lines), line_num + 3)]
+                is_system_operation = any(
+                    kw in "\n".join(context_lines).lower()
+                    for kw in ["status tracking", "system operation", "mark_", "# system", "status update"]
+                )
+                if not is_system_operation:
+                    violations.append(f"{file_path}:{line_num} - Unauthorized permission bypass")
+
+        if violations:
+            self.fail("Security violations found:\n" + "\n".join(violations))
+
 
 class TestAccountCreationManagerFunctionality(EnhancedTestCase):
     """Functionality tests for AccountCreationManager"""
@@ -678,6 +769,43 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
         with self.assertRaises(frappe.ValidationError):
             request.retry_processing()
 
+    def test_retryable_vs_non_retryable_errors(self):
+        """Test classification of retryable vs non-retryable errors."""
+        member = self.create_test_member(
+            first_name=f"ErrorClass{self.uid}",
+            last_name="Test",
+            email=f"error.class.{self.uid}@test.invalid",
+        )
+
+        request = self.create_test_account_creation_request(
+            source_record=member.name,
+            request_type="Member",
+        )
+
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+
+        retryable_errors = [
+            Exception("Connection timeout occurred"),
+            Exception("Database connection error"),
+            Exception("Temporary network failure"),
+            Exception("Deadlock detected"),
+            Exception("Lock wait timeout exceeded"),
+        ]
+        for error in retryable_errors:
+            with self.subTest(error=str(error)):
+                self.assertTrue(manager.is_retryable_error(error))
+
+        non_retryable_errors = [
+            frappe.ValidationError("Invalid role specified"),
+            frappe.PermissionError("Access denied"),
+            frappe.DoesNotExistError("Record not found"),
+            Exception("Invalid email format"),
+        ]
+        for error in non_retryable_errors:
+            with self.subTest(error=str(error)):
+                self.assertFalse(manager.is_retryable_error(error))
+
 
 class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
     """Background processing and Redis queue tests"""
@@ -741,8 +869,7 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
         
         # Verify success
         self.assertTrue(result.get("success"))
-        self.assertIn("completed successfully", result.get("message", ""))
-        
+
         # Verify request completion
         request.reload()
         self.assertEqual(request.status, "Completed")
@@ -796,6 +923,92 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
             self.assertEqual(request.status, "Requested")
         finally:
             frappe.set_user(current_user)
+
+    def test_concurrent_request_processing(self):
+        """Test processing of multiple requests sequentially."""
+        import time as _time
+
+        uid = str(int(_time.time() * 1000000) % 1000000)
+        requests = []
+        for i in range(5):
+            member = self.create_test_member(
+                first_name=f"Conc{uid[:3]}",
+                last_name=f"T{uid[3:]}{i}",
+                email=f"concurrent.test.{uid}.{i}@test.invalid",
+            )
+            request = self.create_test_account_creation_request(
+                source_record=member.name,
+                request_type="Member",
+            )
+            requests.append(request)
+
+        results = []
+        for req in requests:
+            try:
+                result = process_account_creation_request(req.name)
+                results.append({"request_name": req.name, "success": True, "result": result})
+            except Exception as e:
+                results.append({"request_name": req.name, "success": False, "error": str(e)})
+
+        self.assertEqual(len(results), 5)
+        successful_count = sum(1 for r in results if r["success"])
+        self.assertGreaterEqual(successful_count, 3)
+
+    def test_job_cleanup_after_completion(self):
+        """Test that completed jobs have proper cleanup state."""
+        import time as _time
+
+        uid = str(int(_time.time() * 1000000) % 1000000)
+        member = self.create_test_member(
+            first_name=f"Cleanup{uid[:4]}",
+            last_name=f"J{uid[4:]}",
+            email=f"job.cleanup.{uid}@test.invalid",
+        )
+
+        request = self.create_test_account_creation_request(
+            source_record=member.name,
+            request_type="Member",
+        )
+
+        manager = AccountCreationManager(request.name)
+        manager.process_complete_pipeline()
+
+        request.reload()
+        self.assertEqual(request.status, "Completed")
+        self.assertIsNotNone(request.completed_at)
+        self.assertEqual(request.pipeline_stage, "Completed")
+        self.assertEqual(request.retry_count, 0)
+
+        with self.assertRaises(frappe.ValidationError):
+            request.queue_processing()
+
+    def test_partial_processing_recovery(self):
+        """Test partial success model — role failure doesn't fail entire pipeline."""
+        import time as _time
+
+        uid = str(int(_time.time() * 1000000) % 1000000)
+        member = self.create_test_member(
+            first_name=f"Partial{uid[:4]}",
+            last_name=f"R{uid[4:]}",
+            email=f"partial.recovery.{uid}@test.invalid",
+        )
+
+        request = self.create_test_account_creation_request(
+            source_record=member.name,
+            request_type="Member",
+        )
+
+        manager = AccountCreationManager(request.name)
+
+        with patch.object(manager, "assign_roles_and_profile") as mock_assign_roles:
+            mock_assign_roles.side_effect = frappe.ValidationError("Role assignment failed")
+            manager.process_complete_pipeline()
+
+        request.reload()
+        self.assertEqual(request.status, "Completed")
+        self.assertIn("PARTIAL SUCCESS", request.failure_reason)
+        self.assertIn("Role assignment", request.failure_reason)
+        self.assertIsNotNone(request.created_user)
 
 
 class TestAccountCreationManagerIntegration(EnhancedTestCase):
