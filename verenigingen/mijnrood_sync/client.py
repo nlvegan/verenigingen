@@ -7,14 +7,12 @@ All queries are SELECT-only — no writes to MijnRood.
 """
 
 import base64
-import io
 import logging
 import os
 import re
 import time
 from typing import Optional
 
-import paramiko
 import pymysql
 import pymysql.cursors
 from sshtunnel import SSHTunnelForwarder
@@ -24,6 +22,7 @@ from verenigingen.mijnrood_sync.field_mapping import (
     TABLE_COLUMNS,
     TABLE_PRIMARY_KEY,
 )
+from verenigingen.mijnrood_sync.ssh_auth import build_ssh_auth_kwargs, parse_pkey_from_string
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.client")
 
@@ -148,33 +147,9 @@ class MijnRoodDatabaseClient:
             raise ValueError(f"Invalid table name: {table!r}")
 
     @staticmethod
-    def _parse_pkey_from_string(key_content: str, passphrase: str | None = None) -> paramiko.PKey:
-        """Parse an SSH private key from a string into a paramiko PKey object.
-
-        Tries RSA, Ed25519, ECDSA, and DSS key types in order.
-
-        Args:
-            key_content: PEM-encoded private key string.
-            passphrase: Optional passphrase for encrypted keys.
-
-        Returns:
-            A paramiko PKey instance.
-
-        Raises:
-            ValueError: If the key cannot be parsed as any supported type.
-        """
-        key_classes = (
-            paramiko.RSAKey,
-            paramiko.Ed25519Key,
-            paramiko.ECDSAKey,
-            paramiko.DSSKey,
-        )
-        for key_class in key_classes:
-            try:
-                return key_class.from_private_key(io.StringIO(key_content), password=passphrase)
-            except (paramiko.SSHException, ValueError):
-                continue
-        raise ValueError("Unable to parse SSH private key — unsupported key type or wrong passphrase")
+    def _parse_pkey_from_string(key_content: str, passphrase: str | None = None):
+        """Parse an SSH private key from a string. Delegates to ssh_auth module."""
+        return parse_pkey_from_string(key_content, passphrase)
 
     def _open_tunnel(self):
         """Open SSH tunnel to MijnRood server."""
@@ -185,26 +160,16 @@ class MijnRoodDatabaseClient:
             "remote_bind_address": (s.db_host or "127.0.0.1", int(s.db_port or 3306)),
         }
 
-        passphrase = s.get_password("ssh_password") if s.ssh_password else None
-
-        # Authentication priority: stored key > key file > password
-        stored_key = s.get_password("ssh_private_key") if s.ssh_private_key else None
-        if stored_key:
-            pkey = self._parse_pkey_from_string(stored_key, passphrase)
-            ssh_kwargs["ssh_pkey"] = pkey
-            logger.info("Using stored SSH private key (parsed in-memory)")
-        elif s.ssh_private_key_path:
-            import frappe
-
-            key_path = s.ssh_private_key_path
-            if not os.path.isabs(key_path) or key_path.startswith("/private/"):
-                key_path = frappe.get_site_path(key_path.lstrip("/"))
-            ssh_kwargs["ssh_pkey"] = key_path
-            if passphrase:
-                ssh_kwargs["ssh_private_key_password"] = passphrase
-            logger.info("Using SSH private key from file: %s", key_path)
-        elif passphrase:
-            ssh_kwargs["ssh_password"] = passphrase
+        # Build auth kwargs from shared helper, then translate to sshtunnel's API
+        auth = build_ssh_auth_kwargs(s)
+        if "pkey" in auth:
+            ssh_kwargs["ssh_pkey"] = auth["pkey"]
+        elif "key_filename" in auth:
+            ssh_kwargs["ssh_pkey"] = auth["key_filename"]
+            if "passphrase" in auth:
+                ssh_kwargs["ssh_private_key_password"] = auth["passphrase"]
+        elif "password" in auth:
+            ssh_kwargs["ssh_password"] = auth["password"]
 
         # NOTE: SSHTunnelForwarder does not verify SSH host keys by default.
         # Administrators must ensure host authenticity through one of:
@@ -470,6 +435,42 @@ class MijnRoodDatabaseClient:
             cursor.execute(query)
             rows = cursor.fetchall()
         logger.info("Fetched %d membership statuses from admin_membershipstatus", len(rows))
+        return [self._serialize_row(row) for row in rows]
+
+    def fetch_document_folders(self) -> list[dict]:
+        """Fetch all document folders (id, name, parent_id).
+
+        Queries admin_document_folder directly — not part of the regular
+        checksum-based sync. Column names are hardcoded.
+
+        Returns:
+            List of dicts with id, name, parent_id keys.
+        """
+        query = "SELECT `id`, `name`, `parent_id` FROM `admin_document_folder` ORDER BY `id`"
+        with self._connection.cursor() as cursor:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+        logger.info("Fetched %d document folders from admin_document_folder", len(rows))
+        return [self._serialize_row(row) for row in rows]
+
+    def fetch_documents(self) -> list[dict]:
+        """Fetch all documents (id, name, uploadFileName, sizeInBytes, dateUploaded, folder_id).
+
+        Queries admin_document directly — not part of the regular
+        checksum-based sync. Column names are hardcoded.
+
+        Returns:
+            List of dicts with document metadata.
+        """
+        query = (
+            "SELECT `id`, `name`, `uploadFileName`, `sizeInBytes`, "
+            "`dateUploaded`, `folder_id` "
+            "FROM `admin_document` ORDER BY `id`"
+        )
+        with self._connection.cursor() as cursor:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+        logger.info("Fetched %d documents from admin_document", len(rows))
         return [self._serialize_row(row) for row in rows]
 
     @staticmethod

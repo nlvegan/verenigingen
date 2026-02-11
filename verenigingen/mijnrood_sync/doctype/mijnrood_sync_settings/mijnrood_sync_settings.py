@@ -314,6 +314,63 @@ class MijnRoodSyncSettings(Document):
             "message": _("Loaded {0} default role mappings").format(len(self.role_mapping)),
         }
 
+    @frappe.whitelist()
+    def fetch_document_folders(self):
+        """Fetch document folders from MijnRood and populate the mapping table.
+
+        Connects to MijnRood DB, fetches root-level folders from
+        admin_document_folder, and populates the document_folder_mapping
+        child table. Admin then configures organization_type + entity +
+        document_type for each folder.
+        """
+        from verenigingen.mijnrood_sync.services.document_import_service import DocumentImportService
+
+        # Rate limit: max once per 60 seconds
+        rate_key = "mijnrood_fetch_document_folders_ratelimit"
+        if frappe.cache.get_value(rate_key):
+            return {"success": False, "message": _("Please wait at least 60 seconds between fetches")}
+
+        service = DocumentImportService(settings=self)
+        result = service.fetch_and_populate_folders()
+
+        if result.get("success"):
+            frappe.cache.set_value(rate_key, "1", expires_in_sec=60)
+
+        return result
+
+    @frappe.whitelist()
+    def import_documents(self):
+        """Enqueue a background job to import documents from MijnRood.
+
+        Downloads files via SFTP and creates Organization Document records.
+        Progress is published via frappe.realtime.
+        """
+        # Validate that mappings are configured
+        configured = [
+            row for row in (self.document_folder_mapping or []) if row.organization_type and row.document_type
+        ]
+        if not configured:
+            return {
+                "success": False,
+                "message": _(
+                    "No folder mappings configured. Fetch folders and set organization/document types first."
+                ),
+            }
+
+        frappe.enqueue(
+            "verenigingen.mijnrood_sync.services.document_import_service.import_all",
+            queue="long",
+            timeout=3600,
+            job_name="mijnrood_document_import",
+        )
+
+        self.db_set("document_import_status", _("Import job enqueued"))
+        frappe.db.commit()
+        return {
+            "success": True,
+            "message": _("Document import job enqueued. Check progress in the Import Status field."),
+        }
+
 
 @frappe.whitelist()
 def get_status_mapping_for_client():

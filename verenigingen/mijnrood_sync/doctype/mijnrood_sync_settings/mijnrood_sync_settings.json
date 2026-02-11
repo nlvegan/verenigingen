@@ -1,273 +1,314 @@
 {
-  "actions": [],
-  "creation": "2026-02-06 10:00:00",
-  "doctype": "DocType",
-  "engine": "InnoDB",
-  "field_order": [
-    "enabled",
-    "ssh_tunnel_section",
-    "ssh_host",
-    "ssh_port",
-    "ssh_username",
-    "column_break_ssh",
-    "ssh_private_key_path",
-    "ssh_private_key",
-    "ssh_password",
-    "database_section",
-    "db_host",
-    "db_port",
-    "db_name",
-    "column_break_db",
-    "db_username",
-    "db_password",
-    "sync_configuration_section",
-    "poll_interval_minutes",
-    "tables_to_sync",
-    "column_break_sync",
-    "auto_apply_safe_changes",
-    "create_member_accounts",
-    "status_mapping_section",
-    "status_mapping",
-    "role_mapping_section",
-    "role_mapping",
-    "last_division_contacts_hash",
-    "status_section",
-    "last_sync_time",
-    "last_sync_status",
-    "column_break_status",
-    "last_sync_message",
-    "total_events_pending",
-    "connection_status"
-  ],
-  "fields": [
-    {
-      "default": "0",
-      "description": "Master on/off switch for MijnRood sync polling",
-      "fieldname": "enabled",
-      "fieldtype": "Check",
-      "label": "Enabled"
-    },
-    {
-      "fieldname": "ssh_tunnel_section",
-      "fieldtype": "Section Break",
-      "label": "SSH Tunnel"
-    },
-    {
-      "fieldname": "ssh_host",
-      "fieldtype": "Data",
-      "label": "SSH Host",
-      "reqd": 1
-    },
-    {
-      "default": "22",
-      "fieldname": "ssh_port",
-      "fieldtype": "Int",
-      "label": "SSH Port"
-    },
-    {
-      "fieldname": "ssh_username",
-      "fieldtype": "Data",
-      "label": "SSH Username",
-      "reqd": 1
-    },
-    {
-      "fieldname": "column_break_ssh",
-      "fieldtype": "Column Break"
-    },
-    {
-      "description": "Alternative to stored key: absolute path to SSH private key file on the server (file must have 0600 permissions)",
-      "fieldname": "ssh_private_key_path",
-      "fieldtype": "Data",
-      "label": "SSH Private Key Path"
-    },
-    {
-      "description": "Paste the SSH private key content directly. Stored encrypted. Use the 'Set SSH Key' button for multi-line paste. Takes priority over Key Path.",
-      "fieldname": "ssh_private_key",
-      "fieldtype": "Password",
-      "label": "SSH Private Key"
-    },
-    {
-      "description": "SSH key passphrase (if key is encrypted) or SSH password",
-      "fieldname": "ssh_password",
-      "fieldtype": "Password",
-      "label": "SSH Password / Passphrase"
-    },
-    {
-      "fieldname": "database_section",
-      "fieldtype": "Section Break",
-      "label": "Database"
-    },
-    {
-      "default": "127.0.0.1",
-      "description": "MariaDB host as seen from the SSH server",
-      "fieldname": "db_host",
-      "fieldtype": "Data",
-      "label": "Database Host"
-    },
-    {
-      "default": "3306",
-      "fieldname": "db_port",
-      "fieldtype": "Int",
-      "label": "Database Port"
-    },
-    {
-      "default": "rood",
-      "fieldname": "db_name",
-      "fieldtype": "Data",
-      "label": "Database Name",
-      "reqd": 1
-    },
-    {
-      "fieldname": "column_break_db",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "db_username",
-      "fieldtype": "Data",
-      "label": "Database Username",
-      "reqd": 1
-    },
-    {
-      "fieldname": "db_password",
-      "fieldtype": "Password",
-      "label": "Database Password",
-      "reqd": 1
-    },
-    {
-      "fieldname": "sync_configuration_section",
-      "fieldtype": "Section Break",
-      "label": "Sync Configuration"
-    },
-    {
-      "default": "15",
-      "description": "How often to poll MijnRood for changes (in minutes)",
-      "fieldname": "poll_interval_minutes",
-      "fieldtype": "Int",
-      "label": "Poll Interval (minutes)"
-    },
-    {
-      "default": "[\"admin_member\", \"admin_support_member\", \"admin_membership_application\", \"admin_division\"]",
-      "description": "JSON list of MijnRood database tables to poll",
-      "fieldname": "tables_to_sync",
-      "fieldtype": "Small Text",
-      "label": "Tables to Sync"
-    },
-    {
-      "fieldname": "column_break_sync",
-      "fieldtype": "Column Break"
-    },
-    {
-      "default": "0",
-      "description": "Future use: automatically apply non-destructive changes without review",
-      "fieldname": "auto_apply_safe_changes",
-      "fieldtype": "Check",
-      "label": "Auto-apply Safe Changes"
-    },
-    {
-      "default": "0",
-      "description": "Queue Account Creation Requests for all synced members who don't have a user account yet. Uses the standard ACR pipeline with deduplication.",
-      "fieldname": "create_member_accounts",
-      "fieldtype": "Check",
-      "label": "Maak Gebruikersaccounts Aan"
-    },
-    {
-      "fieldname": "status_mapping_section",
-      "fieldtype": "Section Break",
-      "label": "MijnRood Lidmaatschapstypes",
-      "description": "Maps MijnRood membership status IDs to Verenigingen membership types. Use 'Fetch from MijnRood' to populate from the live database."
-    },
-    {
-      "fieldname": "status_mapping",
-      "fieldtype": "Table",
-      "label": "Lidmaatschapstypes",
-      "options": "MijnRood Status Mapping"
-    },
-    {
-      "description": "Maps MijnRood admin roles (ROLE_ADMIN, ROLE_DIVISION_CONTACT) to actions in Verenigingen. Configure whether to create Volunteer records, assign Frappe roles, or add members to Chapter boards.",
-      "fieldname": "role_mapping_section",
-      "fieldtype": "Section Break",
-      "label": "MijnRood Rollen"
-    },
-    {
-      "fieldname": "role_mapping",
-      "fieldtype": "Table",
-      "label": "Rollen",
-      "options": "MijnRood Role Mapping"
-    },
-    {
-      "fieldname": "last_division_contacts_hash",
-      "fieldtype": "Small Text",
-      "hidden": 1,
-      "label": "Last Division Contacts Hash",
-      "read_only": 1
-    },
-    {
-      "fieldname": "status_section",
-      "fieldtype": "Section Break",
-      "label": "Status"
-    },
-    {
-      "fieldname": "last_sync_time",
-      "fieldtype": "Datetime",
-      "label": "Last Sync Time",
-      "read_only": 1
-    },
-    {
-      "fieldname": "last_sync_status",
-      "fieldtype": "Select",
-      "label": "Last Sync Status",
-      "options": "\nSuccess\nFailed\nRunning",
-      "read_only": 1
-    },
-    {
-      "fieldname": "column_break_status",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "last_sync_message",
-      "fieldtype": "Small Text",
-      "label": "Last Sync Message",
-      "read_only": 1
-    },
-    {
-      "default": "0",
-      "fieldname": "total_events_pending",
-      "fieldtype": "Int",
-      "label": "Total Events Pending",
-      "read_only": 1
-    },
-    {
-      "fieldname": "connection_status",
-      "fieldtype": "Data",
-      "label": "Connection Status",
-      "read_only": 1
-    }
-  ],
-  "issingle": 1,
-  "links": [],
-  "modified": "2026-02-10 12:00:00",
-  "modified_by": "Administrator",
-  "module": "MijnRood Sync",
-  "name": "MijnRood Sync Settings",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 1,
-      "read": 1,
-      "role": "System Manager",
-      "write": 1
-    },
-    {
-      "create": 1,
-      "read": 1,
-      "role": "Verenigingen Administrator",
-      "write": 1
-    }
-  ],
-  "quick_entry": 1,
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "states": [],
-  "track_changes": 1
+ "actions": [],
+ "creation": "2026-02-06 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "ssh_tunnel_section",
+  "ssh_host",
+  "ssh_port",
+  "ssh_username",
+  "column_break_ssh",
+  "ssh_private_key_path",
+  "ssh_private_key",
+  "ssh_password",
+  "database_section",
+  "db_host",
+  "db_port",
+  "db_name",
+  "column_break_db",
+  "db_username",
+  "db_password",
+  "sync_configuration_section",
+  "poll_interval_minutes",
+  "tables_to_sync",
+  "column_break_sync",
+  "auto_apply_safe_changes",
+  "create_member_accounts",
+  "status_mapping_section",
+  "status_mapping",
+  "role_mapping_section",
+  "role_mapping",
+  "last_division_contacts_hash",
+  "document_import_section",
+  "document_folder_mapping",
+  "documents_remote_path",
+  "document_import_status",
+  "last_document_import",
+  "status_section",
+  "last_sync_time",
+  "last_sync_status",
+  "column_break_status",
+  "last_sync_message",
+  "total_events_pending",
+  "connection_status"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "description": "Master on/off switch for MijnRood sync polling",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "ssh_tunnel_section",
+   "fieldtype": "Section Break",
+   "label": "SSH Tunnel"
+  },
+  {
+   "fieldname": "ssh_host",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "SSH Host",
+   "reqd": 1
+  },
+  {
+   "default": "22",
+   "fieldname": "ssh_port",
+   "fieldtype": "Int",
+   "label": "SSH Port"
+  },
+  {
+   "fieldname": "ssh_username",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "SSH Username",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ssh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Alternative to stored key: absolute path to SSH private key file on the server (file must have 0600 permissions)",
+   "fieldname": "ssh_private_key_path",
+   "fieldtype": "Data",
+   "label": "SSH Private Key Path"
+  },
+  {
+   "description": "Paste the SSH private key content directly. Stored encrypted. Use the 'Set SSH Key' button for multi-line paste. Takes priority over Key Path.",
+   "fieldname": "ssh_private_key",
+   "fieldtype": "Password",
+   "label": "SSH Private Key"
+  },
+  {
+   "description": "SSH key passphrase (if key is encrypted) or SSH password",
+   "fieldname": "ssh_password",
+   "fieldtype": "Password",
+   "label": "SSH Password / Passphrase"
+  },
+  {
+   "fieldname": "database_section",
+   "fieldtype": "Section Break",
+   "label": "Database"
+  },
+  {
+   "default": "127.0.0.1",
+   "description": "MariaDB host as seen from the SSH server",
+   "fieldname": "db_host",
+   "fieldtype": "Data",
+   "label": "Database Host"
+  },
+  {
+   "default": "3306",
+   "fieldname": "db_port",
+   "fieldtype": "Int",
+   "label": "Database Port"
+  },
+  {
+   "default": "rood",
+   "fieldname": "db_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Database Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_db",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "db_username",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Database Username",
+   "reqd": 1
+  },
+  {
+   "fieldname": "db_password",
+   "fieldtype": "Password",
+   "label": "Database Password",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sync_configuration_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Configuration"
+  },
+  {
+   "default": "15",
+   "description": "How often to poll MijnRood for changes (in minutes)",
+   "fieldname": "poll_interval_minutes",
+   "fieldtype": "Int",
+   "label": "Poll Interval (minutes)"
+  },
+  {
+   "default": "[\"admin_member\", \"admin_support_member\", \"admin_membership_application\", \"admin_division\"]",
+   "description": "JSON list of MijnRood database tables to poll",
+   "fieldname": "tables_to_sync",
+   "fieldtype": "Small Text",
+   "label": "Tables to Sync"
+  },
+  {
+   "fieldname": "column_break_sync",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Future use: automatically apply non-destructive changes without review",
+   "fieldname": "auto_apply_safe_changes",
+   "fieldtype": "Check",
+   "label": "Auto-apply Safe Changes"
+  },
+  {
+   "default": "0",
+   "description": "Queue Account Creation Requests for all synced members who don't have a user account yet. Uses the standard ACR pipeline with deduplication.",
+   "fieldname": "create_member_accounts",
+   "fieldtype": "Check",
+   "label": "Maak Gebruikersaccounts Aan"
+  },
+  {
+   "description": "Maps MijnRood membership status IDs to Verenigingen membership types. Use 'Fetch from MijnRood' to populate from the live database.",
+   "fieldname": "status_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "MijnRood Lidmaatschapstypes"
+  },
+  {
+   "fieldname": "status_mapping",
+   "fieldtype": "Table",
+   "label": "Lidmaatschapstypes",
+   "options": "MijnRood Status Mapping"
+  },
+  {
+   "description": "Maps MijnRood admin roles (ROLE_ADMIN, ROLE_DIVISION_CONTACT) to actions in Verenigingen. Configure whether to create Volunteer records, assign Frappe roles, or add members to Chapter boards.",
+   "fieldname": "role_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "MijnRood Rollen"
+  },
+  {
+   "fieldname": "role_mapping",
+   "fieldtype": "Table",
+   "label": "Rollen",
+   "options": "MijnRood Role Mapping"
+  },
+  {
+   "fieldname": "last_division_contacts_hash",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Last Division Contacts Hash",
+   "read_only": 1
+  },
+  {
+   "description": "One-time import of documents from MijnRood's document organizer. Map each root folder to an organization and document type, then import.",
+   "fieldname": "document_import_section",
+   "fieldtype": "Section Break",
+   "label": "Document Import"
+  },
+  {
+   "fieldname": "document_folder_mapping",
+   "fieldtype": "Table",
+   "label": "Folder Mapping",
+   "options": "MijnRood Document Folder Mapping"
+  },
+  {
+   "default": "/var/www/project/var/documents",
+   "description": "Absolute path on the remote SSH server where MijnRood stores uploaded files (the var/documents/ directory)",
+   "fieldname": "documents_remote_path",
+   "fieldtype": "Data",
+   "label": "Documents Remote Path"
+  },
+  {
+   "fieldname": "document_import_status",
+   "fieldtype": "Small Text",
+   "label": "Import Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_document_import",
+   "fieldtype": "Datetime",
+   "label": "Last Document Import",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "last_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_status",
+   "fieldtype": "Select",
+   "label": "Last Sync Status",
+   "options": "\nSuccess\nFailed\nRunning",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_sync_message",
+   "fieldtype": "Small Text",
+   "label": "Last Sync Message",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "total_events_pending",
+   "fieldtype": "Int",
+   "label": "Total Events Pending",
+   "read_only": 1
+  },
+  {
+   "fieldname": "connection_status",
+   "fieldtype": "Data",
+   "label": "Connection Status",
+   "read_only": 1
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-02-11 22:49:10.599742",
+ "modified_by": "Administrator",
+ "module": "MijnRood Sync",
+ "name": "MijnRood Sync Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }
