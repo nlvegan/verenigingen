@@ -344,6 +344,35 @@ frappe.ui.form.on("MijnRood Sync Event", {
                     },
                 });
             }, __("Actions"));
+
+            frm.add_custom_button(__("Approve & Apply"), function () {
+                frappe.confirm(
+                    __("Approve and immediately apply this change? This will modify member data."),
+                    function () {
+                        frappe.call({
+                            method: "approve_and_apply",
+                            doc: frm.doc,
+                            freeze: true,
+                            freeze_message: __("Approving and applying..."),
+                            callback: function (r) {
+                                if (r.message && r.message.success) {
+                                    frappe.show_alert({
+                                        message: __("Changes approved and applied"),
+                                        indicator: "green",
+                                    });
+                                } else {
+                                    frappe.msgprint({
+                                        title: __("Application Failed"),
+                                        indicator: "red",
+                                        message: r.message ? r.message.message : __("Unknown error"),
+                                    });
+                                }
+                                frm.reload_doc();
+                            },
+                        });
+                    }
+                );
+            }).addClass("btn-primary");
         }
 
         // Apply button for Approved events

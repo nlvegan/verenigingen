@@ -39,6 +39,24 @@ class MijnRoodSyncEvent(Document):
         self.save()
 
     @frappe.whitelist()
+    def approve_and_apply(self):
+        """Approve and immediately apply this sync event."""
+        if self.status != "Pending":
+            frappe.throw(_("Only Pending events can be approved and applied"))
+
+        self.status = "Approved"
+        self.reviewed_by = frappe.session.user
+        self.reviewed_at = now_datetime()
+        self.save()
+
+        from verenigingen.mijnrood_sync.services.event_application_service import (
+            get_event_application_service,
+        )
+
+        service = get_event_application_service()
+        return service.apply_event(self.name)
+
+    @frappe.whitelist()
     def apply_event(self):
         """Apply this approved sync event to Verenigingen data."""
         if self.status != "Approved":

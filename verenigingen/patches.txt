@@ -41,3 +41,4 @@ verenigingen.patches.v2_1.add_ponto_oauth2_critical_operation_rules
 verenigingen.patches.v2_1.add_mollie_payment_entry_unique_index
 verenigingen.patches.v2_1.sync_module_profiles_safely
 verenigingen.patches.v2_1.migrate_contribution_mode_values
+verenigingen.patches.v2_1.backfill_sync_event_change_tags

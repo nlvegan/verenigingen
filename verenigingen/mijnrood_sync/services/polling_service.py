@@ -26,6 +26,63 @@ from verenigingen.mijnrood_sync.field_mapping import (
 )
 from verenigingen.services.infrastructure.base_service import StatefulService
 
+# Maps MijnRood field names to triage-friendly category tags
+FIELD_TAG_MAP = {
+    "current_membership_status_id": "Status",
+    "division_id": "Chapter",
+    "preferred_division_id": "Chapter",
+    "contribution_per_period_in_cents": "Financial",
+    "contribution_period": "Financial",
+    "iban": "Financial",
+    "mollie_customer_id": "Financial",
+    "mollie_subscription_id": "Financial",
+    "email": "Contact",
+    "phone": "Contact",
+    "first_name": "Personal",
+    "middle_name": "Personal",
+    "last_name": "Personal",
+    "date_of_birth": "Personal",
+    "address": "Address",
+    "city": "Address",
+    "post_code": "Address",
+    "country": "Address",
+    "roles": "Roles",
+    "managed_division_ids": "Roles",
+}
+
+# Tag display order (highest priority first)
+TAG_ORDER = ["Status", "Chapter", "Financial", "Roles", "Contact", "Personal", "Address"]
+
+# Table-to-label map for New events
+_NEW_TABLE_LABELS = {
+    "admin_member": "New Member",
+    "admin_membership_application": "New Application",
+    "admin_division": "New Division",
+}
+
+
+def compute_change_tags(event_type: str, table: str, changed_fields: list | None) -> str:
+    """Compute comma-separated change category tags for a sync event.
+
+    Used both during polling (new events) and for backfilling existing events.
+    """
+    if event_type == "New":
+        return _NEW_TABLE_LABELS.get(table, "New")
+    if event_type == "Deleted":
+        return "Deleted"
+    # Changed
+    if not changed_fields:
+        return ""
+    tags = set()
+    for cf in changed_fields:
+        field = cf.get("field") if isinstance(cf, dict) else cf
+        tag = FIELD_TAG_MAP.get(field)
+        if tag:
+            tags.add(tag)
+    if not tags:
+        return "Other"
+    return ",".join(t for t in TAG_ORDER if t in tags)
+
 
 class MijnRoodPollingService(StatefulService):
     """Polls MijnRood DB for changes and creates Sync Events for review."""
@@ -403,6 +460,7 @@ class MijnRoodPollingService(StatefulService):
         event.new_data = json.dumps(new_data) if new_data else None
         event.changed_fields = json.dumps(changed_fields) if changed_fields else None
         event.change_summary = change_summary
+        event.change_tags = compute_change_tags(event_type, table, changed_fields)
         event.detected_at = detected_at
         event.sync_run_id = sync_run_id
         # Security: System-internal sync event creation in scheduler context
