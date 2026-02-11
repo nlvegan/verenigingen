@@ -114,6 +114,7 @@ def ensure_chapter(
                 or f"Auto-created chapter '{chapter_name}'. Please update with proper details.",
                 "mijnrood_division_id": mijnrood_division_id,
                 "contact_email": contact_email,
+                "default_board_role_profile": "Verenigingen Chapter Board Member",
             }
         )
         chapter._csv_import = True
