@@ -17,7 +17,6 @@ from frappe.utils import getdate, add_days, add_years
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.account_creation_manager import (
     AccountCreationManager,
-    queue_account_creation_for_member,
     queue_account_creation_for_volunteer,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -25,19 +24,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     """Dutch association-specific business logic validation."""
-
-    def _get_request_or_skip(self, result, context="account creation"):
-        """Helper to get Account Creation Request or skip if roles are missing."""
-        if not result.get("success"):
-            errors = result.get("errors", [])
-            error_str = str(errors)
-            if "Role" in error_str or "Employee Self Service" in error_str:
-                self.skipTest(f"Required role missing in test environment: {errors}")
-            self.fail(f"{context} failed: {result.get('error', errors)}")
-        request_name = result.get("request_name") or result.get("data", {}).get("request_name")
-        if not request_name:
-            self.fail(f"{context} failed: no request_name in result: {result}")
-        return frappe.get_doc("Account Creation Request", request_name)
 
     def test_volunteer_age_validation_at_start_date(self):
         """Test age validation is checked at volunteer start date, not current date."""
@@ -86,8 +72,10 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
                 actual_last_name = member.last_name
                 expected_full_name = f"{unique_first} {actual_last_name}"
 
-                result = queue_account_creation_for_member(member.name)
-                request = self._get_request_or_skip(result)
+                # Create ACR directly via factory (no background job enqueued)
+                request = self.create_test_account_creation_request(
+                    source_record=member.name, request_type="Member"
+                )
 
                 manager = AccountCreationManager(request.name)
                 manager.process_complete_pipeline()
@@ -121,8 +109,10 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
             email=f"dutch.company.{self.uid}@test.invalid",
         )
 
-        result = queue_account_creation_for_volunteer(volunteer.name)
-        request = self._get_request_or_skip(result)
+        # Create ACR directly via factory (no background job enqueued)
+        request = self.create_test_account_creation_request(
+            source_record=volunteer.name, request_type="Volunteer"
+        )
 
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()

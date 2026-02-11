@@ -33,7 +33,6 @@ from verenigingen.utils.account_creation_manager import (
     AccountCreationManager,
     process_account_creation_request,
     queue_account_creation_for_member,
-    queue_account_creation_for_volunteer,
     get_failed_requests,
     retry_failed_request
 )
@@ -1035,16 +1034,13 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
             last_name="Integration",
             email=f"member.integration.{self.uid}@test.invalid"
         )
-        
-        # Queue account creation for member
-        result = queue_account_creation_for_member(
-            member.name,
-            roles=["Verenigingen Member"],
-            role_profile="Verenigingen Member"
+
+        # Create ACR directly via factory (no background job enqueued)
+        request = self.create_test_account_creation_request(
+            source_record=member.name, request_type="Member"
         )
-        
+
         # Verify request creation
-        request = self._get_request_or_skip(result, "member integration")
         self.assertEqual(request.source_record, member.name)
         self.assertEqual(request.email, member.email)
         
@@ -1063,15 +1059,16 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
             volunteer_name=f"Volunteer Integration Test {self.uid}",
             email=f"volunteer.integration.{self.uid}@test.invalid"
         )
-        
-        # Queue account creation for volunteer
-        result = queue_account_creation_for_volunteer(volunteer.name)
-        
-        # Verify request creation with volunteer-specific roles
-        request = self._get_request_or_skip(result, "volunteer integration")
+
+        # Create ACR directly via factory (no background job enqueued)
+        request = self.create_test_account_creation_request(
+            source_record=volunteer.name, request_type="Volunteer"
+        )
+
+        # Verify request creation with volunteer-specific fields
         self.assertEqual(request.source_record, volunteer.name)
         self.assertEqual(request.role_profile, "Verenigingen Volunteer")
-        
+
         # Verify volunteer-specific roles
         requested_roles = [r.role for r in request.requested_roles]
         self.assertIn("Verenigingen Volunteer", requested_roles)
@@ -1179,19 +1176,6 @@ class TestACRRoleProfileSync(EnhancedTestCase):
     never recalculated the profile, leaving the user stuck on "Verenigingen Member".
     """
 
-    def _get_request_or_skip(self, result, context="account creation"):
-        """Helper to get Account Creation Request or skip if roles are missing."""
-        if not result.get("success"):
-            errors = result.get("errors", [])
-            error_str = str(errors)
-            if "Role" in error_str or "Employee Self Service" in error_str:
-                self.skipTest(f"Required role missing in test environment: {errors}")
-            self.fail(f"{context} failed: {result.get('error', errors)}")
-        request_name = result.get("request_name") or result.get("data", {}).get("request_name")
-        if not request_name:
-            self.fail(f"{context} failed: no request_name in result: {result}")
-        return frappe.get_doc("Account Creation Request", request_name)
-
     def test_acr_assigns_board_member_profile(self):
         """Regression: ACR for a board member should result in board member profile, not plain member."""
         # 1. Create member (no user account yet)
@@ -1222,7 +1206,7 @@ class TestACRRoleProfileSync(EnhancedTestCase):
                 "is_active": 1,
             },
         )
-        chapter_doc.save(ignore_permissions=True)
+        chapter_doc.save()
 
         # Verify board membership is in place
         board_exists = frappe.db.exists(
@@ -1231,17 +1215,15 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         )
         self.assertTrue(board_exists, "Board membership should exist before ACR runs")
 
-        # 4. Queue and process ACR with default "Verenigingen Member" profile
+        # 4. Create ACR with default "Verenigingen Member" profile via factory
         #    (this is what MijnRood sync does — it doesn't know about board positions)
-        result = queue_account_creation_for_member(
-            member.name,
-            roles=["Verenigingen Member"],
-            role_profile="Verenigingen Member",
+        request = self.create_test_account_creation_request(
+            source_record=member.name, request_type="Member"
         )
-        request = self._get_request_or_skip(result, "board member ACR")
 
-        # Process the pipeline directly (simulates background job)
-        process_account_creation_request(request.name)
+        # Process the pipeline directly (no background job enqueued)
+        manager = AccountCreationManager(request.name)
+        manager.process_complete_pipeline()
 
         # 5. Verify: user should have the BOARD MEMBER profile, not plain Member
         request.reload()
@@ -1266,14 +1248,12 @@ class TestACRRoleProfileSync(EnhancedTestCase):
             email=f"plain.member.sync.{self.uid}@test.invalid",
         )
 
-        result = queue_account_creation_for_member(
-            member.name,
-            roles=["Verenigingen Member"],
-            role_profile="Verenigingen Member",
+        request = self.create_test_account_creation_request(
+            source_record=member.name, request_type="Member"
         )
-        request = self._get_request_or_skip(result, "plain member ACR")
 
-        process_account_creation_request(request.name)
+        manager = AccountCreationManager(request.name)
+        manager.process_complete_pipeline()
 
         request.reload()
         self.assertEqual(request.status, "Completed")
@@ -1291,20 +1271,6 @@ class TestACRRoleProfileSync(EnhancedTestCase):
 
 class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
     """Tests for Dutch association-specific business logic"""
-
-    def _get_request_or_skip(self, result, context="account creation"):
-        """Helper to get Account Creation Request or skip if roles are missing."""
-        if not result.get("success"):
-            errors = result.get("errors", [])
-            error_str = str(errors)
-            if "Role" in error_str or "Employee Self Service" in error_str:
-                self.skipTest(f"Required role missing in test environment: {errors}")
-            self.fail(f"{context} failed: {result.get('error', errors)}")
-        # Handle both nested and flat result structures
-        request_name = result.get("request_name") or result.get("data", {}).get("request_name")
-        if not request_name:
-            self.fail(f"{context} failed: no request_name in result: {result}")
-        return frappe.get_doc("Account Creation Request", request_name)
 
     def test_volunteer_age_validation(self):
         """Test that volunteer account creation enforces 16+ age requirement"""
@@ -1340,19 +1306,15 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
             last_name="Assignment",
             email=f"role.assignment.{self.uid}@test.invalid"
         )
-        
-        # Test member role assignment
-        result = queue_account_creation_for_member(
-            member.name,
-            roles=["Verenigingen Member"]
+
+        # Create ACR directly via factory (no background job enqueued)
+        request = self.create_test_account_creation_request(
+            source_record=member.name, request_type="Member"
         )
-        
-        request = self._get_request_or_skip(result, "role assignment")
         requested_roles = [r.role for r in request.requested_roles]
         self.assertIn("Verenigingen Member", requested_roles)
 
         # Process the request
-        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         
@@ -1376,13 +1338,13 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
             volunteer_name=f"Expense Functionality Test {self.uid}",
             email=f"expense.functionality.{self.uid}@test.invalid"
         )
-        
-        # Queue volunteer account creation
-        result = queue_account_creation_for_volunteer(volunteer.name)
-        request = self._get_request_or_skip(result, "employee creation")
+
+        # Create ACR directly via factory (no background job enqueued)
+        request = self.create_test_account_creation_request(
+            source_record=volunteer.name, request_type="Volunteer"
+        )
 
         # Process the request
-        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
 
@@ -1399,20 +1361,6 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
 
 class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
     """Tests for enhanced test factory integration"""
-
-    def _get_request_or_skip(self, result, context="account creation"):
-        """Helper to get Account Creation Request or skip if roles are missing."""
-        if not result.get("success"):
-            errors = result.get("errors", [])
-            error_str = str(errors)
-            if "Role" in error_str or "Employee Self Service" in error_str:
-                self.skipTest(f"Required role missing in test environment: {errors}")
-            self.fail(f"{context} failed: {result.get('error', errors)}")
-        # Handle both nested and flat result structures
-        request_name = result.get("request_name") or result.get("data", {}).get("request_name")
-        if not request_name:
-            self.fail(f"{context} failed: no request_name in result: {result}")
-        return frappe.get_doc("Account Creation Request", request_name)
 
     def test_account_creation_request_factory(self):
         """Test enhanced factory support for account creation requests"""
@@ -1448,7 +1396,7 @@ class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
         """Test that realistic test data is generated for account creation"""
         # Use factory to create comprehensive test scenario
         application_data = self.create_test_application_data(with_skills=True)
-        
+
         # Create member from application data
         member = frappe.get_doc({
             "doctype": "Member",
@@ -1458,10 +1406,11 @@ class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
             "birth_date": application_data["birth_date"]
         })
         member.insert()
-        
-        # Create account request
-        result = queue_account_creation_for_member(member.name)
-        request = self._get_request_or_skip(result, "realistic data generation")
+
+        # Create ACR directly via factory (no background job enqueued)
+        request = self.create_test_account_creation_request(
+            source_record=member.name, request_type="Member"
+        )
 
         # Verify realistic data characteristics
         self.assertIn("@test.invalid", request.email)  # Test marker
