@@ -953,6 +953,129 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
         self.assertTrue(retry_result.get("success"))
 
 
+class TestACRRoleProfileSync(EnhancedTestCase):
+    """Regression tests for ACR Phase 3 role profile recalculation.
+
+    Validates that when the ACR pipeline creates a user account for someone who
+    already holds a position (board member, team lead), the user ends up with
+    the correct role profile — not just the default "Verenigingen Member".
+
+    Bug context: MijnRood sync adds board membership before the user account
+    exists. The board save triggers _sync_role_profile_for_volunteer() which
+    silently skips (no user). The ACR creates the user seconds later but
+    never recalculated the profile, leaving the user stuck on "Verenigingen Member".
+    """
+
+    def _get_request_or_skip(self, result, context="account creation"):
+        """Helper to get Account Creation Request or skip if roles are missing."""
+        if not result.get("success"):
+            errors = result.get("errors", [])
+            error_str = str(errors)
+            if "Role" in error_str or "Employee Self Service" in error_str:
+                self.skipTest(f"Required role missing in test environment: {errors}")
+            self.fail(f"{context} failed: {result.get('error', errors)}")
+        request_name = result.get("request_name") or result.get("data", {}).get("request_name")
+        if not request_name:
+            self.fail(f"{context} failed: no request_name in result: {result}")
+        return frappe.get_doc("Account Creation Request", request_name)
+
+    def test_acr_assigns_board_member_profile(self):
+        """Regression: ACR for a board member should result in board member profile, not plain member."""
+        # 1. Create member (no user account yet)
+        member = self.create_test_member(
+            first_name=f"Board{self.uid}",
+            last_name="ProfileSync",
+            email=f"board.profile.sync.{self.uid}@test.invalid",
+            birth_date="1990-01-01",
+        )
+        self.assertFalse(member.user, "Member should not have a user yet")
+
+        # 2. Create volunteer linked to the member
+        volunteer = self.create_test_volunteer(
+            member_name=member.name,
+            volunteer_name=f"Board ProfileSync {self.uid}",
+            email=member.email,
+        )
+
+        # 3. Create a chapter and add the volunteer as an active board member
+        chapter = self.create_test_chapter()
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": "Board Member",
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+
+        # Verify board membership is in place
+        board_exists = frappe.db.exists(
+            "Chapter Board Member",
+            {"volunteer": volunteer.name, "is_active": 1, "parent": chapter.name},
+        )
+        self.assertTrue(board_exists, "Board membership should exist before ACR runs")
+
+        # 4. Queue and process ACR with default "Verenigingen Member" profile
+        #    (this is what MijnRood sync does — it doesn't know about board positions)
+        result = queue_account_creation_for_member(
+            member.name,
+            roles=["Verenigingen Member"],
+            role_profile="Verenigingen Member",
+        )
+        request = self._get_request_or_skip(result, "board member ACR")
+
+        # Process the pipeline directly (simulates background job)
+        process_account_creation_request(request.name)
+
+        # 5. Verify: user should have the BOARD MEMBER profile, not plain Member
+        request.reload()
+        self.assertEqual(request.status, "Completed", f"ACR should complete, got: {request.status}")
+
+        created_user = request.created_user
+        self.assertTrue(created_user, "ACR should have created a user")
+
+        actual_profile = frappe.db.get_value("User", created_user, "role_profile_name")
+        self.assertEqual(
+            actual_profile,
+            "Verenigingen Chapter Board Member",
+            f"Board member should get 'Verenigingen Chapter Board Member' profile, "
+            f"got '{actual_profile}'. Phase 3 sync may not be running.",
+        )
+
+    def test_acr_keeps_member_profile_when_no_positions(self):
+        """Sanity check: ACR for a plain member should keep the default member profile."""
+        member = self.create_test_member(
+            first_name=f"Plain{self.uid}",
+            last_name="MemberSync",
+            email=f"plain.member.sync.{self.uid}@test.invalid",
+        )
+
+        result = queue_account_creation_for_member(
+            member.name,
+            roles=["Verenigingen Member"],
+            role_profile="Verenigingen Member",
+        )
+        request = self._get_request_or_skip(result, "plain member ACR")
+
+        process_account_creation_request(request.name)
+
+        request.reload()
+        self.assertEqual(request.status, "Completed")
+
+        created_user = request.created_user
+        self.assertTrue(created_user, "ACR should have created a user")
+
+        actual_profile = frappe.db.get_value("User", created_user, "role_profile_name")
+        self.assertEqual(
+            actual_profile,
+            "Verenigingen Member",
+            f"Plain member should keep 'Verenigingen Member' profile, got '{actual_profile}'",
+        )
+
+
 class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
     """Tests for Dutch association-specific business logic"""
 
