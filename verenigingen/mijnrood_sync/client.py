@@ -454,7 +454,10 @@ class MijnRoodDatabaseClient:
         return [self._serialize_row(row) for row in rows]
 
     def fetch_documents(self) -> list[dict]:
-        """Fetch all documents (id, name, uploadFileName, sizeInBytes, dateUploaded, folder_id).
+        """Fetch all documents from admin_document.
+
+        Doctrine's underscore naming strategy maps camelCase properties to
+        snake_case columns: uploadFileName -> upload_file_name, etc.
 
         Queries admin_document directly — not part of the regular
         checksum-based sync. Column names are hardcoded.
@@ -463,8 +466,8 @@ class MijnRoodDatabaseClient:
             List of dicts with document metadata.
         """
         query = (
-            "SELECT `id`, `name`, `uploadFileName`, `sizeInBytes`, "
-            "`dateUploaded`, `folder_id` "
+            "SELECT `id`, `name`, `upload_file_name`, `size_in_bytes`, "
+            "`date_uploaded`, `folder_id` "
             "FROM `admin_document` ORDER BY `id`"
         )
         with self._connection.cursor() as cursor:

@@ -322,9 +322,9 @@ class DocumentImportService:
             )
             return "skipped"
 
-        upload_filename = doc.get("uploadFileName")
+        upload_filename = doc.get("upload_file_name")
         if not upload_filename:
-            logger.warning("Skipping document %s: no uploadFileName", doc.get("id"))
+            logger.warning("Skipping document %s: no upload_file_name", doc.get("id"))
             return "skipped"
 
         # Download file
@@ -416,11 +416,11 @@ class DocumentImportService:
         return "imported"
 
     def _parse_upload_date(self, doc: dict) -> datetime | None:
-        """Parse dateUploaded from MijnRood document record.
+        """Parse date_uploaded from MijnRood document record.
 
         Falls back to extracting year from folder name if date is missing.
         """
-        date_str = doc.get("dateUploaded")
+        date_str = doc.get("date_uploaded")
         if not date_str:
             return None
 
