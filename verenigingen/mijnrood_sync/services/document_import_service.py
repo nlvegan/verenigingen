@@ -205,8 +205,13 @@ class DocumentImportService:
         }
 
     def _load_folder_mapping(self):
-        """Load folder mapping from settings child table."""
+        """Load folder mapping from settings child table.
+
+        Rows missing organization_type or document_type are skipped with a
+        warning so the admin can see which folders still need configuration.
+        """
         self.folder_mapping = {}
+        skipped = []
         for row in self.settings.document_folder_mapping or []:
             if row.organization_type and row.document_type:
                 self.folder_mapping[row.mijnrood_folder_id] = {
@@ -216,6 +221,15 @@ class DocumentImportService:
                     "movement": row.movement,
                     "document_type": row.document_type,
                 }
+            else:
+                skipped.append(f"{row.folder_name or row.mijnrood_folder_id} (row {row.idx})")
+
+        if skipped:
+            logger.warning(
+                "Skipped %d folder mapping rows with incomplete config: %s",
+                len(skipped),
+                ", ".join(skipped),
+            )
 
     def _resolve_mapped_folder(self, folder_id: int) -> int | None:
         """Walk parent chain to find nearest ancestor with a mapping.

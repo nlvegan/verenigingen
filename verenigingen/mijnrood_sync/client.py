@@ -147,7 +147,7 @@ class MijnRoodDatabaseClient:
             raise ValueError(f"Invalid table name: {table!r}")
 
     @staticmethod
-    def _parse_pkey_from_string(key_content: str, passphrase: str | None = None):
+    def _parse_pkey_from_string(key_content: str, passphrase: str | None = None) -> "paramiko.PKey":
         """Parse an SSH private key from a string. Delegates to ssh_auth module."""
         return parse_pkey_from_string(key_content, passphrase)
 
