@@ -867,7 +867,7 @@ class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
         # Call background job function directly
         result = process_account_creation_request(request.name)
         
-        # Verify success
+        # Verify success — runtime returns dict (OperationResult auto-serialized)
         self.assertTrue(result.get("success"))
 
         # Verify request completion

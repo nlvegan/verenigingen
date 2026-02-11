@@ -178,7 +178,7 @@ jobs:
       erpnext-branch: ${{ inputs.erpnext_branch || 'version-15' }}
       parallel-runs: 1
       # Run account creation tests using glob patterns for find command
-      test-pattern: 'test_account_creation* test_secure_account_creation test_csv_import_user_linking'
+      test-pattern: 'test_account_creation* test_bulk_account_creation test_csv_import_user_linking'
 
   # E-Boekhouden tests
   e-boekhouden:
