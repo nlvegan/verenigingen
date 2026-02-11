@@ -155,6 +155,12 @@ class AccountCreationManager:
             # This phase links existing records - safe to retry independently
             self._link_records_phase()
 
+            # PHASE 3: Recalculate role profile from actual DB state
+            # The ACR assigns the role profile from the request (e.g. "Verenigingen Member"),
+            # but the user may already hold positions (chapter board member, team lead) that
+            # warrant a higher profile. This must run AFTER Phase 2 links user→member→volunteer.
+            self._sync_role_profile()
+
             # Send notification
             self.send_completion_notification()
 
@@ -452,6 +458,35 @@ class AccountCreationManager:
                 f"Retry will attempt linking with existing records."
             )
             raise
+
+    def _sync_role_profile(self):
+        """Phase 3: Recalculate role profile from actual DB state.
+
+        The ACR request carries a static role_profile (e.g. "Verenigingen Member"),
+        but by this point the user may already be linked to positions that warrant
+        a higher profile (chapter board member, team lead, etc.).
+
+        Delegates to auto_sync_on_role_change() — the ground-truth calculator —
+        which inspects actual board memberships, team leadership, and volunteer
+        status to determine the correct profile.
+
+        Non-fatal: if this fails, the user still has the profile from Phase 1.
+        """
+        if not self.created_user:
+            return
+
+        try:
+            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+
+            result = auto_sync_on_role_change(self.created_user)
+            frappe.logger().info(
+                f"[ACR PIPELINE] ✓ Role profile sync completed for {self.created_user}: {result}"
+            )
+        except Exception as e:
+            # Non-fatal — user still has the basic profile from Phase 1
+            frappe.logger().warning(
+                f"[ACR PIPELINE] ⚠️ Role profile sync failed for {self.created_user}: {e}"
+            )
 
     def validate_processing_permissions(self):
         """Validate that processing can proceed with proper permissions"""
@@ -1162,7 +1197,7 @@ class AccountCreationManager:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def process_account_creation_request(request_name, at_time=None) -> OperationResult[Dict[str, Any]]:
+def process_account_creation_request(request_name: str, at_time=None) -> OperationResult[Dict[str, Any]]:
     """Background job entry point for processing account creation requests
 
     Args:
@@ -1204,7 +1239,7 @@ def process_account_creation_request(request_name, at_time=None) -> OperationRes
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def queue_account_creation_for_member(
-    member_name, roles=None, role_profile=None, priority="Normal"
+    member_name: str, roles=None, role_profile=None, priority: str = "Normal"
 ) -> OperationResult[Dict[str, Any]]:
     """Queue account creation for a member record
 
@@ -1331,7 +1366,7 @@ def queue_account_creation_for_member(
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def queue_account_creation_for_volunteer(
-    volunteer_name, priority="Normal"
+    volunteer_name: str, priority: str = "Normal"
 ) -> OperationResult[Dict[str, Any]]:
     """Queue account creation for a volunteer record
 
@@ -1464,7 +1499,7 @@ def queue_account_creation_for_volunteer(
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def queue_bulk_account_creation_for_members(
-    member_names, roles=None, role_profile=None, batch_size=50, priority="Low", create_employee=False
+    member_names: str, roles=None, role_profile=None, batch_size: int = 50, priority: str = "Low", create_employee: bool = False
 ) -> OperationResult[Dict[str, Any]]:
     """
     Queue bulk account creation for multiple members using AccountCreationService.
@@ -1702,7 +1737,7 @@ def queue_bulk_account_creation_for_members(
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def process_bulk_account_creation_batch(
-    request_names, batch_id, batch_number, tracker_name, remaining_batches=None
+    request_names: str, batch_id: str, batch_number: int, tracker_name: str, remaining_batches=None
 ):
     """
     Process a batch of account creation requests with parallel processing and enhanced error handling.
@@ -2076,7 +2111,7 @@ def get_failed_requests() -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def retry_failed_request(request_name) -> OperationResult[Dict[str, Any]]:
+def retry_failed_request(request_name: str) -> OperationResult[Dict[str, Any]]:
     """Manually retry a failed account creation request
 
     Args:
@@ -2122,7 +2157,7 @@ def retry_failed_request(request_name) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def upgrade_member_to_volunteer_user(member_name) -> OperationResult[Dict[str, Any]]:
+def upgrade_member_to_volunteer_user(member_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Upgrade a member's user account from Website User to System User when they become a volunteer.
 
