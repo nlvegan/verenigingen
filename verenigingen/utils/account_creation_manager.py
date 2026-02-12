@@ -1296,6 +1296,10 @@ def queue_account_creation_for_member(
                 },
             )
 
+        # Deserialize roles if passed as JSON string (frappe.call serialization)
+        if isinstance(roles, str):
+            roles = frappe.parse_json(roles)
+
         # Set default roles if not provided (handles None and empty list)
         if not roles or len(roles) == 0:
             roles = ["Verenigingen Member"]
@@ -1499,7 +1503,12 @@ def queue_account_creation_for_volunteer(
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def queue_bulk_account_creation_for_members(
-    member_names: str, roles=None, role_profile=None, batch_size: int = 50, priority: str = "Low", create_employee: bool = False
+    member_names: str,
+    roles=None,
+    role_profile=None,
+    batch_size: int = 50,
+    priority: str = "Low",
+    create_employee: bool = False,
 ) -> OperationResult[Dict[str, Any]]:
     """
     Queue bulk account creation for multiple members using AccountCreationService.
