@@ -469,14 +469,44 @@ def create_default_verenigingen_settings():
             settings.insert(ignore_permissions=True)
             frappe.db.commit()
             print("✅ Created default Verenigingen Settings")
-            return settings
-        else:
-            print("✅ Verenigingen Settings already exists")
-            return frappe.get_doc("Verenigingen Settings")
+
+        settings = frappe.get_doc("Verenigingen Settings")
+        _seed_default_document_categories(settings)
+        return settings
     except Exception as e:
         print(f"⚠️ Failed to create Verenigingen Settings: {str(e)}")
         # Don't fail installation if settings creation fails
         return None
+
+
+def _seed_default_document_categories(settings):
+    """Ensure default board document categories exist in Settings.
+
+    Idempotent — only adds categories that aren't already present.
+    """
+    defaults = [
+        {"category_name": "Policy", "category_icon": "📋"},
+        {"category_name": "Meeting Minutes", "category_icon": "📝"},
+        {"category_name": "Financial Report", "category_icon": "💰"},
+        {"category_name": "Other", "category_icon": "📎"},
+    ]
+
+    existing_names = {
+        row.category_name for row in (settings.board_document_categories or [])
+    }
+
+    added = []
+    for cat in defaults:
+        if cat["category_name"] not in existing_names:
+            settings.append("board_document_categories", cat)
+            added.append(cat["category_name"])
+
+    if added:
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"✅ Seeded default document categories: {', '.join(added)}")
+    else:
+        print("✅ Default document categories already present")
 
 
 def create_default_eboekhouden_settings():

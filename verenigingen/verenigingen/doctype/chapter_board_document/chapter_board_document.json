@@ -20,7 +20,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Document Type",
-   "options": "Policy\nMeeting Minutes\nFinancial Report\nOther",
+   "options": "",
    "reqd": 1
   },
   {

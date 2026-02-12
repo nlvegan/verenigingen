@@ -73,6 +73,18 @@ frappe.ui.form.on('Chapter', {
 			setup_chapter_form(frm);
 			frm._chapter_initialized = true;
 		}
+
+		// Load dynamic document categories for board_documents child table
+		frappe.call({
+			method: 'verenigingen.utils.document_categories.get_document_category_options',
+			callback(r) {
+				if (r.message) {
+					frm.fields_dict.board_documents?.grid?.update_docfield_property(
+						'document_type', 'options', r.message
+					);
+				}
+			}
+		});
 	},
 
 	/**

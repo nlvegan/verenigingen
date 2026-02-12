@@ -81,13 +81,13 @@
       "reqd": 1
     },
     {
-      "description": "Categories can be customized in Verenigingen Settings",
+      "description": "Categories are managed in Verenigingen Settings",
       "fieldname": "document_type",
       "fieldtype": "Select",
       "in_list_view": 1,
       "in_standard_filter": 1,
       "label": "Document Type",
-      "options": "Policy\nMeeting Minutes\nFinancial Report\nOther",
+      "options": "",
       "reqd": 1
     },
     {

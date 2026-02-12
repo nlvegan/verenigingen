@@ -941,21 +941,10 @@ def get_board_information(chapter_name: str) -> Dict[str, Any]:
 
 
 def get_available_document_categories() -> Dict[str, str]:
-    """Get all available document categories (default + custom from settings)"""
-    # Default categories
-    categories = {"Policy": "📋", "Meeting Minutes": "📝", "Financial Report": "💰", "Other": "📎"}
+    """Get all available document categories from Verenigingen Settings."""
+    from verenigingen.utils.document_categories import get_category_icons
 
-    # Add custom categories from settings
-    try:
-        settings = frappe.get_single("Verenigingen Settings")
-        if settings and hasattr(settings, "board_document_categories"):
-            for custom_cat in settings.board_document_categories:
-                if custom_cat.category_name:
-                    categories[custom_cat.category_name] = custom_cat.category_icon or "📎"
-    except Exception as e:
-        frappe.log_error(f"Error loading custom document categories: {str(e)}")
-
-    return categories
+    return get_category_icons()
 
 
 def get_chapter_board_documents(chapter_name: str) -> Dict[str, Any]:

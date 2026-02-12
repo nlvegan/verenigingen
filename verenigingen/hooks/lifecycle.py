@@ -35,6 +35,8 @@ after_migrate = [
     # Data backfills
     "verenigingen.patches.v2_1.backfill_membership_commitment_end_date.execute",
     "verenigingen.patches.v2_1.add_chapter_dashboard_performance_indexes.execute",
+    # Sync document category options from Settings into DocField meta
+    "verenigingen.utils.document_categories.sync_category_options_to_doctypes",
 ]
 
 # Run before test suite executes

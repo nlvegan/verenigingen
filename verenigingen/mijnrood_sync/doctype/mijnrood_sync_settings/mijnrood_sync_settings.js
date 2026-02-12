@@ -1,4 +1,18 @@
 frappe.ui.form.on("MijnRood Sync Settings", {
+    onload(frm) {
+        // Load dynamic document categories for folder mapping child table
+        frappe.call({
+            method: 'verenigingen.utils.document_categories.get_document_category_options',
+            callback(r) {
+                if (r.message) {
+                    frm.fields_dict.document_folder_mappings?.grid?.update_docfield_property(
+                        'document_type', 'options', '\n' + r.message
+                    );
+                }
+            }
+        });
+    },
+
     refresh(frm) {
         frm.add_custom_button(__("Test Connection"), function () {
             frappe.call({

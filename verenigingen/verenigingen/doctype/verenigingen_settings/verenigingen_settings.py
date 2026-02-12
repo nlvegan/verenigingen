@@ -16,6 +16,11 @@ class VerenigingenSettings(Document):
         self.validate_chapter_dues_accounts()
         self._check_deprecated_email_fields()
 
+    def on_update(self):
+        from verenigingen.utils.document_categories import sync_category_options_to_doctypes
+
+        sync_category_options_to_doctypes()
+
     def validate_donation_accounts(self):
         """Validate donation account configuration"""
         if self.automate_donation_payment_entries:
