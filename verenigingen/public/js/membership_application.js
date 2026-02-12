@@ -177,7 +177,7 @@ class BaseStep {
 class _MembershipApplication {
 	constructor(config = {}) {
 		this.config = {
-			maxSteps: 7,
+			maxSteps: 6,
 			autoSaveInterval: 30000,
 			enableErrorHandling: true,
 			enableAutoSave: true,
@@ -447,7 +447,7 @@ class _MembershipApplication {
 	bindStepNavigation() {
 		// Initialize step navigation
 		this.currentStep = 1;
-		this.maxSteps = this.config.maxSteps || 7;
+		this.maxSteps = this.config.maxSteps || 6;
 
 		// Show first step
 		this.showStep(1);
@@ -567,10 +567,10 @@ class _MembershipApplication {
 		const hasVolunteer = this.config.enableVolunteerStep;
 		if (hasVolunteer) {
 			return { 1: 'personal', 2: 'address', 3: 'membership', 4: 'volunteer',
-				5: 'communication', 6: 'payment', 7: 'confirmation' }[stepNumber];
+				5: 'payment', 6: 'confirmation' }[stepNumber];
 		}
 		return { 1: 'personal', 2: 'address', 3: 'membership',
-			4: 'communication', 5: 'payment', 6: 'confirmation' }[stepNumber];
+			4: 'payment', 5: 'confirmation' }[stepNumber];
 	}
 
 	validateStepBasic(step) {
@@ -699,12 +699,6 @@ class _MembershipApplication {
 			case 'volunteer': {
 				// Volunteer (optional)
 				// No required fields
-				break;
-			}
-			case 'communication': {
-				// Communication Preferences
-				console.log('Validating communication preferences step');
-				// No required fields for communication preferences
 				break;
 			}
 			case 'payment': {
@@ -837,13 +831,11 @@ class _MembershipApplication {
 		};
 		if (hasVolunteer) {
 			stepMap[4] = () => this.setupVolunteerStep();
-			stepMap[5] = () => this.setupCommunicationPreferencesStep();
-			stepMap[6] = () => this.setupPaymentStep();
-			stepMap[7] = () => this.setupConfirmationStep();
-		} else {
-			stepMap[4] = () => this.setupCommunicationPreferencesStep();
 			stepMap[5] = () => this.setupPaymentStep();
 			stepMap[6] = () => this.setupConfirmationStep();
+		} else {
+			stepMap[4] = () => this.setupPaymentStep();
+			stepMap[5] = () => this.setupConfirmationStep();
 		}
 
 		const setup = stepMap[stepNumber];
@@ -923,12 +915,12 @@ class _MembershipApplication {
 			application_source: $('#application_source').val() || '',
 			application_source_details: $('#application_source_details').val() || '',
 
-			// Step 5: Communication Preferences
+			// Communication Preferences (on confirmation step)
 			opt_out_optional_emails: $('#opt_out_optional_emails').is(':checked')
 				? 1
 				: 0,
 
-			// Step 6: Payment Details
+			// Payment Details
 			payment_method:
         $('input[name="payment_method"]:checked').val()
         || $('#payment_method').val()
@@ -1760,11 +1752,6 @@ class _MembershipApplication {
 		this.setupVolunteerSkills();
 	}
 
-	setupCommunicationPreferencesStep() {
-		console.log('Setting up communication preferences step');
-		// No special setup needed for communication preferences
-		// The checkbox is handled by standard form submission
-	}
 
 	setupVolunteerSkills() {
 		// Add event handler for the add skill button
@@ -2823,12 +2810,6 @@ class _MembershipApplication {
 			: 'Not interested in volunteering';
 		$('#confirm-volunteering').text(volunteering);
 
-		// Communication Preferences
-		const optOut = $('#opt_out_optional_emails').is(':checked');
-		const communicationPref = optOut
-			? 'Opted out of optional communications'
-			: 'Will receive newsletters and updates';
-		$('#confirm-communications').text(communicationPref);
 	}
 
 	updateFinalApplicationSummary() {

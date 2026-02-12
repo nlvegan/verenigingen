@@ -69,7 +69,7 @@ def get_context(context):
     context.volunteer_step_label = getattr(settings, "volunteer_step_label", None) or "Volunteer"
 
     # Calculate step count for JavaScript (must be in context for script block access)
-    context.total_steps = 7 if context.enable_volunteer_signup else 6
+    context.total_steps = 6 if context.enable_volunteer_signup else 5
     context.step_width = 100 / context.total_steps
 
     # Available countries (comma-separated string to list)
