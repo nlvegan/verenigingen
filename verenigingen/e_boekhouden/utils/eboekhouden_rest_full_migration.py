@@ -1407,7 +1407,7 @@ def get_mutation_gap_report():
         return {"success": False, "error": str(e)}
 
 
-def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
+def _import_opening_balances(company, cost_center, debug_info, dry_run=False, force=False):
     """Import opening balances from eBoekhouden using REST API"""
     try:
         # Check if opening balances have already been imported
@@ -1421,12 +1421,31 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
         )
 
         if existing_opening_balance:
-            # Opening balances already imported
-            return {
-                "success": True,
-                "message": "Opening balances already imported",
-                "journal_entry": existing_opening_balance,
-            }
+            if force:
+                # Force re-import: delete existing opening balance entry
+                debug_info.append(
+                    f"Force mode: deleting existing opening balance Journal Entry {existing_opening_balance}"
+                )
+                try:
+                    je_doc = frappe.get_doc("Journal Entry", existing_opening_balance)
+                    if je_doc.docstatus == 1:
+                        je_doc.cancel()
+                        debug_info.append(f"Cancelled Journal Entry {existing_opening_balance}")
+                    frappe.delete_doc("Journal Entry", existing_opening_balance, force=True)
+                    debug_info.append(f"Deleted Journal Entry {existing_opening_balance}")
+                    frappe.db.commit()
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Failed to delete existing opening balance {existing_opening_balance}: {str(e)}. Cancel it manually first.",
+                    }
+            else:
+                # Opening balances already imported
+                return {
+                    "success": True,
+                    "message": "Opening balances already imported",
+                    "journal_entry": existing_opening_balance,
+                }
 
         from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 

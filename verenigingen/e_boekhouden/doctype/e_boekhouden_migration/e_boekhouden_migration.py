@@ -1810,7 +1810,7 @@ def check_migration_data_quality(migration_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def import_opening_balances_only(migration_name):
+def import_opening_balances_only(migration_name, force=False):
     """Import only opening balances using the new ERPNext approach"""
     try:
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -1827,9 +1827,14 @@ def import_opening_balances_only(migration_name):
         # Check if this is a dry run
         is_dry_run = migration.get("dry_run", False)
 
+        # Normalize force parameter (frappe.whitelist passes strings)
+        force = force in (True, 1, "1", "true", "True")
+
         # Call the new opening balance import function
-        frappe.logger().info(f"Starting opening balance import for company: {company}, dry_run: {is_dry_run}")
-        result = _import_opening_balances(company, cost_center, debug_info, dry_run=is_dry_run)
+        frappe.logger().info(
+            f"Starting opening balance import for company: {company}, dry_run: {is_dry_run}, force: {force}"
+        )
+        result = _import_opening_balances(company, cost_center, debug_info, dry_run=is_dry_run, force=force)
         frappe.logger().info(f"Opening balance import result: {result}")
 
         # Update migration record with results

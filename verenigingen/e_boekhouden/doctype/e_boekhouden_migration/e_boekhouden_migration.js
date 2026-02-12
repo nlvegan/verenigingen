@@ -1989,6 +1989,14 @@ function show_opening_balance_import_dialog(frm) {
 				default: 0,
 				description:
           'Check to see what would be imported without making changes'
+			},
+			{
+				label: 'Force Re-import',
+				fieldname: 'force',
+				fieldtype: 'Check',
+				default: 0,
+				description:
+          'Delete existing opening balance entry and re-import from eBoekhouden'
 			}
 		],
 		primary_action_label: 'Import Opening Balances',
@@ -2018,7 +2026,8 @@ function start_opening_balance_import(frm, options) {
 				method:
           'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.import_opening_balances_only',
 				args: {
-					migration_name: frm.doc.name
+					migration_name: frm.doc.name,
+					force: options.force ? 1 : 0
 				},
 				callback(r) {
 					if (r.message && r.message.success) {
