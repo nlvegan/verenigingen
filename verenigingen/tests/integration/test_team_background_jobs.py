@@ -45,8 +45,7 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
         """
         Test that background job handlers accept **kwargs parameters.
 
-        This is a regression test for the bug where handlers like
-        handle_role_profile_assignments() didn't accept **kwargs,
+        This is a regression test for the bug where handlers didn't accept **kwargs,
         causing TypeError: unexpected keyword argument 'dedupe'
         """
         # Get initial assignment count
@@ -125,13 +124,16 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
             "Assignment history should be created for team member addition"
         )
 
-    def test_role_profile_assignment_background_job(self):
+    def test_team_membership_background_jobs_no_errors(self):
         """
-        Test that role profile assignment background job runs without errors.
+        Test that team membership background jobs run without errors.
 
-        Tests handle_role_profile_assignments() specifically.
+        Role profile sync is handled synchronously by doc_event hooks
+        (team_role_profile_hooks.py), not by background subscribers.
+        This test verifies the remaining async handlers (assignment history,
+        notifications) don't crash.
         """
-        # Add member which should trigger role profile assignment
+        # Add member which should trigger background jobs
         self.test_team.append("team_members", {
             "volunteer": self.test_volunteer.name,
             "volunteer_name": self.test_volunteer.volunteer_name,
@@ -142,8 +144,7 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
             "status": "Active",
         })
 
-        # This should emit team_membership_changed event
-        # Which queues handle_role_profile_assignments background job
+        # This emits team_membership_changed → async handlers
         self.test_team.save()
         frappe.db.commit()
 
@@ -151,12 +152,12 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
         import time
         time.sleep(2)
 
-        # Check for errors specific to handle_role_profile_assignments
+        # Check for errors from team subscribers
         errors = frappe.get_all(
             "Error Log",
             filters={
                 "creation": [">=", frappe.utils.add_to_date(frappe.utils.now(), hours=-1)],
-                "error": ["like", "%handle_role_profile_assignments%"]
+                "error": ["like", "%team_subscribers%"]
             },
             limit=5
         )
@@ -168,7 +169,7 @@ class TestTeamBackgroundJobs(EnhancedTestCase):
 
         self.assertEqual(
             len(kwargs_errors), 0,
-            f"handle_role_profile_assignments should not crash with kwargs errors: {kwargs_errors}"
+            f"Team subscriber handlers should not crash with kwargs errors: {kwargs_errors}"
         )
 
     def test_member_addition_to_existing_team_full_workflow(self):

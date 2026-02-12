@@ -1,14 +1,14 @@
 """
 Team Event Subscribers
 
-Background job handlers for team status and lifecycle change events.
-These handle the actual business logic triggered by team status transitions.
+Background job handlers for team lifecycle events: assignment history,
+notifications, cache invalidation, and permissions.
+
+NOTE: Role profile sync and Team Lead Has Role assignment are handled
+synchronously by doc_event hooks in team_role_profile_hooks.py — NOT here.
 """
 
-import time
-
 import frappe
-from frappe import _
 
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -57,51 +57,6 @@ def handle_assignment_history_updates(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to update assignment history: {str(e)}", "Team Assignment History Error")
 
 
-def handle_role_profile_assignments(event_name, event_data, **kwargs):
-    """
-    Handle role profile assignments when team membership changes.
-
-    Assigns/removes appropriate role profiles based on team positions.
-
-    Args:
-        event_name: Name of the event that triggered this handler
-        event_data: Dict containing event-specific data
-        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
-    """
-    try:
-        team_name = event_data.get("team")
-        volunteer = event_data.get("volunteer")
-        action = event_data.get("action")
-        role = event_data.get("role")
-        old_role = event_data.get("old_role")
-
-        if not team_name or not volunteer:
-            return
-
-        # Get the volunteer's user for role assignment
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-        if not volunteer_doc.member:
-            return
-
-        member_doc = frappe.get_doc("Member", volunteer_doc.member)
-        if not member_doc.user:
-            return
-
-        # Handle role profile assignments based on action
-        if action == "added":
-            _assign_team_role_profile(team_name, member_doc.user, role)
-        elif action == "removed":
-            _remove_team_role_profile(team_name, member_doc.user, old_role)
-        elif action == "role_changed":
-            _remove_team_role_profile(team_name, member_doc.user, old_role)
-            _assign_team_role_profile(team_name, member_doc.user, role)
-
-        frappe.logger("events").info(f"Updated role profiles for {volunteer} in {team_name}")
-
-    except Exception as e:
-        frappe.log_error(f"Failed to update role profiles: {str(e)}", "Team Role Profile Error")
-
-
 def handle_membership_notifications(event_name, event_data, **kwargs):
     """
     Handle notification sending for team membership changes.
@@ -133,41 +88,6 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
 
     except Exception as e:
         frappe.log_error(f"Failed to send team notifications: {str(e)}", "Team Notification Error")
-
-
-def handle_volunteer_integration(event_name, event_data, **kwargs):
-    """
-    Handle integration with volunteer system when team membership changes.
-
-    Updates volunteer records and related systems.
-
-    Args:
-        event_name: Name of the event that triggered this handler
-        event_data: Dict containing event-specific data
-        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
-    """
-    try:
-        team_name = event_data.get("team")
-        volunteer = event_data.get("volunteer")
-        action = event_data.get("action")
-
-        if not team_name or not volunteer:
-            return
-
-        # Update volunteer's team affiliations
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-
-        if action == "added":
-            _update_volunteer_team_affiliation(volunteer_doc, team_name, "added")
-        elif action == "removed":
-            _update_volunteer_team_affiliation(volunteer_doc, team_name, "removed")
-
-        frappe.logger("events").info(f"Updated volunteer integration for {volunteer} in {team_name}")
-
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to update volunteer integration: {str(e)}", "Team Volunteer Integration Error"
-        )
 
 
 def handle_settings_notifications(event_name, event_data, **kwargs):
@@ -297,38 +217,6 @@ def handle_leadership_notifications(event_name, event_data, **kwargs):
         )
 
 
-def handle_leadership_role_updates(event_name, event_data, **kwargs):
-    """
-    Handle role updates for team leadership changes.
-
-    Updates permissions and access levels for new/former team leads.
-
-    Args:
-        event_name: Name of the event that triggered this handler
-        event_data: Dict containing event-specific data
-        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
-    """
-    try:
-        team_name = event_data.get("team")
-        old_lead = event_data.get("old_lead")
-        new_lead = event_data.get("new_lead")
-
-        if not team_name:
-            return
-
-        # Update role assignments for leadership change
-        if old_lead:
-            _revoke_team_lead_permissions(team_name, old_lead)
-
-        if new_lead:
-            _grant_team_lead_permissions(team_name, new_lead)
-
-        frappe.logger("events").info(f"Updated leadership roles for {team_name}")
-
-    except Exception as e:
-        frappe.log_error(f"Failed to update leadership roles: {str(e)}", "Team Leadership Role Error")
-
-
 def handle_team_lead_permissions(event_name, event_data, **kwargs):
     """
     Handle team lead permission updates.
@@ -357,29 +245,6 @@ def handle_team_lead_permissions(event_name, event_data, **kwargs):
 
 
 # Helper functions for specific operations
-
-
-def _assign_team_role_profile(team_name, user, role):
-    """Recalculate role profile when team member is added"""
-    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-    try:
-        auto_sync_on_role_change(user)
-        frappe.logger("events").info(f"Recalculated role profile for {user} after team assignment")
-    except Exception as e:
-        frappe.logger("events").warning(f"Failed to recalculate role profile for {user}: {str(e)}")
-
-
-def _remove_team_role_profile(team_name, user, role):
-    """Recalculate role profile when team member is removed"""
-    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-    try:
-        auto_sync_on_role_change(user)
-        frappe.logger("events").info(f"Recalculated role profile for {user} after team removal")
-
-    except Exception as e:
-        frappe.logger("events").warning(f"Failed to recalculate role profile for {user}: {str(e)}")
 
 
 def _send_team_member_added_notification(team, volunteer_doc, role):
@@ -472,36 +337,6 @@ def _send_team_role_changed_notification(team, volunteer_doc, old_role, new_role
             )
 
 
-def _update_volunteer_team_affiliation(volunteer_doc, team_name, action):
-    """Update volunteer's team affiliations"""
-    try:
-        # Update volunteer's team association tracking
-        if action == "added":
-            # Check if volunteer has team affiliations field
-            if hasattr(volunteer_doc, "current_teams"):
-                current_teams = volunteer_doc.current_teams or []
-                if team_name not in current_teams:
-                    current_teams.append(team_name)
-                    volunteer_doc.current_teams = current_teams
-                    volunteer_doc.save()
-
-        elif action == "removed":
-            # Remove team from volunteer's affiliations
-            if hasattr(volunteer_doc, "current_teams"):
-                current_teams = volunteer_doc.current_teams or []
-                if team_name in current_teams:
-                    current_teams.remove(team_name)
-                    volunteer_doc.current_teams = current_teams
-                    volunteer_doc.save()
-
-        frappe.logger("events").info(
-            f"Updated volunteer {volunteer_doc.name} team affiliation for {team_name}"
-        )
-
-    except Exception as e:
-        frappe.logger("events").warning(f"Failed to update volunteer team affiliation: {str(e)}")
-
-
 def _send_team_settings_notification(team, changed_fields):
     """Send notification about team settings changes"""
     # Get team members for notification
@@ -539,19 +374,23 @@ def _send_team_settings_notification(team, changed_fields):
 
 
 def _update_team_permissions(team_name):
-    """Update team permissions based on new settings"""
+    """Update team permissions based on new settings.
+
+    Uses auto_sync_on_role_change to recalculate role profiles
+    for all active team members.
+    """
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+
     try:
         team = frappe.get_doc("Team", team_name)
 
-        # Update permissions for all team members based on new settings
         for member in team.team_members or []:
             if member.is_active and member.volunteer:
                 volunteer_doc = frappe.get_doc("Volunteer", member.volunteer)
                 if volunteer_doc.member:
                     member_doc = frappe.get_doc("Member", volunteer_doc.member)
                     if member_doc.user:
-                        # Re-assign role profiles based on new settings
-                        _assign_team_role_profile(team_name, member_doc.user, member.team_role)
+                        auto_sync_on_role_change(member_doc.user)
 
         frappe.logger("events").info(f"Updated team permissions for {team_name}")
 
@@ -618,59 +457,6 @@ def _send_leadership_change_notification(team, old_lead, new_lead):
 
     except Exception as e:
         frappe.logger("events").warning(f"Failed to send leadership notifications: {str(e)}")
-
-
-def _revoke_team_lead_permissions(team_name, old_lead):
-    """Revoke team lead permissions from former leader"""
-    try:
-        if not old_lead:
-            return
-
-        # Check if user still has other team lead positions
-        other_lead_positions = frappe.db.sql(
-            """
-            SELECT COUNT(*) as count
-            FROM `tabTeam` t
-            WHERE t.team_lead = %s AND t.name != %s AND t.status = 'Active'
-        """,
-            (old_lead, team_name),
-            as_dict=True,
-        )
-
-        if not other_lead_positions or other_lead_positions[0].count == 0:
-            # User has no other team lead positions, revoke team lead role
-            user_doc = frappe.get_doc("User", old_lead)
-
-            # Remove team lead specific roles
-            user_roles = [role.role for role in user_doc.roles]
-            if "Team Lead" in user_roles:
-                user_doc.roles = [role for role in user_doc.roles if role.role != "Team Lead"]
-                user_doc.save()
-
-        frappe.logger("events").info(f"Revoked team lead permissions for {old_lead}")
-
-    except Exception as e:
-        frappe.logger("events").warning(f"Failed to revoke team lead permissions: {str(e)}")
-
-
-def _grant_team_lead_permissions(team_name, new_lead):
-    """Grant team lead permissions to new leader"""
-    try:
-        if not new_lead:
-            return
-
-        user_doc = frappe.get_doc("User", new_lead)
-
-        # Add team lead role if not already present
-        user_roles = [role.role for role in user_doc.roles]
-        if "Team Lead" not in user_roles:
-            user_doc.append("roles", {"role": "Team Lead"})
-            user_doc.save()
-
-        frappe.logger("events").info(f"Granted team lead permissions to {new_lead}")
-
-    except Exception as e:
-        frappe.logger("events").warning(f"Failed to grant team lead permissions: {str(e)}")
 
 
 def _update_team_lead_access(team_name, new_lead):

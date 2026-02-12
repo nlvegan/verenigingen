@@ -59,9 +59,6 @@ class Team(Document):
             if hasattr(self, "_doc_before_save") and self._doc_before_save:
                 self._emit_team_change_events(self._doc_before_save)
 
-            # Keep the lightweight immediate operations only
-            self._handle_immediate_team_changes()
-
         finally:
             if hasattr(self, "_team_member_changes_processed"):
                 delattr(self, "_team_member_changes_processed")
@@ -195,110 +192,23 @@ class Team(Document):
 
     def add_team_assignment_history(self, volunteer_id: str, team_role: str, start_date: str):
         """Add active assignment to volunteer history when joining team"""
-        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+        from verenigingen.services.team_service import TeamService
 
-        # Get the team member to access both team_role and role fields
-        team_member = None
-        for member in self.team_members:
-            if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
-                team_member = member
-                break
-
-        if not team_member:
-            frappe.logger().warning(f"Could not find team member for volunteer {volunteer_id}")
-            return False
-
-        # Create role description using Team Role system
-        role_description = self.get_role_description_for_history(team_member)
-
-        success = AssignmentHistoryManager.add_assignment_history(
-            volunteer_id=volunteer_id,
-            assignment_type="Team",
-            reference_doctype="Team",
-            reference_name=self.name,
-            role=role_description,
-            start_date=start_date,
-        )
-
-        if success:
-            frappe.logger().info(
-                f"Added team assignment history for volunteer {volunteer_id}: {role_description}"
-            )
-        else:
-            frappe.logger().error(
-                f"Error adding team assignment history for volunteer {volunteer_id}: {role_description}"
-            )
-
-        return success
+        return TeamService().add_assignment_history(self, volunteer_id, team_role, start_date)
 
     def complete_team_assignment_history(
         self, volunteer_id: str, team_role: str, start_date: str, end_date: str
     ):
         """Complete volunteer assignment history when leaving team"""
-        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+        from verenigingen.services.team_service import TeamService
 
-        # Get the team member to access both team_role and role fields
-        team_member = None
-        for member in self.team_members:
-            if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
-                team_member = member
-                break
-
-        # If not in current members, check the old document
-        if not team_member and hasattr(self, "_doc_before_save"):
-            for member in self._doc_before_save.team_members or []:
-                if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
-                    team_member = member
-                    break
-
-        if not team_member:
-            # Use team_role as-is if we can't find the member
-            role_description = team_role or "Team Member"
-        else:
-            # Create role description using Team Role system
-            role_description = self.get_role_description_for_history(team_member)
-
-        success = AssignmentHistoryManager.complete_assignment_history(
-            volunteer_id=volunteer_id,
-            assignment_type="Team",
-            reference_doctype="Team",
-            reference_name=self.name,
-            role=role_description,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        if success:
-            frappe.logger().info(
-                f"Completed team assignment history for volunteer {volunteer_id}: {role_description}"
-            )
-        else:
-            frappe.logger().error(
-                f"Error completing team assignment history for volunteer {volunteer_id}: {role_description}"
-            )
+        return TeamService().complete_assignment_history(self, volunteer_id, team_role, start_date, end_date)
 
     def get_role_description_for_history(self, team_member):
         """Generate role description for assignment history using Team Role system"""
-        role_description = "Team Member"  # Default fallback
+        from verenigingen.services.team_service import TeamService
 
-        # Get the Team Role name as primary identifier
-        if team_member.team_role:
-            try:
-                team_role_doc = frappe.get_cached_doc("Team Role", team_member.team_role)
-                if team_role_doc:
-                    role_description = team_role_doc.role_name
-            except frappe.DoesNotExistError:
-                # Fallback to role_type if Team Role doesn't exist
-                role_description = team_member.role_type or "Team Member"
-        elif team_member.role_type:
-            # Fallback to old role_type system for backwards compatibility
-            role_description = team_member.role_type
-
-        # Append additional role description if provided
-        if team_member.role and team_member.role.strip():
-            role_description = f"{role_description} - {team_member.role}"
-
-        return role_description
+        return TeamService()._get_role_description_for_history(team_member)
 
     def _handle_team_member_changes_atomic(self):
         """Handle team member changes with proper error handling"""
@@ -522,12 +432,6 @@ class Team(Document):
                 },
             )
 
-    def _handle_immediate_team_changes(self):
-        """Handle only immediate, lightweight team changes"""
-        # Keep only the essential immediate operations
-        # Heavy operations like assignment history are now handled via events
-        pass
-
 
 # Backward compatibility API wrappers
 @frappe.whitelist()
@@ -541,7 +445,7 @@ def get_team_members(team):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def sync_team_with_volunteers(team_name=None):
+def sync_team_with_volunteers(team_name: str = None):
     """Sync team members with volunteer system - backward compatibility wrapper"""
     from verenigingen.api.team_management import sync_team_with_volunteers as _sync_team_with_volunteers
 
@@ -550,7 +454,7 @@ def sync_team_with_volunteers(team_name=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_role_profile_preview(team_name):
+def get_role_profile_preview(team_name: str):
     """Get preview of role profiles - backward compatibility wrapper"""
     from verenigingen.api.team_management import get_role_profile_preview as _get_role_profile_preview
 
@@ -559,7 +463,7 @@ def get_role_profile_preview(team_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def bulk_apply_team_role_profiles(team_name):
+def bulk_apply_team_role_profiles(team_name: str):
     """Apply role profiles to team members - backward compatibility wrapper"""
     from verenigingen.api.team_management import (
         bulk_apply_team_role_profiles as _bulk_apply_team_role_profiles,
@@ -581,7 +485,7 @@ def fix_all_missing_assignment_history():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def fix_missing_assignment_history(team_name=None, volunteer_name=None):
+def fix_missing_assignment_history(team_name: str = None, volunteer_name: str = None):
     """Fix missing assignment history for specific team/volunteer - backward compatibility wrapper"""
     from verenigingen.api.team_admin_utilities import (
         fix_missing_assignment_history as _fix_missing_assignment_history,

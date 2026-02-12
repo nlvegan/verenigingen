@@ -132,12 +132,15 @@ def _emit_team_event(event_name, event_data):
 def _get_team_event_subscribers(event_name):
     """Get list of background job handlers for team events"""
 
+    # NOTE: Role profile sync and Team Lead role assignment are handled synchronously
+    # by doc_event hooks in team_role_profile_hooks.py (on_team_lead_change,
+    # on_team_members_change). Do NOT add duplicate async handlers here.
+    # Volunteer integration (handle_volunteer_integration) was removed — it referenced
+    # a nonexistent `current_teams` field on Volunteer.
     event_subscribers = {
         "team_membership_changed": [
             "verenigingen.events.subscribers.team_subscribers.handle_assignment_history_updates",
-            "verenigingen.events.subscribers.team_subscribers.handle_role_profile_assignments",
             "verenigingen.events.subscribers.team_subscribers.handle_membership_notifications",
-            "verenigingen.events.subscribers.team_subscribers.handle_volunteer_integration",
         ],
         "team_settings_changed": [
             "verenigingen.events.subscribers.team_subscribers.handle_settings_notifications",
@@ -146,7 +149,6 @@ def _get_team_event_subscribers(event_name):
         ],
         "team_leadership_changed": [
             "verenigingen.events.subscribers.team_subscribers.handle_leadership_notifications",
-            "verenigingen.events.subscribers.team_subscribers.handle_leadership_role_updates",
             "verenigingen.events.subscribers.team_subscribers.handle_team_lead_permissions",
         ],
     }
