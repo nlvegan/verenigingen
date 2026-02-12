@@ -278,16 +278,17 @@ class DocumentImportService:
     def _get_default_mapping() -> dict:
         """Return sensible defaults for new folder mapping rows.
 
-        Pre-fills Chapter + "Landelijk" + "Other" so the admin only needs
-        to adjust document_type (and occasionally organization) rather than
-        filling every field from scratch.
+        Pre-fills Chapter + national board chapter + "Other" so the admin only
+        needs to adjust document_type (and occasionally organization) rather
+        than filling every field from scratch.
 
-        Returns empty dict if the national chapter doesn't exist.
+        Returns empty dict if no national board chapter is configured.
         """
-        if frappe.db.exists("Chapter", "Landelijk"):
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        if national_chapter and frappe.db.exists("Chapter", national_chapter):
             return {
                 "organization_type": "Chapter",
-                "chapter": "Landelijk",
+                "chapter": national_chapter,
                 "document_type": "Other",
             }
         return {}
