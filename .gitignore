@@ -30,6 +30,7 @@ sg-rules/
 codemap
 __pycache__/
 .pytest_cache/
+.import_check_timestamp
 .coverage
 archived/
 htmlcov/

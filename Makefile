@@ -1,6 +1,6 @@
 # Makefile for Verenigingen app development
 
-.PHONY: help test test-quick test-all coverage lint format install clean test-mollie test-mollie-core test-mollie-performance test-mollie-security
+.PHONY: help test test-quick test-all coverage lint format install clean check-imports test-mollie test-mollie-core test-mollie-performance test-mollie-security
 
 # Dynamic paths - works on any server
 # Makefile is at: <bench>/apps/verenigingen/Makefile
@@ -25,10 +25,11 @@ help:
 	@echo "  make test-mollie-security    - Run Mollie security tests"
 	@echo ""
 	@echo "Code quality:"
-	@echo "  make lint         - Run code linting"
-	@echo "  make format       - Format code with black"
-	@echo "  make install      - Install pre-commit hooks"
-	@echo "  make clean        - Clean test artifacts"
+	@echo "  make lint           - Run code linting"
+	@echo "  make format         - Format code with black"
+	@echo "  make check-imports  - Runtime import validation (all modules)"
+	@echo "  make install        - Install pre-commit hooks"
+	@echo "  make clean          - Clean test artifacts"
 
 test:
 	@echo "Running comprehensive tests..."
@@ -82,6 +83,10 @@ clean:
 	@rm -rf .coverage htmlcov
 	@rm -rf $(BENCH_DIR)/sites/$(SITE)/test-results/*.json
 	@echo "✓ Cleanup complete"
+
+check-imports:
+	@echo "Running runtime import validation..."
+	@$(BENCH_DIR)/env/bin/python $(MAKEFILE_DIR)/scripts/validation/check_all_imports.py
 
 # Mollie Test Orchestrator Commands
 test-mollie:

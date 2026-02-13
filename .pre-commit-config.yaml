@@ -398,6 +398,16 @@ repos:
         exclude: '^(tests/|test_|.*_test\.(py|html|js)|debug_|.*_debug\.(py|html|js)|scripts/testing/|scripts/debug/|node_modules/|archived_.*)'
         verbose: true
 
+      # Runtime Import Validation (weekly, pre-push)
+      - id: runtime-import-check
+        name: 🔍 Runtime Import Check (weekly)
+        description: Validates all Python modules can be imported (catches wrong enums, missing exports, etc.)
+        entry: scripts/validation/check_imports_periodic.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        always_run: true
+
       # Makefile Integration
       - id: make-test-quick
         name: ⚡ Quick Test Suite (Makefile)
