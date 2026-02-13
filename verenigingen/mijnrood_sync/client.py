@@ -62,6 +62,7 @@ class MijnRoodDatabaseClient:
         self._settings = settings
         self._tunnel: Optional[SSHTunnelForwarder] = None
         self._connection: Optional[pymysql.Connection] = None
+        self._actual_columns_cache: dict[str, list[str]] = {}
 
     def connect(self, *, max_retries: int = 3):
         """Open SSH tunnel then MariaDB connection.
@@ -230,11 +231,7 @@ class MijnRoodDatabaseClient:
         pk = TABLE_PRIMARY_KEY[table]
         self._validate_identifier(pk, "primary key")
 
-        columns = TABLE_COLUMNS.get(table)
-        if columns:
-            col_names = columns
-        else:
-            col_names = self._get_table_columns(table)
+        col_names = self._get_resolved_columns(table)
 
         for col in col_names:
             self._validate_identifier(col, "column")
@@ -332,16 +329,37 @@ class MijnRoodDatabaseClient:
         Returns:
             SQL column list string, e.g. "`id`, `first_name`, `last_name`"
         """
-        columns = TABLE_COLUMNS.get(table)
-        if not columns:
-            logger.warning(
-                "Table '%s' not in TABLE_COLUMNS — falling back to information_schema (all columns selected)",
-                table,
-            )
-            columns = self._get_table_columns(table)
+        columns = self._get_resolved_columns(table)
         for col in columns:
             self._validate_identifier(col, "column")
         return ", ".join(f"`{col}`" for col in columns)
+
+    def _get_resolved_columns(self, table: str) -> list[str]:
+        """Return columns for a table, filtered to those that actually exist remotely.
+
+        If TABLE_COLUMNS defines expected columns for this table, intersects them
+        with the real remote schema (preserving the expected order). This handles
+        schema drift where columns like original_id may not exist on all
+        MijnRood instances. Falls back to information_schema if no expected
+        columns are defined.
+        """
+        expected = TABLE_COLUMNS.get(table)
+        if not expected:
+            return self._get_table_columns(table)
+
+        if table not in self._actual_columns_cache:
+            self._actual_columns_cache[table] = self._get_table_columns(table)
+        actual = set(self._actual_columns_cache[table])
+
+        resolved = [col for col in expected if col in actual]
+        missing = set(expected) - actual
+        if missing:
+            logger.info(
+                "Table '%s': columns %s not found in remote schema, skipping",
+                table,
+                sorted(missing),
+            )
+        return resolved
 
     def _get_table_columns(self, table: str) -> list[str]:
         """Get column names for a table from information_schema."""
