@@ -304,12 +304,16 @@ class MijnRoodSyncSettings(Document):
     def populate_default_role_mapping(self):
         """Load default role mapping values into the child table.
 
-        Pre-populates ROLE_ADMIN and ROLE_DIVISION_CONTACT with safe defaults
-        (all actions disabled). Admin then enables desired actions.
+        Pre-populates ROLE_ADMIN and ROLE_DIVISION_CONTACT with recommended defaults.
+        ROLE_ADMIN is configured to add members to the "Secretariaat" team (created
+        automatically if it doesn't exist). Admin can adjust all settings afterwards.
         Only populates if the table is empty to avoid overwriting customizations.
         """
         if self.role_mapping:
             frappe.throw(_("Role mapping table is not empty. Clear it first to reload defaults."))
+
+        # Ensure the Secretariaat team exists for ROLE_ADMIN default
+        secretariaat_team = self._ensure_secretariaat_team()
 
         defaults = [
             {
@@ -317,6 +321,8 @@ class MijnRoodSyncSettings(Document):
                 "label": "Landelijk Beheerder",
                 "create_volunteer": 0,
                 "add_to_chapter_board": 0,
+                "add_to_team": 1,
+                "default_team": secretariaat_team,
             },
             {
                 "mijnrood_role": "ROLE_DIVISION_CONTACT",
@@ -335,6 +341,27 @@ class MijnRoodSyncSettings(Document):
             "success": True,
             "message": _("Loaded {0} default role mappings").format(len(self.role_mapping)),
         }
+
+    def _ensure_secretariaat_team(self):
+        """Create the Secretariaat team if it doesn't already exist.
+
+        Returns:
+            str: The team name ("Secretariaat").
+        """
+        team_name = "Secretariaat"
+        if not frappe.db.exists("Team", team_name):
+            team = frappe.get_doc(
+                {
+                    "doctype": "Team",
+                    "team_name": team_name,
+                    "description": _("National administration team for MijnRood administrators."),
+                    "status": "Active",
+                    "is_association_wide": 1,
+                }
+            )
+            team.insert()
+            frappe.logger().info(f"Created default Secretariaat team: {team.name}")
+        return team_name
 
     @frappe.whitelist()
     def fetch_document_folders(self):
