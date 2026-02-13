@@ -21,8 +21,8 @@ Usage:
     make check-imports
 
     # Or directly:
-    cd /home/frappe/frappe-bench
-    bench --site dev.veganisme.net python apps/verenigingen/scripts/validation/check_all_imports.py
+    cd ~/frappe-bench
+    bench --site <your-site> python apps/verenigingen/scripts/validation/check_all_imports.py
 
 Exit codes:
     0 - All modules imported successfully
@@ -46,11 +46,19 @@ def get_bench_dir():
 
 def get_site(bench_dir):
     """Determine the Frappe site to connect to."""
-    currentsite = os.path.join(bench_dir, "sites", "currentsite.txt")
+    sites_dir = os.path.join(bench_dir, "sites")
+    currentsite = os.path.join(sites_dir, "currentsite.txt")
     if os.path.exists(currentsite):
         with open(currentsite) as f:
             return f.read().strip()
-    return "dev.veganisme.net"
+
+    # Auto-discover: find directories containing site_config.json
+    for entry in sorted(os.listdir(sites_dir)):
+        if os.path.isfile(os.path.join(sites_dir, entry, "site_config.json")):
+            return entry
+
+    print("ERROR: No Frappe site found in", sites_dir)
+    sys.exit(1)
 
 
 def main():
