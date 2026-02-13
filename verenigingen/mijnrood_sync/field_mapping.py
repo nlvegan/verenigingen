@@ -316,6 +316,8 @@ def _load_role_mapping() -> dict:
             "role_profile": row.role_profile or None,
             "add_to_chapter_board": bool(row.add_to_chapter_board),
             "chapter_role": row.chapter_role or None,
+            "add_to_team": bool(row.get("add_to_team")),
+            "default_team": row.get("default_team") or None,
         }
     return mapping
 

@@ -100,6 +100,28 @@ class MijnRoodSyncSettings(Document):
                     )
                 )
 
+            if row.add_to_team and not row.default_team:
+                frappe.throw(
+                    _("Row {0} ({1}): 'Toevoegen aan Team' is checked but no Team is set").format(
+                        row.idx, row.mijnrood_role
+                    )
+                )
+
+            if row.default_team and not frappe.db.exists("Team", row.default_team):
+                frappe.throw(
+                    _("Row {0} ({1}): Team '{2}' does not exist").format(
+                        row.idx, row.mijnrood_role, row.default_team
+                    )
+                )
+
+            if row.add_to_team and not row.create_volunteer:
+                frappe.throw(
+                    _(
+                        "Row {0} ({1}): 'Toevoegen aan Team' requires 'Maak Vrijwilliger Aan' "
+                        "to be checked (Volunteer record is needed for team membership)"
+                    ).format(row.idx, row.mijnrood_role)
+                )
+
             if row.mijnrood_role == "ROLE_ADMIN" and row.add_to_chapter_board:
                 frappe.msgprint(
                     _(

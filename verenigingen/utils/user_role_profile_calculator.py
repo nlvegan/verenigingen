@@ -6,10 +6,12 @@ This is a ground-truth approach that derives the profile from actual assignments
 trying to maintain state through add/remove operations.
 
 Priority Order (highest to lowest):
-1. Chapter Board Member - if user is on any active chapter board
-2. Team Leader - if user leads any volunteer team
-3. Active Volunteer - if user has an active volunteer record
-4. Member - default for all members
+1. Special accounting roles (Treasurer, Kascommissie)
+2. Chapter Board Member - if user is on any active chapter board
+3. Association-wide staff teams
+4. Team Leader - if user leads any volunteer team
+5. Active Volunteer - if user has an active volunteer record
+6. Member - default for all members
 
 Author: Verenigingen Development Team
 Last Updated: 2025-10-09
@@ -40,6 +42,7 @@ PROFILE_MEMBER = "Verenigingen Member"
 PRIORITY_SPECIAL_ACCOUNTING = 100  # Treasurer, Kascommissie with accounting access
 PRIORITY_BOARD_ROLE_SPECIFIC = 80  # Board roles with custom profiles
 PRIORITY_BOARD_DEFAULT = 70  # Default board member profile
+PRIORITY_STAFF = 75  # Association-wide staff teams
 PRIORITY_TEAM_ROLE_SPECIFIC = 60  # Team roles with custom profiles
 PRIORITY_TEAM_LEADER = 50  # Default team leader profile
 PRIORITY_VOLUNTEER = 30  # Active volunteer
@@ -126,6 +129,7 @@ def _get_cached_team_profile_config(team_name: str) -> dict:
             "default_profile": team.default_role_profile,
             "enable_specific": bool(team.enable_role_specific_profiles),
             "specific_profiles": specific_profiles,
+            "is_association_wide": bool(team.is_association_wide),
         }
 
         # Cache it
@@ -135,7 +139,12 @@ def _get_cached_team_profile_config(team_name: str) -> dict:
 
     except Exception as e:
         frappe.logger().warning(f"Error loading team profile config for {team_name}: {str(e)}")
-        return {"default_profile": None, "enable_specific": False, "specific_profiles": {}}
+        return {
+            "default_profile": None,
+            "enable_specific": False,
+            "specific_profiles": {},
+            "is_association_wide": False,
+        }
 
 
 def invalidate_profile_config_cache(entity_type: str = None, entity_name: str = None):
@@ -223,11 +232,12 @@ def calculate_user_role_profile(user: str) -> Optional[str]:
     Priority Order (highest to lowest):
         1. Special accounting roles (Treasurer, Kascommissie) - Priority 100
         2. Board roles with custom profiles - Priority 80
-        3. Default board member profile - Priority 70
-        4. Team roles with custom profiles - Priority 60
-        5. Team leader default - Priority 50
-        6. Active volunteer - Priority 30
-        7. Member (default) - Priority 10
+        3. Association-wide staff teams - Priority 75
+        4. Default board member profile - Priority 70
+        5. Team roles with custom profiles - Priority 60
+        6. Team leader default - Priority 50
+        7. Active volunteer - Priority 30
+        8. Member (default) - Priority 10
     """
     if not user or user == "Guest":
         return None
@@ -429,8 +439,13 @@ def get_team_profiles(user: str, member: str) -> list:
                                 )
                                 # Fall through to default
                             else:
-                                # Team member with specific role
-                                profiles.append((PRIORITY_TEAM_ROLE_SPECIFIC, role_profile))
+                                # Association-wide teams get higher priority
+                                priority = (
+                                    PRIORITY_STAFF
+                                    if team_config.get("is_association_wide")
+                                    else PRIORITY_TEAM_ROLE_SPECIFIC
+                                )
+                                profiles.append((priority, role_profile))
                                 continue
 
                     # Fall back to default team role profile (if not already team leader)
@@ -440,7 +455,12 @@ def get_team_profiles(user: str, member: str) -> list:
                         if team_config["default_profile"]:
                             # Validate profile exists
                             if frappe.db.exists("Role Profile", team_config["default_profile"]):
-                                profiles.append((PRIORITY_TEAM_ROLE_SPECIFIC, team_config["default_profile"]))
+                                priority = (
+                                    PRIORITY_STAFF
+                                    if team_config.get("is_association_wide")
+                                    else PRIORITY_TEAM_ROLE_SPECIFIC
+                                )
+                                profiles.append((priority, team_config["default_profile"]))
                             else:
                                 frappe.log_error(
                                     f"Default role profile '{team_config['default_profile']}' for team {membership.parent} does not exist",
@@ -563,6 +583,121 @@ def is_active_volunteer(user: str, member: str) -> bool:
         return False
 
 
+def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
+    """Create a minimal Employee record if the target profile requires the Employee role.
+
+    ERPNext's ``validate_employee_role()`` hook (User.validate) strips Employee
+    and Employee Self Service roles when no Employee record exists for the user.
+    This silently undoes role profile assignments for profiles that include
+    those roles (e.g. "Verenigingen Staff", "Vereinigingen Chapter Board Member").
+
+    This function is called from ``sync_user_role_profile()`` *before*
+    ``user_doc.save()`` so the Employee exists by the time the hook fires.
+
+    Args:
+        user: User email/ID
+        role_profile_name: Target role profile about to be set
+    """
+    if not role_profile_name:
+        return
+
+    # Check if the target profile includes the Employee role
+    try:
+        profile_roles = {r.role for r in frappe.get_cached_doc("Role Profile", role_profile_name).roles}
+    except frappe.DoesNotExistError:
+        return
+
+    if "Employee" not in profile_roles:
+        return
+
+    # Check if Employee already exists for this user
+    if frappe.db.exists("Employee", {"user_id": user}):
+        return
+
+    # Get member info for the Employee record
+    member = frappe.db.get_value("Member", {"user": user}, ["first_name", "last_name"], as_dict=True)
+    if not member:
+        frappe.logger().warning("Cannot create Employee for %s: no linked Member record", user)
+        return
+
+    # Get company from Vereinigingen Settings
+    company = frappe.db.get_single_value("Verenigingen Settings", "company")
+    if not company:
+        frappe.logger().warning(
+            "Cannot create Employee for %s: no company configured in Verenigingen Settings",
+            user,
+        )
+        return
+
+    try:
+        emp = frappe.new_doc("Employee")
+        emp.first_name = member.first_name
+        emp.last_name = member.last_name or ""
+        emp.employee_name = f"{member.first_name} {member.last_name or ''}".strip()
+        emp.company = company
+        emp.user_id = user
+        emp.status = "Active"
+        emp.date_of_joining = frappe.utils.today()
+        # Security: System-initiated Employee creation for role profile compatibility
+        emp.insert(ignore_permissions=True)
+        frappe.logger().info(
+            "Created Employee %s for user %s (required by profile '%s')",
+            emp.name,
+            user,
+            role_profile_name,
+        )
+    except Exception as e:
+        frappe.logger().error("Failed to create Employee for %s: %s", user, str(e))
+
+
+def calculate_all_user_role_profiles(user: str) -> list[tuple[int, str]]:
+    """Return the full list of applicable role profiles sorted by priority (descending).
+
+    Unlike ``calculate_user_role_profile()`` which returns only the highest-priority
+    profile, this returns all candidates. Useful for debugging and for future v16
+    multi-profile support.
+
+    Args:
+        user: User email/ID
+
+    Returns:
+        List of (priority, profile_name) tuples sorted highest-priority first.
+        Empty list if user is not a member.
+    """
+    if not user or user == "Guest":
+        return []
+
+    member = frappe.db.get_value("Member", {"user": user}, "name")
+    if not member:
+        return []
+
+    profiles = []
+
+    board_profiles = get_board_member_profiles(user, member)
+    profiles.extend(board_profiles)
+
+    team_profiles = get_team_profiles(user, member)
+    profiles.extend(team_profiles)
+
+    if is_active_volunteer(user, member):
+        profiles.append((PRIORITY_VOLUNTEER, PROFILE_VOLUNTEER))
+
+    profiles.append((PRIORITY_MEMBER, PROFILE_MEMBER))
+
+    profiles.sort(key=lambda x: x[0], reverse=True)
+    return profiles
+
+
+def _has_multi_profile_support() -> bool:
+    """Check if User doctype supports multiple role profiles (v16 indicator).
+
+    Frappe v16 adds a ``role_profiles`` child table to User, allowing
+    multiple profiles simultaneously. This function detects that capability.
+    """
+    meta = frappe.get_meta("User")
+    return meta.has_field("role_profiles")
+
+
 def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
     """
     Calculate and apply the correct role profile to a user.
@@ -610,6 +745,15 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
         changed = role_changed or module_changed
 
         if changed and not dry_run:
+            # TODO: When Frappe v16 lands with multi-profile support,
+            # use calculate_all_user_role_profiles() + _has_multi_profile_support()
+            # to assign all applicable profiles instead of just the highest.
+
+            # Ensure Employee record exists before saving User, otherwise
+            # ERPNext's validate_employee_role() hook strips Employee/ESS roles
+            if role_changed:
+                _ensure_employee_for_profile(user, new_profile)
+
             # Apply the changes
             if role_changed:
                 user_doc.role_profile_name = new_profile

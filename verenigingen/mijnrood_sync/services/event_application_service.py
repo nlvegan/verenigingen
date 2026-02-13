@@ -1212,6 +1212,12 @@ class MijnRoodEventApplicationService(StatefulService):
                     if board_msg:
                         messages.append(board_msg)
 
+        # Add to team if configured (team hook handles role profile sync)
+        if config.get("add_to_team") and config.get("default_team"):
+            team_msg = self._ensure_team_membership(member_name, config["default_team"], event=event)
+            if team_msg:
+                messages.append(team_msg)
+
         return messages
 
     def _ensure_volunteer(
@@ -1235,7 +1241,13 @@ class MijnRoodEventApplicationService(StatefulService):
 
         existing = get_volunteer_for_member(member_name)
         if existing:
-            # Volunteer already exists — just ensure role assignment
+            # Volunteer already exists — skip individual role assignment when
+            # add_to_team is configured, because the team hook will handle the
+            # role profile (which includes all necessary roles). Using add_roles()
+            # here is futile: Frappe's populate_role_profile_roles() overwrites
+            # individually added roles on every User.save().
+            if config.get("add_to_team"):
+                return None
             role = config.get("verenigingen_role")
             if role:
                 role_msg = self._ensure_user_role(member_name, role)
@@ -1394,6 +1406,83 @@ class MijnRoodEventApplicationService(StatefulService):
                 f"MijnRood Sync - Chapter Board Addition Failed: {member_name}",
             )
             return _("Chapter board addition failed: {0}").format(str(e)[:200])
+
+    def _ensure_team_membership(
+        self,
+        member_name: str,
+        team_name: str,
+        event=None,
+    ) -> Optional[str]:
+        """Add member's volunteer to a team if not already an active member.
+
+        Saving the Team triggers the ``on_team_members_change`` hook which calls
+        ``auto_sync_on_role_change()`` — this recalculates the user's role profile
+        via the calculator (which now respects ``is_association_wide`` priority).
+
+        Args:
+            member_name: Vereinigingen Member name
+            team_name: Team document name
+            event: Sync event for logging context
+
+        Returns:
+            Human-readable status message, or None if already a team member.
+        """
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            get_volunteer_for_member,
+        )
+
+        volunteer_name = get_volunteer_for_member(member_name)
+        if not volunteer_name:
+            return _("No Volunteer record for {0} — cannot add to team").format(member_name)
+
+        if not frappe.db.exists("Team", team_name):
+            return _("Team '{0}' does not exist").format(team_name)
+
+        # Check if already an active team member
+        existing = frappe.db.exists(
+            "Team Member",
+            {"parent": team_name, "volunteer": volunteer_name, "status": "Active"},
+        )
+        if existing:
+            return None  # Already on team
+
+        try:
+            team_doc = frappe.get_doc("Team", team_name)
+            team_doc.append(
+                "team_members",
+                {
+                    "volunteer": volunteer_name,
+                    "team_role": "Team Member",
+                    "from_date": today(),
+                    "status": "Active",
+                    "is_active": 1,
+                    "notes": "Added via MijnRood sync (event {0})".format(event.name if event else "N/A"),
+                },
+            )
+            # Security: System-initiated team assignment from authoritative MijnRood data
+            # Saving triggers on_team_members_change → auto_sync_on_role_change()
+            team_doc.save(ignore_permissions=True)
+
+            self.logger.info(
+                "Added volunteer %s to team %s (member %s, event %s)",
+                volunteer_name,
+                team_name,
+                member_name,
+                event.name if event else "N/A",
+            )
+            return _("Added to team '{0}'").format(team_name)
+        except Exception as e:
+            self.logger.error(
+                "Failed to add %s to team %s: %s",
+                volunteer_name,
+                team_name,
+                e,
+            )
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Team Addition Failed: {member_name}",
+            )
+            return _("Team addition failed: {0}").format(str(e)[:200])
 
     @staticmethod
     def _parse_mijnrood_roles(roles_value) -> set[str]:
