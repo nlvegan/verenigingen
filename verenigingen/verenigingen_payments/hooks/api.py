@@ -15,7 +15,7 @@ from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentHook
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.READ)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_payment_methods(context: str | None = None) -> dict:
     """
     Get available payment methods for the given context.
@@ -112,7 +112,7 @@ def initiate_payment(
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.READ)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_payment_status(method: str, payment_id: str) -> dict:
     """
     Check payment status.

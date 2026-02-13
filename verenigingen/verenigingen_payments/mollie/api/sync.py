@@ -21,7 +21,7 @@ from ..utils.audit import log_mollie_security_event
 
 
 @frappe.whitelist(methods=["POST"])
-@standard_api(operation_type=OperationType.FINANCIAL_SYNC)
+@standard_api(operation_type=OperationType.FINANCIAL)
 def sync_payment_status(payment_id: str) -> Dict[str, Any]:
     """
     Synchronize payment status with Mollie.
@@ -67,7 +67,7 @@ def sync_payment_status(payment_id: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist(methods=["POST"])
-@standard_api(operation_type=OperationType.FINANCIAL_SYNC)
+@standard_api(operation_type=OperationType.FINANCIAL)
 def sync_subscription_status(customer_id: str, subscription_id: str) -> Dict[str, Any]:
     """
     Synchronize subscription status with Mollie.
@@ -114,7 +114,7 @@ def sync_subscription_status(customer_id: str, subscription_id: str) -> Dict[str
 
 
 @frappe.whitelist(methods=["POST"])
-@standard_api(operation_type=OperationType.FINANCIAL_SYNC)
+@standard_api(operation_type=OperationType.FINANCIAL)
 def sync_customer_payments(customer_id: str, limit: int = 50) -> Dict[str, Any]:
     """
     Synchronize all payments for a customer.
@@ -191,7 +191,7 @@ def sync_customer_payments(customer_id: str, limit: int = 50) -> Dict[str, Any]:
 
 
 @frappe.whitelist(methods=["POST"])
-@standard_api(operation_type=OperationType.FINANCIAL_SYNC)
+@standard_api(operation_type=OperationType.FINANCIAL)
 def sync_member_subscriptions(member_id: str) -> Dict[str, Any]:
     """
     Synchronize subscriptions for a specific member.
@@ -265,7 +265,7 @@ def sync_member_subscriptions(member_id: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist(methods=["POST"])
-@standard_api(operation_type=OperationType.SYSTEM_MAINTENANCE)
+@standard_api(operation_type=OperationType.ADMIN)
 def bulk_sync_recent_payments(hours: int = 24) -> Dict[str, Any]:
     """
     Bulk synchronize recent payments.

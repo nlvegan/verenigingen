@@ -10,7 +10,6 @@ from frappe import _
 
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import standard_api
-from verenigingen.utils.validation.api_validators import validate_api_input
 
 
 @frappe.whitelist()
@@ -60,8 +59,7 @@ def get_team_members(team):
 @frappe.whitelist()
 @standard_api
 @handle_api_error
-@validate_api_input
-def sync_team_with_volunteers(team_name=None):
+def sync_team_with_volunteers(team_name: str | None = None):
     """Sync team members with volunteer system"""
 
     # Permission check
@@ -95,7 +93,7 @@ def sync_team_with_volunteers(team_name=None):
 @frappe.whitelist()
 @standard_api
 @handle_api_error
-def get_role_profile_preview(team_name):
+def get_role_profile_preview(team_name: str):
     """Get preview of which role profiles would be assigned to team members"""
 
     if not frappe.has_permission("Team", "read", team_name):
@@ -131,7 +129,7 @@ def get_role_profile_preview(team_name):
 @frappe.whitelist()
 @standard_api
 @handle_api_error
-def bulk_apply_team_role_profiles(team_name):
+def bulk_apply_team_role_profiles(team_name: str):
     """Recalculate role profiles for all active members of a team.
 
     Uses auto_sync_on_role_change() which derives the correct profile from
