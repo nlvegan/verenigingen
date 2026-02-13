@@ -54,6 +54,7 @@ class MembershipCreationService(StatelessService):
         start_date=None,
         custom_dues_rate=None,
         approval_fields=None,
+        is_csv_import=False,
     ):
         """
         Validate all inputs for membership creation.
@@ -79,8 +80,8 @@ class MembershipCreationService(StatelessService):
         if not member_doc.name:
             frappe.throw(_("Member document must be saved before creating membership"))
 
-        # Validate start_date if provided (allow 5 years historical, 30 days future scheduling)
-        if start_date:
+        # Validate start_date if provided (skip for imports — historic dates are expected)
+        if start_date and not is_csv_import:
             from verenigingen.utils.validation_utilities import validate_historical_date_window
 
             validate_historical_date_window(
@@ -88,7 +89,7 @@ class MembershipCreationService(StatelessService):
                 max_years_past=5,
                 max_days_future=30,
                 field_name="start_date",
-                throw_on_error=True,  # MembershipCreationService uses exceptions
+                throw_on_error=True,
             )
 
         # Validate custom_dues_rate if provided
@@ -158,7 +159,7 @@ class MembershipCreationService(StatelessService):
 
             # Step 0: Validate all inputs (defense-in-depth)
             self._validate_membership_creation_inputs(
-                member_doc, start_date, custom_dues_rate, approval_fields
+                member_doc, start_date, custom_dues_rate, approval_fields, is_csv_import
             )
 
             # Step 1: Validate membership creation parameters
