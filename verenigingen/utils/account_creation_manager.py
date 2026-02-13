@@ -171,8 +171,9 @@ class AccountCreationManager:
             frappe.logger().error(f"Account creation failed for {self.request_name}: {error_msg}")
             frappe.logger().error(traceback.format_exc())
 
-            # Mark as failed with detailed error
-            self.request.mark_failed(error_msg, self.get_current_stage())
+            # Mark as failed with detailed error (request may be None if load_request failed)
+            if self.request:
+                self.request.mark_failed(error_msg, self.get_current_stage())
 
             # Determine if this is retryable
             if self.is_retryable_error(e) and (self.request.retry_count or 0) < 3:
