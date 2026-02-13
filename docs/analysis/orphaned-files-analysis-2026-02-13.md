@@ -11,11 +11,11 @@ Desloppify `show orphaned --status open` reported **822 findings**. This documen
 | Patches in patches.txt | ~30 | False positive — registered for migration |
 | Standalone scripts (`scripts/`) | ~200 | Expected — entry points, not libraries |
 | Unregistered patches (deleted) | 16 | **Deleted** — superseded, changes already applied |
-| Whitelisted debug API files | ~80 | **Actionable** — unnecessary attack surface |
-| Orphaned utils | ~100+ | **Actionable** — dead weight in production path |
-| Orphaned payment debug utils | ~12 | **Actionable** — dead weight |
-| Orphaned services | 5 | **Actionable** — abandoned implementations |
-| Orphaned event handlers | 2 | **Actionable** — confirmed dead code |
+| Whitelisted debug API files | 80 | **Deleted** — 26,834 LOC removed |
+| Orphaned utils | 81 | **Deleted** — 13,683 LOC removed (87 files incl. services/events) |
+| Orphaned payment debug utils | ~12 | Needs investigation — Mollie module reorganized |
+| Orphaned services | 5 | **Deleted** — included in utils cleanup round |
+| Orphaned event handlers | 1 | **Deleted** — included in utils cleanup round |
 
 ## Actions Taken
 
@@ -63,69 +63,68 @@ These patch files existed but were **never listed in `patches.txt`**, meaning th
 
 **Note:** `patches/v1_0/add_coverage_duplicate_check_indexes.py` was NOT deleted — it is intentionally called from the `after_migrate` hook in `hooks/lifecycle.py` rather than patches.txt.
 
-## Remaining Cleanup Targets
+### Deleted: 87 Orphaned Utils/Services/Events (13,683 LOC removed)
 
-### Priority 1: Whitelisted Debug API Files (~80 files)
+One-off debug, fix, check, cleanup, and analysis utilities with zero imports anywhere in the codebase. Also includes orphaned services and event handlers.
 
-Files in `verenigingen/api/` that have `@frappe.whitelist()` decorators but exist purely for debugging, one-off fixes, or manual maintenance. They expose admin-level operations to any authenticated user via Frappe RPC.
+**utils/debug/ (52 files — entire directory removed):**
+Debug/diagnostic utilities for e-boekhouden imports, payment APIs, permissions, templates, SEPA, membership, and more. None imported by production code.
 
-**Patterns found:**
-- `api/debug_*` — debugging endpoints
-- `api/fix_*` — one-off data fixes
-- `api/check_*` — diagnostic checks
-- `api/validate_*` — one-time validation scripts
-- `api/test_*` — test endpoints left in production
-- `api/phase2_2_*` — migration-phase utilities
+**utils/fix_\* (6 files):**
+- `fix_overpaid_invoice.py`, `fix_eboekhouden_workspace.py`, `fix_member_ownership.py`
+- `fix_sepa_database_issues.py`, `fix_missing_payment_history.py`, `fix_unique_db.py`
 
-**Risk:** These are callable by any authenticated user. Many perform data mutations (deletions, field updates, permission changes).
+**utils/check_\* (3 files):**
+- `check_subscription_payment.py`, `check_existing_accounts.py`, `check_coverage_mismatch.py`
 
-**Notable dangerous endpoints:**
-- `api/donation_reset.py` — resets donation data
-- `api/fix_race_condition_invoices.py` — modifies invoices
-- `api/cleanup_chapter_members.py` — deletes records
-- `utils/nuke_financial_data_fast.py` — self-explanatory
+**utils/cleanup_\* (5 files):**
+- `cleanup_function_summary.py`, `cleanup_e_boekhouden_codebase.py`, `cleanup_direct_sql.py`
+- `cleanup_orphaned_links.py`, `cleanup_duplicate_assignments.py`
 
-### Priority 2: Orphaned Utils (~100+ files)
+**utils/analyze_\* (5 files):**
+- `analyze_like_usage.py`, `analyze_mutation_ledgers.py`, `analyze_remaining_fallbacks.py`
+- `analyze_missed_payments.py`, `analyze_account_mappings.py`
 
-Files in `verenigingen/utils/` with zero imports anywhere in the codebase. These are one-off debug/fix/analysis utilities that were placed in `utils/` instead of `scripts/`.
+**Other orphaned utils (10 files):**
+- `validate_team_role_migration.py` — one-off migration validator
+- `chapter_role_profile_hooks.py` — zero imports
+- `volunteer_role_profile_hooks.py` — zero imports
+- `security/cache_invalidation.py` — zero imports (rest of security/ is active)
+- `inspect_journal_entry.py` — debug utility
+- `execute_workspace_reorg.py` — zero imports (one-off script)
+- `workspace_reports_organizer.py` — only referenced by execute_workspace_reorg.py
+- `admin_utilities/mandate_sync_utility.py` — zero imports
+- `admin_utilities/payment_entry_repair_utility.py` — zero imports
+- `admin_utilities/subscription_management_utility.py` — zero imports
 
-**Confirmed truly orphaned (sampled):**
-- `utils/chapter_role_profile_hooks.py` — not imported
-- `utils/volunteer_role_profile_hooks.py` — not imported
-- `utils/security/cache_invalidation.py` — not imported
-- `utils/admin_utilities/mandate_sync_utility.py` — not imported
-- All `utils/debug/*` files (~30+)
-- All `utils/fix_*`, `utils/check_*`, `utils/cleanup_*`, `utils/analyze_*` files
-
-**Confirmed actively used (NOT orphaned):**
-- `utils/secure_operations.py` — 150+ imports
-- `utils/validation_utilities.py` — 20+ imports
-- `utils/account_creation_manager.py` — 19 imports
-- `utils/jinja_methods.py` — registered in hooks
-- `utils/error_handling.py` — 20+ imports
-
-### Priority 3: Orphaned Services (5 files)
-
-- `services/customer_service.py` — explicitly marked DEPRECATED (superseded by `customer_handling_service.py`)
-- `services/donation/management_service.py` — abandoned, zero imports
-- `services/donation/validation_service.py` — abandoned, zero imports
-- `services/payment_processing_service.py` — abandoned, zero imports
+**Orphaned services (5 files):**
+- `services/customer_service.py` — explicitly marked DEPRECATED, zero imports
+- `services/donation/management_service.py` — zero imports (other donation services are active)
+- `services/donation/validation_service.py` — zero imports
+- `services/payment_processing_service.py` — zero imports
 - `services/infrastructure/integration_tests.py` — test file in wrong location
 
-### Priority 4: Orphaned Event Handlers (2 files)
+**Orphaned event handler (1 file):**
+- `events/simple_expense_hooks.py` — NOT registered in doc_events.py, zero imports
 
-- `events/simple_expense_hooks.py` — NOT in doc_events.py, not imported anywhere
-- `hooks/before_request.py` — explicitly commented out in `hooks/lifecycle.py:69-71`
+**Files investigated but KEPT:**
+- `utils/nuke_financial_data.py` and `nuke_financial_data_fast.py` — imported by e_boekhouden code
+- `utils/admin_utilities/subscription_audit.py` — imported by 3 files (reports, www)
+- `utils/admin_utilities/run_audit.py` — imported by subscription audit report
+- `utils/workspace_analyzer.py`, `workspace_link_validator.py`, `workspace_content_fixer.py` — imported by `commands/workspace.py`
+- `services/donation/donor_service.py`, `financial_service.py`, `reporting_service.py` — actively used by Donation DocType controller
 
-### Priority 5: Payment Module Debug Utils (~12 files)
+## Remaining Cleanup Targets
 
-Mollie debug/fix utilities with zero imports:
-- `mollie/utils/debug_issue.py`, `debug_payment_entry.py`
-- `mollie/utils/fix_customer_data.py`, `fix_donation_status.py`
-- `mollie/utils/check_donation_status.py`, `data_backfill_utility.py`
-- `mollie/utils/manual_webhook_retry.py`, `payment_checker.py`, `transaction_manager.py`
-- `mollie/utils/relationship_manager.py` — duplicate of active `mollie_relationship_manager.py`
-- `core/compliance/regulatory_reporter.py` — abandoned compliance feature
+All priority 1–4 items have been cleaned up. The remaining items are:
+
+### Payment Module Debug Utils
+
+The original analysis identified `mollie/utils/` debug files, but these paths no longer exist (the Mollie module was reorganized into `verenigingen_payments/`). The `verenigingen_payments/utils/` directory contains ~40 SEPA and payment utility files that need individual import verification before any can be removed — these are likely a mix of active and orphaned code.
+
+### hooks/before_request.py
+
+Listed in the analysis but file does not exist on disk — already removed or never created as a separate file (the hook is commented out inline in `hooks/lifecycle.py:69-71`).
 
 ## False Positive Details
 
