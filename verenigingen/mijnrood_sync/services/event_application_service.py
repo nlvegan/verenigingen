@@ -1247,6 +1247,10 @@ class MijnRoodEventApplicationService(StatefulService):
             # here is futile: Frappe's populate_role_profile_roles() overwrites
             # individually added roles on every User.save().
             if config.get("add_to_team"):
+                self.logger.debug(
+                    "Skipping individual role assignment for %s — team hook will set profile",
+                    member_name,
+                )
                 return None
             role = config.get("verenigingen_role")
             if role:
@@ -1435,8 +1439,11 @@ class MijnRoodEventApplicationService(StatefulService):
         if not volunteer_name:
             return _("No Volunteer record for {0} — cannot add to team").format(member_name)
 
-        if not frappe.db.exists("Team", team_name):
+        team_status = frappe.db.get_value("Team", team_name, "status")
+        if not team_status:
             return _("Team '{0}' does not exist").format(team_name)
+        if team_status != "Active":
+            return _("Team '{0}' is not active (status: {1})").format(team_name, team_status)
 
         # Check if already an active team member
         existing = frappe.db.exists(
@@ -1446,13 +1453,14 @@ class MijnRoodEventApplicationService(StatefulService):
         if existing:
             return None  # Already on team
 
+        default_team_role = "Team Member"
         try:
             team_doc = frappe.get_doc("Team", team_name)
             team_doc.append(
                 "team_members",
                 {
                     "volunteer": volunteer_name,
-                    "team_role": "Team Member",
+                    "team_role": default_team_role,
                     "from_date": today(),
                     "status": "Active",
                     "is_active": 1,

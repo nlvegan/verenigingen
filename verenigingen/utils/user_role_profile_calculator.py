@@ -6,12 +6,14 @@ This is a ground-truth approach that derives the profile from actual assignments
 trying to maintain state through add/remove operations.
 
 Priority Order (highest to lowest):
-1. Special accounting roles (Treasurer, Kascommissie)
-2. Chapter Board Member - if user is on any active chapter board
-3. Association-wide staff teams
-4. Team Leader - if user leads any volunteer team
-5. Active Volunteer - if user has an active volunteer record
-6. Member - default for all members
+1. Special accounting roles (Treasurer, Kascommissie) — priority 100
+2. Board roles with custom profiles — priority 80
+3. Association-wide staff teams — priority 75
+4. Default board member profile — priority 70
+5. Team roles with custom profiles — priority 60
+6. Team leader default — priority 50
+7. Active Volunteer — priority 30
+8. Member (default) — priority 10
 
 Author: Verenigingen Development Team
 Last Updated: 2025-10-09
@@ -646,6 +648,9 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
             user,
             role_profile_name,
         )
+    except frappe.DuplicateEntryError:
+        # Concurrent sync created the Employee between our check and insert
+        frappe.logger().debug("Employee for %s already exists (concurrent creation)", user)
     except Exception as e:
         frappe.logger().error("Failed to create Employee for %s: %s", user, str(e))
 
