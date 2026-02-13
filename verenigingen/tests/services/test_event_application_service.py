@@ -14,6 +14,10 @@ Tests cover:
 - _check_and_handle_termination: status routing, auto-execution, execution failure
 - _ensure_user_account: setting disabled, member has user, success, failure, exception
 - ACR deduplication: set clearing, skip on duplicate, volunteer→ACR tracking, dual scenario
+- _ensure_team_membership: no volunteer, team missing, team inactive, already member, happy path, exception
+- _ensure_user_account_for_volunteer: user exists, already queued, happy path, queue failure, exception
+- _ensure_employee_for_profile: no profile, no Employee role, Employee exists, profile missing,
+  no member, no company, happy path, DuplicateEntryError race, unexpected exception
 """
 
 import json
@@ -1671,3 +1675,450 @@ class TestApplyNewMemberPromotionPath(EnhancedTestCase):
 
         mock_promote.assert_not_called()
         self.assertTrue(result["success"])
+
+
+# ─── Tests for _ensure_team_membership ────────────────────────────────
+
+
+class TestEnsureTeamMembership(EnhancedTestCase):
+    """Tests for _ensure_team_membership()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value=None,
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_no_volunteer_returns_error(self, mock_frappe, _mock_get_vol):
+        """When member has no Volunteer record, return an error message."""
+        mock_frappe._ = frappe._
+
+        result = self.service._ensure_team_membership("MEM-001", "Secretariaat")
+
+        self.assertIn("No Volunteer", result)
+        self.assertIn("MEM-001", result)
+
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_team_does_not_exist(self, mock_frappe, _mock_get_vol):
+        """When team doesn't exist, return error message."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = None  # Team not found
+
+        result = self.service._ensure_team_membership("MEM-001", "Ghost Team")
+
+        self.assertIn("does not exist", result)
+        self.assertIn("Ghost Team", result)
+
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_team_not_active(self, mock_frappe, _mock_get_vol):
+        """When team exists but is not Active, return error message."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "Archived"
+
+        result = self.service._ensure_team_membership("MEM-001", "Old Team")
+
+        self.assertIn("not active", result)
+        self.assertIn("Archived", result)
+
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_already_active_member_returns_none(self, mock_frappe, _mock_get_vol):
+        """When volunteer is already an active team member, return None (skip)."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "Active"  # Team is active
+        mock_frappe.db.exists.return_value = True  # Already a team member
+
+        result = self.service._ensure_team_membership("MEM-001", "Secretariaat")
+
+        self.assertIsNone(result)
+        mock_frappe.get_doc.assert_not_called()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.today")
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_happy_path_adds_to_team(self, mock_frappe, _mock_get_vol, mock_today):
+        """Happy path: volunteer added to team, team saved."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "Active"
+        mock_frappe.db.exists.return_value = False  # Not yet a member
+        mock_today.return_value = "2026-02-13"
+
+        mock_team_doc = MagicMock()
+        mock_frappe.get_doc.return_value = mock_team_doc
+
+        event = MagicMock()
+        event.name = "SYNC-001"
+
+        result = self.service._ensure_team_membership("MEM-001", "Secretariaat", event=event)
+
+        self.assertIn("Added to team", result)
+        self.assertIn("Secretariaat", result)
+        mock_team_doc.append.assert_called_once_with(
+            "team_members",
+            {
+                "volunteer": "VOL-001",
+                "team_role": "Team Member",
+                "from_date": "2026-02-13",
+                "status": "Active",
+                "is_active": 1,
+                "notes": "Added via MijnRood sync (event SYNC-001)",
+            },
+        )
+        mock_team_doc.save.assert_called_once_with(ignore_permissions=True)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.today")
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_save_exception_returns_error(self, mock_frappe, _mock_get_vol, mock_today):
+        """When team save raises an exception, return error message and log it."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "Active"
+        mock_frappe.db.exists.return_value = False
+        mock_today.return_value = "2026-02-13"
+
+        mock_team_doc = MagicMock()
+        mock_team_doc.save.side_effect = Exception("DB lock timeout")
+        mock_frappe.get_doc.return_value = mock_team_doc
+
+        result = self.service._ensure_team_membership("MEM-001", "Secretariaat")
+
+        self.assertIn("Team addition failed", result)
+        self.assertIn("DB lock timeout", result)
+        mock_frappe.log_error.assert_called_once()
+
+
+# ─── Tests for _ensure_user_account_for_volunteer ─────────────────────
+
+
+class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
+    """Tests for _ensure_user_account_for_volunteer()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_user_already_exists_returns_none(self, mock_frappe):
+        """When member already has a linked User, return None (no-op)."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "user@example.com"
+
+        result = self.service._ensure_user_account_for_volunteer("MEM-001")
+
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_acr_already_queued_returns_none(self, mock_frappe):
+        """When ACR was already queued this sync run, return None."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = None  # No user
+
+        self.service._acr_queued_members.add("MEM-001")
+
+        result = self.service._ensure_user_account_for_volunteer("MEM-001")
+
+        self.assertIsNone(result)
+
+    @patch(
+        "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_happy_path_queues_acr(self, mock_frappe, mock_queue):
+        """Happy path: queues ACR with volunteer profile and adds to dedup set."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = None  # No user
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.data = {"request_name": "ACR-00042"}
+        mock_queue.return_value = mock_result
+
+        result = self.service._ensure_user_account_for_volunteer("MEM-001")
+
+        self.assertIn("Account creation queued", result)
+        self.assertIn("ACR-00042", result)
+        self.assertIn("MEM-001", self.service._acr_queued_members)
+        mock_queue.assert_called_once_with(
+            "MEM-001",
+            roles=["Verenigingen Volunteer"],
+            role_profile="Verenigingen Volunteer",
+            priority="Medium",
+        )
+
+    @patch(
+        "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_queue_returns_failure_returns_none(self, mock_frappe, mock_queue):
+        """When queue_account_creation returns failure (e.g. no email), return None."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = None
+
+        mock_result = MagicMock()
+        mock_result.success = False
+        mock_result.error_message = "Member has no email address"
+        mock_queue.return_value = mock_result
+
+        result = self.service._ensure_user_account_for_volunteer("MEM-001")
+
+        self.assertIsNone(result)
+        self.assertNotIn("MEM-001", self.service._acr_queued_members)
+
+    @patch(
+        "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_queue_exception_returns_error(self, mock_frappe, mock_queue):
+        """When queue function raises an exception, return error message."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = None
+        mock_queue.side_effect = Exception("Redis connection refused")
+
+        result = self.service._ensure_user_account_for_volunteer("MEM-001")
+
+        self.assertIn("Account creation failed", result)
+        self.assertIn("Redis connection refused", result)
+
+
+# ─── Tests for _ensure_employee_for_profile ───────────────────────────
+
+
+class TestEnsureEmployeeForProfile(EnhancedTestCase):
+    """Tests for _ensure_employee_for_profile() in user_role_profile_calculator."""
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_no_profile_name_is_noop(self, mock_frappe):
+        """Empty/None profile name returns immediately."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        _ensure_employee_for_profile("user@example.com", "")
+        _ensure_employee_for_profile("user@example.com", None)
+
+        mock_frappe.get_cached_doc.assert_not_called()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_profile_without_employee_role_is_noop(self, mock_frappe):
+        """When the target profile doesn't include Employee role, skip."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_profile = MagicMock()
+        mock_role = MagicMock()
+        mock_role.role = "Verenigingen Member"
+        mock_profile.roles = [mock_role]
+        mock_frappe.get_cached_doc.return_value = mock_profile
+
+        _ensure_employee_for_profile("user@example.com", "Verenigingen Member")
+
+        mock_frappe.db.exists.assert_not_called()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_employee_already_exists_is_noop(self, mock_frappe):
+        """When Employee already exists for the user, skip creation."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_profile = MagicMock()
+        mock_role = MagicMock()
+        mock_role.role = "Employee"
+        mock_profile.roles = [mock_role]
+        mock_frappe.get_cached_doc.return_value = mock_profile
+        mock_frappe.db.exists.return_value = True
+
+        _ensure_employee_for_profile("user@example.com", "Verenigingen Staff")
+
+        mock_frappe.new_doc.assert_not_called()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_profile_not_found_is_noop(self, mock_frappe):
+        """When the profile doesn't exist, skip gracefully."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_frappe.DoesNotExistError = frappe.DoesNotExistError
+        mock_frappe.get_cached_doc.side_effect = frappe.DoesNotExistError("Not found")
+
+        _ensure_employee_for_profile("user@example.com", "Nonexistent Profile")
+
+        mock_frappe.db.exists.assert_not_called()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_no_linked_member_logs_warning(self, mock_frappe):
+        """When no Member record is linked to the user, log warning and skip."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_profile = MagicMock()
+        mock_role = MagicMock()
+        mock_role.role = "Employee"
+        mock_profile.roles = [mock_role]
+        mock_frappe.get_cached_doc.return_value = mock_profile
+        mock_frappe.db.exists.return_value = False
+        mock_frappe.db.get_value.return_value = None  # No member
+
+        mock_logger = MagicMock()
+        mock_frappe.logger.return_value = mock_logger
+
+        _ensure_employee_for_profile("user@example.com", "Verenigingen Staff")
+
+        mock_logger.warning.assert_called_once()
+        mock_frappe.new_doc.assert_not_called()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_no_company_configured_logs_warning(self, mock_frappe):
+        """When Verenigingen Settings has no company, log warning and skip."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_profile = MagicMock()
+        mock_role = MagicMock()
+        mock_role.role = "Employee"
+        mock_profile.roles = [mock_role]
+        mock_frappe.get_cached_doc.return_value = mock_profile
+        mock_frappe.db.exists.return_value = False
+        mock_frappe.db.get_value.return_value = {"first_name": "Jan", "last_name": "Bakker"}
+        mock_frappe.db.get_single_value.return_value = None  # No company
+
+        mock_logger = MagicMock()
+        mock_frappe.logger.return_value = mock_logger
+
+        _ensure_employee_for_profile("user@example.com", "Verenigingen Staff")
+
+        mock_logger.warning.assert_called_once()
+        mock_frappe.new_doc.assert_not_called()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_happy_path_creates_employee(self, mock_frappe):
+        """Happy path: creates Employee with correct fields."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_profile = MagicMock()
+        mock_role = MagicMock()
+        mock_role.role = "Employee"
+        mock_profile.roles = [mock_role]
+        mock_frappe.get_cached_doc.return_value = mock_profile
+        mock_frappe.DoesNotExistError = frappe.DoesNotExistError
+        mock_frappe.DuplicateEntryError = frappe.DuplicateEntryError
+        mock_frappe.db.exists.return_value = False
+        mock_frappe.db.get_value.return_value = frappe._dict(
+            {"first_name": "Geert", "last_name": "van Schaik"}
+        )
+        mock_frappe.db.get_single_value.return_value = "Veganisme Vereniging"
+        mock_frappe.utils.today.return_value = "2026-02-13"
+
+        mock_emp = MagicMock()
+        mock_frappe.new_doc.return_value = mock_emp
+
+        mock_logger = MagicMock()
+        mock_frappe.logger.return_value = mock_logger
+
+        _ensure_employee_for_profile("geert@example.com", "Verenigingen Staff")
+
+        mock_frappe.new_doc.assert_called_once_with("Employee")
+        self.assertEqual(mock_emp.first_name, "Geert")
+        self.assertEqual(mock_emp.last_name, "van Schaik")
+        self.assertEqual(mock_emp.employee_name, "Geert van Schaik")
+        self.assertEqual(mock_emp.company, "Veganisme Vereniging")
+        self.assertEqual(mock_emp.user_id, "geert@example.com")
+        self.assertEqual(mock_emp.status, "Active")
+        # Verify Employee insert used system-level permissions (production code
+        # creates Employee for role profile compatibility, not user-initiated)
+        insert_kwargs = mock_emp.insert.call_args
+        self.assertTrue(insert_kwargs.kwargs.get("ignore_permissions"))
+        mock_logger.info.assert_called_once()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_duplicate_entry_handled_gracefully(self, mock_frappe):
+        """Race condition: concurrent Employee creation doesn't raise."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_profile = MagicMock()
+        mock_role = MagicMock()
+        mock_role.role = "Employee"
+        mock_profile.roles = [mock_role]
+        mock_frappe.get_cached_doc.return_value = mock_profile
+        mock_frappe.DoesNotExistError = frappe.DoesNotExistError
+        mock_frappe.DuplicateEntryError = frappe.DuplicateEntryError
+        mock_frappe.db.exists.return_value = False
+        mock_frappe.db.get_value.return_value = frappe._dict(
+            {"first_name": "Jan", "last_name": "Bakker"}
+        )
+        mock_frappe.db.get_single_value.return_value = "Veganisme Vereniging"
+        mock_frappe.utils.today.return_value = "2026-02-13"
+
+        mock_emp = MagicMock()
+        mock_emp.insert.side_effect = frappe.DuplicateEntryError("Duplicate")
+        mock_frappe.new_doc.return_value = mock_emp
+
+        mock_logger = MagicMock()
+        mock_frappe.logger.return_value = mock_logger
+
+        # Should not raise
+        _ensure_employee_for_profile("jan@example.com", "Verenigingen Staff")
+
+        mock_logger.debug.assert_called_once()
+        mock_logger.error.assert_not_called()
+
+    @patch("verenigingen.utils.user_role_profile_calculator.frappe")
+    def test_unexpected_exception_logged_as_error(self, mock_frappe):
+        """Unexpected insert failure is logged as error but doesn't raise."""
+        from verenigingen.utils.user_role_profile_calculator import (
+            _ensure_employee_for_profile,
+        )
+
+        mock_profile = MagicMock()
+        mock_role = MagicMock()
+        mock_role.role = "Employee"
+        mock_profile.roles = [mock_role]
+        mock_frappe.get_cached_doc.return_value = mock_profile
+        mock_frappe.DoesNotExistError = frappe.DoesNotExistError
+        mock_frappe.DuplicateEntryError = frappe.DuplicateEntryError
+        mock_frappe.db.exists.return_value = False
+        mock_frappe.db.get_value.return_value = frappe._dict(
+            {"first_name": "Jan", "last_name": "Bakker"}
+        )
+        mock_frappe.db.get_single_value.return_value = "Veganisme Vereinigung"
+        mock_frappe.utils.today.return_value = "2026-02-13"
+
+        mock_emp = MagicMock()
+        mock_emp.insert.side_effect = Exception("Something unexpected")
+        mock_frappe.new_doc.return_value = mock_emp
+
+        mock_logger = MagicMock()
+        mock_frappe.logger.return_value = mock_logger
+
+        # Should not raise
+        _ensure_employee_for_profile("jan@example.com", "Verenigingen Staff")
+
+        mock_logger.error.assert_called_once()
