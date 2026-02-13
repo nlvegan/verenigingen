@@ -8,7 +8,7 @@ service-oriented architecture.
 All methods are read-only queries — no transaction management needed.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe.utils import add_days, flt, getdate, today
@@ -239,6 +239,17 @@ class DonationDashboardService(StatelessService):
         }
 
 
+# Module-level singleton accessor
+_service_instance: Optional[DonationDashboardService] = None
+
+
 def get_donation_dashboard_service() -> DonationDashboardService:
-    """Get instance of DonationDashboardService."""
-    return DonationDashboardService()
+    """Get or create the DonationDashboardService singleton.
+
+    Returns:
+        DonationDashboardService: The service instance
+    """
+    global _service_instance
+    if _service_instance is None:
+        _service_instance = DonationDashboardService()
+    return _service_instance
