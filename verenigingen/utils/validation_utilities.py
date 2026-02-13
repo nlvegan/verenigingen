@@ -476,7 +476,7 @@ class DateRangeValidator:
                 ).format(
                     field_name=field_name.replace("_", " ").title(),
                     max_years=max_years_past,
-                    date_value=frappe.format_date(date_value),
+                    date_value=frappe.utils.format_date(date_value),
                 )
                 if throw_on_error:
                     raise ValidationError(error_msg)
@@ -493,7 +493,7 @@ class DateRangeValidator:
                 ).format(
                     field_name=field_name.replace("_", " ").title(),
                     max_days=max_days_future,
-                    date_value=frappe.format_date(date_value),
+                    date_value=frappe.utils.format_date(date_value),
                 )
                 if throw_on_error:
                     raise ValidationError(error_msg)

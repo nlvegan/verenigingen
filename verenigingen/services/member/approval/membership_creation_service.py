@@ -325,7 +325,7 @@ class MembershipCreationService(StatelessService):
             ).format(
                 existing_membership.name,
                 existing_membership.membership_type,
-                frappe.format_date(existing_membership.start_date),
+                frappe.utils.format_date(existing_membership.start_date),
             )
         )
 

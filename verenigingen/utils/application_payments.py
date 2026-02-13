@@ -342,7 +342,7 @@ def get_payment_instructions_html(invoice, payment_url):
             <ul>
                 <li><strong>Invoice Number:</strong> {invoice.name}</li>
                 <li><strong>Amount Due:</strong> {frappe.utils.fmt_money(invoice.grand_total, currency=invoice.currency)}</li>
-                <li><strong>Due Date:</strong> {frappe.format_date(invoice.due_date)}</li>
+                <li><strong>Due Date:</strong> {frappe.utils.format_date(invoice.due_date)}</li>
             </ul>
         </div>
 

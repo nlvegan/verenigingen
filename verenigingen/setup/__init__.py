@@ -491,9 +491,7 @@ def _seed_default_document_categories(settings):
         {"category_name": "Other", "category_icon": "📎"},
     ]
 
-    existing_names = {
-        row.category_name for row in (settings.board_document_categories or [])
-    }
+    existing_names = {row.category_name for row in (settings.board_document_categories or [])}
 
     added = []
     for cat in defaults:
@@ -971,11 +969,11 @@ def create_application_email_templates():
                     </tr>
                     <tr>
                         <td><strong>Valid From:</strong></td>
-                        <td>{{ frappe.format_date(membership.start_date) }}</td>
+                        <td>{{ frappe.utils.format_date(membership.start_date) }}</td>
                     </tr>
                     <tr>
                         <td><strong>Valid Until:</strong></td>
-                        <td>{{ frappe.format_date(membership.renewal_date) }}</td>
+                        <td>{{ frappe.utils.format_date(membership.renewal_date) }}</td>
                     </tr>
                     {% if member.primary_chapter %}
                     <tr>

@@ -107,7 +107,7 @@ class ExpulsionReportEntry(Document):
                     <tr><td style="padding: 5px;"><strong>Member:</strong></td><td style="padding: 5px;">{self.member_name}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Member ID:</strong></td><td style="padding: 5px;">{self.member_id}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Expulsion Type:</strong></td><td style="padding: 5px;">{self.expulsion_type}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Expulsion Date:</strong></td><td style="padding: 5px;">{frappe.format_date(self.expulsion_date)}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Expulsion Date:</strong></td><td style="padding: 5px;">{frappe.utils.format_date(self.expulsion_date)}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Chapter:</strong></td><td style="padding: 5px;">{self.chapter_involved or 'Not specified'}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Initiated By:</strong></td><td style="padding: 5px;">{self.initiated_by}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Approved By:</strong></td><td style="padding: 5px;">{self.approved_by}</td></tr>
@@ -202,8 +202,8 @@ class ExpulsionReportEntry(Document):
                 <h3>Reversal Details</h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr><td style="padding: 5px;"><strong>Member:</strong></td><td style="padding: 5px;">{self.member_name}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Original Expulsion Date:</strong></td><td style="padding: 5px;">{frappe.format_date(self.expulsion_date)}</td></tr>
-                    <tr><td style="padding: 5px;"><strong>Reversal Date:</strong></td><td style="padding: 5px;">{frappe.format_date(self.reversal_date)}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Original Expulsion Date:</strong></td><td style="padding: 5px;">{frappe.utils.format_date(self.expulsion_date)}</td></tr>
+                    <tr><td style="padding: 5px;"><strong>Reversal Date:</strong></td><td style="padding: 5px;">{frappe.utils.format_date(self.reversal_date)}</td></tr>
                     <tr><td style="padding: 5px;"><strong>Reversal Reason:</strong></td><td style="padding: 5px;">{self.reversal_reason}</td></tr>
                 </table>
             </div>

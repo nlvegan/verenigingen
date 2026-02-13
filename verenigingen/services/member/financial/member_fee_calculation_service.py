@@ -154,7 +154,7 @@ class MemberFeeCalculationService(StatelessService):
             return {
                 "current_amount": current_fee["amount"],
                 "display_amount": amendment["requested_amount"],
-                "status": f"Pending - Effective {frappe.format_date(amendment['effective_date']) if amendment['effective_date'] else 'TBD'}",
+                "status": f"Pending - Effective {frappe.utils.format_date(amendment['effective_date']) if amendment['effective_date'] else 'TBD'}",
                 "amendment_status": amendment["status"],
                 "amendment_id": amendment["name"],
                 "reason": amendment["reason"],
