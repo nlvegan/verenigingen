@@ -319,7 +319,7 @@ class MijnRoodSyncSettings(Document):
             {
                 "mijnrood_role": "ROLE_ADMIN",
                 "label": "Landelijk Beheerder",
-                "create_volunteer": 0,
+                "create_volunteer": 1,
                 "add_to_chapter_board": 0,
                 "add_to_team": 1,
                 "default_team": secretariaat_team,
