@@ -1314,14 +1314,19 @@ class MijnRoodEventApplicationService(StatefulService):
                     return role_msg
             return None
 
-        # Create volunteer with optional user account + roles
+        # Create volunteer — account creation is needed when a role is assigned
+        # OR when the member will be added to a team (team hook needs a User
+        # account to sync role profiles).
         roles = None
         create_account = False
-        role = config.get("verenigingen_role")
+        role = config.get("vereinigingen_role") or config.get("verenigingen_role")
         role_profile = config.get("role_profile")
+        needs_team = config.get("add_to_team") and config.get("default_team")
         if role:
             create_account = True
             roles = [role]
+        elif needs_team:
+            create_account = True
 
         try:
             result = create_volunteer_from_member(
@@ -1339,15 +1344,18 @@ class MijnRoodEventApplicationService(StatefulService):
             if create_account:
                 self._acr_queued_members.add(member_name)
             self.logger.info(
-                "Created volunteer %s for member %s (event %s, role=%s)",
+                "Created volunteer %s for member %s (event %s, role=%s, account=%s)",
                 volunteer_name,
                 member_name,
                 event.name if event else "N/A",
                 role,
+                create_account,
             )
             msg = _("Volunteer {0} created").format(volunteer_name)
             if role:
                 msg += _("; role '{0}' assigned").format(role)
+            if create_account and not role:
+                msg += _("; account creation queued for team membership")
             return msg
 
         except Exception as e:
