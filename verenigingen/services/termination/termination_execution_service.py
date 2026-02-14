@@ -118,46 +118,43 @@ class TerminationExecutionService(StatelessService):
                 f"This service only handles Membership Termination Request documents."
             )
 
-        # Start explicit transaction for atomic execution
-        # QCE Fix #2: Transaction management to prevent partial execution
-        frappe.db.begin()
-
+        # Use savepoint for atomic execution — works both standalone (Frappe's
+        # implicit request transaction) and when called from within an existing
+        # transaction (e.g. MijnRood sync event processor). FOR UPDATE locks
+        # still work within savepoints.
         try:
-            # STEP 1: Idempotency check with database-level locking
-            # QCE Fix #1: FOR UPDATE lock prevents race conditions
-            if self._check_idempotency_with_lock(termination_request):
-                frappe.db.commit()  # Release lock
-                return True  # Already executed, skip duplicate
+            with frappe.db.savepoint():
+                # STEP 1: Idempotency check with database-level locking
+                # FOR UPDATE lock prevents race conditions in concurrent execution
+                if self._check_idempotency_with_lock(termination_request):
+                    return True  # Already executed, skip duplicate
 
-            self.logger.info(f"Starting termination execution for {termination_request.name}")
+                self.logger.info(f"Starting termination execution for {termination_request.name}")
 
-            # STEP 2: Pre-execution validation - minimal checks for retry safety
-            self._validate_preconditions(termination_request)
+                # STEP 2: Pre-execution validation - minimal checks for retry safety
+                self._validate_preconditions(termination_request)
 
-            # STEP 3: Execute system updates using declarative operations
-            results = self.execute_system_updates(termination_request)
+                # STEP 3: Execute system updates using declarative operations
+                results = self.execute_system_updates(termination_request)
 
-            # STEP 4: Update execution tracking fields and status
-            self._update_tracking(termination_request, results)
-            termination_request.status = "Executed"
+                # STEP 4: Update execution tracking fields and status
+                self._update_tracking(termination_request, results)
+                termination_request.status = "Executed"
 
-            # STEP 5: Save changes (use flags to avoid validation issues and recursion)
-            termination_request.flags.ignore_validate_update_after_submit = True
-            termination_request.flags.skip_status_change_hook = True  # Prevent recursive execution
-            termination_request.save()
+                # STEP 5: Save changes (use flags to avoid validation issues and recursion)
+                termination_request.flags.ignore_validate_update_after_submit = True
+                termination_request.flags.skip_status_change_hook = True  # Prevent recursive execution
+                termination_request.save()
 
-            # Add audit trail entry
-            termination_request.add_audit_entry(
-                "Termination Executed",
-                f"System updates completed: {len(results.get('actions_taken', []))} actions",
-            )
-
-            # STEP 6: Commit transaction - all or nothing
-            frappe.db.commit()
+                # Add audit trail entry
+                termination_request.add_audit_entry(
+                    "Termination Executed",
+                    f"System updates completed: {len(results.get('actions_taken', []))} actions",
+                )
 
             self.logger.info(f"Termination execution completed for {termination_request.name}")
 
-            # STEP 7: Show success message to user (after commit)
+            # Show success message to user (after savepoint released)
             if results.get("errors"):
                 frappe.msgprint(
                     _("Membership termination executed with {0} warnings. Check logs for details.").format(
@@ -171,14 +168,9 @@ class TerminationExecutionService(StatelessService):
             return True
 
         except Exception as e:
-            # QCE Fix #3: Rollback transaction before status revert
-            # This ensures partial changes are not persisted
-            frappe.db.rollback()
-            self.logger.error(
-                f"Transaction rolled back for {termination_request.name} due to error: {str(e)}"
-            )
+            self.logger.error(f"Savepoint rolled back for {termination_request.name} due to error: {str(e)}")
 
-            # Error recovery - revert status in separate transaction and re-raise
+            # Error recovery - revert status and re-raise
             self._handle_error(termination_request, e)
 
     def execute_system_updates(self, termination_request: "Document") -> Dict[str, Any]:
@@ -486,35 +478,28 @@ class TerminationExecutionService(StatelessService):
         error_msg = str(error)
         self.logger.error(f"Termination execution failed for {termination_request.name}: {error_msg}")
 
-        # Start new transaction for status revert (main transaction already rolled back)
-        frappe.db.begin()
-
+        # Revert status in a savepoint so this works both standalone and
+        # within an existing transaction (e.g. MijnRood sync event processor).
         try:
-            # Reload document to get fresh state after rollback
-            termination_request.reload()
+            with frappe.db.savepoint():
+                # Reload document to get fresh state after savepoint rollback
+                termination_request.reload()
 
-            # Add audit trail entry for the failure
-            termination_request.add_audit_entry("Execution Failed", f"Error: {error_msg}")
+                # Add audit trail entry for the failure
+                termination_request.add_audit_entry("Execution Failed", f"Error: {error_msg}")
 
-            # Revert status to enable retry (only if currently "Executed")
-            if termination_request.status == "Executed":
-                termination_request.status = "Approved"
-                termination_request.flags.ignore_validate_update_after_submit = True
-                termination_request.flags.skip_termination_validation = (
-                    True  # Skip validation during error recovery
-                )
-                termination_request.save()
+                # Revert status to enable retry (only if currently "Executed")
+                if termination_request.status == "Executed":
+                    termination_request.status = "Approved"
+                    termination_request.flags.ignore_validate_update_after_submit = True
+                    termination_request.flags.skip_termination_validation = True
+                    termination_request.save()
 
-                self.logger.info(
-                    f"Status reverted to Approved for {termination_request.name} after rollback - retry enabled"
-                )
-
-            # Commit the status revert transaction
-            frappe.db.commit()
+                    self.logger.info(
+                        f"Status reverted to Approved for {termination_request.name} - retry enabled"
+                    )
 
         except Exception as revert_error:
-            # If status revert fails, rollback and log but don't hide original error
-            frappe.db.rollback()
             self.logger.error(f"Failed to revert status for {termination_request.name}: {str(revert_error)}")
 
         # Re-raise original exception
