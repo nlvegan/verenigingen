@@ -1319,7 +1319,7 @@ class MijnRoodEventApplicationService(StatefulService):
         # account to sync role profiles).
         roles = None
         create_account = False
-        role = config.get("vereinigingen_role") or config.get("verenigingen_role")
+        role = config.get("verenigingen_role")
         role_profile = config.get("role_profile")
         needs_team = config.get("add_to_team") and config.get("default_team")
         if role:
@@ -1599,11 +1599,10 @@ class MijnRoodEventApplicationService(StatefulService):
                     row.status = "Ended"
                     row.is_active = 0
                     row.to_date = today()
-                    row.notes = (
-                        row.notes or ""
-                    ) + "\nEnded via MijnRood sync — role revoked (event {0})".format(
+                    suffix = "Ended via MijnRood sync — role revoked (event {0})".format(
                         event.name if event else "N/A"
                     )
+                    row.notes = f"{row.notes}\n{suffix}" if row.notes else suffix
                     break
             # Security: System-initiated team removal from authoritative MijnRood role revocation
             team_doc.save(ignore_permissions=True)

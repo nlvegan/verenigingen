@@ -175,9 +175,9 @@ class AccountCreationManager:
             if self.request:
                 self.request.mark_failed(error_msg, self.get_current_stage())
 
-            # Determine if this is retryable
-            if self.is_retryable_error(e) and (self.request.retry_count or 0) < 3:
-                self.schedule_retry()
+                # Determine if this is retryable
+                if self.is_retryable_error(e) and (self.request.retry_count or 0) < 3:
+                    self.schedule_retry()
 
             raise
 
