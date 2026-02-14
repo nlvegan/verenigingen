@@ -3192,176 +3192,34 @@ Row Details:"""
 
 
 def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_info):
-    """Create Payment Entry for Money Received (type 5) or Money Paid (type 6)"""
-    mutation_id = mutation.get("id")
-    mutation_type = mutation.get("type", 0)
-    description = mutation.get("description", f"eBoekhouden Import {mutation_id}")
-    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-    ledger_id = mutation.get("ledgerId")
+    """
+    Create Journal Entry for Money Received (type 5) or Money Paid (type 6).
 
-    # Handle both detailed data format ("Regels") and summary data format ("rows")
-    rows = mutation.get("Regels", []) or mutation.get("rows", [])
+    Delegates to PaymentProcessor._process_money_transfer() which provides:
+    - Multi-row support (one JE line per row, not just the first row)
+    - Party extraction from mutation description/relation
+    - Bank Transaction creation for reconciliation
+    - Duplicate handling (idempotent insert)
+    - PII-masked error logging
 
-    # If main amount is zero, try to get amount from rows (keeping the sign!)
-    if amount == 0 and rows:
-        # Keep sign to detect reversed transactions (negative amount = opposite direction)
-        row_amounts = [frappe.utils.flt(row.get("amount", 0), 2) for row in rows]
-        amount = sum(row_amounts)
-        debug_info.append(f"Main amount was 0, calculated {amount} from {len(rows)} rows")
+    Note: The old implementation raised ValueError for Receivable/Payable accounts.
+    PaymentProcessor handles these correctly by extracting and assigning parties.
+    """
+    from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 
-    debug_info.append(
-        f"Creating money transfer Payment Entry: ID={mutation_id}, Type={mutation_type}, Amount={amount}"
-    )
+    # Normalize Dutch "Regels" key to "rows" for PaymentProcessor compatibility
+    if "Regels" in mutation and "rows" not in mutation:
+        mutation["rows"] = mutation["Regels"]
 
-    # Get bank account from main ledgerId - auto-create mapping if needed
-    bank_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
-    if bank_account:
-        debug_info.append(f"Mapped main ledger {ledger_id} to bank account: {bank_account}")
-    else:
-        # Get ledger code for better error message
-        ledger_code = frappe.db.get_value(
-            "E-Boekhouden Ledger Mapping", {"ledger_id": str(ledger_id)}, "ledger_code"
-        )
-        raise frappe.ValidationError(
-            f"No ERPNext account mapped for E-Boekhouden ledger {ledger_id} (code: {ledger_code}). "
-            f"Please link the ledger mapping to an ERPNext account before importing."
-        )
+    processor = PaymentProcessor(company, cost_center)
+    result = processor._process_money_transfer(mutation)
 
-    # Get income/expense account from rows
-    target_account = None
-    if rows and len(rows) > 0:
-        row_ledger_id = rows[0].get("ledgerId")
-        # Get target account from ledger mapping (with auto-create if missing)
-        target_account = get_erpnext_account_from_ledger_id(
-            row_ledger_id, company, debug_info, auto_create=True
-        )
-        if target_account:
-            debug_info.append(f"Mapped row ledger {row_ledger_id} to target account: {target_account}")
+    # Copy debug info from processor to caller's debug_info list
+    processor_debug = processor.get_debug_info()
+    if processor_debug:
+        debug_info.extend(processor_debug)
 
-    if not target_account:
-        # Create appropriate account based on mutation type
-        if mutation_type == 5:  # Money Received - need income account
-            # Get ledger code instead of ledger ID
-            ledger_code = None
-            if rows:
-                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), company, debug_info)
-
-            line_dict = create_invoice_line_for_tegenrekening(
-                tegenrekening_code=ledger_code,
-                amount=abs(amount),
-                description=description,
-                transaction_type="sales",
-            )
-            target_account = line_dict.get("income_account")
-        else:  # Money Paid - need expense account
-            # Get ledger code instead of ledger ID
-            ledger_code = None
-            if rows:
-                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), company, debug_info)
-
-            line_dict = create_invoice_line_for_tegenrekening(
-                tegenrekening_code=ledger_code,
-                amount=abs(amount),
-                description=description,
-                transaction_type="purchase",
-            )
-            target_account = line_dict.get("expense_account")
-
-        debug_info.append(f"Created/mapped target account: {target_account}")
-
-    # Check account types to determine if we need parties
-    bank_account_type = frappe.db.get_value("Account", bank_account, "account_type")
-    target_account_type = frappe.db.get_value("Account", target_account, "account_type")
-
-    # If either account requires a party (Receivable/Payable), create Payment Entry with party
-    # Otherwise, fall back to Journal Entry as Payment Entry requires party for bank transfers
-    if bank_account_type in ["Receivable", "Payable"] or target_account_type in ["Receivable", "Payable"]:
-        debug_info.append(
-            "Account requires party - this should use existing Payment Entry logic for types 3/4"
-        )
-        # This case should be handled by the existing payment entry logic, not this function
-        raise ValueError(f"Party required for account types {bank_account_type}/{target_account_type}")
-
-    # For direct bank-to-P&L transfers, Payment Entry without party doesn't work well in ERPNext
-    # Fall back to Journal Entry but with proper account mapping
-    debug_info.append("Creating Journal Entry instead of Payment Entry (no party required)")
-
-    je = frappe.new_doc("Journal Entry")
-    je.company = company
-    je.posting_date = mutation.get("date")
-    je.voucher_type = "Journal Entry"  # Use standard voucher type
-    je.eboekhouden_mutation_nr = str(mutation_id)
-    je.user_remark = description
-    # Set both reference fields if using Bank Entry type
-    je.cheque_no = f"EB-{mutation_id}"
-    je.cheque_date = mutation.get("date")
-
-    # Determine actual direction: mutation_type gives intent, but amount sign can reverse it
-    # Type 5 (Money Received) with positive amount = incoming, with negative = outgoing
-    # Type 6 (Money Paid) with positive amount = outgoing, with negative = incoming
-    is_incoming = (mutation_type == 5 and amount >= 0) or (mutation_type == 6 and amount < 0)
-
-    if is_incoming:
-        # Bank account debited (money comes in)
-        je.append(
-            "accounts",
-            {
-                "account": bank_account,
-                "debit_in_account_currency": abs(amount),
-                "credit_in_account_currency": 0,
-                "cost_center": cost_center,
-                "user_remark": f"Money received - {description}",
-            },
-        )
-        # Income account credited
-        je.append(
-            "accounts",
-            {
-                "account": target_account,
-                "debit_in_account_currency": 0,
-                "credit_in_account_currency": abs(amount),
-                "cost_center": cost_center,
-                "user_remark": f"Income - {description}",
-            },
-        )
-        debug_info.append(
-            f"Money Received: Bank {bank_account} debited, Income {target_account} credited: {abs(amount)}"
-        )
-    else:
-        # Bank account credited (money goes out)
-        je.append(
-            "accounts",
-            {
-                "account": bank_account,
-                "debit_in_account_currency": 0,
-                "credit_in_account_currency": abs(amount),
-                "cost_center": cost_center,
-                "user_remark": f"Money paid - {description}",
-            },
-        )
-        # Expense account debited
-        je.append(
-            "accounts",
-            {
-                "account": target_account,
-                "debit_in_account_currency": abs(amount),
-                "credit_in_account_currency": 0,
-                "cost_center": cost_center,
-                "user_remark": f"Expense - {description}",
-            },
-        )
-        debug_info.append(
-            f"Money Paid: Bank {bank_account} credited, Expense {target_account} debited: {abs(amount)}"
-        )
-
-    try:
-        je.insert()
-        je.submit()
-        debug_info.append(f"Created and submitted Journal Entry {je.name}")
-        return je
-    except Exception as e:
-        debug_info.append(f"Failed to create Journal Entry: {str(e)}")
-        raise
+    return result
 
 
 def _process_journal_entry_rows(
@@ -4367,7 +4225,7 @@ def _log_batch_summary(
         type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"]
         and imported > 0
     ):
-        _append_bank_transaction_stats(summary_content, mutations, type_name)
+        summary_content += _get_bank_transaction_stats(mutations, type_name)
 
     if error_categories:
         summary_content += "ERROR CATEGORIES:\n"
@@ -4396,12 +4254,12 @@ def _log_batch_summary(
     return summary_content
 
 
-def _append_bank_transaction_stats(summary_content, mutations, type_name):
-    """Append bank transaction statistics to the summary content (for payment type batches)."""
+def _get_bank_transaction_stats(mutations, type_name):
+    """Build bank transaction statistics string for payment type batches. Returns the stats block."""
     try:
         mutation_ids = [str(m.get("id")) for m in mutations] if mutations else []
         if not mutation_ids:
-            return
+            return ""
 
         placeholders = ", ".join(["%s"] * len(mutation_ids))
         bank_tx_stats = frappe.db.sql(
@@ -4418,7 +4276,7 @@ def _append_bank_transaction_stats(summary_content, mutations, type_name):
         )
 
         if not bank_tx_stats or not bank_tx_stats[0]:
-            return
+            return ""
 
         stats = bank_tx_stats[0]
         total = stats.total_pes
@@ -4426,25 +4284,27 @@ def _append_bank_transaction_stats(summary_content, mutations, type_name):
         without_bt = total - with_bt
         success_rate = (with_bt / total * 100) if total > 0 else 0
 
+        result = ""
         if total == 0:
-            summary_content += "PAYMENT ENTRY STATUS:\n"
-            summary_content += f"No Payment Entries created ({len(mutations)} mutations processed)\n"
-            summary_content += f"All {len(mutations)} mutations created as Journal Entries instead\n"
-            summary_content += "This is expected for type 5/6 (Money Received/Paid) transactions\n\n"
+            result += "PAYMENT ENTRY STATUS:\n"
+            result += f"No Payment Entries created ({len(mutations)} mutations processed)\n"
+            result += f"All {len(mutations)} mutations created as Journal Entries instead\n"
+            result += "This is expected for type 5/6 (Money Received/Paid) transactions\n\n"
         else:
             je_count = len(mutations) - total
-            summary_content += "BANK TRANSACTION STATUS:\n"
-            summary_content += f"Payment Entries in batch: {total} (of {len(mutations)} mutations)\n"
+            result += "BANK TRANSACTION STATUS:\n"
+            result += f"Payment Entries in batch: {total} (of {len(mutations)} mutations)\n"
             if je_count > 0:
-                summary_content += f"  - Created as Payment Entry: {total}\n"
-                summary_content += f"  - Created as Journal Entry instead: {je_count}\n"
-            summary_content += f"With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
-            summary_content += f"WITHOUT Bank Transactions: {without_bt}\n"
+                result += f"  - Created as Payment Entry: {total}\n"
+                result += f"  - Created as Journal Entry instead: {je_count}\n"
+            result += f"With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
+            result += f"WITHOUT Bank Transactions: {without_bt}\n"
             if without_bt > 0:
-                summary_content += f"  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
-            summary_content += "\n"
+                result += f"  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
+            result += "\n"
+        return result
     except Exception as bt_stats_error:
-        summary_content += f"BANK TRANSACTION STATISTICS: Error collecting stats - {str(bt_stats_error)}\n\n"
+        return f"BANK TRANSACTION STATISTICS: Error collecting stats - {str(bt_stats_error)}\n\n"
 
 
 def _retry_transient_failures(migration_name, errors, failed, imported, debug_info):
