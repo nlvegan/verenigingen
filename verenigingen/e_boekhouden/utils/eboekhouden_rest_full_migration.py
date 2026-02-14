@@ -10,11 +10,13 @@ import requests
 from frappe import _
 from frappe.utils import getdate
 
+from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
+    get_default_cost_center,
+)
 from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
     enhance_journal_entry_fields,
     get_journal_entry_title,
 )
-from verenigingen.utils.deprecation import deprecated
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -97,59 +99,6 @@ def ensure_account_type_is_correct(account_name, expected_type, debug_info=None,
         debug_info.append(f"ERROR: Failed to ensure account type for {account_name}: {str(e)}")
         frappe.logger().error(f"Failed to ensure account type for {account_name}: {str(e)}")
         return False
-
-
-@deprecated("Import directly from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils")
-def get_default_cost_center(company, debug_info=None):
-    """
-    Get the most appropriate default cost center for the company.
-
-    .. deprecated::
-        This wrapper is deprecated. Import directly from:
-        ``verenigingen.e_boekhouden.utils.consolidated.cost_center_utils``
-
-    Args:
-        company: Company name
-        debug_info: Optional list to append debug messages
-
-    Returns:
-        Cost center name if found, None if no suitable cost center exists
-    """
-    from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import (
-        get_default_cost_center as _get_default_cost_center,
-    )
-
-    return _get_default_cost_center(company, debug_info)
-
-
-@deprecated("Import directly from verenigingen.e_boekhouden.utils.consolidated.party_utils")
-def get_party_account(party, party_type, company, debug_info=None):
-    """
-    Get the correct party account, preferring party-specific accounts over company defaults.
-    NEVER uses random accounts like Vraagposten as fallback.
-
-    .. deprecated::
-        This wrapper is deprecated. Import directly from:
-        ``verenigingen.e_boekhouden.utils.consolidated.party_utils``
-
-    Args:
-        party: Party name (Customer or Supplier document name)
-        party_type: Either "Customer" or "Supplier"
-        company: Company name for account filtering
-        debug_info: Optional list to append debug messages
-
-    Returns:
-        Account name if found, None if no suitable account exists
-    """
-    from verenigingen.e_boekhouden.utils.consolidated.party_utils import (
-        get_party_account as _get_party_account,
-    )
-
-    return _get_party_account(party, party_type, company, debug_info)
-
-
-# Removed unused get_appropriate_cash_account() and create_basic_cash_account() functions
-# All payment processing now uses the mapping-aware _get_appropriate_payment_account()
 
 
 def should_skip_mutation(mutation, debug_info=None):
@@ -650,116 +599,6 @@ def get_progress_info():
     """Get real-time progress information for the migration"""
     # This will be called by frontend to get progress updates
     return {"status": "running", "message": "Migration in progress..."}
-
-
-def _import_rest_mutations_batch(migration_name, mutations, settings, opening_balances_imported=False):
-    """Import a batch of REST API mutations with smart tegenrekening mapping"""
-    imported = 0
-    skipped = 0
-    errors = []
-    debug_info = []
-
-    debug_info.append(f"Starting import with {len(mutations) if mutations else 0} mutations")
-
-    if not mutations:
-        debug_info.append("No mutations provided, returning early")
-        frappe.log_error("BATCH Log:\n" + "\n".join(debug_info), "REST Batch Debug")
-        return {"imported": 0, "failed": 0, "skipped": 0, "errors": []}
-
-    # # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)  # Not needed for batch processing
-    company = settings.default_company
-    debug_info.append(f"Company: {company}")
-
-    # Get cost center
-    cost_center = get_default_cost_center(company)
-
-    debug_info.append(f"Cost center found: {cost_center}")
-
-    if not cost_center:
-        errors.append("No cost center found")
-        debug_info.append("ERROR - No cost center found")
-        frappe.log_error("BATCH Log:\n" + "\n".join(debug_info), "REST Batch Debug")
-        return {"imported": 0, "failed": len(mutations), "skipped": 0, "errors": errors}
-
-    for i, mutation in enumerate(mutations):
-        try:
-            # Skip if already imported
-            mutation_id = mutation.get("id")
-            mutation_type = mutation.get("type", 0)
-
-            if not mutation_id:
-                errors.append("Mutation missing ID, skipping")
-                debug_info.append("ERROR - Mutation missing ID")
-                failed += 1
-                continue
-
-            # Check for existing documents
-            existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
-            existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
-            existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
-            existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
-
-            if existing_je or existing_pe or existing_si or existing_pi:
-                skipped += 1
-                continue
-
-            # Check if this mutation should be skipped (e.g., zero-amount system notifications)
-            if should_skip_mutation(mutation, debug_info):
-                skipped += 1
-                continue
-
-            mutation_type = mutation.get("type", 0)
-            amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-            ledger_id = mutation.get("ledgerId")
-            rows = mutation.get("rows", [])
-
-            debug_info.append(
-                f"Processing mutation {mutation_id}: type={mutation_type}, amount={amount}, ledger={ledger_id}, rows={len(rows)}"
-            )
-
-            # Skip if no amount and no rows (empty transaction)
-            if amount == 0 and len(rows) == 0:
-                debug_info.append(f"Skipping empty mutation {mutation_id}")
-                skipped += 1
-                continue
-
-            # Process using enhanced single mutation processor
-            try:
-                doc = _process_single_mutation(mutation, company, cost_center, debug_info)
-                if doc:
-                    imported += 1
-                    debug_info.append(
-                        f"Successfully processed mutation {mutation_id} as {doc.doctype} {doc.name}"
-                    )
-                elif doc is None:
-                    # None means it was skipped (duplicate), not failed
-                    debug_info.append(f"Skipped mutation {mutation_id} - duplicate detected")
-                else:
-                    debug_info.append(f"Failed to process mutation {mutation_id} - no document returned")
-            except Exception as e:
-                error_msg = f"Error processing mutation {mutation_id}: {str(e)}"
-                errors.append(error_msg)
-                debug_info.append(f"ERROR - {error_msg}")
-                failed += 1
-                continue
-
-        except Exception as e:
-            error_msg = f"Error processing mutation {mutation.get('id', 'UNKNOWN')}: {str(e)}"
-            errors.append(error_msg)
-            debug_info.append(f"ERROR - {error_msg}")
-    # Log debug info for troubleshooting
-    if debug_info:
-        frappe.log_error("BATCH Log:\n" + "\n".join(debug_info[-100:]), "REST Batch Debug")  # Last 100 lines
-
-    return {
-        "imported": imported,
-        "failed": len(mutations) - imported - skipped,
-        "skipped": skipped,
-        "errors": errors,
-    }
-
-
-# Removed _process_money_transfer_with_mapping - types 5 & 6 now handled directly by _create_journal_entry
 
 
 def _resolve_account_mapping(ledger_id, debug_info):
@@ -1407,6 +1246,134 @@ def get_mutation_gap_report():
         return {"success": False, "error": str(e)}
 
 
+def _classify_opening_balance_account(account, company, debug_info):
+    """
+    Classify an account for opening balance import: determine if it's valid,
+    what party it needs, and whether to skip it.
+
+    Returns:
+        dict with keys:
+        - skip: bool (True if account should be skipped)
+        - skip_reason: str (why it was skipped: 'pnl', 'stock', 'not_found', 'error', 'party_error')
+        - root_type: str or None
+        - account_type: str or None
+        - party_type: str or None
+        - party: str or None
+    """
+    result = {
+        "skip": False,
+        "skip_reason": None,
+        "root_type": None,
+        "account_type": None,
+        "party_type": None,
+        "party": None,
+    }
+
+    try:
+        account_doc = frappe.get_doc("Account", account)
+        result["root_type"] = account_doc.root_type
+        result["account_type"] = account_doc.account_type
+    except frappe.DoesNotExistError:
+        debug_info.append(f"Account {account} was not found, skipping")
+        result["skip"] = True
+        result["skip_reason"] = "not_found"
+        return result
+    except Exception as e:
+        debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")
+        result["skip"] = True
+        result["skip_reason"] = "error"
+        return result
+
+    # Skip P&L accounts — only Balance Sheet accounts allowed in opening entries
+    if result["root_type"] in ["Income", "Expense"]:
+        debug_info.append(f"Skipping P&L account {account} (type: {result['root_type']})")
+        result["skip"] = True
+        result["skip_reason"] = "pnl"
+        return result
+
+    # Stock accounts handled via Stock Reconciliation
+    if result["account_type"] == "Stock":
+        debug_info.append(f"Stock account {account} will be handled via Stock Reconciliation")
+        result["skip"] = True
+        result["skip_reason"] = "stock"
+        return result
+
+    # Assign party for Receivable/Payable accounts
+    if result["account_type"] == "Receivable":
+        result["party_type"] = "Customer"
+        result["party"] = _get_or_create_company_as_customer(company, debug_info)
+        if not result["party"]:
+            debug_info.append(
+                f"ERROR: Failed to get/create customer for Receivable account {account}, skipping"
+            )
+            result["skip"] = True
+            result["skip_reason"] = "party_error"
+            return result
+    elif result["account_type"] == "Payable":
+        result["party_type"] = "Supplier"
+        result["party"] = _get_or_create_company_as_supplier(company, debug_info)
+        if not result["party"]:
+            debug_info.append(f"ERROR: Failed to get/create supplier for Payable account {account}, skipping")
+            result["skip"] = True
+            result["skip_reason"] = "party_error"
+            return result
+
+    return result
+
+
+def _calculate_opening_balance_debit_credit(amount, root_type):
+    """
+    Calculate debit/credit amounts for an opening balance line based on the account's
+    natural balance (Assets = debit, Liabilities/Equity = credit).
+
+    Returns:
+        tuple: (debit_amount, credit_amount)
+    """
+    if root_type == "Asset":
+        return (
+            frappe.utils.flt(amount if amount > 0 else 0, 2),
+            frappe.utils.flt(-amount if amount < 0 else 0, 2),
+        )
+    else:  # Liability or Equity
+        return (
+            frappe.utils.flt(-amount if amount < 0 else 0, 2),
+            frappe.utils.flt(amount if amount > 0 else 0, 2),
+        )
+
+
+def _add_opening_balance_balancing_entry(je, total_debit, total_credit, company, cost_center, debug_info):
+    """
+    Add a balancing entry to a temporary difference account if the opening balance
+    journal entry has a debit/credit mismatch.
+    """
+    balance_diff = total_debit - total_credit
+    if abs(balance_diff) <= 0.01:
+        return
+
+    debug_info.append(f"Balancing entry required: {balance_diff}")
+    temp_diff_account = _get_or_create_temporary_diff_account(company, debug_info)
+
+    if balance_diff > 0:
+        balancing_entry = {
+            "account": temp_diff_account,
+            "debit_in_account_currency": 0,
+            "credit_in_account_currency": balance_diff,
+            "cost_center": cost_center,
+            "user_remark": "Balancing entry for opening balances",
+        }
+    else:
+        balancing_entry = {
+            "account": temp_diff_account,
+            "debit_in_account_currency": abs(balance_diff),
+            "credit_in_account_currency": 0,
+            "cost_center": cost_center,
+            "user_remark": "Balancing entry for opening balances",
+        }
+
+    je.append("accounts", balancing_entry)
+    debug_info.append(f"Added balancing entry: {temp_diff_account} = {balance_diff}")
+
+
 def _import_opening_balances(company, cost_center, debug_info, dry_run=False, force=False):
     """Import opening balances from eBoekhouden using REST API"""
     try:
@@ -1520,102 +1487,51 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False, fo
         skipped_accounts = {"stock": [], "pnl": [], "errors": []}
 
         for mutation in mutations_data:
-            # Handle if mutation is a list instead of dict (some APIs return arrays)
             if isinstance(mutation, list):
                 debug_info.append(f"WARNING: Mutation is a list, not dict: {mutation}")
                 continue
 
-            mutation_id = mutation.get("id")
             ledger_id = mutation.get("ledgerId")
             amount = frappe.utils.flt(mutation.get("amount", 0), 2)
             description = mutation.get("description", "Opening Balance")
 
             debug_info.append(
-                f"Processing opening balance: ID={mutation_id}, Ledger={ledger_id}, Amount={amount}"
+                f"Processing opening balance: ID={mutation.get('id')}, Ledger={ledger_id}, Amount={amount}"
             )
 
             if amount == 0:
                 debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
                 continue
 
-            # Get account mapping (with auto-create if missing)
             account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
-
             if not account:
                 debug_info.append(f"Failed to resolve or create mapping for ledger {ledger_id}, skipping")
                 continue
 
-            # Skip if we've already processed this account (avoid duplicates)
             if account in processed_accounts:
                 debug_info.append(f"Account {account} already processed, skipping duplicate")
                 continue
-
             processed_accounts.add(account)
 
-            # Check account type to determine if it's allowed in opening entries
-            try:
-                account_doc = frappe.get_doc("Account", account)
-                root_type = account_doc.root_type
-                account_type = account_doc.account_type
-            except frappe.DoesNotExistError:
-                debug_info.append(f"Account {account} was not found, skipping")
-                continue
-            except Exception as e:
-                debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")
-                continue
-
-            # Skip P&L accounts (Income and Expense) - only Balance Sheet accounts are allowed
-            if root_type in ["Income", "Expense"]:
-                debug_info.append(f"Skipping P&L account {account} (type: {root_type})")
-                if "skipped_accounts" in locals():
-                    skipped_accounts["pnl"].append({"account": account, "type": root_type})
-                continue
-
-            # Handle Stock accounts via Stock Reconciliation instead of Journal Entry
-            if account_type == "Stock":
-                debug_info.append(f"Stock account {account} will be handled via Stock Reconciliation")
-                if "skipped_accounts" in locals():
+            classification = _classify_opening_balance_account(account, company, debug_info)
+            if classification["skip"]:
+                reason = classification["skip_reason"]
+                if reason == "pnl":
+                    skipped_accounts["pnl"].append({"account": account, "type": classification["root_type"]})
+                elif reason == "stock":
                     skipped_accounts["stock"].append({"account": account, "balance": amount})
+                elif reason == "party_error":
+                    skipped_accounts["errors"].append(
+                        {
+                            "account": account,
+                            "error": f"Failed to create party for {classification['account_type']} account",
+                        }
+                    )
                 continue
 
-            # Determine if this account needs a party
-            party_type = None
-            party = None
-            if account_type == "Receivable":
-                party_type = "Customer"
-                party = _get_or_create_company_as_customer(company, debug_info)
-                if not party:
-                    debug_info.append(
-                        f"ERROR: Failed to get/create customer for Receivable account {account}, skipping"
-                    )
-                    skipped_accounts["errors"].append(
-                        {"account": account, "error": "Failed to create/find customer for receivable account"}
-                    )
-                    continue
-            elif account_type == "Payable":
-                party_type = "Supplier"
-                party = _get_or_create_company_as_supplier(company, debug_info)
-                if not party:
-                    debug_info.append(
-                        f"ERROR: Failed to get/create supplier for Payable account {account}, skipping"
-                    )
-                    skipped_accounts["errors"].append(
-                        {"account": account, "error": "Failed to create/find supplier for payable account"}
-                    )
-                    continue
-
-            # Create journal entry line with proper debit/credit based on account type
-            # For balance sheet accounts, respect the natural balance:
-            # - Asset accounts: positive balance = debit, negative balance = credit
-            # - Liability/Equity accounts: positive balance = credit, negative balance = debit
-            if root_type == "Asset":
-                # Assets have natural debit balance
-                debit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
-                credit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
-            else:  # Liability or Equity
-                # Liabilities and Equity have natural credit balance
-                debit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
-                credit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+            debit_amount, credit_amount = _calculate_opening_balance_debit_credit(
+                amount, classification["root_type"]
+            )
 
             entry_line = {
                 "account": account,
@@ -1625,53 +1541,19 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False, fo
                 "user_remark": f"Opening balance: {description}",
             }
 
-            # Add party if needed
-            if party_type and party:
-                entry_line["party_type"] = party_type
-                entry_line["party"] = party
+            if classification["party_type"] and classification["party"]:
+                entry_line["party_type"] = classification["party_type"]
+                entry_line["party"] = classification["party"]
 
             je.append("accounts", entry_line)
-
-            total_debit += entry_line["debit_in_account_currency"]
-            total_credit += entry_line["credit_in_account_currency"]
+            total_debit += debit_amount
+            total_credit += credit_amount
 
             debug_info.append(
-                f"Added opening balance entry: {account}, Debit: {entry_line['debit_in_account_currency']}, Credit: {entry_line['credit_in_account_currency']}"
+                f"Added opening balance entry: {account}, Debit: {debit_amount}, Credit: {credit_amount}"
             )
 
-        # Check if entries balance - add balancing entry if needed
-        balance_difference = total_debit - total_credit
-        if abs(balance_difference) > 0.01:
-            debug_info.append(f"Balancing entry required: {balance_difference}")
-
-            # Get or create temporary difference account
-            temp_diff_account = _get_or_create_temporary_diff_account(company, debug_info)
-
-            if balance_difference > 0:
-                # Need credit to balance
-                balancing_entry = {
-                    "account": temp_diff_account,
-                    "debit_in_account_currency": 0,
-                    "credit_in_account_currency": balance_difference,
-                    "cost_center": cost_center,
-                    "user_remark": "Balancing entry for opening balances",
-                }
-            else:
-                # Need debit to balance
-                balancing_entry = {
-                    "account": temp_diff_account,
-                    "debit_in_account_currency": abs(balance_difference),
-                    "credit_in_account_currency": 0,
-                    "cost_center": cost_center,
-                    "user_remark": "Balancing entry for opening balances",
-                }
-
-            je.append("accounts", balancing_entry)
-            debug_info.append(f"Added balancing entry: {temp_diff_account} = {balance_difference}")
-
-            # Update totals
-            total_debit += balancing_entry["debit_in_account_currency"]
-            total_credit += balancing_entry["credit_in_account_currency"]
+        _add_opening_balance_balancing_entry(je, total_debit, total_credit, company, cost_center, debug_info)
 
         # Check if we have any valid entries to process
         if not je.accounts:
@@ -1836,99 +1718,39 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
         processed_accounts = set()
 
         for mutation in mutations_data:
-            # Handle if mutation is a list instead of dict (some APIs return arrays)
             if isinstance(mutation, list):
                 debug_info.append(f"WARNING: Mutation is a list, not dict: {mutation}")
                 continue
 
-            mutation_id = mutation.get("id")
             ledger_id = mutation.get("ledgerId")
             amount = frappe.utils.flt(mutation.get("balance", 0), 2)  # Use balance for opening balances
             description = mutation.get("description", "Opening Balance")
 
             debug_info.append(
-                f"Processing opening balance: ID={mutation_id}, Ledger={ledger_id}, Amount={amount}"
+                f"Processing opening balance: ID={mutation.get('id')}, Ledger={ledger_id}, Amount={amount}"
             )
 
             if amount == 0:
                 debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
                 continue
 
-            # Get account mapping (with auto-create if missing)
             account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
-
             if not account:
                 debug_info.append(f"Failed to resolve or create mapping for ledger {ledger_id}, skipping")
                 continue
 
-            # Skip if we've already processed this account (avoid duplicates)
             if account in processed_accounts:
                 debug_info.append(f"Account {account} already processed, skipping duplicate")
                 continue
-
             processed_accounts.add(account)
 
-            # Check account type to determine if it's allowed in opening entries
-            try:
-                account_doc = frappe.get_doc("Account", account)
-                root_type = account_doc.root_type
-                account_type = account_doc.account_type
-            except frappe.DoesNotExistError:
-                debug_info.append(f"Account {account} was not found, skipping")
-                continue
-            except Exception as e:
-                debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")
+            classification = _classify_opening_balance_account(account, company, debug_info)
+            if classification["skip"]:
                 continue
 
-            # Skip P&L accounts (Income and Expense) - only Balance Sheet accounts are allowed
-            if root_type in ["Income", "Expense"]:
-                debug_info.append(f"Skipping P&L account {account} (type: {root_type})")
-                if "skipped_accounts" in locals():
-                    skipped_accounts["pnl"].append({"account": account, "type": root_type})
-                continue
-
-            # Handle Stock accounts via Stock Reconciliation instead of Journal Entry
-            if account_type == "Stock":
-                debug_info.append(f"Stock account {account} will be handled via Stock Reconciliation")
-                if "skipped_accounts" in locals():
-                    skipped_accounts["stock"].append({"account": account, "balance": amount})
-                continue
-
-            # Determine if this account needs a party
-            party_type = None
-            party = None
-            if account_type == "Receivable":
-                party_type = "Customer"
-                party = _get_or_create_company_as_customer(company, debug_info)
-                if not party:
-                    debug_info.append(
-                        f"ERROR: Failed to get/create customer for Receivable account {account}, skipping"
-                    )
-                    skipped_accounts["errors"].append(
-                        {"account": account, "error": "Failed to create/find customer for receivable account"}
-                    )
-                    continue
-            elif account_type == "Payable":
-                party_type = "Supplier"
-                party = _get_or_create_company_as_supplier(company, debug_info)
-                if not party:
-                    debug_info.append(
-                        f"ERROR: Failed to get/create supplier for Payable account {account}, skipping"
-                    )
-                    skipped_accounts["errors"].append(
-                        {"account": account, "error": "Failed to create/find supplier for payable account"}
-                    )
-                    continue
-
-            # Create journal entry line with proper debit/credit based on account type
-            if root_type == "Asset":
-                # Assets have natural debit balance
-                debit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
-                credit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
-            else:  # Liability or Equity
-                # Liabilities and Equity have natural credit balance
-                debit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
-                credit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+            debit_amount, credit_amount = _calculate_opening_balance_debit_credit(
+                amount, classification["root_type"]
+            )
 
             entry_line = {
                 "account": account,
@@ -1938,10 +1760,9 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                 "user_remark": description,
             }
 
-            # Add party information if needed
-            if party_type and party:
-                entry_line["party_type"] = party_type
-                entry_line["party"] = party
+            if classification["party_type"] and classification["party"]:
+                entry_line["party_type"] = classification["party_type"]
+                entry_line["party"] = classification["party"]
 
             je.append("accounts", entry_line)
             total_debit += debit_amount
@@ -1951,7 +1772,6 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                 f"Added opening balance line: {account} = Debit: {debit_amount}, Credit: {credit_amount}"
             )
 
-        # Check if we have any entries to process
         if not je.accounts:
             debug_info.append("No valid opening balance entries found after filtering")
             return {
@@ -1960,35 +1780,7 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                 "journal_entry": None,
             }
 
-        # Add balancing entry if needed
-        balance_diff = total_debit - total_credit
-        if abs(balance_diff) > 0.01:  # Allow small rounding differences
-            debug_info.append(f"Balancing entry required: {balance_diff}")
-
-            # Get or create temporary difference account
-            temp_diff_account = _get_or_create_temporary_diff_account(company, debug_info)
-
-            if balance_diff > 0:
-                # Need credit to balance
-                balancing_entry = {
-                    "account": temp_diff_account,
-                    "debit_in_account_currency": 0,
-                    "credit_in_account_currency": balance_diff,
-                    "cost_center": cost_center,
-                    "user_remark": "Balancing entry for opening balances",
-                }
-            else:
-                # Need debit to balance
-                balancing_entry = {
-                    "account": temp_diff_account,
-                    "debit_in_account_currency": abs(balance_diff),
-                    "credit_in_account_currency": 0,
-                    "cost_center": cost_center,
-                    "user_remark": "Balancing entry for opening balances",
-                }
-
-            je.append("accounts", balancing_entry)
-            debug_info.append(f"Added balancing entry: {temp_diff_account} = {balance_diff}")
+        _add_opening_balance_balancing_entry(je, total_debit, total_credit, company, cost_center, debug_info)
 
         if dry_run:
             debug_info.append("Dry run mode - not saving journal entry")
@@ -2332,16 +2124,176 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
         raise
 
 
-def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
-    """Create Sales Invoice with ALL available fields from detailed mutation data"""
-    from frappe.utils import add_days, now
+def _resolve_party_account(mutation_detail, account_type, company, debug_info):
+    """
+    Resolve a party account (Receivable or Payable) from eBoekhouden ledger mapping.
 
+    For Receivable accounts, also handles the WooCommerce/FactuurSturen special case
+    (uses "Te Ontvangen Bedragen" account).
+
+    Args:
+        mutation_detail: Mutation data dictionary
+        account_type: "Receivable" or "Payable"
+        company: Company name
+        debug_info: List to append debug messages
+
+    Returns:
+        Account name if resolved, None if no suitable account found (ERPNext default will be used)
+    """
+    account_type_lower = account_type.lower()
+    ledger_id = mutation_detail.get("ledgerId")
+    if not ledger_id:
+        debug_info.append(
+            f"WARNING: No ledgerID found in mutation data, ERPNext will use default {account_type_lower} account selection"
+        )
+        return None
+
+    # WooCommerce/FactuurSturen receivables use a special account
+    if account_type == "Receivable":
+        special_account = _check_woocommerce_factuursturen_account(mutation_detail, company, debug_info)
+        if special_account:
+            return special_account
+
+    # Standard ledger mapping
+    account_mapping = _resolve_account_mapping(ledger_id, debug_info)
+    if not account_mapping or not account_mapping.get("erpnext_account"):
+        debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
+        return None
+
+    party_account = account_mapping["erpnext_account"]
+
+    # Group/control accounts cannot be used in invoices
+    is_group = frappe.db.get_value("Account", party_account, "is_group")
+    if is_group:
+        debug_info.append(
+            f"WARNING: Ledger {ledger_id} maps to group/control account '{party_account}'. "
+            f"Cannot use control accounts in invoices - will use party default {account_type_lower} account instead."
+        )
+        return None
+
+    ensure_account_type_is_correct(party_account, account_type, debug_info, auto_fix=True)
+    debug_info.append(f"Set {account_type_lower} account from ledger mapping: {party_account}")
+    return party_account
+
+
+def _check_woocommerce_factuursturen_account(mutation_detail, company, debug_info):
+    """Check if mutation is from WooCommerce/FactuurSturen and return special account if so."""
+    description = mutation_detail.get("description", "")
+    description_lower = description.lower()
+
+    if "woocommerce" not in description_lower and "factuursturen" not in description_lower:
+        return None
+
+    debug_info.append("Found WooCommerce/FactuurSturen in description, using Te Ontvangen Bedragen account")
+    te_ontvangen_account = frappe.db.get_value(
+        "Account",
+        {"account_name": ["like", "%Te Ontvangen Bedragen%"], "company": company, "is_group": 0},
+        "name",
+    )
+    if te_ontvangen_account:
+        ensure_account_type_is_correct(te_ontvangen_account, "Receivable", debug_info, auto_fix=True)
+        debug_info.append(f"Set receivable account to: {te_ontvangen_account}")
+        return te_ontvangen_account
+
+    debug_info.append("WARNING: Te Ontvangen Bedragen account not found, falling back to ledger mapping")
+    return None
+
+
+def _resolve_receivable_account(mutation_detail, company, debug_info):
+    """Resolve the receivable account for a sales invoice."""
+    return _resolve_party_account(mutation_detail, "Receivable", company, debug_info)
+
+
+def _process_invoice_line_items(
+    invoice, mutation_detail, cost_center, is_credit_note, invoice_number, description, company, debug_info
+):
+    """
+    Process line items for a sales invoice: handles credit note conversion,
+    adds line items or fallback, enhances title, and consolidates mixed invoices.
+    """
     from .invoice_helpers import (
         add_tax_lines,
         create_single_line_fallback,
-        get_or_create_payment_terms,
         process_line_items,
     )
+
+    regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
+    if regels:
+        if is_credit_note:
+            regels = _convert_regels_for_sales_credit_note(regels, debug_info)
+
+        success = process_line_items(invoice, regels, "sales", cost_center, debug_info)
+        if success:
+            add_tax_lines(invoice, regels, "sales", debug_info)
+        else:
+            create_single_line_fallback(invoice, mutation_detail, cost_center, debug_info)
+    else:
+        debug_info.append("No Regels found, creating single line fallback")
+        if is_credit_note:
+            mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
+        create_single_line_fallback(invoice, mutation_detail, cost_center, debug_info)
+
+    _enhance_sales_invoice_title(invoice, invoice_number, description, debug_info)
+
+    # Consolidate mixed invoices with negative total into single line
+    _consolidate_mixed_invoice_if_needed(invoice, cost_center, company, debug_info)
+
+
+def _consolidate_mixed_invoice_if_needed(invoice, cost_center, company, debug_info):
+    """
+    If an invoice has both positive and negative line items resulting in a negative total,
+    consolidate into a single line and mark as credit note. This handles edge cases from
+    eBoekhouden where partial refunds are mixed into the same mutation.
+    """
+    calculated_total = sum(item.qty * item.rate for item in invoice.items)
+    if calculated_total >= 0:
+        return
+
+    has_positive_qty = any(item.qty > 0 for item in invoice.items)
+    has_negative_qty = any(item.qty < 0 for item in invoice.items)
+    is_mixed = has_positive_qty and has_negative_qty
+
+    if is_mixed:
+        debug_info.append(
+            f"Mixed invoice with negative total ({calculated_total}). "
+            f"Consolidating {len(invoice.items)} line items into single net amount."
+        )
+        item_descriptions = [f"{item.description} ({item.qty} x {item.rate})" for item in invoice.items]
+        consolidated_desc = "CONSOLIDATED MIXED INVOICE: " + "; ".join(item_descriptions)
+
+        from .eboekhouden_improved_item_naming import get_or_create_generic_item
+
+        generic_item = get_or_create_generic_item(company)
+        invoice.items = []
+        invoice.append(
+            "items",
+            {
+                "item_code": generic_item,
+                "item_name": "Consolidated E-Boekhouden Item",
+                "description": consolidated_desc[:500],
+                "qty": -1 if calculated_total < 0 else 1,
+                "rate": abs(calculated_total),
+                "uom": "Unit",
+                "cost_center": cost_center,
+            },
+        )
+        invoice.is_return = 1
+        invoice.update_stock = 0
+        debug_info.append(
+            f"Consolidated to single line: qty={invoice.items[0].qty}, "
+            f"rate={invoice.items[0].rate}, net={calculated_total}"
+        )
+    else:
+        debug_info.append(
+            f"Pure credit note with negative total ({calculated_total}). is_return already set."
+        )
+
+
+def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
+    """Create Sales Invoice with ALL available fields from detailed mutation data"""
+    from frappe.utils import add_days
+
+    from .invoice_helpers import get_or_create_payment_terms
     from .party_resolver import resolve_customer
 
     mutation_id = mutation_detail.get("id")
@@ -2405,157 +2357,19 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
         )
 
     # Set receivable account based on eBoekhouden ledgerID (proper SSoT approach)
-    ledger_id = mutation_detail.get("ledgerId")
-    if ledger_id:
-        # Check if description contains WooCommerce or FactuurSturen - these should use "Te Ontvangen Bedragen"
-        description_lower = description.lower()
-        if "woocommerce" in description_lower or "factuursturen" in description_lower:
-            debug_info.append(
-                "Found WooCommerce/FactuurSturen in description, using Te Ontvangen Bedragen account"
-            )
-            # Look for "Te Ontvangen Bedragen" account specifically
-            te_ontvangen_bedragen_account = frappe.db.get_value(
-                "Account",
-                {"account_name": ["like", "%Te Ontvangen Bedragen%"], "company": company, "is_group": 0},
-                "name",
-            )
-            if te_ontvangen_bedragen_account:
-                # Ensure the account is configured as Receivable type
-                ensure_account_type_is_correct(
-                    te_ontvangen_bedragen_account, "Receivable", debug_info, auto_fix=True
-                )
-                si.debit_to = te_ontvangen_bedragen_account
-                debug_info.append(f"Set receivable account to: {te_ontvangen_bedragen_account}")
-            else:
-                debug_info.append(
-                    "WARNING: Te Ontvangen Bedragen account not found, falling back to ledger mapping"
-                )
-                # Fallback to standard ledger mapping
-                account_mapping = _resolve_account_mapping(ledger_id, debug_info)
-                if account_mapping and account_mapping.get("erpnext_account"):
-                    receivable_account = account_mapping["erpnext_account"]
-
-                    # Check if this is a group/control account (not allowed in invoices/payments)
-                    is_group = frappe.db.get_value("Account", receivable_account, "is_group")
-
-                    if is_group:
-                        debug_info.append(
-                            f"WARNING: Ledger {ledger_id} maps to group/control account '{receivable_account}'. "
-                            f"Cannot use control accounts in invoices - will use party default receivable account instead."
-                        )
-                    else:
-                        # Ensure the account is configured as Receivable type
-                        ensure_account_type_is_correct(
-                            receivable_account, "Receivable", debug_info, auto_fix=True
-                        )
-                        si.debit_to = receivable_account
-                        debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
-        else:
-            # Use standard ledger mapping for non-WooCommerce/FactuurSturen invoices
-            account_mapping = _resolve_account_mapping(ledger_id, debug_info)
-            if account_mapping and account_mapping.get("erpnext_account"):
-                receivable_account = account_mapping["erpnext_account"]
-
-                # Check if this is a group/control account (not allowed in invoices/payments)
-                is_group = frappe.db.get_value("Account", receivable_account, "is_group")
-
-                if is_group:
-                    debug_info.append(
-                        f"WARNING: Ledger {ledger_id} maps to group/control account '{receivable_account}'. "
-                        f"Cannot use control accounts in invoices - will use party default receivable account instead."
-                    )
-                else:
-                    # Ensure the account is configured as Receivable type
-                    ensure_account_type_is_correct(
-                        receivable_account, "Receivable", debug_info, auto_fix=True
-                    )
-                    si.debit_to = receivable_account
-                    debug_info.append(f"Set receivable account from ledger mapping: {receivable_account}")
-            else:
-                debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
-    else:
-        debug_info.append(
-            "WARNING: No ledgerID found in mutation data, ERPNext will use default receivable account selection"
-        )
+    receivable_account = _resolve_receivable_account(mutation_detail, company, debug_info)
+    if receivable_account:
+        si.debit_to = receivable_account
 
     # Custom tracking fields
     si.eboekhouden_mutation_nr = str(mutation_id)
     if invoice_number:
         si.eboekhouden_invoice_number = invoice_number
 
-    # CRITICAL: Process line items from Regels or rows
-    regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
-    if regels:
-        # For credit notes, we need to process amounts as positive values and quantities as negative
-        if is_credit_note:
-            regels = _convert_regels_for_sales_credit_note(regels, debug_info)
-
-        success = process_line_items(si, regels, "sales", cost_center, debug_info)
-        if success:
-            add_tax_lines(si, regels, "sales", debug_info)
-        else:
-            # Fallback to single line
-            create_single_line_fallback(si, mutation_detail, cost_center, debug_info)
-    else:
-        # No line items available, create fallback
-        debug_info.append("No Regels found, creating single line fallback")
-        # For credit notes, convert the mutation detail amount
-        if is_credit_note:
-            mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
-        create_single_line_fallback(si, mutation_detail, cost_center, debug_info)
-
-    # Enhanced Sales Invoice naming to include invoice number for better identification
-    _enhance_sales_invoice_title(si, invoice_number, description, debug_info)
-
-    # Check for mixed invoices with negative total (same logic as Purchase Invoice)
-    calculated_total = sum(item.qty * item.rate for item in si.items)
-
-    if calculated_total < 0:
-        # Check if this is a mixed invoice (has both positive and negative quantities)
-        has_positive_qty = any(item.qty > 0 for item in si.items)
-        has_negative_qty = any(item.qty < 0 for item in si.items)
-        is_mixed_invoice = has_positive_qty and has_negative_qty
-
-        if is_mixed_invoice:
-            # Mixed invoice with negative total - consolidate into single line with net amount
-            debug_info.append(
-                f"⚠️ Mixed invoice with negative total ({calculated_total}). "
-                f"Consolidating {len(si.items)} line items into single net amount."
-            )
-
-            # Create consolidated description
-            item_descriptions = [f"{item.description} ({item.qty} × {item.rate})" for item in si.items]
-            consolidated_desc = "CONSOLIDATED MIXED INVOICE: " + "; ".join(item_descriptions)
-
-            # Clear existing items and create single consolidated line
-            from .eboekhouden_improved_item_naming import get_or_create_generic_item
-
-            generic_item = get_or_create_generic_item(company)
-            si.items = []
-            si.append(
-                "items",
-                {
-                    "item_code": generic_item,
-                    "item_name": "Consolidated E-Boekhouden Item",
-                    "description": consolidated_desc[:500],  # Limit description length
-                    "qty": -1 if calculated_total < 0 else 1,
-                    "rate": abs(calculated_total),
-                    "uom": "Unit",
-                    "cost_center": cost_center,
-                },
-            )
-
-            # Set as return (credit note) since net is negative
-            si.is_return = 1
-            si.update_stock = 0
-            debug_info.append(
-                f"Consolidated to single line: qty={si.items[0].qty}, rate={si.items[0].rate}, net={calculated_total}"
-            )
-        else:
-            # Pure credit note - already handled by is_return flag set earlier
-            debug_info.append(
-                f"Pure credit note with negative total ({calculated_total}). is_return already set."
-            )
+    # Process line items, handle credit notes, and consolidate mixed invoices
+    _process_invoice_line_items(
+        si, mutation_detail, cost_center, is_credit_note, invoice_number, description, company, debug_info
+    )
 
     try:
         si.save()
@@ -2969,16 +2783,129 @@ def _convert_mutation_detail_amount(mutation_detail, debug_info):
     return converted_detail
 
 
-def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
-    """Create Purchase Invoice with ALL available fields from detailed mutation data"""
-    from frappe.utils import add_days, now
+def _resolve_payable_account(mutation_detail, company, debug_info):
+    """Resolve the payable account for a purchase invoice."""
+    return _resolve_party_account(mutation_detail, "Payable", company, debug_info)
 
+
+def _run_parallel_credit_note_validation(
+    mutation_id, mutation_detail, is_credit_note, effective_total_amount, debug_info
+):
+    """
+    Run the new invoice classifier in parallel with the old credit note detection logic,
+    logging any mismatches. Uses old logic for actual processing (safe fallback).
+    """
+    from verenigingen.e_boekhouden.utils.invoice_classifier import ProcessingStrategy, get_invoice_classifier
+
+    try:
+        classifier = get_invoice_classifier()
+        new_classification = classifier.classify(mutation_detail, debug_info)
+
+        new_is_credit_note = new_classification.processing_strategy == ProcessingStrategy.CREDIT_NOTE
+
+        if is_credit_note != new_is_credit_note:
+            frappe.log_error(
+                title=f"Classification Mismatch - Mutation {mutation_id}",
+                message=(
+                    f"OLD vs NEW classifier disagreement for mutation {mutation_id}\n\n"
+                    f"OLD Logic:\n"
+                    f"  is_credit_note: {is_credit_note}\n"
+                    f"  effective_total: {effective_total_amount}\n\n"
+                    f"NEW Classifier:\n"
+                    f"  invoice_type: {new_classification.invoice_type.value}\n"
+                    f"  processing_strategy: {new_classification.processing_strategy.value}\n"
+                    f"  net_amount: {new_classification.net_amount}\n"
+                    f"  positive_items: {new_classification.positive_item_count}\n"
+                    f"  negative_items: {new_classification.negative_item_count}\n"
+                    f"  reasoning: {new_classification.reasoning}\n\n"
+                    f"Using OLD logic for safety.\n\n"
+                    f"Debug info:\n{frappe.as_json(debug_info, indent=2)}"
+                ),
+            )
+            debug_info.append(
+                f"CLASSIFICATION MISMATCH: Old={is_credit_note}, New={new_is_credit_note}. Using old logic."
+            )
+
+        debug_info.append(
+            f"Parallel validation: Old logic={'credit_note' if is_credit_note else 'normal'}, "
+            f"New logic={new_classification.processing_strategy.value}, "
+            f"Match={'yes' if is_credit_note == new_is_credit_note else 'no'}"
+        )
+    except Exception as classifier_error:
+        frappe.log_error(
+            title=f"New Classifier Failed - Mutation {mutation_id}",
+            message=f"Error running new classifier:\n{str(classifier_error)}\n\n{frappe.get_traceback()}",
+        )
+        debug_info.append(f"New classifier failed: {str(classifier_error)}. Using old logic.")
+
+
+def _process_purchase_invoice_line_items(
+    invoice, mutation_detail, cost_center, is_credit_note, company, debug_info
+):
+    """
+    Process line items for a purchase invoice: handles credit note conversion,
+    adds line items or fallback, consolidates mixed invoices, and saves the document.
+    """
     from .invoice_helpers import (
         add_tax_lines,
         create_single_line_fallback,
-        get_or_create_payment_terms,
         process_line_items,
     )
+
+    regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
+    if regels:
+        if is_credit_note:
+            regels = _convert_negative_amounts_to_positive(regels, debug_info)
+
+        success = process_line_items(invoice, regels, "purchase", cost_center, debug_info)
+        if success:
+            add_tax_lines(invoice, regels, "purchase", debug_info)
+        else:
+            create_single_line_fallback(invoice, mutation_detail, cost_center, debug_info)
+    else:
+        debug_info.append("No Regels found, creating single line fallback")
+        if is_credit_note:
+            mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
+        create_single_line_fallback(invoice, mutation_detail, cost_center, debug_info)
+
+    # Consolidate mixed invoices and handle pure credit notes before saving
+    _consolidate_purchase_invoice_and_save(invoice, cost_center, company, debug_info)
+
+
+def _consolidate_purchase_invoice_and_save(invoice, cost_center, company, debug_info):
+    """
+    For purchase invoices: detect negative totals from mixed line items,
+    consolidate if needed, set credit note flags, and save the document.
+    """
+    calculated_total = sum(item.qty * item.rate for item in invoice.items)
+
+    if calculated_total < 0:
+        has_positive_qty = any(item.qty > 0 for item in invoice.items)
+        has_negative_qty = any(item.qty < 0 for item in invoice.items)
+        is_mixed = has_positive_qty and has_negative_qty
+
+        if is_mixed:
+            debug_info.append(
+                f"Mixed invoice with negative total ({calculated_total}). "
+                f"Consolidating {len(invoice.items)} line items into single net amount."
+            )
+            _consolidate_mixed_invoice_if_needed(invoice, cost_center, company, debug_info)
+        else:
+            debug_info.append(
+                f"Pure credit note detected ({calculated_total}). Setting is_return=True (debit note) "
+                f"and disabling stock updates."
+            )
+            invoice.is_return = 1
+            invoice.update_stock = 0
+
+    invoice.save()
+
+
+def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
+    """Create Purchase Invoice with ALL available fields from detailed mutation data"""
+    from frappe.utils import add_days
+
+    from .invoice_helpers import get_or_create_payment_terms
     from .party_resolver import resolve_supplier
 
     mutation_id = mutation_detail.get("id")
@@ -3029,67 +2956,16 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     # Description
     pi.remarks = description
 
-    # PARALLEL VALIDATION: Run both old and new classification logic
-    # Use old logic for actual processing, but compare with new classifier
-    from verenigingen.e_boekhouden.utils.invoice_classifier import ProcessingStrategy, get_invoice_classifier
-
-    # Run OLD logic (current production code)
+    # Credit note detection with parallel validation against new classifier
     credit_note_result = _detect_credit_note_improved(mutation_detail, debug_info)
     if credit_note_result is None:
         debug_info.append("ERROR: Credit note detection returned None - skipping invoice creation")
         return None
 
     is_credit_note, effective_total_amount = credit_note_result
-
-    # Run NEW classifier in parallel for validation
-    try:
-        classifier = get_invoice_classifier()
-        new_classification = classifier.classify(mutation_detail, debug_info)
-
-        # Compare old vs new classification
-        new_is_credit_note = new_classification.processing_strategy == ProcessingStrategy.CREDIT_NOTE
-        _new_requires_consolidation = new_classification.requires_consolidation  # noqa: F841
-
-        # Detect mismatches
-        if is_credit_note != new_is_credit_note:
-            frappe.log_error(
-                title=f"Classification Mismatch - Mutation {mutation_id}",
-                message=(
-                    f"OLD vs NEW classifier disagreement for mutation {mutation_id}\n\n"
-                    f"OLD Logic:\n"
-                    f"  is_credit_note: {is_credit_note}\n"
-                    f"  effective_total: {effective_total_amount}\n\n"
-                    f"NEW Classifier:\n"
-                    f"  invoice_type: {new_classification.invoice_type.value}\n"
-                    f"  processing_strategy: {new_classification.processing_strategy.value}\n"
-                    f"  net_amount: {new_classification.net_amount}\n"
-                    f"  positive_items: {new_classification.positive_item_count}\n"
-                    f"  negative_items: {new_classification.negative_item_count}\n"
-                    f"  reasoning: {new_classification.reasoning}\n\n"
-                    f"Using OLD logic for safety.\n\n"
-                    f"Debug info:\n{frappe.as_json(debug_info, indent=2)}"
-                ),
-            )
-            debug_info.append(
-                f"⚠️ CLASSIFICATION MISMATCH: Old={is_credit_note}, New={new_is_credit_note}. Using old logic."
-            )
-
-        # Log successful parallel validation
-        debug_info.append(
-            f"Parallel validation: Old logic={'credit_note' if is_credit_note else 'normal'}, "
-            f"New logic={new_classification.processing_strategy.value}, "
-            f"Match={'✓' if is_credit_note == new_is_credit_note else '✗'}"
-        )
-
-    except Exception as classifier_error:
-        # New classifier failed - log but continue with old logic
-        frappe.log_error(
-            title=f"New Classifier Failed - Mutation {mutation_id}",
-            message=f"Error running new classifier:\n{str(classifier_error)}\n\n{frappe.get_traceback()}",
-        )
-        debug_info.append(f"⚠️ New classifier failed: {str(classifier_error)}. Using old logic.")
-
-    # Continue with OLD logic for actual processing (safe)
+    _run_parallel_credit_note_validation(
+        mutation_id, mutation_detail, is_credit_note, effective_total_amount, debug_info
+    )
     pi.is_return = is_credit_note
 
     if is_credit_note:
@@ -3097,121 +2973,20 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
             f"Processing as credit note (effective amount: {effective_total_amount}), will convert amounts to positive"
         )
 
-    # Set payable account based on eBoekhouden ledgerID (proper SSoT approach)
-    ledger_id = mutation_detail.get("ledgerId")
-    if ledger_id:
-        account_mapping = _resolve_account_mapping(ledger_id, debug_info)
-        if account_mapping and account_mapping.get("erpnext_account"):
-            payable_account = account_mapping["erpnext_account"]
-
-            # Check if this is a group/control account (not allowed in invoices/payments)
-            is_group = frappe.db.get_value("Account", payable_account, "is_group")
-
-            if is_group:
-                debug_info.append(
-                    f"WARNING: Ledger {ledger_id} maps to group/control account '{payable_account}'. "
-                    f"Cannot use control accounts in invoices - will use party default payable account instead."
-                )
-            else:
-                # Ensure the account is configured as Payable type
-                ensure_account_type_is_correct(payable_account, "Payable", debug_info, auto_fix=True)
-                pi.credit_to = payable_account
-                debug_info.append(f"Set payable account from ledger mapping: {payable_account}")
-        else:
-            debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
-    else:
-        debug_info.append(
-            "WARNING: No ledgerID found in mutation data, ERPNext will use default payable account selection"
-        )
+    # Set payable account based on eBoekhouden ledgerID
+    payable_account = _resolve_payable_account(mutation_detail, company, debug_info)
+    if payable_account:
+        pi.credit_to = payable_account
 
     # Custom tracking fields
     pi.eboekhouden_mutation_nr = str(mutation_id)
     if invoice_number:
         pi.eboekhouden_invoice_number = invoice_number
 
-    # CRITICAL: Process line items from Regels or rows
-    regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
-    if regels:
-        # For credit notes, we need to process amounts as positive values
-        if is_credit_note:
-            regels = _convert_negative_amounts_to_positive(regels, debug_info)
-
-        success = process_line_items(pi, regels, "purchase", cost_center, debug_info)
-        if success:
-            add_tax_lines(pi, regels, "purchase", debug_info)
-        else:
-            # Fallback to single line
-            create_single_line_fallback(pi, mutation_detail, cost_center, debug_info)
-    else:
-        # No line items available, create fallback
-        debug_info.append("No Regels found, creating single line fallback")
-        # For credit notes, convert the mutation detail amount
-        if is_credit_note:
-            mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
-        create_single_line_fallback(pi, mutation_detail, cost_center, debug_info)
-
-    # CRITICAL: Before saving, calculate total from line items to detect if it's negative
-    # Mixed invoices (both positive and negative items) with negative grand_total:
-    #   - ERPNext cannot handle these due to conflicting validations
-    #   - Split into two invoices: debit invoice + credit note, linked via payment entries
-    # Pure credit notes (all items negative):
-    #   - Set is_return=True normally
-    calculated_total = sum(item.qty * item.rate for item in pi.items)
-
-    if calculated_total < 0:
-        # Check if this is a mixed invoice (has both positive and negative quantities)
-        has_positive_qty = any(item.qty > 0 for item in pi.items)
-        has_negative_qty = any(item.qty < 0 for item in pi.items)
-        is_mixed_invoice = has_positive_qty and has_negative_qty
-
-        if is_mixed_invoice:
-            # Mixed invoice with negative total - consolidate into single line with net amount
-            debug_info.append(
-                f"⚠️ Mixed invoice with negative total ({calculated_total}). "
-                f"Consolidating {len(pi.items)} line items into single net amount."
-            )
-
-            # Create consolidated description
-            item_descriptions = [f"{item.description} ({item.qty} × {item.rate})" for item in pi.items]
-            consolidated_desc = "CONSOLIDATED MIXED INVOICE: " + "; ".join(item_descriptions)
-
-            # Clear existing items and create single consolidated line
-            from .eboekhouden_improved_item_naming import get_or_create_generic_item
-
-            generic_item = get_or_create_generic_item(company)
-            pi.items = []
-            pi.append(
-                "items",
-                {
-                    "item_code": generic_item,
-                    "item_name": "Consolidated E-Boekhouden Item",
-                    "description": consolidated_desc[:500],  # Limit description length
-                    "qty": -1 if calculated_total < 0 else 1,
-                    "rate": abs(calculated_total),
-                    "uom": "Unit",
-                    "cost_center": cost_center,
-                },
-            )
-
-            # Set as return (debit note) since net is negative
-            pi.is_return = 1
-            pi.update_stock = 0
-            debug_info.append(
-                f"Consolidated to single line: qty={pi.items[0].qty}, rate={pi.items[0].rate}, net={calculated_total}"
-            )
-            pi.save()
-        else:
-            # Pure credit note - use is_return as normal
-            debug_info.append(
-                f"Pure credit note detected ({calculated_total}). Setting is_return=True (debit note) "
-                f"and disabling stock updates."
-            )
-            pi.is_return = 1
-            pi.update_stock = 0  # Disable "Update Billed Amount in Purchase Receipt"
-            pi.save()
-    else:
-        # Normal invoice with positive total
-        pi.save()
+    # Process line items, handle credit notes, consolidate mixed invoices, and save
+    _process_purchase_invoice_line_items(
+        pi, mutation_detail, cost_center, is_credit_note, company, debug_info
+    )
 
     # Ensure fiscal year exists before submission (all paths)
     from .invoice_helpers import ensure_fiscal_year_exists
@@ -3589,6 +3364,275 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
         raise
 
 
+def _process_journal_entry_rows(
+    je, mutation, rows, main_ledger_id, company, cost_center, description, debug_info
+):
+    """
+    Process all rows for a journal entry: resolve accounts, calculate debit/credit amounts,
+    assign parties, and add the memorial balancing entry for type 7 bookings.
+
+    Returns:
+        tuple: (total_debit, total_credit) accumulated from all rows including balancing entry
+    """
+    mutation_id = mutation.get("id")
+    mutation_type = mutation.get("type", 0)
+    relation_id = mutation.get("relationId")
+    is_memorial_booking = mutation_type == 7
+    total_debit = 0
+    total_credit = 0
+
+    for row in rows:
+        row_amount = frappe.utils.flt(row.get("amount", 0), 2)
+        row_ledger_id = row.get("ledgerId")
+        row_description = row.get("description", description)
+
+        if row_amount == 0:
+            continue
+
+        row_account = _resolve_journal_row_account(
+            row_ledger_id, row_amount, row_description, mutation, company, debug_info
+        )
+
+        if is_memorial_booking:
+            row_debit, row_credit, _unused1, _unused2 = _get_memorial_booking_amounts(
+                row_ledger_id, main_ledger_id, row_amount, debug_info
+            )
+            entry_line = {
+                "account": row_account,
+                "debit_in_account_currency": frappe.utils.flt(row_debit, 2),
+                "credit_in_account_currency": frappe.utils.flt(row_credit, 2),
+                "cost_center": cost_center,
+                "user_remark": row_description,
+                "is_advance": "No",
+            }
+            debug_info.append(
+                f"Memorial row: {row_account} Dr={row_debit} Cr={row_credit} (from amount={row_amount})"
+            )
+        else:
+            entry_line = {
+                "account": row_account,
+                "debit_in_account_currency": frappe.utils.flt(row_amount if row_amount > 0 else 0, 2),
+                "credit_in_account_currency": frappe.utils.flt(-row_amount if row_amount < 0 else 0, 2),
+                "cost_center": cost_center,
+                "user_remark": row_description,
+                "is_advance": "No",
+            }
+
+        # Add party for receivable/payable accounts
+        _assign_party_to_entry(
+            entry_line, row_account, mutation_type, relation_id, company, description, debug_info
+        )
+
+        debug_info.append(f"Appending entry_line: {entry_line}")
+        je.append("accounts", entry_line)
+        total_debit += entry_line["debit_in_account_currency"]
+        total_credit += entry_line["credit_in_account_currency"]
+
+    # For memorial bookings, add ONE balancing entry to main ledger for the net effect
+    if is_memorial_booking and main_ledger_id and rows:
+        main_line = _build_memorial_balancing_entry(
+            mutation_id,
+            rows,
+            main_ledger_id,
+            total_debit,
+            total_credit,
+            company,
+            cost_center,
+            description,
+            debug_info,
+        )
+        if main_line:
+            _assign_party_to_entry(
+                main_line, main_line["account"], mutation_type, None, company, description, debug_info
+            )
+            debug_info.append(f"Appending main_line: {main_line}")
+            je.append("accounts", main_line)
+            total_debit += main_line["debit_in_account_currency"]
+            total_credit += main_line["credit_in_account_currency"]
+
+    return total_debit, total_credit
+
+
+def _resolve_journal_row_account(row_ledger_id, row_amount, row_description, mutation, company, debug_info):
+    """Resolve ERPNext account for a journal entry row, falling back to tegenrekening mapping."""
+    row_account = get_erpnext_account_from_ledger_id(row_ledger_id, company, debug_info, auto_create=True)
+    if row_account:
+        return row_account
+
+    ledger_code = _get_ledger_code_from_id(row_ledger_id, company, debug_info) if row_ledger_id else None
+    line_dict = create_invoice_line_for_tegenrekening(
+        tegenrekening_code=ledger_code,
+        amount=abs(row_amount),
+        description=row_description,
+        transaction_type="purchase",
+    )
+    row_account = line_dict.get("expense_account")
+    if not row_account:
+        raise ValueError(
+            f"No expense account mapping found for mutation {mutation.get('ID', 'unknown')} "
+            f"row with ledger_id {row_ledger_id}. Account mapping required for proper financial reporting."
+        )
+    return row_account
+
+
+def _assign_party_to_entry(entry_line, account, mutation_type, relation_id, company, description, debug_info):
+    """Add party_type and party to a journal entry line if the account is Receivable or Payable."""
+    account_type = frappe.db.get_value("Account", account, "account_type")
+    if account_type == "Receivable":
+        entry_line["party_type"] = "Customer"
+        if mutation_type == 7:
+            entry_line["party"] = _get_or_create_company_as_customer(company, debug_info)
+        elif relation_id:
+            entry_line["party"] = _get_or_create_customer(relation_id, debug_info)
+    elif account_type == "Payable":
+        entry_line["party_type"] = "Supplier"
+        if mutation_type == 7:
+            entry_line["party"] = _get_or_create_company_as_supplier(company, debug_info)
+        elif relation_id:
+            entry_line["party"] = _get_or_create_supplier(relation_id, description, debug_info)
+
+
+def _build_memorial_balancing_entry(
+    mutation_id,
+    rows,
+    main_ledger_id,
+    total_debit,
+    total_credit,
+    company,
+    cost_center,
+    description,
+    debug_info,
+):
+    """
+    Build the balancing entry for the main ledger in a memorial booking.
+    For single-row bookings, uses _get_memorial_booking_amounts for precise calculation.
+    For multi-row bookings, calculates the net imbalance to balance the journal entry.
+
+    Returns:
+        dict or None: The balancing entry line, or None if no balancing is needed.
+    """
+    main_account = get_erpnext_account_from_ledger_id(main_ledger_id, company, debug_info, auto_create=True)
+    if not main_account:
+        raise ValueError(f"Memorial booking {mutation_id}: No mapping found for main ledger {main_ledger_id}")
+
+    if len(rows) == 1:
+        row = rows[0]
+        row_amount = frappe.utils.flt(row.get("amount", 0), 2)
+        row_ledger_id = row.get("ledgerId")
+        main_result = _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, debug_info)
+        row_d, row_c, main_debit, main_credit = main_result
+        debug_info.append(
+            f"Main balance calculation returned: row_d={row_d}, row_c={row_c}, main_d={main_debit}, main_c={main_credit}"
+        )
+        debug_info.append(f"Memorial balance (single row): {main_account} Dr={main_debit} Cr={main_credit}")
+    else:
+        row_net = total_debit - total_credit
+        if abs(row_net) <= 0.01:
+            return None  # No balancing needed
+        main_debit = -row_net if row_net < 0 else 0
+        main_credit = row_net if row_net > 0 else 0
+        debug_info.append(
+            f"Memorial balance (multi-row): {main_account} Dr={main_debit} Cr={main_credit} (balances {row_net})"
+        )
+
+    return {
+        "account": main_account,
+        "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
+        "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
+        "cost_center": cost_center,
+        "user_remark": f"Memorial booking balance: {description}",
+        "is_advance": "No",
+    }
+
+
+def _validate_memorial_booking(
+    je, mutation, rows, amount, total_debit, total_credit, company, cost_center, debug_info
+):
+    """
+    Validate memorial booking: check that rows sum to expected net amount
+    and that the journal entry is balanced (ERPNext requirement).
+    """
+    from .processors.base_processor import BaseTransactionProcessor
+
+    mutation_id = mutation.get("id")
+
+    temp_processor = type(
+        "TempProcessor",
+        (BaseTransactionProcessor,),
+        {
+            "can_process": lambda self, m: True,
+            "process": lambda self, m: None,
+        },
+    )(company, cost_center)
+
+    is_valid, error_msg, amount_diff = temp_processor.validate_row_amounts(
+        mutation, rows, amount, use_net_amount=True
+    )
+
+    if not is_valid:
+        debug_info.append(f"Memorial booking row validation failed: {error_msg}")
+        debug_info.extend(temp_processor.get_debug_info())
+        raise Exception(error_msg)
+
+    debug_info.extend(temp_processor.get_debug_info())
+
+    if abs(total_debit - total_credit) > 0.01:
+        error_msg = (
+            f"Memorial booking {mutation_id} journal entry is not balanced: "
+            f"Debit={total_debit}, Credit={total_credit}, "
+            f"Difference={abs(total_debit - total_credit)}"
+        )
+        debug_info.append(f"Balance error: {error_msg}")
+        raise Exception(error_msg)
+
+    debug_info.append(
+        f"Memorial booking journal entry is balanced: Debit={total_debit}, Credit={total_credit}"
+    )
+
+
+def _add_payment_offset_entry(
+    je, mutation, ledger_id, company, cost_center, total_debit, total_credit, description, debug_info
+):
+    """
+    For Type 3/4 payment mutations, add the offsetting main ledger entry (usually bank account)
+    to balance the Journal Entry.
+
+    NOTE: This creates a Journal Entry instead of Payment Entry for credit note refunds.
+    Journal Entries don't auto-update invoice outstanding — manual reconciliation needed.
+    """
+    main_account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
+    if not main_account:
+        raise ValueError(
+            f"Payment mutation {mutation.get('ID', 'unknown')}: No mapping found for main ledger {ledger_id} (bank account)"
+        )
+
+    net_row_amount = total_credit - total_debit
+    abs_amount = abs(net_row_amount)
+
+    if net_row_amount > 0:
+        main_debit, main_credit = abs_amount, 0
+        debug_info.append(f"Payment: {abs_amount} debited to {main_account} (bank/cash account)")
+    else:
+        main_debit, main_credit = 0, abs_amount
+        debug_info.append(f"Payment: {abs_amount} credited to {main_account} (bank/cash account)")
+
+    main_line = {
+        "account": main_account,
+        "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
+        "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
+        "cost_center": cost_center,
+        "user_remark": f"Payment transaction: {description}",
+    }
+
+    # Add party for main account if needed (unlikely for bank accounts, but check anyway)
+    _assign_party_to_entry(
+        main_line, main_account, mutation.get("type", 0), None, company, description, debug_info
+    )
+
+    je.append("accounts", main_line)
+    debug_info.append(f"Added main ledger entry: {main_account} - Debit: {main_debit}, Credit: {main_credit}")
+
+
 def _create_journal_entry(mutation, company, cost_center, debug_info):
     """Create Journal Entry from mutation"""
     mutation_id = mutation.get("id")
@@ -3666,300 +3710,29 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     je = enhance_journal_entry_fields(je, mutation, type_name if "type_name" in locals() else None)
 
     if len(rows) > 0:
-        # Multi-line journal entry
-        total_debit = 0
-        total_credit = 0
+        # Multi-line journal entry: process rows, add memorial balancing, validate, and add payment offset
         is_memorial_booking = mutation_type == 7
+        total_debit, total_credit = _process_journal_entry_rows(
+            je, mutation, rows, ledger_id, company, cost_center, description, debug_info
+        )
 
-        # For memorial bookings, aggregate amounts by account first
-        # This handles cases where multiple rows affect the same account with different signs
-        account_aggregates = (
-            {}
-        )  # {account_name: {'debit': float, 'credit': float, 'party_info': dict, 'remark': str}}
-
-        for row in rows:
-            row_amount = frappe.utils.flt(row.get("amount", 0), 2)
-            row_ledger_id = row.get("ledgerId")
-            row_description = row.get("description", description)
-
-            if row_amount == 0:
-                continue
-
-            # Get row account mapping (with auto-create if missing)
-            row_account = get_erpnext_account_from_ledger_id(
-                row_ledger_id, company, debug_info, auto_create=True
-            )
-
-            if not row_account:
-                # Get ledger code instead of ledger ID
-                ledger_code = (
-                    _get_ledger_code_from_id(row_ledger_id, company, debug_info) if row_ledger_id else None
-                )
-
-                line_dict = create_invoice_line_for_tegenrekening(
-                    tegenrekening_code=ledger_code,
-                    amount=abs(row_amount),
-                    description=row_description,
-                    transaction_type="purchase",
-                )
-                row_account = line_dict.get("expense_account")
-                if not row_account:
-                    raise ValueError(
-                        f"No expense account mapping found for mutation {mutation.get('ID', 'unknown')} row with ledger_id {row_ledger_id}. Account mapping required for proper financial reporting."
-                    )
-
-            # For memorial bookings, use proper debit/credit calculation based on account categories
-            # The balancing entry to main ledger will be added ONCE after all rows
-            if is_memorial_booking:
-                # Get proper debit/credit amounts based on account categories
-                row_debit, row_credit, _unused1, _unused2 = _get_memorial_booking_amounts(
-                    row_ledger_id, ledger_id, row_amount, debug_info
-                )
-                entry_line = {
-                    "account": row_account,
-                    "debit_in_account_currency": frappe.utils.flt(row_debit, 2),
-                    "credit_in_account_currency": frappe.utils.flt(row_credit, 2),
-                    "cost_center": cost_center,
-                    "user_remark": row_description,
-                    "is_advance": "No",
-                }
-                debug_info.append(
-                    f"Memorial row: {row_account} Dr={row_debit} Cr={row_credit} (from amount={row_amount})"
-                )
-            else:
-                # For non-memorial bookings, use simple amount-based logic
-                entry_line = {
-                    "account": row_account,
-                    "debit_in_account_currency": frappe.utils.flt(row_amount if row_amount > 0 else 0, 2),
-                    "credit_in_account_currency": frappe.utils.flt(-row_amount if row_amount < 0 else 0, 2),
-                    "cost_center": cost_center,
-                    "user_remark": row_description,
-                    "is_advance": "No",
-                }
-
-            # Add row account party if needed
-            row_account_type = frappe.db.get_value("Account", row_account, "account_type")
-            if row_account_type == "Receivable":
-                entry_line["party_type"] = "Customer"
-                if mutation_type == 7:
-                    entry_line["party"] = _get_or_create_company_as_customer(company, debug_info)
-                elif relation_id:
-                    entry_line["party"] = _get_or_create_customer(relation_id, debug_info)
-            elif row_account_type == "Payable":
-                entry_line["party_type"] = "Supplier"
-                if mutation_type == 7:
-                    entry_line["party"] = _get_or_create_company_as_supplier(company, debug_info)
-                elif relation_id:
-                    entry_line["party"] = _get_or_create_supplier(relation_id, description, debug_info)
-
-            debug_info.append(f"Appending entry_line: {entry_line}")
-            je.append("accounts", entry_line)
-            total_debit += entry_line["debit_in_account_currency"]
-            total_credit += entry_line["credit_in_account_currency"]
-
-        # For memorial bookings, add ONE balancing entry to main ledger for the net effect
-        if is_memorial_booking and ledger_id and rows:
-            # For single-row memorial bookings, use the main amounts from _get_memorial_booking_amounts
-            # For multi-row, calculate the balancing amount
-            if len(rows) == 1:
-                # Single row - use the main debit/credit from the calculation
-                row = rows[0]
-                row_amount = frappe.utils.flt(row.get("amount", 0), 2)
-                row_ledger_id = row.get("ledgerId")
-
-                main_result = _get_memorial_booking_amounts(row_ledger_id, ledger_id, row_amount, debug_info)
-                row_d, row_c, main_debit, main_credit = main_result
-                debug_info.append(
-                    f"Main balance calculation returned: row_d={row_d}, row_c={row_c}, main_d={main_debit}, main_c={main_credit}"
-                )
-
-                # Get main account mapping
-                main_account = get_erpnext_account_from_ledger_id(
-                    ledger_id, company, debug_info, auto_create=True
-                )
-
-                if not main_account:
-                    raise ValueError(
-                        f"Memorial booking {mutation_id}: No mapping found for main ledger {ledger_id}"
-                    )
-
-                main_line = {
-                    "account": main_account,
-                    "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
-                    "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
-                    "cost_center": cost_center,
-                    "user_remark": f"Memorial booking balance: {description}",
-                    "is_advance": "No",
-                }
-
-                debug_info.append(
-                    f"Memorial balance (single row): {main_account} Dr={main_debit} Cr={main_credit}"
-                )
-            else:
-                # Multi-row memorial booking - calculate net to balance
-                row_net = total_debit - total_credit
-
-                # Main ledger gets the opposite to balance the journal entry
-                if abs(row_net) > 0.01:  # Only add if there's an actual imbalance
-                    balancing_debit = -row_net if row_net < 0 else 0
-                    balancing_credit = row_net if row_net > 0 else 0
-
-                    # Get main account mapping
-                    main_account = get_erpnext_account_from_ledger_id(
-                        ledger_id, company, debug_info, auto_create=True
-                    )
-
-                    if not main_account:
-                        raise ValueError(
-                            f"Memorial booking {mutation_id}: No mapping found for main ledger {ledger_id}"
-                        )
-
-                    main_line = {
-                        "account": main_account,
-                        "debit_in_account_currency": frappe.utils.flt(balancing_debit, 2),
-                        "credit_in_account_currency": frappe.utils.flt(balancing_credit, 2),
-                        "cost_center": cost_center,
-                        "user_remark": f"Memorial booking balance: {description}",
-                        "is_advance": "No",
-                    }
-
-                    debug_info.append(
-                        f"Memorial balance (multi-row): {main_account} Dr={balancing_debit} Cr={balancing_credit} (balances {row_net})"
-                    )
-                else:
-                    main_line = None  # No balancing needed
-
-            if main_line:
-                # Add party for main account if needed
-                main_account_type = frappe.db.get_value("Account", main_account, "account_type")
-                if main_account_type == "Receivable":
-                    main_line["party_type"] = "Customer"
-                    main_line["party"] = _get_or_create_company_as_customer(company, debug_info)
-                elif main_account_type == "Payable":
-                    main_line["party_type"] = "Supplier"
-                    main_line["party"] = _get_or_create_company_as_supplier(company, debug_info)
-
-                debug_info.append(f"Appending main_line: {main_line}")
-                je.append("accounts", main_line)
-                total_debit += main_line["debit_in_account_currency"]
-                total_credit += main_line["credit_in_account_currency"]
-
-        # Validate memorial booking
-        # For memorial bookings, we only need to validate that:
-        # 1. All rows are present and accounted for
-        # 2. The journal entry is balanced (which ERPNext requires anyway)
-        # We do NOT validate that "journal net = mutation amount" because memorial bookings
-        # must be balanced (debit = credit) per ERPNext requirements
         if is_memorial_booking and rows:
-            from .processors.base_processor import BaseTransactionProcessor
-
-            # Create temporary processor instance for validation
-            temp_processor = type(
-                "TempProcessor",
-                (BaseTransactionProcessor,),
-                {
-                    "can_process": lambda self, m: True,
-                    "process": lambda self, m: None,
-                },
-            )(company, cost_center)
-
-            # Validation: Check that rows sum to expected net amount
-            # This ensures all rows from E-Boekhouden are present and correct
-            is_valid, error_msg, amount_diff = temp_processor.validate_row_amounts(
-                mutation, rows, amount, use_net_amount=True
+            _validate_memorial_booking(
+                je, mutation, rows, amount, total_debit, total_credit, company, cost_center, debug_info
             )
 
-            if not is_valid:
-                debug_info.append(f"❌ Memorial booking row validation failed: {error_msg}")
-                debug_info.extend(temp_processor.get_debug_info())
-                raise Exception(error_msg)
-
-            debug_info.extend(temp_processor.get_debug_info())
-
-            # Check that journal entry is balanced (ERPNext requirement)
-            if abs(total_debit - total_credit) > 0.01:
-                error_msg = (
-                    f"Memorial booking {mutation_id} journal entry is not balanced: "
-                    f"Debit={total_debit}, Credit={total_credit}, "
-                    f"Difference={abs(total_debit - total_credit)}"
-                )
-                debug_info.append(f"❌ {error_msg}")
-                raise Exception(error_msg)
-
-            debug_info.append(
-                f"✓ Memorial booking journal entry is balanced: Debit={total_debit}, Credit={total_credit}"
-            )
-
-        # For Type 3/4 payment mutations, add offsetting main ledger entry (usually bank account)
-        # This balances the Journal Entry by adding the bank side of the transaction
-        #
-        # NOTE: This creates a Journal Entry instead of a Payment Entry for credit note refunds.
-        # TRADEOFF: Journal Entries do NOT automatically update invoice outstanding amounts.
-        # - Purchase Invoice will still show outstanding = -540.4 (supplier owes us money)
-        # - Journal Entry correctly records bank transaction (debit bank, credit payables)
-        # - Manual reconciliation needed via Payment Reconciliation Tool
-        #
-        # WHY NOT Payment Entry with automatic linking?
-        # - Payment Entry has amount doubling issues when both paid_amount and received_amount are set
-        # - ERPNext's validation requires both fields for same-currency transactions
-        # - set_amounts() gets called twice (explicit + during validate) causing duplicate GL entries
-        # - Journal Entry avoids this complexity while maintaining correct GL accounting
-        #
-        # FUTURE: Could add reference_type="Purchase Invoice" and reference_name to the Payables
-        # line to enable automatic reconciliation, but that adds complexity for edge cases
-        # (partial refunds, adjustments, timing differences between credit note and refund).
         if mutation_type in [3, 4] and ledger_id and not is_memorial_booking:
-            # Get main account mapping (with auto-create if missing)
-            main_account = get_erpnext_account_from_ledger_id(
-                ledger_id, company, debug_info, auto_create=True
+            _add_payment_offset_entry(
+                je,
+                mutation,
+                ledger_id,
+                company,
+                cost_center,
+                total_debit,
+                total_credit,
+                description,
+                debug_info,
             )
-
-            if main_account:
-                # Calculate the offsetting amount (opposite of row totals)
-                # If rows had net credit, main ledger needs debit (and vice versa)
-                net_row_amount = total_credit - total_debit
-                abs_amount = abs(net_row_amount)
-
-                if net_row_amount > 0:
-                    # Rows were net credit, main ledger should be debit
-                    main_debit, main_credit = abs_amount, 0
-                    debug_info.append(f"Payment: €{abs_amount} debited to {main_account} (bank/cash account)")
-                else:
-                    # Rows were net debit, main ledger should be credit
-                    main_debit, main_credit = 0, abs_amount
-                    debug_info.append(
-                        f"Payment: €{abs_amount} credited to {main_account} (bank/cash account)"
-                    )
-
-                # Add main ledger entry to balance the transaction
-                main_line = {
-                    "account": main_account,
-                    "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
-                    "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
-                    "cost_center": cost_center,
-                    "user_remark": f"Payment transaction: {description}",
-                }
-
-                # Add party for main account if needed (unlikely for bank accounts, but check anyway)
-                main_account_type = frappe.db.get_value("Account", main_account, "account_type")
-                if main_account_type == "Receivable":
-                    main_line["party_type"] = "Customer"
-                    main_line["party"] = _get_or_create_company_as_customer(company, debug_info)
-                elif main_account_type == "Payable":
-                    main_line["party_type"] = "Supplier"
-                    main_line["party"] = _get_or_create_company_as_supplier(company, debug_info)
-
-                je.append("accounts", main_line)
-                total_debit += main_line["debit_in_account_currency"]
-                total_credit += main_line["credit_in_account_currency"]
-
-                debug_info.append(
-                    f"Added main ledger entry: {main_account} - Debit: {main_debit}, Credit: {main_credit}"
-                )
-            else:
-                raise ValueError(
-                    f"Payment mutation {mutation.get('ID', 'unknown')}: No mapping found for main ledger {ledger_id} (bank account)"
-                )
 
     else:
         # Simple journal entry with main amount
@@ -4443,6 +4216,312 @@ def start_full_rest_import(migration_name, mutation_types=None):
         return {"success": False, "error": str(e)}
 
 
+def _process_mutation_with_coordinator(
+    mutation, mutation_id, mutation_type, coordinator, company, cost_center, debug_info
+):
+    """
+    Process a single mutation using the coordinator (new processors) with legacy fallback.
+
+    Returns:
+        dict with keys:
+        - action: 'success' | 'failed' | 'skip' | 'error'
+        - method: 'new_processors' | 'legacy' (only for success)
+        - error_msg: str (only for error)
+        - is_stock_error: bool (only for error)
+    """
+    try:
+        debug_info.append(f"Processing mutation {mutation_id}")
+        doc = None
+        processing_method = "legacy"
+
+        if coordinator:
+            try:
+                doc = coordinator.process_mutation(mutation)
+                if doc:
+                    processing_method = "new_processors"
+                    processor_debug = coordinator.last_processor_debug_info
+                    if processor_debug:
+                        debug_info.extend(processor_debug)
+                else:
+                    processor_debug = coordinator.last_processor_debug_info
+
+                    # Check if this was a legitimate skip (gateway adjustment, etc.)
+                    skip_indicators = [
+                        "Skipping payment gateway adjustment",
+                        "already detected in can_process",
+                        "SKIPPING",
+                    ]
+                    is_legitimate_skip = processor_debug and any(
+                        any(indicator in line for indicator in skip_indicators) for line in processor_debug
+                    )
+
+                    if is_legitimate_skip:
+                        debug_info.append(
+                            f"New processors intentionally skipped mutation {mutation_id} (Type {mutation_type})"
+                        )
+                        if processor_debug:
+                            debug_info.extend(processor_debug)
+                        return {"action": "skip"}
+                    else:
+                        debug_info.append(
+                            f"New processors returned None for mutation {mutation_id} (Type {mutation_type}), falling back to legacy"
+                        )
+                        if processor_debug:
+                            debug_info.extend(processor_debug)
+                        frappe.log_error(
+                            title=f"New Processor Returned None - Mutation {mutation_id} (Type {mutation_type})",
+                            message=f"Mutation ID: {mutation_id}\nType: {mutation_type}\nDescription: {mutation.get('description', 'N/A')}\n\nDebug Info:\n"
+                            + "\n".join(processor_debug if processor_debug else ["No debug info"]),
+                        )
+            except Exception as proc_error:
+                debug_info.append(
+                    f"New processor failed for mutation {mutation_id} (Type {mutation_type}): {str(proc_error)}, using legacy"
+                )
+                processor_debug = coordinator.last_processor_debug_info
+                if processor_debug:
+                    debug_info.extend(processor_debug)
+                doc = None
+
+        # Fallback to legacy if new processors didn't work
+        if not doc:
+            doc = _process_single_mutation(mutation, company, cost_center, debug_info)
+            processing_method = "legacy"
+
+        if doc:
+            debug_info.append(
+                f"Successfully imported mutation {mutation_id} as {doc.doctype} {doc.name} (via {processing_method})"
+            )
+            return {"action": "success", "method": processing_method}
+        else:
+            debug_info.append(f"Failed to process mutation {mutation_id} - no document returned")
+            return {"action": "failed"}
+
+    except Exception as processing_error:
+        error_str = str(processing_error)
+        is_stock = "Stock accounts" in error_str and "can only be updated via Stock Transactions" in error_str
+        if is_stock:
+            debug_info.append(f"STOCK ACCOUNT SKIP - Skipped mutation {mutation_id}: {error_str}")
+        else:
+            debug_info.append(f"PROCESSING ERROR - Error processing mutation {mutation_id}: {error_str}")
+        return {
+            "action": "error",
+            "is_stock_error": is_stock,
+            "error_msg": f"{'Skipped' if is_stock else 'Error processing'} mutation {mutation_id}: {error_str}",
+        }
+
+
+def _categorize_batch_errors(errors):
+    """Group batch import errors into categories for summary logging."""
+    error_categories = {}
+    for error in errors:
+        if "Stock accounts" in error and "can only be updated via Stock Transactions" in error:
+            category = "Stock Account Updates (Fixed - now creates Stock Reconciliations)"
+        elif "already been fully paid" in error or "cannot be greater than outstanding amount" in error:
+            category = "Payment Allocation Issues"
+        elif "Could not find" in error:
+            category = "Missing References"
+        elif "already exists" in error:
+            category = "Duplicate Entries"
+        else:
+            category = "Other Errors"
+
+        if category not in error_categories:
+            error_categories[category] = []
+        error_categories[category].append(error)
+
+    return error_categories
+
+
+def _log_batch_summary(
+    mutations,
+    type_name,
+    imported,
+    failed,
+    skipped,
+    errors,
+    processed_with_new,
+    processed_with_legacy,
+    error_categories,
+):
+    """Build and log the batch import summary to Error Log. Returns the summary content string."""
+    import re
+
+    summary_title = f"eBoekhouden REST Import - {type_name} Complete"
+    summary_content = f"BATCH SUMMARY for {type_name}:\n"
+    summary_content += f"Processed: {len(mutations) if mutations else 0} mutations\n"
+    summary_content += f"Imported: {imported}\n"
+    summary_content += f"Failed: {failed}\n"
+    summary_content += f"Skipped: {skipped}\n"
+    summary_content += f"Total Errors: {len(errors)}\n\n"
+
+    total_processed = processed_with_new + processed_with_legacy
+    if total_processed > 0:
+        summary_content += "PROCESSING METHOD BREAKDOWN:\n"
+        summary_content += (
+            f"New Processors: {processed_with_new} ({processed_with_new * 100 / total_processed:.1f}%)\n"
+        )
+        summary_content += f"Legacy Processing: {processed_with_legacy} ({processed_with_legacy * 100 / total_processed:.1f}%)\n\n"
+
+    # Bank Transaction statistics for payment types
+    if (
+        type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"]
+        and imported > 0
+    ):
+        _append_bank_transaction_stats(summary_content, mutations, type_name)
+
+    if error_categories:
+        summary_content += "ERROR CATEGORIES:\n"
+        for category, category_errors in error_categories.items():
+            summary_content += f"\n{category} ({len(category_errors)} errors):\n"
+            for error in category_errors[:5]:
+                mutation_match = re.search(r"mutation (\d+)", error)
+                if mutation_match:
+                    summary_content += f"  - Mutation {mutation_match.group(1)}\n"
+                else:
+                    summary_content += f"  - {error[:100]}{'...' if len(error) > 100 else ''}\n"
+            if len(category_errors) > 5:
+                summary_content += f"  ... and {len(category_errors) - 5} more\n"
+
+    frappe.log_error(summary_content, summary_title)
+
+    if errors:
+        detailed_content = f"DETAILED ERROR REPORT for {type_name}:\n\n"
+        for category, category_errors in error_categories.items():
+            detailed_content += f"{category} ({len(category_errors)} errors):\n"
+            for i, error in enumerate(category_errors, 1):
+                detailed_content += f"\n{i}. {error}\n"
+            detailed_content += "\n" + "=" * 80 + "\n\n"
+        frappe.log_error(detailed_content, f"eBoekhouden REST Import - {type_name} - Detailed Errors")
+
+    return summary_content
+
+
+def _append_bank_transaction_stats(summary_content, mutations, type_name):
+    """Append bank transaction statistics to the summary content (for payment type batches)."""
+    try:
+        mutation_ids = [str(m.get("id")) for m in mutations] if mutations else []
+        if not mutation_ids:
+            return
+
+        placeholders = ", ".join(["%s"] * len(mutation_ids))
+        bank_tx_stats = frappe.db.sql(
+            f"""
+            SELECT
+                COUNT(DISTINCT pe.name) as total_pes,
+                COUNT(DISTINCT btp.parent) as with_bank_tx
+            FROM `tabPayment Entry` pe
+            LEFT JOIN `tabBank Transaction Payments` btp ON btp.payment_entry = pe.name
+            WHERE pe.eboekhouden_mutation_nr IN ({placeholders})
+        """,
+            tuple(mutation_ids),
+            as_dict=True,
+        )
+
+        if not bank_tx_stats or not bank_tx_stats[0]:
+            return
+
+        stats = bank_tx_stats[0]
+        total = stats.total_pes
+        with_bt = stats.with_bank_tx
+        without_bt = total - with_bt
+        success_rate = (with_bt / total * 100) if total > 0 else 0
+
+        if total == 0:
+            summary_content += "PAYMENT ENTRY STATUS:\n"
+            summary_content += f"No Payment Entries created ({len(mutations)} mutations processed)\n"
+            summary_content += f"All {len(mutations)} mutations created as Journal Entries instead\n"
+            summary_content += "This is expected for type 5/6 (Money Received/Paid) transactions\n\n"
+        else:
+            je_count = len(mutations) - total
+            summary_content += "BANK TRANSACTION STATUS:\n"
+            summary_content += f"Payment Entries in batch: {total} (of {len(mutations)} mutations)\n"
+            if je_count > 0:
+                summary_content += f"  - Created as Payment Entry: {total}\n"
+                summary_content += f"  - Created as Journal Entry instead: {je_count}\n"
+            summary_content += f"With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
+            summary_content += f"WITHOUT Bank Transactions: {without_bt}\n"
+            if without_bt > 0:
+                summary_content += f"  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
+            summary_content += "\n"
+    except Exception as bt_stats_error:
+        summary_content += f"BANK TRANSACTION STATISTICS: Error collecting stats - {str(bt_stats_error)}\n\n"
+
+
+def _retry_transient_failures(migration_name, errors, failed, imported, debug_info):
+    """
+    Retry failed mutations that had transient errors (deadlocks, timeouts, connection issues).
+
+    Returns:
+        dict with updated imported/failed/errors counts and optional retry_summary string.
+    """
+    import re
+
+    transient_error_patterns = [
+        "has been modified after you have opened it",
+        "Deadlock found",
+        "Lock wait timeout exceeded",
+        "Connection reset",
+        "Connection timed out",
+        "Lost connection to MySQL server",
+    ]
+
+    retry_summary = None
+
+    if failed > 0 and errors:
+        failed_mutation_ids = []
+        for error in errors:
+            is_transient = any(pattern in error for pattern in transient_error_patterns)
+            if is_transient:
+                mutation_match = re.search(r"mutation (\d+)", error)
+                if mutation_match:
+                    failed_mutation_ids.append(mutation_match.group(1))
+
+        if failed_mutation_ids:
+            debug_info.append(
+                f"\nRETRY PHASE: Retrying {len(failed_mutation_ids)} mutations with transient errors"
+            )
+
+            from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
+                import_single_mutation,
+            )
+
+            retry_success = 0
+            retry_failed = 0
+
+            for mutation_id in failed_mutation_ids:
+                try:
+                    debug_info.append(f"  Retrying mutation {mutation_id}...")
+                    result = import_single_mutation(migration_name, mutation_id, overwrite_existing=False)
+
+                    if result.get("success"):
+                        retry_success += 1
+                        errors = [e for e in errors if f"mutation {mutation_id}" not in e]
+                        imported += 1
+                        failed -= 1
+                        debug_info.append(f"  Retry successful for mutation {mutation_id}")
+                    else:
+                        retry_failed += 1
+                        debug_info.append(
+                            f"  Retry failed for mutation {mutation_id}: {result.get('error', 'Unknown error')}"
+                        )
+                except Exception as retry_error:
+                    retry_failed += 1
+                    debug_info.append(f"  Retry exception for mutation {mutation_id}: {str(retry_error)}")
+
+            retry_summary = f"\nRETRY SUMMARY:\n"
+            retry_summary += f"Attempted: {len(failed_mutation_ids)} mutations\n"
+            retry_summary += f"Successful: {retry_success}\n"
+            retry_summary += f"Failed: {retry_failed}\n"
+            debug_info.append(retry_summary)
+
+    return {
+        "imported": imported,
+        "failed": failed,
+        "errors": errors,
+        "retry_summary": retry_summary,
+    }
+
+
 def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, mutation_type=None):
     """
     Enhanced batch import that handles new fields gracefully.
@@ -4553,110 +4632,28 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                 skipped += 1
                 continue
 
-            # Process the mutation with enhanced error handling
-            try:
-                debug_info.append(f"Processing mutation {mutation_id}")
-                doc = None
-                processing_method = "legacy"
+            # Process the mutation with coordinator + legacy fallback
+            result = _process_mutation_with_coordinator(
+                mutation, mutation_id, mutation_type, coordinator, company, cost_center, debug_info
+            )
 
-                # PHASE 2: Try new processor architecture first
-                if coordinator:
-                    try:
-                        doc = coordinator.process_mutation(mutation)
-                        if doc:
-                            processing_method = "new_processors"
-                            processed_with_new += 1
-                            # Collect detailed debug info from processor
-                            processor_debug = coordinator.last_processor_debug_info
-                            if processor_debug:
-                                debug_info.extend(processor_debug)
-                        else:
-                            # New processors returned None - check if it was intentionally skipped
-                            processor_debug = coordinator.last_processor_debug_info
-
-                            # Check if this was a legitimate skip (gateway adjustment, etc.)
-                            is_legitimate_skip = False
-                            if processor_debug:
-                                skip_indicators = [
-                                    "Skipping payment gateway adjustment",
-                                    "already detected in can_process",
-                                    "SKIPPING",
-                                ]
-                                for debug_line in processor_debug:
-                                    if any(indicator in debug_line for indicator in skip_indicators):
-                                        is_legitimate_skip = True
-                                        break
-
-                            if is_legitimate_skip:
-                                # Legitimate skip - just log debug info, don't create error log
-                                debug_info.append(
-                                    f"✓ New processors intentionally skipped mutation {mutation_id} (Type {mutation_type})"
-                                )
-                                if processor_debug:
-                                    debug_info.extend(processor_debug)
-                                # Mark as skipped, don't fall back to legacy
-                                skipped += 1
-                                continue  # Skip to next mutation
-                            else:
-                                # Unexpected None - log why
-                                debug_info.append(
-                                    f"⚠️ New processors returned None for mutation {mutation_id} (Type {mutation_type}), falling back to legacy"
-                                )
-                                # Collect any debug info that might explain why
-                                if processor_debug:
-                                    debug_info.extend(processor_debug)
-
-                                # Log to Error Log for tracking
-                                frappe.log_error(
-                                    title=f"New Processor Returned None - Mutation {mutation_id} (Type {mutation_type})",
-                                    message=f"Mutation ID: {mutation_id}\nType: {mutation_type}\nDescription: {mutation.get('description', 'N/A')}\n\nDebug Info:\n"
-                                    + "\n".join(processor_debug if processor_debug else ["No debug info"]),
-                                )
-                    except Exception as proc_error:
-                        # Log processor failure but don't fail the import
-                        debug_info.append(
-                            f"⚠️ New processor failed for mutation {mutation_id} (Type {mutation_type}): {str(proc_error)}, using legacy"
-                        )
-                        # Collect any debug info generated before the error
-                        processor_debug = coordinator.last_processor_debug_info
-                        if processor_debug:
-                            debug_info.extend(processor_debug)
-                        doc = None
-
-                # Fallback to legacy if new processors didn't work
-                if not doc:
-                    doc = _process_single_mutation(mutation, company, cost_center, debug_info)
-                    processing_method = "legacy"
+            if result["action"] == "skip":
+                skipped += 1
+                continue
+            elif result["action"] == "success":
+                imported += 1
+                if result.get("method") == "new_processors":
+                    processed_with_new += 1
+                else:
                     processed_with_legacy += 1
-
-                if doc:
-                    imported += 1
-                    debug_info.append(
-                        f"Successfully imported mutation {mutation_id} as {doc.doctype} {doc.name} (via {processing_method})"
-                    )
-                else:
-                    # doc is False or None means it failed
-                    failed += 1
-                    debug_info.append(f"Failed to process mutation {mutation_id} - no document returned")
-
-            except Exception as processing_error:
-                error_str = str(processing_error)
-
-                # Handle stock account errors more gracefully
-                if (
-                    "Stock accounts" in error_str
-                    and "can only be updated via Stock Transactions" in error_str
-                ):
+            elif result["action"] == "failed":
+                failed += 1
+            elif result["action"] == "error":
+                if result.get("is_stock_error"):
                     skipped += 1
-                    error_msg = f"Skipped mutation {mutation_id}: {error_str}"
-                    debug_info.append(f"STOCK ACCOUNT SKIP - {error_msg}")
                 else:
                     failed += 1
-                    error_msg = f"Error processing mutation {mutation_id}: {error_str}"
-                    errors.append(error_msg)
-                    debug_info.append(f"PROCESSING ERROR - {error_msg}")
-
-                # Error details collected in batch summary
+                    errors.append(result["error_msg"])
 
         except Exception as e:
             failed += 1
@@ -4664,216 +4661,29 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
             errors.append(error_msg)
             debug_info.append(f"LOOP ERROR - {error_msg}")
 
-    # Group errors by category
-    error_categories = {}
-    for error in errors:
-        if "Stock accounts" in error and "can only be updated via Stock Transactions" in error:
-            category = "Stock Account Updates (Fixed - now creates Stock Reconciliations)"
-        elif "already been fully paid" in error or "cannot be greater than outstanding amount" in error:
-            category = "Payment Allocation Issues"
-        elif "Could not find" in error:
-            category = "Missing References"
-        elif "already exists" in error:
-            category = "Duplicate Entries"
-        else:
-            category = "Other Errors"
+    # Post-processing: categorize errors, log summary, retry transient failures
+    error_categories = _categorize_batch_errors(errors)
 
-        if category not in error_categories:
-            error_categories[category] = []
-        error_categories[category].append(error)
+    summary_content = _log_batch_summary(
+        mutations,
+        type_name,
+        imported,
+        failed,
+        skipped,
+        errors,
+        processed_with_new,
+        processed_with_legacy,
+        error_categories,
+    )
 
-    # Log comprehensive debug info with more descriptive title
-    summary_title = f"eBoekhouden REST Import - {type_name} Complete"
-    summary_content = f"BATCH SUMMARY for {type_name}:\n"
-    summary_content += f"• Processed: {len(mutations) if mutations else 0} mutations\n"
-    summary_content += f"• Imported: {imported}\n"
-    summary_content += f"• Failed: {failed}\n"
-    summary_content += f"• Skipped: {skipped}\n"
-    summary_content += f"• Total Errors: {len(errors)}\n\n"
-
-    # PHASE 2: Add processor statistics
-    if processed_with_new > 0 or processed_with_legacy > 0:
-        summary_content += "PROCESSING METHOD BREAKDOWN:\n"
-        summary_content += f"• New Processors: {processed_with_new} ({processed_with_new * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n"
-        summary_content += f"• Legacy Processing: {processed_with_legacy} ({processed_with_legacy * 100 / (processed_with_new + processed_with_legacy):.1f}%)\n\n"
-
-    # PHASE 3: Add Bank Transaction statistics for payment types
-    # Only show stats if we actually imported something (skip if all were skipped/existing)
-    if (
-        type_name in ["Customer Payments", "Supplier Payments", "Money Received", "Money Paid"]
-        and imported > 0
-    ):
-        try:
-            # Query Payment Entries created in this batch and check for Bank Transactions
-            mutation_ids = [str(m.get("id")) for m in mutations] if mutations else []
-            if mutation_ids and len(mutation_ids) > 0:
-                # Use parameterized query to avoid SQL injection
-                placeholders = ", ".join(["%s"] * len(mutation_ids))
-
-                bank_tx_stats = frappe.db.sql(
-                    f"""
-                    SELECT
-                        COUNT(DISTINCT pe.name) as total_pes,
-                        COUNT(DISTINCT btp.parent) as with_bank_tx
-                    FROM `tabPayment Entry` pe
-                    LEFT JOIN `tabBank Transaction Payments` btp ON btp.payment_entry = pe.name
-                    WHERE pe.eboekhouden_mutation_nr IN ({placeholders})
-                """,
-                    tuple(mutation_ids),
-                    as_dict=True,
-                )
-
-                if bank_tx_stats and bank_tx_stats[0]:
-                    stats = bank_tx_stats[0]
-                    total = stats.total_pes
-                    with_bt = stats.with_bank_tx
-                    without_bt = total - with_bt
-                    success_rate = (with_bt / total * 100) if total > 0 else 0
-
-                    # If no Payment Entries were created, show a different message
-                    if total == 0:
-                        summary_content += "PAYMENT ENTRY STATUS:\n"
-                        summary_content += (
-                            f"• No Payment Entries created ({len(mutations)} mutations processed)\n"
-                        )
-                        summary_content += (
-                            f"• All {len(mutations)} mutations created as Journal Entries instead\n"
-                        )
-                        summary_content += (
-                            "  ℹ️  This is expected for type 5/6 (Money Received/Paid) transactions\n"
-                        )
-                        summary_content += "     which are direct bank transfers without invoices.\n\n"
-                    else:
-                        # Show detailed breakdown when Payment Entries exist
-                        je_count = len(mutations) - total
-                        summary_content += "BANK TRANSACTION STATUS:\n"
-                        summary_content += (
-                            f"• Payment Entries in batch: {total} (of {len(mutations)} mutations processed)\n"
-                        )
-                        if je_count > 0:
-                            summary_content += f"  - Created as Payment Entry: {total}\n"
-                            summary_content += f"  - Created as Journal Entry instead: {je_count}\n"
-                        summary_content += f"• With Bank Transactions: {with_bt} ({success_rate:.1f}%)\n"
-                        summary_content += f"• WITHOUT Bank Transactions: {without_bt}\n"
-
-                        if without_bt > 0:
-                            summary_content += (
-                                f"  ⚠️  WARNING: {without_bt} Payment Entries missing Bank Transactions!\n"
-                            )
-                        else:
-                            summary_content += "  ✓ All Payment Entries have Bank Transactions\n"
-
-                        summary_content += "\n"
-        except Exception as bt_stats_error:
-            # Don't fail the summary if Bank Transaction stats fail
-            summary_content += (
-                f"BANK TRANSACTION STATISTICS: Error collecting stats - {str(bt_stats_error)}\n\n"
-            )
-
-    if error_categories:
-        summary_content += "ERROR CATEGORIES:\n"
-        for category, category_errors in error_categories.items():
-            summary_content += f"\n{category} ({len(category_errors)} errors):\n"
-            # Show first 5 errors of each category
-            for error in category_errors[:5]:
-                # Extract just mutation ID from error message
-                if "mutation" in error:
-                    import re
-
-                    mutation_match = re.search(r"mutation (\d+)", error)
-                    if mutation_match:
-                        summary_content += f"  - Mutation {mutation_match.group(1)}\n"
-                    else:
-                        summary_content += f"  - {error[:100]}...\n" if len(error) > 100 else f"  - {error}\n"
-                else:
-                    summary_content += f"  - {error[:100]}...\n" if len(error) > 100 else f"  - {error}\n"
-            if len(category_errors) > 5:
-                summary_content += f"  ... and {len(category_errors) - 5} more\n"
-
-    frappe.log_error(summary_content, summary_title)
-
-    # Log detailed error information when there are failures
-    if errors:
-        detailed_error_content = f"DETAILED ERROR REPORT for {type_name}:\n\n"
-
-        for category, category_errors in error_categories.items():
-            detailed_error_content += f"{category} ({len(category_errors)} errors):\n"
-            for i, error in enumerate(category_errors, 1):
-                detailed_error_content += f"\n{i}. {error}\n"
-            detailed_error_content += "\n" + "=" * 80 + "\n\n"
-
-        # Log detailed errors separately for easy access
-        detailed_title = f"eBoekhouden REST Import - {type_name} - Detailed Errors"
-        frappe.log_error(detailed_error_content, detailed_title)
-
-    # RETRY LOGIC: Retry failed mutations that might have transient errors
-    # Transient errors include: document modified, deadlocks, timeouts, connection issues
-    transient_error_patterns = [
-        "has been modified after you have opened it",
-        "Deadlock found",
-        "Lock wait timeout exceeded",
-        "Connection reset",
-        "Connection timed out",
-        "Lost connection to MySQL server",
-    ]
-
-    if failed > 0 and errors:
-        # Extract mutation IDs from failed mutations
-        failed_mutation_ids = []
-        for error in errors:
-            # Check if error is transient
-            is_transient = any(pattern in error for pattern in transient_error_patterns)
-            if is_transient:
-                # Extract mutation ID from error message
-                import re
-
-                mutation_match = re.search(r"mutation (\d+)", error)
-                if mutation_match:
-                    failed_mutation_ids.append(mutation_match.group(1))
-
-        if failed_mutation_ids:
-            debug_info.append(
-                f"\n🔄 RETRY PHASE: Retrying {len(failed_mutation_ids)} mutations with transient errors"
-            )
-
-            # Import the single mutation import function
-            from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
-                import_single_mutation,
-            )
-
-            retry_success = 0
-            retry_failed = 0
-
-            for mutation_id in failed_mutation_ids:
-                try:
-                    debug_info.append(f"  Retrying mutation {mutation_id}...")
-                    result = import_single_mutation(migration_name, mutation_id, overwrite_existing=False)
-
-                    if result.get("success"):
-                        retry_success += 1
-                        # Remove from errors list
-                        errors = [e for e in errors if f"mutation {mutation_id}" not in e]
-                        imported += 1
-                        failed -= 1
-                        debug_info.append(f"  ✅ Retry successful for mutation {mutation_id}")
-                    else:
-                        retry_failed += 1
-                        debug_info.append(
-                            f"  ❌ Retry failed for mutation {mutation_id}: {result.get('error', 'Unknown error')}"
-                        )
-
-                except Exception as retry_error:
-                    retry_failed += 1
-                    debug_info.append(f"  ❌ Retry exception for mutation {mutation_id}: {str(retry_error)}")
-
-            # Log retry summary
-            retry_summary = "\n🔄 RETRY SUMMARY:\n"
-            retry_summary += f"• Attempted: {len(failed_mutation_ids)} mutations\n"
-            retry_summary += f"• Successful: {retry_success}\n"
-            retry_summary += f"• Failed: {retry_failed}\n"
-            debug_info.append(retry_summary)
-
-            # Update summary with retry results
-            frappe.log_error(summary_content + retry_summary, f"{summary_title} (with retries)")
+    retry_result = _retry_transient_failures(migration_name, errors, failed, imported, debug_info)
+    imported = retry_result["imported"]
+    failed = retry_result["failed"]
+    errors = retry_result["errors"]
+    if retry_result.get("retry_summary"):
+        frappe.log_error(
+            summary_content + retry_result["retry_summary"],
+            f"eBoekhouden REST Import - {type_name} Complete (with retries)",
+        )
 
     return {"imported": imported, "failed": failed, "skipped": skipped, "errors": errors}

@@ -79,7 +79,7 @@ class TransactionCoordinator:
 
     def _get_default_cost_center(self) -> Optional[str]:
         """Get the default cost center for the company"""
-        from ..eboekhouden_rest_full_migration import get_default_cost_center
+        from verenigingen.e_boekhouden.utils.consolidated.cost_center_utils import get_default_cost_center
 
         return get_default_cost_center(self.company)
 
