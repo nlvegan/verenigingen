@@ -7,13 +7,11 @@ the corresponding DocType forms.
 """
 
 # Custom JavaScript for DocType forms
+# NOTE: Do NOT add DocTypes defined in this app here — Frappe auto-loads
+# their controller JS from the doctype directory. This hook is only for
+# adding JS to DocTypes whose controller lives elsewhere.
 doctype_js = {
-    "Member": "verenigingen/doctype/member/member.js",
-    "Membership": "public/js/membership.js",
-    "Membership Type": "public/js/membership_type.js",
     "Chapter": "public/js/chapter_email_integration.js",
-    "Direct Debit Batch": "public/js/direct_debit_batch.js",
-    "Membership Termination Request": "public/js/membership_termination_request.js",
     "Expense Claim": "public/js/expense_claim_custom.js",
     "Customer": "public/js/customer_member_link.js",
     "Sales Invoice": "public/js/sales_invoice_ing_checkout.js",

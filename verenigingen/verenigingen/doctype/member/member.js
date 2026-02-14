@@ -55,7 +55,34 @@
 
 // Copyright (c) 2025, Verenigingen Development Team and contributors
 // For license information, please see license.txt
-// Cache buster: v2025-01-13-001
+
+// Ensure OperationResult helpers exist as globals before loading async modules.
+// Normally set by operation-result-helpers.js (app_include_js), but if the desk HTML
+// is served from stale cache, these may be missing. Safe no-op when already defined.
+if (!window.unwrapOperationResult) {
+	window.unwrapOperationResult = function(msg) {
+		if (msg && typeof msg === 'object' && 'success' in msg && 'data' in msg) {
+			return msg.success ? msg.data : null;
+		}
+		return msg;
+	};
+}
+if (!window.escapeHtml) {
+	window.escapeHtml = function(str) {
+		if (str == null) return '';
+		var div = document.createElement('div');
+		div.textContent = String(str);
+		return div.innerHTML;
+	};
+}
+if (!window.getErrorMessage) {
+	window.getErrorMessage = function(msg, defaultMsg) {
+		if (msg && typeof msg === 'object') {
+			return msg.error_message || msg.message || defaultMsg;
+		}
+		return String(msg || defaultMsg);
+	};
+}
 
 // Import utility modules
 frappe.require([
@@ -129,12 +156,13 @@ function validate_link_fields(frm) {
 	});
 }
 
-// Note: escapeHtml, unwrapOperationResult, getErrorMessage, isFailureResult are provided by
-// /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via app_include_js)
-// isOperationResultFailed is an alias for verenigingen.utils.isFailureResult
-// Using var (not const) to be safe for form re-renders (const causes redeclaration error)
+// Local aliases for OperationResult helpers (globals guaranteed by shim above or app_include_js).
+// Using var (not const) to be safe for form re-renders (const causes redeclaration error).
 // eslint-disable-next-line no-var
-var isOperationResultFailed = (msg) => verenigingen.utils.isFailureResult(msg);
+var unwrapOperationResult = window.unwrapOperationResult;
+// eslint-disable-next-line no-var
+var isOperationResultFailed = (msg) =>
+	msg && typeof msg === 'object' && msg.success === false;
 
 /**
  * Main Member DocType Form Controller
@@ -3111,7 +3139,7 @@ window.update_other_members_at_address = function (frm, force_refresh = false) {
 
 	// Call backend method to get other members at same address
 	frappe.call({
-		method: 'verenigingen.api.member_management.get_address_members_html_api',
+		method: 'verenigingen.api.member_management_debug.get_address_members_html_api',
 		args: {
 			member_id: frm.doc.name
 		},
