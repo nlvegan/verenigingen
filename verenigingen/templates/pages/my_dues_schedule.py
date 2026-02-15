@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, format_date, getdate, today
 
+from verenigingen.utils.member_utils import get_current_user_member_name_required
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
@@ -20,9 +21,7 @@ def get_context(context):
         frappe.throw(_("You need to be logged in to view this page"), frappe.PermissionError)
 
     # Get current user's member record
-    member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
-    if not member:
-        frappe.throw(_("Member record not found"), frappe.DoesNotExistError)
+    member = get_current_user_member_name_required()
 
     # Get current dues schedule
     current_schedule = get_current_dues_schedule(member)
@@ -259,9 +258,7 @@ def export_schedule():
         frappe.throw(_("You need to be logged in to export schedule"), frappe.PermissionError)
 
     # Get current user's member record
-    member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
-    if not member:
-        frappe.throw(_("Member record not found"), frappe.DoesNotExistError)
+    member = get_current_user_member_name_required()
 
     # Get payment data
     payment_data = get_payment_data(member)
@@ -292,9 +289,7 @@ def get_payment_details(date):
         frappe.throw(_("You need to be logged in to view payment details"), frappe.PermissionError)
 
     # Get current user's member record
-    member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
-    if not member:
-        frappe.throw(_("Member record not found"), frappe.DoesNotExistError)
+    member = get_current_user_member_name_required()
 
     # Get payment data
     payment_data = get_payment_data(member)
@@ -310,7 +305,7 @@ def get_payment_details(date):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def update_notification_settings(email_notifications=None, auto_renewal=None):
+def update_notification_settings(email_notifications: str = None, auto_renewal: str = None):
     """Update notification settings for current user's dues schedule"""
 
     # Check if user is logged in
@@ -318,9 +313,7 @@ def update_notification_settings(email_notifications=None, auto_renewal=None):
         frappe.throw(_("You need to be logged in to update settings"), frappe.PermissionError)
 
     # Get current user's member record
-    member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
-    if not member:
-        frappe.throw(_("Member record not found"), frappe.DoesNotExistError)
+    member = get_current_user_member_name_required()
 
     # Get current dues schedule
     schedule_name = frappe.db.get_value(

@@ -10,6 +10,8 @@ URL: /volunteer-portal/expense_claim_new
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 # Import centralized utilities
 from verenigingen.utils.volunteer_expense_portal_utils import (
     build_base_expense_context,
@@ -36,7 +38,7 @@ def get_context(context):
     context.expense_stats = get_empty_statistics()
 
     # Get current user's volunteer record
-    member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
+    member = get_current_user_member_name()
 
     if member:
         volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")

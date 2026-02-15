@@ -1,6 +1,8 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for multi-item expense claim page"""
@@ -42,7 +44,7 @@ def get_context(context):
     )
 
     # Get current user's volunteer record
-    member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
+    member = get_current_user_member_name()
 
     if member:
         volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")

@@ -1,19 +1,20 @@
 import frappe
 from frappe.utils import format_datetime, getdate
 
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_pending_applications(chapter=None):
+def get_pending_applications(chapter: str = None):
     """Get pending membership applications"""
     filters = {"application_status": "Pending", "status": "Pending"}
 
     # If user is a chapter board member, filter by their chapter
     if not frappe.user.has_role(["Verenigingen Administrator", "Verenigingen Staff"]):
         # Get chapters where user is a board member
-        member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
+        member = get_current_user_member_name()
         if member:
             # Get chapters where this member is on the board
             board_chapters = frappe.db.sql(
@@ -145,7 +146,7 @@ def get_application_stats():
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.ADMIN)
-def bulk_approve_applications(member_names, membership_type, create_invoices=True):
+def bulk_approve_applications(member_names: str, membership_type: str, create_invoices: bool = True):
     """Bulk approve multiple membership applications"""
     if isinstance(member_names, str):
         import json

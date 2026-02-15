@@ -23,43 +23,24 @@ from verenigingen.utils.security.audit_logging import log_security_event
 from verenigingen.utils.validation.api_validators import APIValidator
 
 
-def _validate_member_and_sanitize_inputs(member_name, operation_label, text_fields=None):
-    """Validate member exists and sanitize text inputs.
+def _validate_member_for_review(member_name, operation_label):
+    """Validate member exists for review operations (approve/reject).
 
-    Shared validation for approve/reject endpoints. Handles member_name sanitization,
-    existence check with security logging, and optional text field sanitization.
+    Sanitizes the member_name input, checks existence, and logs security events.
 
     Args:
         member_name: Raw member name from API call
         operation_label: Label for security logs (e.g. "approval", "rejection")
-        text_fields: Dict of {field_name: (value, max_length, allow_html)} to sanitize.
-            If allow_html is omitted, defaults to True.
 
     Returns:
-        Tuple of (sanitized_member_name, sanitized_fields_dict).
-        sanitized_fields_dict keys match text_fields keys.
+        Sanitized member_name string.
 
     Raises:
         frappe.ValidationError: On invalid member or sanitization failure.
-        Logs security events on failures.
     """
     try:
         member_name = APIValidator.sanitize_text(str(member_name), max_length=255)
 
-        # Sanitize additional text fields
-        sanitized = {}
-        if text_fields:
-            for field_name, spec in text_fields.items():
-                value, max_length = spec[0], spec[1]
-                allow_html = spec[2] if len(spec) > 2 else True
-                if value:
-                    sanitized[field_name] = APIValidator.sanitize_text(
-                        str(value), max_length=max_length, allow_html=allow_html
-                    )
-                else:
-                    sanitized[field_name] = value
-
-        # Validate member exists
         if not frappe.db.exists("Member", member_name):
             log_security_event(
                 "invalid_member_access",
@@ -68,7 +49,7 @@ def _validate_member_and_sanitize_inputs(member_name, operation_label, text_fiel
             )
             frappe.throw(_("Invalid member reference"))
 
-        return member_name, sanitized
+        return member_name
 
     except frappe.ValidationError:
         raise
@@ -79,6 +60,33 @@ def _validate_member_and_sanitize_inputs(member_name, operation_label, text_fiel
             severity="warning",
         )
         frappe.throw(_("Invalid input data provided"))
+
+
+def _sanitize_text_fields(text_fields):
+    """Sanitize text input fields for API endpoints.
+
+    Args:
+        text_fields: Dict of {field_name: (value, max_length, allow_html)} to sanitize.
+            If allow_html is omitted, defaults to True.
+
+    Returns:
+        Dict of {field_name: sanitized_value}.
+    """
+    sanitized = {}
+    if not text_fields:
+        return sanitized
+
+    for field_name, spec in text_fields.items():
+        value, max_length = spec[0], spec[1]
+        allow_html = spec[2] if len(spec) > 2 else True
+        if value:
+            sanitized[field_name] = APIValidator.sanitize_text(
+                str(value), max_length=max_length, allow_html=allow_html
+            )
+        else:
+            sanitized[field_name] = value
+
+    return sanitized
 
 
 def assign_member_to_chapter(member, chapter, notify=None):
@@ -422,15 +430,14 @@ def approve_membership_application(
 
     This separation ensures proper security compliance and maintainable code.
     """
-    # Input sanitization and validation
-    member_name, sanitized = _validate_member_and_sanitize_inputs(
-        member_name,
-        "approval",
-        text_fields={
+    # Input validation and sanitization
+    member_name = _validate_member_for_review(member_name, "approval")
+    sanitized = _sanitize_text_fields(
+        {
             "membership_type": (membership_type, 255),
             "chapter": (chapter, 255),
             "notes": (notes, 2000, False),
-        },
+        }
     )
     membership_type = sanitized["membership_type"]
     chapter = sanitized["chapter"]
@@ -524,16 +531,15 @@ def reject_membership_application(
     process_refund: bool = False,
 ):
     """Reject a membership application with enhanced template support and input validation"""
-    # Input sanitization and validation
-    member_name, sanitized = _validate_member_and_sanitize_inputs(
-        member_name,
-        "rejection",
-        text_fields={
+    # Input validation and sanitization
+    member_name = _validate_member_for_review(member_name, "rejection")
+    sanitized = _sanitize_text_fields(
+        {
             "reason": (reason, 1000, False),
             "email_template": (email_template, 255),
             "rejection_category": (rejection_category, 255),
             "internal_notes": (internal_notes, 2000, False),
-        },
+        }
     )
     reason = sanitized["reason"]
     email_template = sanitized["email_template"]

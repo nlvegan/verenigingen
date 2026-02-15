@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
 # Import security framework and OperationResult
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
@@ -102,8 +103,8 @@ def get_member_payment_plans(member: str | None = None) -> OperationResult[Dict[
     try:
         # Determine member
         if not member:
-            # Get member from current user
-            member = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
+            # Get member from current user (uses user field, with email fallback)
+            member = get_current_user_member_name()
             if not member:
                 return OperationResult.fail(message=_("No member record found for current user"))
 

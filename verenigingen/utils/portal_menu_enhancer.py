@@ -16,6 +16,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.operation_result import OperationResult
 
 
@@ -104,7 +105,7 @@ def get_membership_portal_menu_items():
     # Check if user is a volunteer and add Volunteer Portal
     user_roles = frappe.get_roles(frappe.session.user)
     if "Verenigingen Volunteer" in user_roles or frappe.db.exists(
-        "Verenigingen Volunteer", {"member": frappe.db.get_value("Member", {"email": frappe.session.user})}
+        "Verenigingen Volunteer", {"member": get_current_user_member_name()}
     ):
         enhanced_menu.append(
             {
