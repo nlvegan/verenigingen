@@ -609,7 +609,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Call debug API
             frappe.call({
-                method: 'verenigingen.api.member_management.debug_mt940_import',
+                method: 'verenigingen.api.member_management_debug.debug_mt940_import',
                 args: {
                     file_content: fileContent,
                     bank_account: bankAccountSelect.value || null
@@ -657,7 +657,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Call improved debug API
             frappe.call({
-                method: 'verenigingen.api.member_management.debug_mt940_import_improved',
+                method: 'verenigingen.api.member_management_debug.debug_mt940_import_improved',
                 args: {
                     file_content: fileContent,
                     bank_account: bankAccountSelect.value || null
@@ -705,7 +705,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Call test extraction API
             frappe.call({
-                method: 'verenigingen.api.member_management.test_mt940_extraction',
+                method: 'verenigingen.api.member_management_debug.test_mt940_extraction',
                 args: {
                     file_content: fileContent,
                     bank_account: bankAccountSelect.value || null
@@ -753,7 +753,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Call detailed debug API
             frappe.call({
-                method: 'verenigingen.api.member_management.debug_mt940_import_detailed',
+                method: 'verenigingen.api.member_management_debug.debug_mt940_import_detailed',
                 args: {
                     file_content: fileContent,
                     bank_account: bankAccountSelect.value || null

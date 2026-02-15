@@ -102,7 +102,7 @@ class TestCriticalBusinessLogic(VereningingenTestCase):
         """Test that critical API endpoints exist and are whitelisted"""
         critical_apis = [
             'verenigingen.api.membership_application_review.approve_membership_application',
-            'verenigingen.api.member_management.get_address_members_html_api',
+            'verenigingen.api.member_management_debug.get_address_members_html_api',
         ]
         
         for api_path in critical_apis:
