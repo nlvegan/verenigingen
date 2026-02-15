@@ -364,42 +364,11 @@ class MolliePaymentOrchestrator:
         result = PaymentProcessingResult(payment_id=payment_id)
 
         try:
-            # Check current processing status (idempotency)
-            status = self.get_processing_status(payment_id)
-
-            if status.is_complete:
-                result.status = "already_processed"
-                result.bank_transaction = status.bank_transaction
-                result.payment_entry = status.payment_entry
-                result.sales_invoice = status.sales_invoice
-                result.member = status.member
-                result.skipped_reason = "Already fully processed"
-                return result
-
-            # Fetch payment from Mollie if not provided
-            if not payment:
-                payment = self.mollie_client.sdk_client.payments.get(payment_id)
-
-            # Validate payment status
-            if not is_payment_successful(payment):
-                result.status = "skipped"
-                result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
-                return result
-
-            # Identify payment type
-            payment_type = self.dues_processor.identify_payment_type(payment)
-            if payment_type != "dues":
-                result.status = "skipped"
-                result.skipped_reason = f"Payment type is '{payment_type}', not membership dues"
-                return result
-
-            # Find member if not provided
-            if not member_name:
-                member_name = status.member or self.dues_processor.find_member_for_payment(payment)
-
-            if not member_name:
-                result.status = "error"
-                result.error = "Cannot determine member for payment"
+            # Validate preconditions (idempotency, status, type, member)
+            status, payment, member_name = self._validate_payment_preconditions(
+                payment_id, payment, member_name, result
+            )
+            if status is None:
                 return result
 
             result.member = member_name
@@ -417,64 +386,9 @@ class MolliePaymentOrchestrator:
             self.dues_processor._extract_and_save_consumer_bank_data(member_name, payment)
 
             # Step 1: Find or create invoice
-            if not invoice_name and not status.sales_invoice:
-                # Try to find matching invoice
-                match_result = self.find_matching_invoice(
-                    member_name=member_name,
-                    payment_date=payment_date,
-                    amount=payment_amount,
-                )
-
-                if match_result.found:
-                    invoice_name = match_result.invoice_name
-                    result.actions_taken.append(f"Matched invoice {invoice_name} ({match_result.match_type})")
-                    if match_result.overlap_warning:
-                        result.actions_taken.append(f"Warning: {match_result.overlap_warning}")
-                elif create_missing_invoice:
-                    # Recovery mode: create invoice if not found
-                    invoice_name = self._create_invoice_if_safe(
-                        member_name=member_name,
-                        payment_date=payment_date,
-                        payment_amount=payment_amount,
-                        result=result,
-                    )
-                    if invoice_name:
-                        result.actions_taken.append(f"Created Sales Invoice: {invoice_name}")
-                else:
-                    # Discovery mode: don't create, just note it
-                    result.actions_taken.append("No matching invoice found (create_missing_invoice=False)")
-
-            elif status.sales_invoice:
-                # Re-validate that the status-cached invoice is still payable
-                # This prevents TOCTOU issues where invoice was paid between status check and execution
-                cached_outstanding = frappe.db.get_value(
-                    "Sales Invoice", status.sales_invoice, "outstanding_amount"
-                )
-                if cached_outstanding and float(cached_outstanding) > 0:
-                    invoice_name = status.sales_invoice
-                else:
-                    # Invoice from status check is no longer payable - try to find another
-                    result.actions_taken.append(
-                        f"Invoice {status.sales_invoice} is now fully paid, searching for alternative"
-                    )
-                    match_result = self.find_matching_invoice(
-                        member_name=member_name,
-                        payment_date=payment_date,
-                        amount=payment_amount,
-                    )
-                    if match_result.found:
-                        invoice_name = match_result.invoice_name
-                        result.actions_taken.append(f"Found alternative invoice: {invoice_name}")
-                    elif create_missing_invoice:
-                        invoice_name = self._create_invoice_if_safe(
-                            member_name=member_name,
-                            payment_date=payment_date,
-                            payment_amount=payment_amount,
-                            result=result,
-                        )
-                        if invoice_name:
-                            result.actions_taken.append(f"Created new Sales Invoice: {invoice_name}")
-
+            invoice_name = invoice_name or self._resolve_invoice(
+                status, member_name, payment_date, payment_amount, create_missing_invoice, result
+            )
             result.sales_invoice = invoice_name
 
             # Step 2: Create Bank Transaction (if not exists)
@@ -539,39 +453,13 @@ class MolliePaymentOrchestrator:
                     result.link_error = link_error_msg
                     result.actions_taken.append(f"Warning: {link_error_msg}")
 
-            # Determine final status
-            if result.failed_step:
-                # A step failed - partial success at best
-                result.status = "partial"
-                result.error = f"Processing incomplete: failed at step '{result.failed_step}'"
-            elif result.bank_transaction and result.payment_entry:
-                result.status = "success"
-            elif result.bank_transaction or result.payment_entry:
-                # Only partial documents created
-                result.status = "partial"
-                missing = []
-                if not result.bank_transaction:
-                    missing.append("Bank Transaction")
-                if not result.payment_entry:
-                    missing.append("Payment Entry")
-                result.error = f"Partial processing: missing {', '.join(missing)}"
-            else:
-                result.status = "error"
-                result.error = "No documents created"
+            self._determine_final_status(result)
 
         except Exception as e:
             result.status = "error"
             result.error = str(e)
             result.exception_type = type(e).__name__
-            # Determine failed step based on what we have so far
-            if not result.sales_invoice and not result.bank_transaction:
-                result.failed_step = "invoice_matching"
-            elif not result.bank_transaction:
-                result.failed_step = "create_bank_transaction"
-            elif not result.payment_entry:
-                result.failed_step = "create_payment_entry"
-            else:
-                result.failed_step = "link_bt_pe"
+            self._determine_failed_step(result)
             # Log error with short title (Error Log title field has 140 char limit)
             frappe.log_error(
                 title="Mollie Payment Orchestrator Error",
@@ -579,6 +467,165 @@ class MolliePaymentOrchestrator:
             )
 
         return result
+
+    def _validate_payment_preconditions(
+        self,
+        payment_id: str,
+        payment: Optional[Any],
+        member_name: Optional[str],
+        result: PaymentProcessingResult,
+    ) -> tuple:
+        """Validate preconditions for payment processing.
+
+        Checks idempotency, fetches payment if needed, validates status/type,
+        and resolves member identity.
+
+        Returns:
+            (status, payment, member_name) if valid.
+            (None, None, None) if result was populated with an early-exit status.
+        """
+        status = self.get_processing_status(payment_id)
+
+        if status.is_complete:
+            result.status = "already_processed"
+            result.bank_transaction = status.bank_transaction
+            result.payment_entry = status.payment_entry
+            result.sales_invoice = status.sales_invoice
+            result.member = status.member
+            result.skipped_reason = "Already fully processed"
+            return None, None, None
+
+        if not payment:
+            payment = self.mollie_client.sdk_client.payments.get(payment_id)
+
+        if not is_payment_successful(payment):
+            result.status = "skipped"
+            result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
+            return None, None, None
+
+        payment_type = self.dues_processor.identify_payment_type(payment)
+        if payment_type != "dues":
+            result.status = "skipped"
+            result.skipped_reason = f"Payment type is '{payment_type}', not membership dues"
+            return None, None, None
+
+        if not member_name:
+            member_name = status.member or self.dues_processor.find_member_for_payment(payment)
+
+        if not member_name:
+            result.status = "error"
+            result.error = "Cannot determine member for payment"
+            return None, None, None
+
+        return status, payment, member_name
+
+    def _determine_final_status(self, result: PaymentProcessingResult) -> None:
+        """Set result.status based on which documents were successfully created."""
+        if result.failed_step:
+            result.status = "partial"
+            result.error = f"Processing incomplete: failed at step '{result.failed_step}'"
+        elif result.bank_transaction and result.payment_entry:
+            result.status = "success"
+        elif result.bank_transaction or result.payment_entry:
+            result.status = "partial"
+            missing = []
+            if not result.bank_transaction:
+                missing.append("Bank Transaction")
+            if not result.payment_entry:
+                missing.append("Payment Entry")
+            result.error = f"Partial processing: missing {', '.join(missing)}"
+        else:
+            result.status = "error"
+            result.error = "No documents created"
+
+    def _determine_failed_step(self, result: PaymentProcessingResult) -> None:
+        """Determine which processing step failed based on partial result state."""
+        if not result.sales_invoice and not result.bank_transaction:
+            result.failed_step = "invoice_matching"
+        elif not result.bank_transaction:
+            result.failed_step = "create_bank_transaction"
+        elif not result.payment_entry:
+            result.failed_step = "create_payment_entry"
+        else:
+            result.failed_step = "link_bt_pe"
+
+    def _resolve_invoice(
+        self,
+        status: ProcessingStatus,
+        member_name: str,
+        payment_date: date,
+        payment_amount: float,
+        create_missing_invoice: bool,
+        result: PaymentProcessingResult,
+    ) -> Optional[str]:
+        """Resolve the invoice for a payment: match existing, validate cached, or create new.
+
+        Handles TOCTOU prevention (cached invoice may have been paid between status check
+        and execution) and recovery-mode invoice creation.
+
+        Returns:
+            Invoice name, or None if no invoice resolved.
+        """
+        if not status.sales_invoice:
+            return self._resolve_invoice_fresh(
+                member_name, payment_date, payment_amount, create_missing_invoice, result
+            )
+
+        # Re-validate that the status-cached invoice is still payable.
+        # This prevents TOCTOU issues where invoice was paid between status check and execution.
+        cached_outstanding = frappe.db.get_value("Sales Invoice", status.sales_invoice, "outstanding_amount")
+        if cached_outstanding and float(cached_outstanding) > 0:
+            return status.sales_invoice
+
+        # Invoice from status check is no longer payable — try to find another
+        result.actions_taken.append(
+            f"Invoice {status.sales_invoice} is now fully paid, searching for alternative"
+        )
+        return self._resolve_invoice_fresh(
+            member_name, payment_date, payment_amount, create_missing_invoice, result
+        )
+
+    def _resolve_invoice_fresh(
+        self,
+        member_name: str,
+        payment_date: date,
+        payment_amount: float,
+        create_missing_invoice: bool,
+        result: PaymentProcessingResult,
+    ) -> Optional[str]:
+        """Find a matching invoice or create one if in recovery mode.
+
+        Returns:
+            Invoice name, or None if no invoice found/created.
+        """
+        match_result = self.find_matching_invoice(
+            member_name=member_name,
+            payment_date=payment_date,
+            amount=payment_amount,
+        )
+
+        if match_result.found:
+            result.actions_taken.append(
+                f"Matched invoice {match_result.invoice_name} ({match_result.match_type})"
+            )
+            if match_result.overlap_warning:
+                result.actions_taken.append(f"Warning: {match_result.overlap_warning}")
+            return match_result.invoice_name
+
+        if create_missing_invoice:
+            invoice_name = self._create_invoice_if_safe(
+                member_name=member_name,
+                payment_date=payment_date,
+                payment_amount=payment_amount,
+                result=result,
+            )
+            if invoice_name:
+                result.actions_taken.append(f"Created Sales Invoice: {invoice_name}")
+            return invoice_name
+
+        # Discovery mode: don't create, just note it
+        result.actions_taken.append("No matching invoice found (create_missing_invoice=False)")
+        return None
 
     def _create_bank_transaction(
         self,
