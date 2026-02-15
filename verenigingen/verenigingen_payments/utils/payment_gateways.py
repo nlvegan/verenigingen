@@ -1495,7 +1495,7 @@ def mollie_webhook():
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def mollie_subscription_webhook():
     """
-    Handle Mollie subscription webhook notifications with security verification
+    Handle Mollie subscription webhook notifications with security verification.
 
     Processes subscription payments by:
     1. Verifying webhook signature for security
@@ -1504,158 +1504,16 @@ def mollie_subscription_webhook():
     4. Updating member subscription status
     """
     try:
-        # Import webhook security utilities
-        from verenigingen.utils.webhook_security import (
-            authenticate_mollie_webhook,
-            log_webhook_security_event,
-        )
+        parsed, error_response = _authenticate_and_parse_subscription_payload()
+        if error_response:
+            return error_response
 
-        # Authenticate webhook and get validated payload
-        try:
-            payload = authenticate_mollie_webhook()
-            log_webhook_security_event(
-                "success", {"event": "webhook_authenticated", "payload_length": len(payload)}
-            )
-        except Exception as auth_error:
-            log_webhook_security_event(
-                "failure",
-                {
-                    "event": "authentication_failed",
-                    "error": str(auth_error),
-                    "headers": dict(frappe.request.headers),
-                },
-            )
-            return create_error_response("Webhook authentication failed", {"details": str(auth_error)})
+        subscription_id = parsed["subscription_id"]
+        payment_id = parsed["payment_id"]
 
-        # Enhanced logging for webhook debugging
-        frappe.logger().info("🔄 Mollie subscription webhook received and authenticated")
-        frappe.logger().info(f"📊 Payload length: {len(payload) if payload else 0}")
-
-        # Parse payload - handle both JSON and form-encoded data
-        try:
-            # First try JSON parsing
-            data = frappe.parse_json(payload)
-            frappe.logger().info("✅ Successfully parsed subscription JSON payload")
-        except (ValueError, TypeError) as json_error:
-            frappe.logger().info(
-                f"🔄 Subscription JSON parsing failed, trying form-encoded: {str(json_error)}"
-            )
-
-            # Check if it looks like form-encoded data (key=value format)
-            if "=" in payload and not payload.strip().startswith("{"):
-                try:
-                    # Parse form-encoded data
-                    from urllib.parse import parse_qs, unquote_plus
-
-                    # Handle single key=value or multiple key=value&key=value
-                    if "&" in payload:
-                        # Multiple parameters
-                        parsed_data = parse_qs(payload)
-                        # Convert lists to single values for simple cases
-                        data = {k: (v[0] if len(v) == 1 else v) for k, v in parsed_data.items()}
-                    else:
-                        # Single parameter like 'id=sub_abc123'
-                        key, value = payload.split("=", 1)
-                        data = {unquote_plus(key): unquote_plus(value)}
-
-                    frappe.logger().info(f"✅ Successfully parsed subscription form-encoded payload: {data}")
-
-                except Exception as form_error:
-                    frappe.logger().error(
-                        f"❌ Subscription form-encoded parsing also failed: {str(form_error)}"
-                    )
-                    frappe.log_error(
-                        f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\nJSON error: {str(json_error)}\nForm error: {str(form_error)}\nFull payload: {repr(payload)}",
-                        "Mollie Subscription Webhook Parsing Error",
-                    )
-                    return create_error_response("Invalid payload format")
-            else:
-                # Check if payload looks truncated (ends with incomplete JSON)
-                is_truncated = (
-                    payload.endswith("{")
-                    or payload.endswith(",")
-                    or payload.count("{") > payload.count("}")
-                    or payload.count("[") > payload.count("]")
-                )
-
-                if is_truncated:
-                    frappe.logger().error(
-                        "⚠️ Subscription payload appears to be truncated - possible size limit issue"
-                    )
-                    error_msg = f"Subscription webhook payload appears truncated: {str(json_error)}"
-                else:
-                    error_msg = f"Invalid JSON in subscription webhook payload: {str(json_error)}"
-
-                frappe.log_error(
-                    f"Mollie subscription webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
-                    "Mollie Subscription Webhook JSON Error",
-                )
-                return create_error_response("Invalid JSON payload")
-
-        # Extract subscription information - handle both JSON event format and legacy format
-        subscription_id = None
-
-        # Check for Mollie JSON event format first
-        if data.get("resource") == "event":
-            event_type = data.get("type", "")
-            if event_type == "hook.ping":
-                return {"status": "success", "message": "Subscription webhook ping received"}
-            elif event_type.startswith("subscription."):
-                subscription_id = data.get("entityId")
-            elif event_type.startswith("payment.") and data.get("_embedded", {}).get("entity", {}).get(
-                "subscriptionId"
-            ):
-                # Payment event with subscription information
-                subscription_id = data.get("_embedded", {}).get("entity", {}).get("subscriptionId")
-        else:
-            # Legacy format
-            subscription_id = data.get("id")
-
-        if not subscription_id:
-            return {"status": "ignored", "reason": "No subscription ID in payload"}
-
-        # IDEMPOTENCY: Check if webhook already processed
-        payment_id = None
-
-        # Extract payment ID based on format
-        if data.get("resource") == "event" and data.get("type", "").startswith("payment."):
-            payment_id = data.get("entityId")
-        elif data.get("payment", {}).get("id"):
-            payment_id = data.get("payment", {}).get("id")
-        if payment_id and DocumentExistenceValidator.check_document_exists(
-            "Payment Entry", {"reference_no": payment_id}
-        ):
-            frappe.logger().info(f"Payment {payment_id} already processed, skipping webhook")
-            return {"status": "already_processed", "payment_id": payment_id}
-
-        # Find member by Customer's Mollie subscription ID (correct data location)
-        customers_with_subscription = frappe.get_all(
-            "Customer",
-            filters={"custom_mollie_subscription_id": subscription_id},
-            fields=["name", "custom_mollie_customer_id"],
-        )
-
-        if not customers_with_subscription:
-            frappe.log_error(
-                f"No customer found for subscription {subscription_id}", "Mollie Subscription Webhook"
-            )
-            return {"status": "ignored", "reason": "No customer found for subscription"}
-
-        # Find the member linked to this customer using consolidated utility
-        customer_name = customers_with_subscription[0]["name"]
-        customer_id = customers_with_subscription[0]["custom_mollie_customer_id"]
-
-        members = get_members_by_customer(customer_name, fields=["name"])
-
-        if not members:
-            frappe.log_error(
-                f"No member found for customer {customer_name} with subscription {subscription_id}",
-                "Mollie Subscription Webhook",
-            )
-            return {"status": "ignored", "reason": "No member found for customer"}
-
-        member_name = members[0]["name"]
-        member_customer = customer_name
+        member_name, customer_name, customer_id = _find_member_for_subscription(subscription_id)
+        if not member_name:
+            return {"status": "ignored", "reason": "No member found for subscription"}
 
         result = {
             "status": "processed",
@@ -1664,61 +1522,212 @@ def mollie_subscription_webhook():
             "actions": [],
         }
 
-        # Get subscription status from Mollie
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
 
         # Process payment if this webhook includes a payment
         if payment_id:
             try:
                 payment_result = _process_subscription_payment(
-                    gateway, member_name, member_customer, payment_id, subscription_id
+                    gateway, member_name, customer_name, payment_id, subscription_id
                 )
                 result["payment_processed"] = payment_result
                 result["actions"].append("payment_processed")
-
                 frappe.logger().info(f"Processed subscription payment {payment_id} for member {member_name}")
             except Exception as e:
                 frappe.log_error(
-                    f"Failed to process subscription payment {payment_id} for member {member_name}: {str(e)}",
+                    f"Failed to process subscription payment {payment_id} "
+                    f"for member {member_name}: {str(e)}",
                     "Mollie Subscription Payment Processing",
                 )
                 result["payment_error"] = str(e)
 
-        # Update subscription status
-        status_result = gateway.get_subscription_status(customer_id, subscription_id)
-
-        if status_result["status"] == "success":
-            subscription = status_result["subscription"]
-
-            # Update member subscription status
-            member = frappe.get_doc("Member", member_name)
-            member.db_set("subscription_status", subscription["status"])
-
-            if subscription.get("next_payment_date"):
-                member.db_set("next_payment_date", subscription["next_payment_date"])
-
-            if subscription["status"] == "canceled" and subscription.get("canceled_at"):
-                member.db_set("subscription_cancelled_date", subscription["canceled_at"])
-
-            result["subscription_status"] = subscription["status"]
-            result["actions"].append("status_updated")
-
-            frappe.logger().info(
-                f"Updated subscription status for member {member_name}: {subscription['status']}"
-            )
-
-        else:
-            frappe.log_error(
-                f"Failed to get subscription status: {status_result['message']}",
-                "Mollie Subscription Webhook",
-            )
-            result["subscription_error"] = status_result["message"]
+        _update_subscription_status(gateway, customer_id, subscription_id, member_name, result)
 
         return result
 
     except Exception as e:
         frappe.log_error(f"Mollie subscription webhook error: {str(e)}", "Mollie Subscription Webhook")
         return create_error_response(str(e))
+
+
+def _authenticate_and_parse_subscription_payload():
+    """Authenticate webhook and parse payload into structured subscription data.
+
+    Handles JSON, form-encoded, and truncated payloads. Uses MollieWebhookParser
+    for event routing and ID extraction.
+
+    Returns:
+        tuple: (parsed_dict, error_response_or_None)
+            Success: ({"subscription_id": str, "payment_id": str|None}, None)
+            Error/ping: (None, response_dict)
+    """
+    from verenigingen.utils.webhook_security import (
+        authenticate_mollie_webhook,
+        log_webhook_security_event,
+    )
+    from verenigingen.verenigingen_payments.mollie.utils.webhook_parser import MollieWebhookParser
+
+    # Authenticate webhook
+    try:
+        payload = authenticate_mollie_webhook()
+        log_webhook_security_event(
+            "success", {"event": "webhook_authenticated", "payload_length": len(payload)}
+        )
+    except Exception as auth_error:
+        log_webhook_security_event(
+            "failure",
+            {
+                "event": "authentication_failed",
+                "error": str(auth_error),
+                "headers": dict(frappe.request.headers),
+            },
+        )
+        return None, create_error_response("Webhook authentication failed", {"details": str(auth_error)})
+
+    frappe.logger().info("Mollie subscription webhook received and authenticated")
+    frappe.logger().info(f"Payload length: {len(payload) if payload else 0}")
+
+    # Parse payload - handle both JSON and form-encoded data
+    try:
+        data = frappe.parse_json(payload)
+        frappe.logger().info("Successfully parsed subscription JSON payload")
+    except (ValueError, TypeError) as json_error:
+        frappe.logger().info(f"Subscription JSON parsing failed, trying form-encoded: {str(json_error)}")
+
+        if "=" in payload and not payload.strip().startswith("{"):
+            try:
+                from urllib.parse import parse_qs, unquote_plus
+
+                if "&" in payload:
+                    parsed_data = parse_qs(payload)
+                    data = {k: (v[0] if len(v) == 1 else v) for k, v in parsed_data.items()}
+                else:
+                    key, value = payload.split("=", 1)
+                    data = {unquote_plus(key): unquote_plus(value)}
+
+                frappe.logger().info(f"Successfully parsed subscription form-encoded payload: {data}")
+            except Exception as form_error:
+                frappe.logger().error(f"Subscription form-encoded parsing also failed: {str(form_error)}")
+                frappe.log_error(
+                    f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\n"
+                    f"JSON error: {str(json_error)}\nForm error: {str(form_error)}\n"
+                    f"Full payload: {repr(payload)}",
+                    "Mollie Subscription Webhook Parsing Error",
+                )
+                return None, create_error_response("Invalid payload format")
+        else:
+            is_truncated = (
+                payload.endswith("{")
+                or payload.endswith(",")
+                or payload.count("{") > payload.count("}")
+                or payload.count("[") > payload.count("]")
+            )
+            if is_truncated:
+                frappe.logger().error(
+                    "Subscription payload appears to be truncated - possible size limit issue"
+                )
+                error_msg = f"Subscription webhook payload appears truncated: {str(json_error)}"
+            else:
+                error_msg = f"Invalid JSON in subscription webhook payload: {str(json_error)}"
+
+            frappe.log_error(
+                f"Mollie subscription webhook JSON parsing failed: {error_msg}\n"
+                f"Full payload: {repr(payload)}",
+                "Mollie Subscription Webhook JSON Error",
+            )
+            return None, create_error_response("Invalid JSON payload")
+
+    # Delegate event routing and ID extraction to MollieWebhookParser
+    parsed = MollieWebhookParser.parse_webhook_data(data)
+
+    if parsed["is_ping"]:
+        return None, {"status": "success", "message": "Subscription webhook ping received"}
+
+    subscription_id = parsed["subscription_id"]
+    payment_id = parsed["payment_id"]
+
+    # Fallback: legacy nested payment.id format not handled by parser
+    if not payment_id and isinstance(data.get("payment"), dict):
+        payment_id = data["payment"].get("id")
+
+    if not subscription_id:
+        return None, {"status": "ignored", "reason": "No subscription ID in payload"}
+
+    # Idempotency: skip already-processed payments
+    if payment_id and DocumentExistenceValidator.check_document_exists(
+        "Payment Entry", {"reference_no": payment_id}
+    ):
+        frappe.logger().info(f"Payment {payment_id} already processed, skipping webhook")
+        return None, {"status": "already_processed", "payment_id": payment_id}
+
+    return {"subscription_id": subscription_id, "payment_id": payment_id}, None
+
+
+def _find_member_for_subscription(subscription_id):
+    """Find the member and customer linked to a Mollie subscription.
+
+    Returns:
+        tuple: (member_name, customer_name, customer_id) or (None, None, None)
+    """
+    customers = frappe.get_all(
+        "Customer",
+        filters={"custom_mollie_subscription_id": subscription_id},
+        fields=["name", "custom_mollie_customer_id"],
+    )
+
+    if not customers:
+        frappe.log_error(
+            f"No customer found for subscription {subscription_id}",
+            "Mollie Subscription Webhook",
+        )
+        return None, None, None
+
+    customer_name = customers[0]["name"]
+    customer_id = customers[0]["custom_mollie_customer_id"]
+
+    members = get_members_by_customer(customer_name, fields=["name"])
+
+    if not members:
+        frappe.log_error(
+            f"No member found for customer {customer_name} with subscription {subscription_id}",
+            "Mollie Subscription Webhook",
+        )
+        return None, None, None
+
+    return members[0]["name"], customer_name, customer_id
+
+
+def _update_subscription_status(gateway, customer_id, subscription_id, member_name, result):
+    """Fetch subscription status from Mollie and update member fields.
+
+    Updates result dict with subscription_status and actions.
+    """
+    status_result = gateway.get_subscription_status(customer_id, subscription_id)
+
+    if status_result["status"] == "success":
+        subscription = status_result["subscription"]
+
+        member = frappe.get_doc("Member", member_name)
+        member.db_set("subscription_status", subscription["status"])
+
+        if subscription.get("next_payment_date"):
+            member.db_set("next_payment_date", subscription["next_payment_date"])
+
+        if subscription["status"] == "canceled" and subscription.get("canceled_at"):
+            member.db_set("subscription_cancelled_date", subscription["canceled_at"])
+
+        result["subscription_status"] = subscription["status"]
+        result["actions"].append("status_updated")
+
+        frappe.logger().info(
+            f"Updated subscription status for member {member_name}: {subscription['status']}"
+        )
+    else:
+        frappe.log_error(
+            f"Failed to get subscription status: {status_result['message']}",
+            "Mollie Subscription Webhook",
+        )
+        result["subscription_error"] = status_result["message"]
 
 
 def _process_subscription_payment(gateway, member_name, member_customer, payment_id, subscription_id):
