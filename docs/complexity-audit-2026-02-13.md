@@ -75,7 +75,7 @@
 | `utils/account_creation_manager.py` | **2358** | **34** | **0** | **0** | **1** | **9** | **14** | 5 | `create_user_account` (was CC 45) |
 | `e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py` | 2171 | 52 | 1 | 0 | 1 | 6 | 43 | 1 | `import_single_mutation` |
 | `vereinigingen_payments/utils/payment_gateways.py` | 2167 | 57 | 0 | 1 | 0 | 4 | ~~34~~ 6 | 0 | `mollie_subscription_webhook` (was CC 34) |
-| `api/member_management.py` | 2066 | 31 | 0 | 0 | 4 | 6 | 30 | 2 | `extract_transaction_data_improved` |
+| `api/member_management.py` | 2066 | 31 | 0 | 0 | ~~4~~ 0 | 6 | ~~30~~ 13 | 2 | `extract_transaction_data_improved` (was CC 30) |
 | `permissions.py` | 2005 | 34 | 0 | 0 | 1 | 14 | 22 | 16 | `has_volunteer_permission` |
 | `mijnrood_sync/services/event_application_service.py` | 1987 | 46 | 0 | 0 | 1 | 8 | 21 | 1 | `_process_member_roles` |
 | `api/membership_application.py` | 1822 | 51 | 0 | 0 | 4 | 1 | 29 | 8 | `submit_application` |
@@ -192,11 +192,13 @@
 
 | Metric | Value |
 |--------|-------|
-| D-grade functions | 4 |
-| Worst function | `extract_transaction_data_improved` — CC 30, 136 lines |
+| D-grade functions | ~~4~~ **0** |
+| Worst function | `extract_transaction_data_improved` — ~~CC 30~~ **CC 13**, 136 lines |
 | Test files | **2** |
 
 **Key issue: mixed concerns.** Debug functions mixed with production API endpoints.
+
+**Status:** Decomposed 3 D-grade functions (2026-02-15). Extracted 6 helpers: `_parse_mt940_amount` (B/8), `_build_transaction_description` (B/10), `_sanitize_member_filters` (B/7), `_enrich_members_with_chapters` (B/7), `_resolve_mt940_bank_account` (B/9), `_process_mt940_statements` (B/10). Results: `extract_transaction_data_improved` CC 30→13, `get_members_with_chapter_info` CC 23→11, `import_mt940_improved` CC 23→7. No D-grade functions remain. Public API unchanged.
 
 #### 9. `api/membership_application.py` (1822 LOC)
 
@@ -259,6 +261,7 @@
 | `vereinigingen_payments/services/mollie_payment_orchestrator.py` | Tier 2 #7: Decomposed `process_payment` (CC 42→14), extracted 5 helpers, fixed test_factory.py field names | `2f33e337` | 2026-02-15 |
 | `vereinigingen_payments/utils/payment_gateways.py` | Tier 2 #5: Decomposed `mollie_subscription_webhook` (CC 34→6), extracted 3 helpers, reused MollieWebhookParser | `30386ce5` | 2026-02-15 |
 | `vereinigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | Tier 2 #6: Removed 19 dead methods (1015 LOC), eliminated E-grade `_update_member_fields` (CC 39) + 2 D-grade | `22c20825` | 2026-02-15 |
+| `api/member_management.py` | Tier 2 #8: Decomposed 3 D-grade functions (CC 30→13, CC 23→11, CC 23→7), extracted 6 helpers | — | 2026-02-15 |
 
 ---
 
