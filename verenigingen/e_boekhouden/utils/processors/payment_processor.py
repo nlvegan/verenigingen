@@ -490,6 +490,17 @@ class PaymentProcessor(BaseTransactionProcessor):
                     f"{len(row_entries)} expense line(s) debited"
                 )
 
+            # Validate Receivable/Payable accounts have party assignment
+            for account_entry in je.accounts:
+                acct_type = frappe.db.get_value("Account", account_entry.account, "account_type")
+                if acct_type in ("Receivable", "Payable") and not account_entry.party:
+                    expected_party = "Customer" if acct_type == "Receivable" else "Supplier"
+                    raise ValueError(
+                        f"Money transfer mutation {mutation_id}: {acct_type} account "
+                        f"'{account_entry.account}' requires a {expected_party} party assignment, "
+                        f"but party extraction failed. Description: {description}"
+                    )
+
             # Insert Journal Entry with race condition handling
             je, was_duplicate = insert_with_duplicate_handling(je)
 
