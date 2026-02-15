@@ -12,9 +12,7 @@ from frappe.utils import now_datetime, today
 
 from verenigingen.utils.error_handling import (
     PermissionError,
-    ValidationError,
     handle_api_error,
-    log_error,
     validate_required_fields,
 )
 from verenigingen.utils.performance_utils import cached, performance_monitor

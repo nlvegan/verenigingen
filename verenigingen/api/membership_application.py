@@ -170,158 +170,6 @@ def _wrap_success_check(fn, success_message="", fail_message="", fail_error="fai
         )
 
 
-# Private helpers for submit_application decomposition
-
-
-def _handle_existing_member(existing_member, data):
-    """Handle all existing-member reapplication scenarios.
-
-    Returns (action, error_result) where:
-    - action is "update" if reapplication is allowed, None if blocked
-    - error_result is None if allowed, or an OperationResult to return immediately
-    """
-    member_name = existing_member.name
-    status = existing_member.status
-    app_status = existing_member.application_status
-
-    # Scenario 1: Rejected application - allow reapplication
-    if app_status == "Rejected":
-        frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
-        return "update", None
-
-    # Scenario 2: Pending application - update existing pending application
-    if app_status == "Pending":
-        frappe.logger().info(f"Update to pending application {member_name}")
-        return "update", None
-
-    # Scenario 3: Terminated member - check termination type
-    if status == "Terminated":
-        termination_result = frappe.db.get_value(
-            "Membership Termination Request",
-            {"member": member_name, "status": "Executed"},
-            ["termination_type"],
-            order_by="execution_date desc",
-        )
-
-        if not termination_result:
-            frappe.log_error(
-                f"Member {member_name} has Terminated status but no executed termination request found",
-                "Termination Data Integrity",
-            )
-            return None, OperationResult.fail(
-                _("Please contact us to clarify your membership status before reapplying."),
-                errors=["termination_status_unclear"],
-                context={"requires_contact": True, "operation": "submit_application"},
-            )
-
-        if termination_result == "Voluntary":
-            frappe.logger().info(f"Voluntary termination reapplication for {member_name}")
-            return "update", None
-
-        frappe.logger().warning(
-            f"Reapplication blocked for {member_name} - involuntary termination: {termination_result}"
-        )
-        return None, OperationResult.fail(
-            _(
-                "Your previous membership was terminated for reasons that require direct contact with our organization. "
-                "Please email us to discuss rejoining."
-            ),
-            errors=["involuntary_termination"],
-            context={
-                "requires_contact": True,
-                "termination_type": termination_result,
-                "operation": "submit_application",
-            },
-        )
-
-    # Scenario 4: Active member - cannot reapply
-    if status == "Active":
-        return None, OperationResult.fail(
-            _("You are already an active member. Please login to manage your membership."),
-            errors=["already_active_member"],
-            context={"member_exists": True, "operation": "submit_application"},
-        )
-
-    # Unknown status - block with contact message
-    return None, OperationResult.fail(
-        _("A membership record with this email already exists. Please contact us for assistance."),
-        errors=["membership_record_exists"],
-        context={"operation": "submit_application"},
-    )
-
-
-def _validate_membership_amount(data):
-    """Validate membership amount if custom amount is provided.
-
-    Returns None if valid (or not applicable), or an OperationResult.fail() if invalid.
-    """
-    if not (data.get("membership_amount") or data.get("uses_custom_amount")):
-        return None
-
-    membership_type = data.get("selected_membership_type")
-    custom_contribution_fee = data.get("custom_contribution_fee")
-    uses_custom = data.get("uses_custom_amount", False)
-
-    if not (membership_type and custom_contribution_fee):
-        return None
-
-    amount_validation = validate_custom_amount_util(membership_type, custom_contribution_fee)
-    if not amount_validation["valid"]:
-        frappe.log_error(
-            f"Custom amount validation failed for application: {amount_validation['message']}",
-            "Custom Amount Validation Failed",
-        )
-        return OperationResult.fail(
-            _(amount_validation["message"]),
-            errors=["invalid_custom_amount"],
-            context={"type": "validation_error", "operation": "submit_application"},
-        )
-
-    selection_validation = validate_membership_amount_selection(
-        membership_type, custom_contribution_fee, uses_custom
-    )
-    if not selection_validation["valid"]:
-        frappe.log_error(
-            f"Membership amount selection validation failed for application: {selection_validation['message']}",
-            "Amount Selection Validation Failed",
-        )
-        return OperationResult.fail(
-            _(selection_validation["message"]),
-            errors=["invalid_amount_selection"],
-            context={"type": "validation_error", "operation": "submit_application"},
-        )
-
-    return None
-
-
-def _save_suggested_chapter(member, suggested_chapter, application_id):
-    """Set suggested chapter on member and save with retry on timestamp mismatch.
-
-    Fire-and-forget: logs errors but does not raise.
-    """
-    if hasattr(member, "suggested_chapter"):
-        member.suggested_chapter = suggested_chapter
-    else:
-        member.current_chapter_display = suggested_chapter
-
-    from verenigingen.utils.secure_operations import (
-        get_system_user_for_operation,
-        secure_user_context,
-    )
-
-    system_user = get_system_user_for_operation("member_update_during_application")
-    with secure_user_context(system_user, f"Update suggested chapter for application {application_id}"):
-        try:
-            member.save()
-        except frappe.TimestampMismatchError:
-            member.reload()
-            if hasattr(member, "suggested_chapter"):
-                member.suggested_chapter = suggested_chapter
-            else:
-                member.current_chapter_display = suggested_chapter
-            member.save()
-
-
 # API Endpoints
 
 
@@ -601,7 +449,13 @@ def check_application_eligibility_endpoint(data) -> OperationResult[Dict[str, An
 @handle_api_error
 @performance_monitor(threshold_ms=3000)
 def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
-    """Process membership application submission - Main entry point"""
+    """Process membership application submission - Main entry point
+
+    Delegates to private helpers:
+    - _handle_existing_member: reapplication scenario routing
+    - _validate_membership_amount: custom amount validation
+    - _save_suggested_chapter: chapter save with timestamp retry
+    """
     try:
         # Parse and validate data
         data = parse_application_data(kwargs.get("data", kwargs))
@@ -763,6 +617,155 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
                 "operation": "submit_application",
             },
         )
+
+
+def _handle_existing_member(existing_member, data):
+    """Handle all existing-member reapplication scenarios.
+
+    Returns (action, error_result) where:
+    - action is "update" if reapplication is allowed, None if blocked
+    - error_result is None if allowed, or an OperationResult to return immediately
+    """
+    member_name = existing_member.name
+    status = existing_member.status
+    app_status = existing_member.application_status
+
+    # Scenario 1: Rejected application - allow reapplication
+    if app_status == "Rejected":
+        frappe.logger().info(f"Reapplication detected for rejected member {member_name}")
+        return "update", None
+
+    # Scenario 2: Pending application - update existing pending application
+    if app_status == "Pending":
+        frappe.logger().info(f"Update to pending application {member_name}")
+        return "update", None
+
+    # Scenario 3: Terminated member - check termination type
+    if status == "Terminated":
+        termination_result = frappe.db.get_value(
+            "Membership Termination Request",
+            {"member": member_name, "status": "Executed"},
+            ["termination_type"],
+            order_by="execution_date desc",
+        )
+
+        if not termination_result:
+            frappe.log_error(
+                f"Member {member_name} has Terminated status but no executed termination request found",
+                "Termination Data Integrity",
+            )
+            return None, OperationResult.fail(
+                _("Please contact us to clarify your membership status before reapplying."),
+                errors=["termination_status_unclear"],
+                context={"requires_contact": True, "operation": "submit_application"},
+            )
+
+        if termination_result == "Voluntary":
+            frappe.logger().info(f"Voluntary termination reapplication for {member_name}")
+            return "update", None
+
+        frappe.logger().warning(
+            f"Reapplication blocked for {member_name} - involuntary termination: {termination_result}"
+        )
+        return None, OperationResult.fail(
+            _(
+                "Your previous membership was terminated for reasons that require direct contact with our organization. "
+                "Please email us to discuss rejoining."
+            ),
+            errors=["involuntary_termination"],
+            context={
+                "requires_contact": True,
+                "termination_type": termination_result,
+                "operation": "submit_application",
+            },
+        )
+
+    # Scenario 4: Active member - cannot reapply
+    if status == "Active":
+        return None, OperationResult.fail(
+            _("You are already an active member. Please login to manage your membership."),
+            errors=["already_active_member"],
+            context={"member_exists": True, "operation": "submit_application"},
+        )
+
+    # Unknown status - block with contact message
+    return None, OperationResult.fail(
+        _("A membership record with this email already exists. Please contact us for assistance."),
+        errors=["membership_record_exists"],
+        context={"operation": "submit_application"},
+    )
+
+
+def _validate_membership_amount(data):
+    """Validate membership amount if custom amount is provided.
+
+    Returns None if valid (or not applicable), or an OperationResult.fail() if invalid.
+    """
+    if not (data.get("membership_amount") or data.get("uses_custom_amount")):
+        return None
+
+    membership_type = data.get("selected_membership_type")
+    custom_contribution_fee = data.get("custom_contribution_fee")
+    uses_custom = data.get("uses_custom_amount", False)
+
+    if not (membership_type and custom_contribution_fee):
+        return None
+
+    amount_validation = validate_custom_amount_util(membership_type, custom_contribution_fee)
+    if not amount_validation["valid"]:
+        frappe.log_error(
+            f"Custom amount validation failed for application: {amount_validation['message']}",
+            "Custom Amount Validation Failed",
+        )
+        return OperationResult.fail(
+            _(amount_validation["message"]),
+            errors=["invalid_custom_amount"],
+            context={"type": "validation_error", "operation": "submit_application"},
+        )
+
+    selection_validation = validate_membership_amount_selection(
+        membership_type, custom_contribution_fee, uses_custom
+    )
+    if not selection_validation["valid"]:
+        frappe.log_error(
+            f"Membership amount selection validation failed for application: {selection_validation['message']}",
+            "Amount Selection Validation Failed",
+        )
+        return OperationResult.fail(
+            _(selection_validation["message"]),
+            errors=["invalid_amount_selection"],
+            context={"type": "validation_error", "operation": "submit_application"},
+        )
+
+    return None
+
+
+def _save_suggested_chapter(member, suggested_chapter, application_id):
+    """Set suggested chapter on member and save with retry on timestamp mismatch.
+
+    Fire-and-forget: logs errors but does not raise.
+    """
+    if hasattr(member, "suggested_chapter"):
+        member.suggested_chapter = suggested_chapter
+    else:
+        member.current_chapter_display = suggested_chapter
+
+    from verenigingen.utils.secure_operations import (
+        get_system_user_for_operation,
+        secure_user_context,
+    )
+
+    system_user = get_system_user_for_operation("member_update_during_application")
+    with secure_user_context(system_user, f"Update suggested chapter for application {application_id}"):
+        try:
+            member.save()
+        except frappe.TimestampMismatchError:
+            member.reload()
+            if hasattr(member, "suggested_chapter"):
+                member.suggested_chapter = suggested_chapter
+            else:
+                member.current_chapter_display = suggested_chapter
+            member.save()
 
 
 @frappe.whitelist()
@@ -1331,70 +1334,16 @@ def validate_address_endpoint(data) -> OperationResult[Dict[str, Any]]:
     )
 
 
-# Private helpers for suggest_chapters_for_postal_code decomposition
-
-
-def _match_chapter_postal_codes(chapter_postal_codes, postal_numeric, postal_code):
-    """Parse postal_codes field (comma-separated ranges) and check for match.
-
-    Pure function — no database access, no side effects.
-
-    Returns (relevance_score, match_type).
-    """
-    postal_ranges = chapter_postal_codes.replace(" ", "").split(",")
-
-    for range_str in postal_ranges:
-        if "-" in range_str:
-            try:
-                start, end = range_str.split("-")
-                start_num = int(start)
-                end_num = int(end)
-                if start_num <= postal_numeric <= end_num:
-                    return 100, "postal_range"
-            except ValueError:
-                continue
-        else:
-            try:
-                if range_str == postal_code[:4]:
-                    return 90, "postal_prefix"
-                if range_str == postal_code:
-                    return 100, "postal_exact"
-            except ValueError:
-                continue
-
-    return 0, None
-
-
-def _match_chapter_region_heuristic(chapter_name, region, postal_numeric):
-    """Fallback regional guessing based on postal numeric ranges and chapter/region names.
-
-    Pure function — no database access, no side effects.
-
-    Returns (relevance_score, match_type).
-    """
-    chapter_name_lower = chapter_name.lower() if chapter_name else ""
-    region_lower = region.lower() if region else ""
-
-    if postal_numeric < 2000:
-        if "amsterdam" in chapter_name_lower or "noord-holland" in region_lower:
-            return 30, "region_guess"
-    elif postal_numeric < 3000:
-        if "den haag" in chapter_name_lower or "zuid-holland" in region_lower:
-            return 30, "region_guess"
-    elif postal_numeric < 4000:
-        if "rotterdam" in chapter_name_lower or "zuid-holland" in region_lower:
-            return 30, "region_guess"
-
-    return 0, None
-
-
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def suggest_chapters_for_postal_code(postal_code) -> OperationResult[Dict[str, Any]]:
-    """
-    Suggest chapters based on postal code.
+    """Suggest chapters based on postal code.
+
+    Delegates to private helpers:
+    - _match_chapter_postal_codes: postal range matching
+    - _match_chapter_region_heuristic: regional fallback matching
 
     Args:
         postal_code (str): Postal code to search for
@@ -1483,3 +1432,57 @@ def suggest_chapters_for_postal_code(postal_code) -> OperationResult[Dict[str, A
             errors=[str(e)],
             context={"postal_code": postal_code, "operation": "suggest_chapters_for_postal_code"},
         )
+
+
+def _match_chapter_postal_codes(chapter_postal_codes, postal_numeric, postal_code):
+    """Parse postal_codes field (comma-separated ranges) and check for match.
+
+    Pure function — no database access, no side effects.
+
+    Returns (relevance_score, match_type).
+    """
+    postal_ranges = chapter_postal_codes.replace(" ", "").split(",")
+
+    for range_str in postal_ranges:
+        if "-" in range_str:
+            try:
+                start, end = range_str.split("-")
+                start_num = int(start)
+                end_num = int(end)
+                if start_num <= postal_numeric <= end_num:
+                    return 100, "postal_range"
+            except ValueError:
+                continue
+        else:
+            try:
+                if range_str == postal_code[:4]:
+                    return 90, "postal_prefix"
+                if range_str == postal_code:
+                    return 100, "postal_exact"
+            except ValueError:
+                continue
+
+    return 0, None
+
+
+def _match_chapter_region_heuristic(chapter_name, region, postal_numeric):
+    """Fallback regional guessing based on postal numeric ranges and chapter/region names.
+
+    Pure function — no database access, no side effects.
+
+    Returns (relevance_score, match_type).
+    """
+    chapter_name_lower = chapter_name.lower() if chapter_name else ""
+    region_lower = region.lower() if region else ""
+
+    if postal_numeric < 2000:
+        if "amsterdam" in chapter_name_lower or "noord-holland" in region_lower:
+            return 30, "region_guess"
+    elif postal_numeric < 3000:
+        if "den haag" in chapter_name_lower or "zuid-holland" in region_lower:
+            return 30, "region_guess"
+    elif postal_numeric < 4000:
+        if "rotterdam" in chapter_name_lower or "zuid-holland" in region_lower:
+            return 30, "region_guess"
+
+    return 0, None
