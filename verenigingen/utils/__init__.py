@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from verenigingen.utils.history_manager_utils import safe_child_table_update  # noqa: F401
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     development_only_api,

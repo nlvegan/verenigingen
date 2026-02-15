@@ -1,8 +1,7 @@
 # Base History Manager - shared boilerplate for history tracking managers
 #
 # Eliminates ~400 LOC of duplicated existence checks, recursion guards,
-# safe saves, and error handling from AssignmentHistoryManager and
-# ChapterMembershipHistoryManager.
+# safe saves, and error handling across history managers.
 
 from typing import Callable, Optional
 
@@ -10,6 +9,7 @@ import frappe
 from frappe.model.document import Document
 
 from verenigingen.utils.history_manager_utils import (
+    HistoryOperationResult,
     ensure_doc_exists,
     log_history_error,
     recursion_guard,
@@ -39,30 +39,41 @@ class BaseHistoryManager:
         operation_name: str,
         callback: Callable[[Document], Optional[bool]],
         error_title: str = "History Manager Error",
-    ) -> bool:
+    ) -> HistoryOperationResult:
         """Execute *callback(doc)* with existence check, recursion guard, and safe save.
 
+        Returns HistoryOperationResult (truthy when successful, so existing callers
+        that check ``if result:`` or ``if not result:`` continue to work).
+
         Callback protocol – return value determines post-callback behaviour:
-            None  → save via safe_child_table_update, return True on success
-            True  → skip save (already handled / idempotent), return True
-            False → skip save (validation failure), return False
+            None  → save via safe_child_table_update, return its HistoryOperationResult
+            True  → skip save (already handled / idempotent), return success
+            False → skip save (validation failure), return failure
         """
         try:
             if not ensure_doc_exists(cls.PARENT_DOCTYPE, doc_name, operation_name):
-                return False
+                return HistoryOperationResult(
+                    success=False,
+                    message=f"{cls.PARENT_DOCTYPE} {doc_name} does not exist",
+                    errors=[f"{cls.PARENT_DOCTYPE} {doc_name} not found"],
+                )
 
             doc = frappe.get_doc(cls.PARENT_DOCTYPE, doc_name)
 
             with recursion_guard(doc, cls.RECURSION_FLAG) as should_proceed:
                 if not should_proceed:
-                    return True
+                    return HistoryOperationResult(success=True, message="skipped (recursion guard)")
 
                 result = callback(doc)
 
                 if result is True:
-                    return True
+                    return HistoryOperationResult(success=True, message="skipped (callback)")
                 if result is False:
-                    return False
+                    return HistoryOperationResult(
+                        success=False,
+                        message="validation failure",
+                        errors=[f"Callback returned False for {operation_name}"],
+                    )
 
                 # result is None → save
                 save_result = safe_child_table_update(
@@ -81,9 +92,8 @@ class BaseHistoryManager:
                             f"{doc_name}: {'; '.join(save_result.errors)}"
                         ),
                     )
-                    return False
 
-                return True
+                return save_result
 
         except Exception as e:
             log_history_error(
@@ -91,4 +101,8 @@ class BaseHistoryManager:
                 message=f"Error in {operation_name} for {cls.PARENT_DOCTYPE} {doc_name}: {str(e)}",
                 include_traceback=True,
             )
-            return False
+            return HistoryOperationResult(
+                success=False,
+                message=f"Exception in {operation_name}",
+                errors=[str(e)],
+            )

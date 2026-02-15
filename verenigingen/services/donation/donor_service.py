@@ -179,8 +179,7 @@ class DonationDonorService(StatelessService):
         try:
             from verenigingen.utils.donation_history_manager import DonationHistoryManager
 
-            history_manager = DonationHistoryManager()
-            history_manager.add_donation_entry(self.donation)
+            DonationHistoryManager.add_donation_entry(donor_name, self.donation)
 
         except Exception as e:
             self.logger.error(f"Failed to update donor donation history: {str(e)}")

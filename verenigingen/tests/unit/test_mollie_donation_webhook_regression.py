@@ -284,8 +284,6 @@ class TestDonorHistorySelfHealing(unittest.TestCase):
         """_fix_broken_entries should set donation_date on entries missing it."""
         from verenigingen.utils.donation_history_manager import DonationHistoryManager
 
-        manager = DonationHistoryManager("DUMMY-DONOR")
-
         # Create mock donor with broken entry
         mock_donor = MagicMock()
         mock_entry_broken = MagicMock()
@@ -303,7 +301,7 @@ class TestDonorHistorySelfHealing(unittest.TestCase):
         with patch("frappe.db.get_value") as mock_get_value:
             mock_get_value.return_value = "2025-06-15"
 
-            manager._fix_broken_entries(mock_donor)
+            DonationHistoryManager._fix_broken_entries(mock_donor)
 
             # Broken entry should now have donation_date set
             self.assertEqual(
@@ -319,8 +317,6 @@ class TestDonorHistorySelfHealing(unittest.TestCase):
         """If no linked donation found, should fall back to today's date."""
         from verenigingen.utils.donation_history_manager import DonationHistoryManager
 
-        manager = DonationHistoryManager("DUMMY-DONOR")
-
         mock_donor = MagicMock()
         mock_entry = MagicMock()
         mock_entry.donation_date = None
@@ -329,7 +325,7 @@ class TestDonorHistorySelfHealing(unittest.TestCase):
         mock_donor.donor_history = [mock_entry]
         mock_donor.name = "DUMMY-DONOR"
 
-        manager._fix_broken_entries(mock_donor)
+        DonationHistoryManager._fix_broken_entries(mock_donor)
 
         # Should fall back to today's date
         self.assertEqual(
