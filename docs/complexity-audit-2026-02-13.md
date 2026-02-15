@@ -83,7 +83,7 @@
 | `vereinigingen_payments/mollie/services/webhook_wrapper_service_unified.py` | 1754 | 22 | 0 | 0 | 1 | 8 | 26 | 0 | `_process_pending_refunds` |
 | `utils/security/api_security_framework.py` | 1736 | 49 | 0 | 0 | 0 | 5 | 19 | 0 | `analyze_api_security_status` |
 | `verenigingen/page/membership_analytics/membership_analytics.py` | 1733 | 35 | 0 | 0 | 0 | 1 | 12 | 0 | `get_current_year_revenue` |
-| `e_boekhouden/utils/payment_processing/payment_entry_handler.py` | 1652 | 29 | 1 | 0 | 1 | 8 | **47** | 4 | `_process_payment_mutation_internal` |
+| `e_boekhouden/utils/payment_processing/payment_entry_handler.py` | **1699** | **29** | **0** | **1** | **0** | **10** | **22** | 4 | `_extract_invoice_references_from_rows` (was `_process_payment_mutation_internal` CC 47) |
 
 **Grade scale:** F=26+ (unmaintainable), E=21-25 (very high risk), D=16-20 (moderate risk), C=11-15 (slightly complex), B=6-10 (low risk), A=1-5 (simple)
 **Tests column:** Number of test files found matching the source file name pattern.
@@ -100,8 +100,8 @@
 | 49 | F | `get_smart_account_type` | eBoekhouden util | `e_boekhouden/utils/eboekhouden_smart_account_typing.py` |
 | 48 | F | `_classify_by_code_pattern` | eBoekhouden service | `e_boekhouden/services/account_classification_service.py` |
 | 48 | F | `get_or_create_item_improved` | eBoekhouden util | `e_boekhouden/utils/eboekhouden_improved_item_naming.py` |
-| 47 | F | `_process_payment_mutation_internal` | eBoekhouden payment handler | `e_boekhouden/utils/payment_processing/payment_entry_handler.py` |
-| 47 | F | `create_unreconciled_payment_entry` | Util | `utils/create_unreconciled_payment.py` |
+| ~~47~~ 9 | ~~F~~ A | `_process_payment_mutation_internal` | **Refactored** (was 47) | `e_boekhouden/utils/payment_processing/payment_entry_handler.py` |
+| ~~47~~ | ~~F~~ | ~~`create_unreconciled_payment_entry`~~ | **Deleted** (zero callers) | ~~`utils/create_unreconciled_payment.py`~~ |
 | 45 | F | `create_user_account` | **Production** | `utils/account_creation_manager.py` |
 | 44 | F | `auto_create_ledger_mapping` | eBoekhouden util | `e_boekhouden/utils/invoice_helpers.py` |
 | 43 | F | `import_single_mutation` | eBoekhouden migration | `e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py` |
@@ -162,21 +162,9 @@
 
 **Status:** Refactored in PR #20 (merged 2026-02-14). 7 F-grade → 0 F-grade, 45 unit tests added. See "Refactoring Completed" section above.
 
-#### 2. `e_boekhouden/utils/payment_processing/payment_entry_handler.py` (1652 LOC)
+#### ~~2. `e_boekhouden/utils/payment_processing/payment_entry_handler.py` (1652 LOC)~~ COMPLETED
 
-| Metric | Value |
-|--------|-------|
-| F/E-grade functions | 2 (1F + 1E) |
-| Worst function | `_process_payment_mutation_internal` — CC 47, 351 lines |
-| Test files | **4** — well covered |
-| Classification | Payment processing during e-Boekhouden migration |
-
-**Concrete extraction plan:**
-1. Split `_process_payment_mutation_internal` into strategy methods: `_process_invoice_payment`, `_process_fifo_payment`, `_process_zero_amount`, `_process_money_transfer`
-2. Each strategy handles one payment type (currently all paths are in a single if/elif chain)
-3. Existing 4 test files provide safety net for this refactoring
-
-**Risk:** Medium. Good test coverage makes this safer.
+**Status:** Refactored in commit `d6bc0f2b` (2026-02-14). `_process_payment_mutation_internal` decomposed from CC 47 → 9. Also `create_unreconciled_payment.py` (CC 47, zero callers) deleted in `240962e3`. F-grade → 0, worst now E-grade (CC 22).
 
 #### 3. `utils/account_creation_manager.py` (2370 LOC)
 
@@ -194,16 +182,9 @@
 
 **Risk:** Medium. Well-tested, but production-critical (member onboarding path).
 
-#### 4. `api/membership_application_review.py` — NEW
+#### ~~4. `api/membership_application_review.py`~~ COMPLETED (extraction)
 
-| Metric | Value |
-|--------|-------|
-| F/E-grade functions | 2 (1F + 1E) |
-| Worst function | `approve_membership_application` — CC 50 |
-| Test files | Unknown |
-| Classification | **Production API** — membership approval |
-
-**Risk:** High. Production API with CC 50.
+**Status:** Debug/admin/notification endpoints extracted in `54c5ae9c` (2026-02-15). Approval orchestration unified in `ad5582ad`. 994 LOC, 10 functions remain. `approve_membership_application` still CC 50 — CC decomposition deferred (separate concern from file organization).
 
 ### Tier 2 — High Priority (production code, E/D-grade, mixed concerns)
 
@@ -301,7 +282,10 @@
 | `templates/pages/membership_application.py` | Extracted to `services/member/application/membership_application_service.py` | `2ed46a24` | 2026-02-13 |
 | `api/membership_application.py` | Quick Win #1: Removed 2 test functions (355 LOC) | `80cfdbd6` | 2026-02-14 |
 | `api/member_management.py` | Quick Win #2: Extracted debug functions to `member_management_debug.py` | `c46c096c`, `53198d51` | 2026-02-14 |
-| `api/chapter_dashboard_api.py` | Quick Win #3: Removed 37 debug/admin functions (3174→921 LOC); already in `chapter_dashboard_debug.py` | — | 2026-02-15 |
+| `api/chapter_dashboard_api.py` | Quick Win #3: Removed 37 debug/admin functions (3174→921 LOC); already in `chapter_dashboard_debug.py` | `2332b536` | 2026-02-15 |
+| `e_boekhouden/utils/payment_processing/payment_entry_handler.py` | Tier 1 #2: Decomposed `_process_payment_mutation_internal` (CC 47→9) | `d6bc0f2b` | 2026-02-14 |
+| `utils/create_unreconciled_payment.py` | Deleted dead code (CC 47, zero callers) | `240962e3` | 2026-02-14 |
+| `api/membership_application_review.py` | Tier 1 #4: Extracted debug/admin/notification endpoints + unified approval orchestration | `54c5ae9c`, `ad5582ad` | 2026-02-15 |
 
 ---
 
