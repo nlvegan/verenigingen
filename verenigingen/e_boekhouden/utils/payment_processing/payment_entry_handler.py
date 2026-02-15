@@ -149,75 +149,12 @@ class PaymentEntryHandler:
                     f"Checking {len(mutation.get('rows', []))} rows and {len(mutation.get('Regels', []))} regels for invoice references"
                 )
 
-            # Determine payment type and party based on mutation type AND amount sign
-            # For negative amounts, payment direction is reversed (refunds)
+            # Determine payment type, party type, and refund status
             raw_amount = flt(mutation.get("amount", 0))
-
-            # Base payment type from mutation type
-            base_payment_type = "Receive" if mutation_type == 3 else "Pay"
-
-            # Check if this is a gateway payment with adjusted amount
-            # Gateway payments shouldn't have payment type reversed
-            is_gateway_adjustment = bool(mutation.get("_original_amount"))
-
-            # Determine if this is a refund based on mutation type and amount sign
-            # Type 3 (Customer Payment): normally positive (money IN), negative = refund TO customer
-            # Type 4 (Supplier Payment) in E-Boekhouden convention:
-            #   - raw_amount > 0 (positive) = NORMAL payment OUT to supplier (keep as 'Pay')
-            #   - raw_amount = 0 with positive rows = NORMAL payment (keep as 'Pay')
-            #   - raw_amount < 0 (negative) = REFUND from supplier, money IN (reverse to 'Receive')
-            #
-            # NOTE: E-Boekhouden stores Type 4 with POSITIVE amounts (money leaving bank)
-            # This matches bank statement convention, opposite of ERPNext internal convention
-            is_refund = False
-            has_invoice_ref = bool(mutation.get("invoiceNumber"))
-
-            if mutation_type == 3 and raw_amount < 0:
-                is_refund = True  # Refund TO customer (money OUT)
-            elif mutation_type == 4 and not is_gateway_adjustment:
-                # For Type 4: Only NEGATIVE raw_amount indicates refund from supplier
-                # Positive or zero = normal supplier payment
-                if raw_amount < 0:
-                    # Negative Type 4 = refund FROM supplier (deposit return, money IN)
-                    is_refund = True
-
-            # Reverse payment type for refunds
-            if is_refund:
-                payment_type = "Pay" if base_payment_type == "Receive" else "Receive"
-                self._log(
-                    f"Refund detected (Type {mutation_type}, amount={raw_amount}) - reversing payment type from {base_payment_type} to {payment_type}"
-                )
-            else:
-                payment_type = base_payment_type
-                if is_gateway_adjustment:
-                    self._log(
-                        f"Gateway payment detected - keeping payment type as {payment_type} (amount: {raw_amount})"
-                    )
-
-            # Store initial payment_type for later adjustment based on invoice outstanding
+            payment_type, party_type, is_refund = self._determine_payment_type(
+                mutation, raw_amount, mutation_type
+            )
             initial_payment_type = payment_type
-
-            party_type = "Customer" if mutation_type == 3 else "Supplier"
-
-            # Validate payment direction consistency
-            # For gateway adjustments, validate against adjusted amount to ensure correctness
-            if is_gateway_adjustment:
-                # Gateway adjustments should result in Type 4 with negative amount (payment OUT)
-                if mutation_type == 4 and raw_amount >= 0:
-                    self._log(
-                        f"⚠️ WARNING: Gateway adjustment resulted in non-negative Type 4 amount ({raw_amount}). "
-                        f"Expected negative for supplier payment."
-                    )
-                    frappe.log_error(
-                        title=f"Invalid Gateway Adjustment - Mutation {mutation_id}",
-                        message=f"Gateway adjustment for Type 4 resulted in non-negative amount: {raw_amount}\n"
-                        f"Original amount: {mutation.get('_original_amount')}\n"
-                        f"Adjustment reason: {mutation.get('_adjustment_reason')}\n"
-                        f"This indicates a logic error in amount adjustment.",
-                    )
-            else:
-                # Normal validation for non-gateway mutations
-                self._validate_payment_direction(mutation_type, raw_amount, payment_type, party_type)
 
             # Get or create party
             party = self._get_or_create_party(
@@ -253,223 +190,333 @@ class PaymentEntryHandler:
                 bank_account=gl_account,
             )
 
-            # Handle invoice allocations
-            # Combine invoice numbers from header and any found in rows
-            row_invoice_refs = self._extract_invoice_references_from_rows(mutation)
-            all_invoice_refs = list(set(invoice_numbers + row_invoice_refs))  # Remove duplicates
+            # Allocate to invoices and insert payment entry
+            self._allocate_and_insert_payment(pe, invoice_numbers, mutation, party_type)
 
-            if all_invoice_refs:
-                self._log(f"All invoice references to link: {all_invoice_refs}")
-                if mutation.get("rows"):
-                    self._allocate_to_invoices(pe, all_invoice_refs, mutation["rows"], party_type)
-                else:
-                    # Single invoice or no rows - simple allocation
-                    self._simple_invoice_allocation(pe, all_invoice_refs, party_type)
-            else:
-                self._log("WARNING: No invoice references found in payment mutation")
-
-            # Save and submit with proper permissions
-            # For E-Boekhouden Type 3/4 payments, bypass ERPNext's "fully paid" validation
-            # since E-Boekhouden is the authoritative source for payment-invoice relationships
-            try:
-                validate_and_insert(pe)
-                self._log(f"Created Payment Entry {pe.name}")
-            except Exception as e:
-                if "has already been fully paid" in str(
-                    e
-                ) or "cannot be greater than outstanding amount" in str(e):
-                    self._log(f"Allocation error: {str(e)} - creating unallocated payment entry as fallback")
-                    # Clear allocations and create unallocated payment
-                    pe.references = []
-                    pe.unallocated_amount = pe.paid_amount or pe.received_amount
-                    pe.remarks = (
-                        pe.remarks or ""
-                    ) + f"\n[Auto-allocation failed for invoice(s): {', '.join(all_invoice_refs)}]"
-
-                    # Save without allocations
-                    pe.flags.ignore_validate = True
-                    pe.insert()
-                    self._log(
-                        f"Created unallocated Payment Entry {pe.name} (will need manual reconciliation)"
-                    )
-                else:
-                    raise
-
-            # CRITICAL: Create Bank Transaction BEFORE submitting Payment Entry
-            # This ensures both operations happen within the same atomic transaction
-            # For gateway adjustments, the Bank Transaction will use the adjusted amount
-            # Check if Bank Transaction already exists (idempotency for re-imports)
-            existing_bt = frappe.db.get_value(
-                "Bank Transaction", {"reference_number": f"EB-{mutation_id}"}, "name"
+            # Create Bank Transaction and link to Payment Entry
+            bank_transaction_name, existing_bt = self._create_and_link_bank_transaction(
+                mutation, pe, bank_account_name
             )
 
-            if existing_bt:
-                self._log(
-                    f"Bank Transaction {existing_bt} already exists for mutation {mutation_id}, skipping creation"
-                )
-                bank_transaction_name = existing_bt
-            else:
-                # Check if this is a gateway adjustment (for audit trail logging)
-                is_gateway_adjustment = bool(mutation.get("_original_amount"))
-                if is_gateway_adjustment:
-                    self._log(
-                        f"Gateway adjustment: Creating Bank Transaction with adjusted amount "
-                        f"€{pe.paid_amount or pe.received_amount} (original: €{mutation.get('_original_amount')})"
-                    )
+            # Submit with floating point precision fix and fiscal year validation
+            self._submit_with_floating_point_fix(pe, bank_transaction_name)
 
-                self._log(
-                    f"ATOMIC TRANSACTION START: Creating Bank Transaction for Payment Entry {pe.name} "
-                    f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
-                )
-
-                bank_transaction_name = self._create_bank_transaction_for_payment(
-                    mutation, pe, bank_account_name
-                )
-
-            if bank_transaction_name:
-                if not existing_bt:
-                    self._log(f"✓ Bank Transaction created: {bank_transaction_name}")
-
-                # Link the bank transaction to payment entry immediately (only if it's not already linked)
-                # Check if already linked to avoid "Cannot edit cancelled document" error
-                already_linked = frappe.db.exists(
-                    "Bank Transaction Payments", {"parent": bank_transaction_name, "payment_entry": pe.name}
-                )
-
-                if not already_linked:
-                    self._log(
-                        f"Linking Bank Transaction {bank_transaction_name} to Payment Entry {pe.name}..."
-                    )
-                    self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
-                    self._log("✓ Bank Transaction linked successfully")
-                else:
-                    self._log(
-                        f"Bank Transaction {bank_transaction_name} already linked to Payment Entry {pe.name}"
-                    )
-            else:
-                self._log("WARNING: Failed to create Bank Transaction - proceeding with Payment Entry only")
-
-            # Ensure fiscal year exists before submission
-            try:
-                debug_info = []
-                ensure_fiscal_year_exists(pe.posting_date, self.company, debug_info)
-                for msg in debug_info:
-                    self._log(msg)
-            except Exception as fy_error:
-                self._log(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
-                # Continue anyway - the submit() will give a clearer error message
-
-            # Submit Payment Entry (commits both PE and BT together in atomic transaction)
-            self._log(f"Submitting Payment Entry {pe.name} (will commit both PE and BT atomically)...")
-
-            # WORKAROUND: Fix floating point precision error in ERPNext
-            # ERPNext rounds base_paid_amount but not base_total_allocated_amount after summing,
-            # causing tiny unallocated amounts (e.g., 1e-13) that create zero-value GL entries.
-            # Example: 504.28 + 117.92 = 622.1999999999999 (floating point) != 622.2 (rounded)
-            # We fix this by:
-            # 1. Using db_set to fix the values directly in DB
-            # 2. Temporarily patching set_unallocated_amount to prevent recalculation during submit
-            pe.reload()  # Get fresh values after insert
-
-            # Debug: Log all amounts before submit
-            self._log(f"DEBUG PRE-SUBMIT: paid_amount={pe.paid_amount}, received_amount={pe.received_amount}")
-            self._log(
-                f"DEBUG PRE-SUBMIT: base_paid_amount={pe.base_paid_amount}, base_received_amount={pe.base_received_amount}"
-            )
-            self._log(
-                f"DEBUG PRE-SUBMIT: total_allocated_amount={pe.total_allocated_amount}, base_total_allocated_amount={pe.base_total_allocated_amount}"
-            )
-            self._log(
-                f"DEBUG PRE-SUBMIT: unallocated_amount={pe.unallocated_amount}, repr={repr(pe.unallocated_amount)}"
-            )
-            self._log(
-                f"DEBUG PRE-SUBMIT: source_exchange_rate={pe.source_exchange_rate}, target_exchange_rate={pe.target_exchange_rate}"
-            )
-            for ref in pe.references:
-                self._log(
-                    f"DEBUG REF: {ref.reference_doctype} {ref.reference_name} allocated={ref.allocated_amount} repr={repr(ref.allocated_amount)}"
-                )
-
-            # WORKAROUND for floating point precision errors during submit
-            # During submit(), validate() calls set_total_allocated_amount() which sums reference amounts.
-            # This can cause floating point errors like 504.28 + 117.92 = 622.1999999999999
-            # When this happens, set_unallocated_amount() computes a tiny non-zero value (~1e-13)
-            # which creates a GL entry with ~zero amount that fails validation.
-            #
-            # The fix: Detect potential floating point issues by comparing raw sum vs paid_amount,
-            # then patch both set_total_allocated_amount and set_unallocated_amount to prevent
-            # recalculation during submit, preserving the correctly-rounded values from insert.
-
-            # Check for potential floating point mismatch
-            raw_sum = sum(ref.allocated_amount for ref in pe.references)
-            paid_amount = pe.paid_amount or pe.received_amount
-            floating_point_diff = abs(raw_sum - paid_amount)
-            needs_floating_point_fix = floating_point_diff > 0 and floating_point_diff < 0.01
-
-            self._log(
-                f"DEBUG: raw_sum={raw_sum}, paid_amount={paid_amount}, diff={floating_point_diff}, needs_fix={needs_floating_point_fix}"
-            )
-
-            # Use lock for thread-safe monkey patching during submit
-            # This prevents race conditions when multiple mutations are imported concurrently
-            with _floating_point_fix_lock:
-                if needs_floating_point_fix:
-                    self._log("Applying floating point precision fix for submit")
-                    from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
-
-                    # Save original methods
-                    original_set_total_allocated = PaymentEntry.set_total_allocated_amount
-                    original_set_unallocated = PaymentEntry.set_unallocated_amount
-
-                    def patched_set_total_allocated(self):
-                        if hasattr(self, "_skip_amount_recalc") and self._skip_amount_recalc:
-                            return
-                        return original_set_total_allocated(self)
-
-                    def patched_set_unallocated(self):
-                        if hasattr(self, "_skip_amount_recalc") and self._skip_amount_recalc:
-                            return
-                        return original_set_unallocated(self)
-
-                    PaymentEntry.set_total_allocated_amount = patched_set_total_allocated
-                    PaymentEntry.set_unallocated_amount = patched_set_unallocated
-                    pe._skip_amount_recalc = True
-
-                try:
-                    pe.submit()
-                finally:
-                    # Restore original methods if we patched them
-                    if needs_floating_point_fix:
-                        PaymentEntry.set_total_allocated_amount = original_set_total_allocated
-                        PaymentEntry.set_unallocated_amount = original_set_unallocated
-            self._log(
-                f"✓ ATOMIC TRANSACTION COMPLETE: Payment Entry {pe.name} submitted "
-                f"{f'with linked Bank Transaction {bank_transaction_name}' if bank_transaction_name else 'without Bank Transaction'}"
-            )
-
-            # Track successful Bank Transaction creation
-            self._bank_tx_stats["total_processed"] += 1
-            if bank_transaction_name:
-                if existing_bt:
-                    self._bank_tx_stats["bank_tx_already_existed"] += 1
-                else:
-                    self._bank_tx_stats["bank_tx_created"] += 1
+            # Track success
+            self._track_bank_transaction_stats(mutation, pe.name, bank_transaction_name, existing_bt)
 
             return pe.name
 
         except Exception as e:
             # Track failure before re-raising
-            self._bank_tx_stats["total_processed"] += 1
+            pe_name = getattr(pe, "name", None) if "pe" in locals() else None
+            self._track_bank_transaction_stats(mutation, pe_name, None, False, error=e)
+            raise
+
+    def _track_bank_transaction_stats(
+        self,
+        mutation: Dict,
+        pe_name: Optional[str],
+        bt_name: Optional[str],
+        existing_bt: bool,
+        error: Optional[Exception] = None,
+    ) -> None:
+        """Update _bank_tx_stats for success or failure."""
+        self._bank_tx_stats["total_processed"] += 1
+
+        if error:
             self._bank_tx_stats["bank_tx_failed"] += 1
             self._bank_tx_stats["failures"].append(
                 {
                     "mutation_nr": mutation.get("id"),
-                    "payment_entry": pe.name if "pe" in locals() else "Not created",
-                    "reason": str(e)[:200],
+                    "payment_entry": pe_name or "Not created",
+                    "reason": str(error)[:200],
                 }
             )
-            # Re-raise to let atomic_migration_operation handle rollback
-            raise
+            return
+
+        if bt_name:
+            if existing_bt:
+                self._bank_tx_stats["bank_tx_already_existed"] += 1
+            else:
+                self._bank_tx_stats["bank_tx_created"] += 1
+
+    def _allocate_and_insert_payment(
+        self, pe, invoice_numbers: List[str], mutation: Dict, party_type: str
+    ) -> None:
+        """Allocate PE to invoices and insert. Falls back to unallocated on 'fully paid' errors.
+
+        Combines invoice numbers from header and row-level references, performs
+        allocation, then inserts. If ERPNext rejects allocation because invoices
+        are already fully paid, clears allocations and inserts as unallocated.
+        """
+        # Combine invoice numbers from header and any found in rows
+        row_invoice_refs = self._extract_invoice_references_from_rows(mutation)
+        all_invoice_refs = list(set(invoice_numbers + row_invoice_refs))  # Remove duplicates
+
+        if all_invoice_refs:
+            self._log(f"All invoice references to link: {all_invoice_refs}")
+            if mutation.get("rows"):
+                self._allocate_to_invoices(pe, all_invoice_refs, mutation["rows"], party_type)
+            else:
+                # Single invoice or no rows - simple allocation
+                self._simple_invoice_allocation(pe, all_invoice_refs, party_type)
+        else:
+            self._log("WARNING: No invoice references found in payment mutation")
+
+        # Insert with proper permissions
+        # For E-Boekhouden Type 3/4 payments, bypass ERPNext's "fully paid" validation
+        # since E-Boekhouden is the authoritative source for payment-invoice relationships
+        try:
+            validate_and_insert(pe)
+            self._log(f"Created Payment Entry {pe.name}")
+        except Exception as e:
+            if "has already been fully paid" in str(e) or "cannot be greater than outstanding amount" in str(
+                e
+            ):
+                self._log(f"Allocation error: {str(e)} - creating unallocated payment entry as fallback")
+                # Clear allocations and create unallocated payment
+                pe.references = []
+                pe.unallocated_amount = pe.paid_amount or pe.received_amount
+                pe.remarks = (
+                    pe.remarks or ""
+                ) + f"\n[Auto-allocation failed for invoice(s): {', '.join(all_invoice_refs)}]"
+
+                # Save without allocations
+                pe.flags.ignore_validate = True
+                pe.insert()
+                self._log(f"Created unallocated Payment Entry {pe.name} (will need manual reconciliation)")
+            else:
+                raise
+
+    def _submit_with_floating_point_fix(self, pe, bank_transaction_name: Optional[str]) -> None:
+        """Ensure fiscal year, apply floating-point workaround, and submit PE.
+
+        ERPNext can produce floating point precision errors when summing allocated
+        amounts during submit(). This method detects the issue and temporarily patches
+        PaymentEntry to skip recalculation, preserving the correctly-rounded values
+        from insert.
+
+        Thread-safety: Uses _floating_point_fix_lock to serialize monkey-patching.
+        """
+        # Ensure fiscal year exists before submission
+        try:
+            debug_info = []
+            ensure_fiscal_year_exists(pe.posting_date, self.company, debug_info)
+            for msg in debug_info:
+                self._log(msg)
+        except Exception as fy_error:
+            self._log(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
+            # Continue anyway - the submit() will give a clearer error message
+
+        # Submit Payment Entry (commits both PE and BT together in atomic transaction)
+        self._log(f"Submitting Payment Entry {pe.name} (will commit both PE and BT atomically)...")
+
+        pe.reload()  # Get fresh values after insert
+
+        # Debug: Log all amounts before submit
+        self._log(f"DEBUG PRE-SUBMIT: paid_amount={pe.paid_amount}, received_amount={pe.received_amount}")
+        self._log(
+            f"DEBUG PRE-SUBMIT: base_paid_amount={pe.base_paid_amount}, base_received_amount={pe.base_received_amount}"
+        )
+        self._log(
+            f"DEBUG PRE-SUBMIT: total_allocated_amount={pe.total_allocated_amount}, base_total_allocated_amount={pe.base_total_allocated_amount}"
+        )
+        self._log(
+            f"DEBUG PRE-SUBMIT: unallocated_amount={pe.unallocated_amount}, repr={repr(pe.unallocated_amount)}"
+        )
+        self._log(
+            f"DEBUG PRE-SUBMIT: source_exchange_rate={pe.source_exchange_rate}, target_exchange_rate={pe.target_exchange_rate}"
+        )
+        for ref in pe.references:
+            self._log(
+                f"DEBUG REF: {ref.reference_doctype} {ref.reference_name} allocated={ref.allocated_amount} repr={repr(ref.allocated_amount)}"
+            )
+
+        # Detect potential floating point mismatch between raw sum and paid_amount
+        raw_sum = sum(ref.allocated_amount for ref in pe.references)
+        paid_amount = pe.paid_amount or pe.received_amount
+        floating_point_diff = abs(raw_sum - paid_amount)
+        needs_floating_point_fix = floating_point_diff > 0 and floating_point_diff < 0.01
+
+        self._log(
+            f"DEBUG: raw_sum={raw_sum}, paid_amount={paid_amount}, diff={floating_point_diff}, needs_fix={needs_floating_point_fix}"
+        )
+
+        # Use lock for thread-safe monkey patching during submit
+        # This prevents race conditions when multiple mutations are imported concurrently
+        with _floating_point_fix_lock:
+            if needs_floating_point_fix:
+                self._log("Applying floating point precision fix for submit")
+                from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+                # Save original methods
+                original_set_total_allocated = PaymentEntry.set_total_allocated_amount
+                original_set_unallocated = PaymentEntry.set_unallocated_amount
+
+                def patched_set_total_allocated(self):
+                    if hasattr(self, "_skip_amount_recalc") and self._skip_amount_recalc:
+                        return
+                    return original_set_total_allocated(self)
+
+                def patched_set_unallocated(self):
+                    if hasattr(self, "_skip_amount_recalc") and self._skip_amount_recalc:
+                        return
+                    return original_set_unallocated(self)
+
+                PaymentEntry.set_total_allocated_amount = patched_set_total_allocated
+                PaymentEntry.set_unallocated_amount = patched_set_unallocated
+                pe._skip_amount_recalc = True
+
+            try:
+                pe.submit()
+            finally:
+                # Restore original methods if we patched them
+                if needs_floating_point_fix:
+                    PaymentEntry.set_total_allocated_amount = original_set_total_allocated
+                    PaymentEntry.set_unallocated_amount = original_set_unallocated
+        self._log(
+            f"✓ ATOMIC TRANSACTION COMPLETE: Payment Entry {pe.name} submitted "
+            f"{f'with linked Bank Transaction {bank_transaction_name}' if bank_transaction_name else 'without Bank Transaction'}"
+        )
+
+    def _create_and_link_bank_transaction(
+        self, mutation: Dict, pe, bank_account_name: str
+    ) -> Tuple[Optional[str], bool]:
+        """Create Bank Transaction and link to Payment Entry.
+
+        Checks for existing Bank Transaction (idempotency for re-imports),
+        creates one if needed, and links it to the Payment Entry.
+
+        Returns:
+            Tuple of (bank_transaction_name, was_existing). bank_transaction_name
+            is None if creation failed.
+        """
+        mutation_id = mutation.get("id")
+
+        # Check if Bank Transaction already exists (idempotency for re-imports)
+        existing_bt = frappe.db.get_value(
+            "Bank Transaction", {"reference_number": f"EB-{mutation_id}"}, "name"
+        )
+
+        if existing_bt:
+            self._log(
+                f"Bank Transaction {existing_bt} already exists for mutation {mutation_id}, skipping creation"
+            )
+            return existing_bt, True
+
+        # Check if this is a gateway adjustment (for audit trail logging)
+        is_gateway_adjustment = bool(mutation.get("_original_amount"))
+        if is_gateway_adjustment:
+            self._log(
+                f"Gateway adjustment: Creating Bank Transaction with adjusted amount "
+                f"€{pe.paid_amount or pe.received_amount} (original: €{mutation.get('_original_amount')})"
+            )
+
+        self._log(
+            f"ATOMIC TRANSACTION START: Creating Bank Transaction for Payment Entry {pe.name} "
+            f"(Mutation #{mutation_id}, Amount: {pe.paid_amount or pe.received_amount})"
+        )
+
+        bank_transaction_name = self._create_bank_transaction_for_payment(mutation, pe, bank_account_name)
+
+        if bank_transaction_name:
+            self._log(f"✓ Bank Transaction created: {bank_transaction_name}")
+
+            # Link the bank transaction to payment entry immediately (only if it's not already linked)
+            # Check if already linked to avoid "Cannot edit cancelled document" error
+            already_linked = frappe.db.exists(
+                "Bank Transaction Payments", {"parent": bank_transaction_name, "payment_entry": pe.name}
+            )
+
+            if not already_linked:
+                self._log(f"Linking Bank Transaction {bank_transaction_name} to Payment Entry {pe.name}...")
+                self._link_bank_transaction_to_payment(bank_transaction_name, pe.name)
+                self._log("✓ Bank Transaction linked successfully")
+            else:
+                self._log(
+                    f"Bank Transaction {bank_transaction_name} already linked to Payment Entry {pe.name}"
+                )
+        else:
+            self._log("WARNING: Failed to create Bank Transaction - proceeding with Payment Entry only")
+
+        return bank_transaction_name, False
+
+    def _determine_payment_type(
+        self, mutation: Dict, raw_amount: float, mutation_type: int
+    ) -> Tuple[str, str, bool]:
+        """Determine payment_type, party_type, and is_refund from mutation data.
+
+        Examines the mutation type, amount sign, and gateway adjustment status
+        to determine the correct ERPNext payment direction.
+
+        Returns:
+            Tuple of (payment_type, party_type, is_refund)
+        """
+        mutation_id = mutation.get("id")
+
+        # Base payment type from mutation type
+        base_payment_type = "Receive" if mutation_type == 3 else "Pay"
+
+        # Check if this is a gateway payment with adjusted amount
+        # Gateway payments shouldn't have payment type reversed
+        is_gateway_adjustment = bool(mutation.get("_original_amount"))
+
+        # Determine if this is a refund based on mutation type and amount sign
+        # Type 3 (Customer Payment): normally positive (money IN), negative = refund TO customer
+        # Type 4 (Supplier Payment) in E-Boekhouden convention:
+        #   - raw_amount > 0 (positive) = NORMAL payment OUT to supplier (keep as 'Pay')
+        #   - raw_amount = 0 with positive rows = NORMAL payment (keep as 'Pay')
+        #   - raw_amount < 0 (negative) = REFUND from supplier, money IN (reverse to 'Receive')
+        #
+        # NOTE: E-Boekhouden stores Type 4 with POSITIVE amounts (money leaving bank)
+        # This matches bank statement convention, opposite of ERPNext internal convention
+        is_refund = False
+
+        if mutation_type == 3 and raw_amount < 0:
+            is_refund = True  # Refund TO customer (money OUT)
+        elif mutation_type == 4 and not is_gateway_adjustment:
+            # For Type 4: Only NEGATIVE raw_amount indicates refund from supplier
+            # Positive or zero = normal supplier payment
+            if raw_amount < 0:
+                # Negative Type 4 = refund FROM supplier (deposit return, money IN)
+                is_refund = True
+
+        # Reverse payment type for refunds
+        if is_refund:
+            payment_type = "Pay" if base_payment_type == "Receive" else "Receive"
+            self._log(
+                f"Refund detected (Type {mutation_type}, amount={raw_amount}) - reversing payment type from {base_payment_type} to {payment_type}"
+            )
+        else:
+            payment_type = base_payment_type
+            if is_gateway_adjustment:
+                self._log(
+                    f"Gateway payment detected - keeping payment type as {payment_type} (amount: {raw_amount})"
+                )
+
+        party_type = "Customer" if mutation_type == 3 else "Supplier"
+
+        # Validate payment direction consistency
+        # For gateway adjustments, validate against adjusted amount to ensure correctness
+        if is_gateway_adjustment:
+            # Gateway adjustments should result in Type 4 with negative amount (payment OUT)
+            if mutation_type == 4 and raw_amount >= 0:
+                self._log(
+                    f"⚠️ WARNING: Gateway adjustment resulted in non-negative Type 4 amount ({raw_amount}). "
+                    f"Expected negative for supplier payment."
+                )
+                frappe.log_error(
+                    title=f"Invalid Gateway Adjustment - Mutation {mutation_id}",
+                    message=f"Gateway adjustment for Type 4 resulted in non-negative amount: {raw_amount}\n"
+                    f"Original amount: {mutation.get('_original_amount')}\n"
+                    f"Adjustment reason: {mutation.get('_adjustment_reason')}\n"
+                    f"This indicates a logic error in amount adjustment.",
+                )
+        else:
+            # Normal validation for non-gateway mutations
+            self._validate_payment_direction(mutation_type, raw_amount, payment_type, party_type)
+
+        return payment_type, party_type, is_refund
 
     def _parse_invoice_numbers(self, invoice_str: str) -> List[str]:
         """Parse comma-separated invoice numbers."""
