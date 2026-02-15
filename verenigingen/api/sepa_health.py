@@ -9,9 +9,14 @@ import frappe
 from frappe.utils import add_days, now_datetime
 
 from verenigingen.api.sepa_duplicate_prevention import check_redis_health
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    standard_api,
+)
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_sepa_health() -> dict:
     """
     Get SEPA infrastructure health status.
