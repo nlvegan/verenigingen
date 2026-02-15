@@ -233,6 +233,100 @@ class BulkPaymentChecker:
             "offset": offset,
         }
 
+    @staticmethod
+    def _fetch_customer_with_rate_limit_retry(client, customer_id):
+        """Fetch Mollie customer object, retrying once on HTTP 429 rate limit."""
+        try:
+            return client.customers.get(customer_id)
+        except Exception as e:
+            if hasattr(e, "status") and e.status == 429:
+                retry_after = 60
+                frappe.logger().warning(
+                    f"Mollie rate limit (HTTP 429) hit for customer {customer_id}. "
+                    f"Waiting {retry_after}s before retry..."
+                )
+                time.sleep(retry_after)
+                try:
+                    customer = client.customers.get(customer_id)
+                    frappe.logger().info(f"Retry successful after rate limit wait for {customer_id}")
+                    return customer
+                except Exception as retry_error:
+                    frappe.logger().error(f"Retry failed after rate limit wait: {retry_error}")
+                    raise
+            raise
+
+    def _check_for_matching_invoice(
+        self, payment, member_name, idempotency_check, payment_type, currency_warning, amount_value
+    ):
+        """Check for a matching unpaid dues invoice for intelligent processing. Returns invoice or None."""
+        if not (
+            payment.status == "paid"
+            and payment_type == "dues"
+            and not idempotency_check["already_processed"]
+            and currency_warning is None
+            and amount_value != "Unknown"
+        ):
+            return None
+
+        try:
+            invoice_check_date = payment.paid_at or payment.created_at
+            payment_amount_float = extract_amount_float(payment.amount)
+            return self.find_matching_unpaid_dues_invoice(
+                member_name=member_name,
+                payment_amount=payment_amount_float,
+                payment_date=invoice_check_date,
+            )
+        except (ValueError, TypeError) as e:
+            frappe.logger().warning(f"Could not check for matching invoice for payment {payment.id}: {e}")
+            return None
+
+    @staticmethod
+    def _build_payment_info(
+        payment, payment_type, idempotency_check, amount_value, currency, currency_warning, matching_invoice
+    ):
+        """Build the payment info dict for a single Mollie payment."""
+        is_processable_dues = (
+            payment.status == "paid" and payment_type == "dues" and not idempotency_check["already_processed"]
+        )
+
+        return {
+            "id": payment.id,
+            "status": payment.status,
+            "amount": amount_value,
+            "currency": currency,
+            "amount_display": f"{currency} {amount_value}" if amount_value != "Unknown" else "Unknown",
+            "description": payment.description,
+            "created_at": str(payment.created_at),
+            "paid_at": str(payment.paid_at) if payment.paid_at else None,
+            "subscription_id": payment.subscription_id,
+            "payment_type": payment_type,
+            "already_processed": idempotency_check["already_processed"],
+            "payment_entry": idempotency_check.get("payment_entry"),
+            "bank_transaction": idempotency_check.get("bank_transaction"),
+            "currency_warning": currency_warning,
+            "processable": is_processable_dues and currency_warning is None,
+            "matching_invoice": matching_invoice,
+            "processing_mode": (
+                ("bt_pe_reconcile" if matching_invoice else "bt_only") if is_processable_dues else None
+            ),
+        }
+
+    @staticmethod
+    def _filter_payment_by_date(payment, from_date):
+        """Apply date filter to a payment. Returns True if payment should be EXCLUDED."""
+        if not from_date:
+            return False
+
+        payment_date = payment.paid_at if payment.paid_at else payment.created_at
+        if payment_date is None:
+            frappe.logger().warning(f"Payment {payment.id} has no date, excluding from results")
+            return True
+
+        if payment_date.tzinfo is None:
+            payment_date = payment_date.replace(tzinfo=timezone.utc)
+
+        return payment_date < from_date
+
     def check_payments_for_customer(
         self,
         customer_id: str,
@@ -250,13 +344,7 @@ class BulkPaymentChecker:
             limit: Maximum payments to retrieve per customer
 
         Returns:
-            Dict containing:
-                - customer_id: Mollie customer ID
-                - member: Member record name
-                - payments: List of payment details with processing status
-                - total_found: Total payments retrieved
-                - new_payments: Number of unprocessed payments
-                - error: Error message if failed
+            Dict with customer_id, member, payments, total_found, new_payments, error.
         """
         result = {
             "customer_id": customer_id,
@@ -270,43 +358,13 @@ class BulkPaymentChecker:
         }
 
         try:
-            # Get customer object from Mollie with retry logic for rate limiting
-            client = self.mollie_client.sdk_client
+            customer_obj = self._fetch_customer_with_rate_limit_retry(
+                self.mollie_client.sdk_client, customer_id
+            )
 
-            # Try to get customer with HTTP 429 handling
-            try:
-                customer_obj = client.customers.get(customer_id)
-            except Exception as e:
-                # Check if this is a rate limit error (HTTP 429)
-                if hasattr(e, "status") and e.status == 429:
-                    # Mollie rate limit hit - wait and retry once
-                    retry_after = 60  # Default 60 seconds if no Retry-After header
-
-                    frappe.logger().warning(
-                        f"Mollie rate limit (HTTP 429) hit for customer {customer_id}. "
-                        f"Waiting {retry_after}s before retry..."
-                    )
-
-                    time.sleep(retry_after)
-
-                    # Retry once after waiting
-                    try:
-                        customer_obj = client.customers.get(customer_id)
-                        frappe.logger().info(f"✅ Retry successful after rate limit wait for {customer_id}")
-                    except Exception as retry_error:
-                        # Retry failed - propagate error
-                        frappe.logger().error(f"Retry failed after rate limit wait: {retry_error}")
-                        raise
-                else:
-                    # Not a rate limit error - propagate normally
-                    raise
-
-            # Get all payments for this customer and convert to typed objects
             sdk_payments = customer_obj.payments.list(limit=limit)
             result["total_found"] = len(sdk_payments)
 
-            # Convert SDK payments to typed Payment objects with proper datetime parsing
-            # This ensures created_at and paid_at are datetime objects, not strings
             payments: List[MolliePayment] = []
             for sdk_payment in sdk_payments:
                 try:
@@ -315,84 +373,47 @@ class BulkPaymentChecker:
                     frappe.logger().warning(
                         f"Could not convert payment {sdk_payment.get('id', 'unknown')} to typed object: {e}"
                     )
-                    continue
 
-            # Filter by date if requested
-            if from_date:
-                # Ensure from_date is timezone-aware
-                if from_date.tzinfo is None:
-                    from_date = from_date.replace(tzinfo=timezone.utc)
+            if from_date and from_date.tzinfo is None:
+                from_date = from_date.replace(tzinfo=timezone.utc)
 
-            # Deduplicate payment IDs (Mollie API sometimes returns duplicates)
             seen_payment_ids = set()
-
-            # Debug counters to track filtering
             filtered_by_date = 0
             filtered_by_duplicate = 0
-            payments_added = 0
+
+            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+                get_bank_transaction_creator,
+            )
+
+            creator = get_bank_transaction_creator()
 
             for payment in payments:
-                # Apply date filter
-                # CRITICAL: Use paid_at for financial reconciliation (when money actually moved)
-                # Fall back to created_at only for pending/unpaid payments
-                if from_date:
-                    # Use paid_at (when payment completed) for accurate financial reconciliation
-                    payment_date = payment.paid_at if payment.paid_at else payment.created_at
+                if self._filter_payment_by_date(payment, from_date):
+                    filtered_by_date += 1
+                    continue
 
-                    if payment_date is None:
-                        frappe.logger().warning(f"Payment {payment.id} has no date, excluding from results")
-                        filtered_by_date += 1
-                        continue
-
-                    # Make payment_date timezone-aware if needed
-                    if payment_date.tzinfo is None:
-                        payment_date = payment_date.replace(tzinfo=timezone.utc)
-
-                    if payment_date < from_date:
-                        filtered_by_date += 1
-                        continue
-
-                # Deduplicate: Skip if we've already seen this payment ID
                 if payment.id in seen_payment_ids:
                     filtered_by_duplicate += 1
                     frappe.logger().warning(
-                        f"⚠️ Duplicate payment ID from Mollie API: {payment.id} for member {member_name}. "
-                        f"This indicates the API returned the same payment multiple times."
+                        f"Duplicate payment ID from Mollie API: {payment.id} for member {member_name}."
                     )
                     continue
                 seen_payment_ids.add(payment.id)
 
-                # Memory protection: Circuit breaker for excessive payment volumes
                 if len(seen_payment_ids) > 10000:
                     frappe.logger().error(
-                        f"⚠️ MEMORY LIMIT EXCEEDED: Processed {len(seen_payment_ids)} unique payments "
-                        f"for customer {customer_id} (Member: {member_name}). "
-                        f"Stopping pagination to prevent memory issues. "
-                        f"This indicates either an API issue or misconfigured date range."
+                        f"MEMORY LIMIT EXCEEDED: {len(seen_payment_ids)} unique payments "
+                        f"for customer {customer_id} (Member: {member_name}). Stopping."
                     )
                     break
 
-                # Check if already processed using centralized service
-                from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
-                    get_bank_transaction_creator,
-                )
-
-                creator = get_bank_transaction_creator()
-                idempotency_check = creator.check_already_processed(
-                    payment.id,
-                    check_payment_entry=True,
-                )
-
-                # Identify payment type
+                idempotency_check = creator.check_already_processed(payment.id, check_payment_entry=True)
                 payment_type = self.dues_processor.identify_payment_type(payment)
-
-                # Extract amount using helper functions that handle SDK dict format
                 amount_value = extract_amount_value(payment.amount)
                 currency = extract_amount_currency(payment.amount)
 
-                # Check for currency mismatch (warning if not EUR)
                 currency_warning = None
-                if currency != "Unknown" and currency != "EUR":
+                if currency not in ("Unknown", "EUR"):
                     currency_warning = (
                         f"Non-EUR currency: {currency}. Exchange rate handling may be required."
                     )
@@ -401,102 +422,45 @@ class BulkPaymentChecker:
                         f"Member: {member_name}. Manual review may be needed."
                     )
 
-                # Check for matching unpaid dues invoice (for intelligent processing)
-                matching_invoice = None
-                if (
-                    payment.status == "paid"
-                    and payment_type == "dues"
-                    and not idempotency_check["already_processed"]
-                    and currency_warning is None
-                    and amount_value != "Unknown"
-                ):
-                    try:
-                        # Get payment date (prefer paid_at for accuracy)
-                        # MolliePayment has typed datetime fields - no string parsing needed
-                        invoice_check_date = payment.paid_at or payment.created_at
+                matching_invoice = self._check_for_matching_invoice(
+                    payment, member_name, idempotency_check, payment_type, currency_warning, amount_value
+                )
 
-                        payment_amount_float = extract_amount_float(payment.amount)
-                        matching_invoice = self.find_matching_unpaid_dues_invoice(
-                            member_name=member_name,
-                            payment_amount=payment_amount_float,
-                            payment_date=invoice_check_date,
-                        )
-                    except (ValueError, TypeError) as e:
-                        frappe.logger().warning(
-                            f"Could not check for matching invoice for payment {payment.id}: {e}"
-                        )
-
-                payment_info = {
-                    "id": payment.id,
-                    "status": payment.status,
-                    "amount": amount_value,
-                    "currency": currency,
-                    "amount_display": (
-                        f"{currency} {amount_value}" if amount_value != "Unknown" else "Unknown"
-                    ),
-                    "description": payment.description,
-                    "created_at": str(payment.created_at),
-                    "paid_at": str(payment.paid_at) if payment.paid_at else None,
-                    "subscription_id": payment.subscription_id,
-                    "payment_type": payment_type,
-                    "already_processed": idempotency_check["already_processed"],
-                    "payment_entry": idempotency_check.get("payment_entry"),
-                    "bank_transaction": idempotency_check.get("bank_transaction"),
-                    "currency_warning": currency_warning,  # Alert UI about currency issues
-                    "processable": (
-                        payment.status == "paid"
-                        and payment_type == "dues"
-                        and not idempotency_check["already_processed"]
-                        and currency_warning is None  # Don't auto-process non-EUR payments
-                    ),
-                    # Intelligent processing: matching invoice info
-                    "matching_invoice": matching_invoice,
-                    "processing_mode": ("bt_pe_reconcile" if matching_invoice else "bt_only")
-                    if (
-                        payment.status == "paid"
-                        and payment_type == "dues"
-                        and not idempotency_check["already_processed"]
-                    )
-                    else None,
-                }
+                payment_info = self._build_payment_info(
+                    payment,
+                    payment_type,
+                    idempotency_check,
+                    amount_value,
+                    currency,
+                    currency_warning,
+                    matching_invoice,
+                )
 
                 result["payments"].append(payment_info)
-                payments_added += 1
-
-                # Count new unprocessed payments
                 if payment_info["processable"]:
                     result["new_payments"] += 1
 
-            # Save filtering statistics to result
             result["filtered_by_date"] = filtered_by_date
             result["filtered_by_duplicate"] = filtered_by_duplicate
 
-            # Validate counter accuracy - ensure no payments are lost or double-counted
-            expected_after_filtering = result["total_found"] - (filtered_by_date + filtered_by_duplicate)
-            actual_after_filtering = len(result["payments"])
-            if expected_after_filtering != actual_after_filtering:
+            # Validate counter accuracy
+            expected = result["total_found"] - (filtered_by_date + filtered_by_duplicate)
+            actual = len(result["payments"])
+            if expected != actual:
                 frappe.logger().error(
-                    f"⚠️ COUNTER MISMATCH for customer {customer_id} (Member: {member_name}): "
-                    f"Expected {expected_after_filtering} payments after filtering "
-                    f"(found={result['total_found']}, date_filtered={filtered_by_date}, "
-                    f"dup_filtered={filtered_by_duplicate}), "
-                    f"but got {actual_after_filtering} in result. "
-                    f"This indicates a bug in filtering logic."
+                    f"COUNTER MISMATCH for customer {customer_id} (Member: {member_name}): "
+                    f"Expected {expected}, got {actual} after filtering."
                 )
 
-            # Log filtering statistics for this customer
-            if filtered_by_date > 0 or filtered_by_duplicate > 0:
-                frappe.logger().info(
-                    f"Customer {customer_id} (Member: {member_name}): "
-                    f"Found {result['total_found']} payments from Mollie API, "
-                    f"added {payments_added} after filtering "
-                    f"(filtered: {filtered_by_date} by date, {filtered_by_duplicate} duplicates)"
+            frappe.logger().info(
+                f"Customer {customer_id} (Member: {member_name}): "
+                f"Found {result['total_found']} payments, {result['new_payments']} new/unprocessed"
+                + (
+                    f" (filtered: {filtered_by_date} by date, {filtered_by_duplicate} duplicates)"
+                    if filtered_by_date or filtered_by_duplicate
+                    else ""
                 )
-            else:
-                frappe.logger().info(
-                    f"Customer {customer_id} (Member: {member_name}): "
-                    f"Found {result['total_found']} payments, {result['new_payments']} new/unprocessed"
-                )
+            )
 
         except Exception as e:
             result["error"] = str(e)
@@ -877,28 +841,157 @@ class BulkPaymentChecker:
 
         return result
 
+    @staticmethod
+    def _extract_payment_ids_from_transactions(transactions, from_date, to_date):
+        """Extract payment IDs and transaction info from balance transactions within date range.
+
+        Returns:
+            Tuple of (payment_ids_found: set, transaction_list: list of dicts)
+        """
+        payment_ids_found = set()
+        transaction_list = []
+
+        for tx in transactions:
+            context = getattr(tx, "context", {})
+            payment_id = None
+            if isinstance(context, dict):
+                payment_id = context.get("paymentId") or context.get("payment_id")
+
+            if not payment_id:
+                tx_id = getattr(tx, "id", "")
+                if tx_id.startswith("tr_"):
+                    payment_id = tx_id
+
+            tx_created = getattr(tx, "created_at", None)
+            if not tx_created:
+                continue
+
+            try:
+                if isinstance(tx_created, str):
+                    tx_date = datetime.fromisoformat(tx_created.replace("Z", "+00:00"))
+                else:
+                    tx_date = tx_created
+
+                if tx_date.tzinfo is None:
+                    tx_date = tx_date.replace(tzinfo=timezone.utc)
+
+                if from_date <= tx_date <= to_date and payment_id and payment_id.startswith("tr_"):
+                    payment_ids_found.add(payment_id)
+                    transaction_list.append(
+                        {
+                            "transaction_id": tx.id,
+                            "payment_id": payment_id,
+                            "created_at": str(tx_created),
+                            "type": getattr(tx, "type", "unknown"),
+                            "amount": str(getattr(tx, "amount", {}).get("value", "Unknown")),
+                        }
+                    )
+            except Exception as date_error:
+                frappe.logger().warning(f"Could not parse date for transaction {tx.id}: {date_error}")
+
+        return payment_ids_found, transaction_list
+
+    @staticmethod
+    def _batch_check_already_processed(payment_ids_list):
+        """Batch check payment IDs against Payment Entries and Bank Transactions.
+
+        Returns:
+            List of unprocessed payment IDs.
+        """
+        if not payment_ids_list:
+            return []
+
+        placeholders = ", ".join(["%s"] * len(payment_ids_list))
+        params = tuple(payment_ids_list)
+
+        pe_results = frappe.db.sql(
+            f"""
+            SELECT reference_no FROM `tabPayment Entry`
+            WHERE reference_no IN ({placeholders}) AND docstatus != 2
+            """,
+            params,
+            as_dict=True,
+        )
+        existing_pe = {pe["reference_no"] for pe in pe_results}
+
+        bt_results = frappe.db.sql(
+            f"""
+            SELECT reference_number FROM `tabBank Transaction`
+            WHERE reference_number IN ({placeholders}) AND docstatus != 2
+            """,
+            params,
+            as_dict=True,
+        )
+        existing_bt = {bt["reference_number"] for bt in bt_results}
+
+        frappe.logger().info(
+            f"Batch check found {len(existing_pe)} Payment Entries, {len(existing_bt)} Bank Transactions"
+        )
+
+        return [pid for pid in payment_ids_list if pid not in existing_pe and pid not in existing_bt]
+
+    @staticmethod
+    def _classify_orphaned_payment(payment, payment_id, payment_type, currency, amount):
+        """Classify an unmatched payment as an orphaned transaction.
+
+        Returns:
+            Tuple of (orphan_info dict, is_processable bool)
+        """
+        mollie_customer_id = getattr(payment, "customer_id", None)
+        is_processable = payment.status == "paid" and currency == "EUR"
+
+        if is_processable:
+            if mollie_customer_id:
+                processing_mode = "bt_only_orphaned"
+                reason = "Cannot match to any member (has Mollie customer)"
+            else:
+                processing_mode = "bt_only_anonymous"
+                reason = "Anonymous payment (no member, no Mollie customer)"
+        else:
+            processing_mode = None
+            reason = "Cannot match to any member or donor"
+
+        orphan_info = {
+            "payment_id": payment_id,
+            "status": payment.status,
+            "amount": f"{currency} {amount}",
+            "amount_value": amount,
+            "currency": currency,
+            "description": getattr(payment, "description", "No description"),
+            "customer_id": mollie_customer_id or "No customer",
+            "subscription_id": getattr(payment, "subscription_id", None),
+            "payment_type": payment_type,
+            "paid_at": str(getattr(payment, "paid_at", None)),
+            "created_at": str(getattr(payment, "created_at", None)),
+            "reason": reason,
+            "processable": is_processable,
+            "processing_mode": processing_mode,
+        }
+
+        return orphan_info, is_processable
+
     def _check_via_balance_transactions(self, days_back: int = 10, date_offset: int = 0) -> Dict[str, Any]:
         """
         Balance transaction-based payment checking (systematic approach).
 
         Retrieves balance transactions from Mollie Balance API and extracts payments.
-        This is more systematic than customer-by-customer iteration.
+        More systematic than customer-by-customer iteration.
 
         Args:
             days_back: Number of days back to check (default: 10)
             date_offset: Start lookback N days ago (e.g., 30 = check days 30-40 ago if days_back=10)
 
         Returns:
-            Dict with same structure as customer mode but different data source
+            Dict with retrieval_mode, total_payments_found, total_new_payments, etc.
         """
         result = {
             "retrieval_mode": "balance_transactions",
             "total_payments_found": 0,
             "total_new_payments": 0,
             "balance_transactions": [],
-            "orphaned_transactions": [],  # Transactions without payment IDs
+            "orphaned_transactions": [],
             "errors": 0,
-            "error_details": [],  # List of error messages with payment IDs
+            "error_details": [],
             "circuit_breaker_triggered": False,
             "started_at": frappe.utils.now(),
             "completed_at": None,
@@ -906,17 +999,12 @@ class BulkPaymentChecker:
         }
 
         try:
-            # Import balance client
             from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
 
             balance_client = BalancesClient()
 
-            # Calculate date range with offset support
-            # date_offset allows searching historical periods
-            # Example: offset=30, days_back=10 searches days 30-40 ago
             end_offset = date_offset
             start_offset = date_offset + days_back
-
             from_date = datetime.now(timezone.utc) - timedelta(days=start_offset)
             to_date = (
                 datetime.now(timezone.utc) - timedelta(days=end_offset)
@@ -929,211 +1017,64 @@ class BulkPaymentChecker:
                 f"to {to_date.strftime('%Y-%m-%d')} (offset: {date_offset} days)"
             )
 
-            # Get primary balance
             primary_balance = balance_client.get_primary_balance()
             if not primary_balance:
                 result["error"] = "No primary balance found"
                 return result
 
-            balance_id = primary_balance.id
-            frappe.logger().info(f"Using primary balance: {balance_id}")
+            frappe.logger().info(f"Using primary balance: {primary_balance.id}")
 
-            # List balance transactions for the period
-            # Note: Mollie balance API doesn't support date filtering directly
-            # We get recent transactions and filter in memory
-            transactions = balance_client.list_balance_transactions(
-                balance_id=balance_id, limit=250  # Get last 250 transactions
-            )
-
+            transactions = balance_client.list_balance_transactions(balance_id=primary_balance.id, limit=250)
             frappe.logger().info(f"Retrieved {len(transactions)} balance transactions")
 
-            # Extract payment IDs from balance transactions
-            payment_ids_found = set()
-
-            for tx in transactions:
-                # Balance transactions have context with payment references
-                context = getattr(tx, "context", {})
-
-                # Extract payment ID from context
-                payment_id = None
-                if isinstance(context, dict):
-                    payment_id = context.get("paymentId") or context.get("payment_id")
-
-                if not payment_id:
-                    # Try to get from transaction ID (some transactions have payment ID in ID)
-                    tx_id = getattr(tx, "id", "")
-                    if tx_id.startswith("tr_"):
-                        payment_id = tx_id
-
-                # Check date range
-                tx_created = getattr(tx, "created_at", None)
-                if tx_created:
-                    try:
-                        if isinstance(tx_created, str):
-                            tx_date = datetime.fromisoformat(tx_created.replace("Z", "+00:00"))
-                        else:
-                            tx_date = tx_created
-
-                        if tx_date.tzinfo is None:
-                            tx_date = tx_date.replace(tzinfo=timezone.utc)
-
-                        # Only process transactions in date range
-                        if from_date <= tx_date <= to_date:
-                            if payment_id and payment_id.startswith("tr_"):
-                                # Valid payment found - will check member matching later
-                                payment_ids_found.add(payment_id)
-
-                                result["balance_transactions"].append(
-                                    {
-                                        "transaction_id": tx.id,
-                                        "payment_id": payment_id,
-                                        "created_at": str(tx_created),
-                                        "type": getattr(tx, "type", "unknown"),
-                                        "amount": str(getattr(tx, "amount", {}).get("value", "Unknown")),
-                                    }
-                                )
-                    except Exception as date_error:
-                        frappe.logger().warning(f"Could not parse date for transaction {tx.id}: {date_error}")
-
+            payment_ids_found, transaction_list = self._extract_payment_ids_from_transactions(
+                transactions, from_date, to_date
+            )
+            result["balance_transactions"] = transaction_list
             result["total_payments_found"] = len(payment_ids_found)
             frappe.logger().info(f"Found {len(payment_ids_found)} unique payment IDs in date range")
 
-            # OPTIMIZATION: Batch check all payment IDs for existing processing (2 queries instead of N*2)
-            payment_ids_list = list(payment_ids_found)
-
-            # Batch query for Payment Entries
-            existing_payment_entries = {}
-            if payment_ids_list:
-                placeholders = ", ".join(["%s"] * len(payment_ids_list))
-                pe_results = frappe.db.sql(
-                    f"""
-                    SELECT reference_no, name, docstatus
-                    FROM `tabPayment Entry`
-                    WHERE reference_no IN ({placeholders})
-                    AND docstatus != 2
-                    """,
-                    tuple(payment_ids_list),
-                    as_dict=True,
-                )
-                existing_payment_entries = {pe["reference_no"]: pe for pe in pe_results}
-                frappe.logger().info(
-                    f"Batch check found {len(existing_payment_entries)} existing Payment Entries"
-                )
-
-            # Batch query for Bank Transactions
-            existing_bank_txs = {}
-            if payment_ids_list:
-                placeholders = ", ".join(["%s"] * len(payment_ids_list))
-                bt_results = frappe.db.sql(
-                    f"""
-                    SELECT reference_number, name, docstatus
-                    FROM `tabBank Transaction`
-                    WHERE reference_number IN ({placeholders})
-                    AND docstatus != 2
-                    """,
-                    tuple(payment_ids_list),
-                    as_dict=True,
-                )
-                existing_bank_txs = {bt["reference_number"]: bt for bt in bt_results}
-                frappe.logger().info(f"Batch check found {len(existing_bank_txs)} existing Bank Transactions")
-
-            # Filter to only unprocessed payments
-            unprocessed_payment_ids = [
-                pid
-                for pid in payment_ids_list
-                if pid not in existing_payment_entries and pid not in existing_bank_txs
-            ]
-
+            unprocessed_payment_ids = self._batch_check_already_processed(list(payment_ids_found))
             frappe.logger().info(
-                f"After batch idempotency check: {len(unprocessed_payment_ids)} unprocessed payments "
-                f"out of {len(payment_ids_list)} total"
+                f"After batch idempotency check: {len(unprocessed_payment_ids)} unprocessed "
+                f"out of {len(payment_ids_found)} total"
             )
 
-            # Now process only unprocessed payments (much fewer API calls)
             for payment_id in unprocessed_payment_ids:
                 try:
-                    # Fetch payment details from Mollie (only for unprocessed)
                     payment = self.mollie_client.sdk_client.payments.get(payment_id)
-
-                    # Identify payment type
                     payment_type = self.dues_processor.identify_payment_type(payment)
-
-                    # Try to find member/donor for this payment
                     member_name = self.dues_processor.find_member_for_payment(payment)
 
-                    # Extract currency
                     currency = payment.amount["currency"] if payment.amount else "Unknown"
                     amount = payment.amount["value"] if payment.amount else "Unknown"
 
-                    # If we can't match to a member/donor, mark as orphaned but still processable
                     if not member_name:
-                        mollie_customer_id = getattr(payment, "customer_id", None)
-                        # Orphaned payments can be processed if paid and EUR
-                        # Allow processing even without customer_id (anonymous payments)
-                        is_orphan_processable = payment.status == "paid" and currency == "EUR"
-
-                        # Determine processing mode based on available data
-                        if is_orphan_processable:
-                            if mollie_customer_id:
-                                processing_mode = "bt_only_orphaned"
-                                reason = "Cannot match to any member (has Mollie customer)"
-                            else:
-                                processing_mode = "bt_only_anonymous"
-                                reason = "Anonymous payment (no member, no Mollie customer)"
-                        else:
-                            processing_mode = None
-                            reason = "Cannot match to any member or donor"
-
-                        orphan_info = {
-                            "payment_id": payment_id,
-                            "status": payment.status,
-                            "amount": f"{currency} {amount}",
-                            "amount_value": amount,
-                            "currency": currency,
-                            "description": getattr(payment, "description", "No description"),
-                            "customer_id": mollie_customer_id or "No customer",
-                            "subscription_id": getattr(payment, "subscription_id", None),
-                            "payment_type": payment_type,
-                            "paid_at": str(getattr(payment, "paid_at", None)),
-                            "created_at": str(getattr(payment, "created_at", None)),
-                            "reason": reason,
-                            "processable": is_orphan_processable,
-                            "processing_mode": processing_mode,
-                        }
-
+                        orphan_info, is_processable = self._classify_orphaned_payment(
+                            payment, payment_id, payment_type, currency, amount
+                        )
                         result["orphaned_transactions"].append(orphan_info)
-
-                        if is_orphan_processable:
-                            result["total_new_payments"] += 1
-
-                        frappe.logger().warning(
-                            f"⚠️ Orphaned payment {payment_id}: {currency} {amount}, "
-                            f"type: {payment_type}, processable: {is_orphan_processable}"
-                        )
-                    else:
-                        # Check if processable
-                        is_processable = (
-                            payment.status == "paid" and payment_type == "dues" and currency == "EUR"
-                        )
-
                         if is_processable:
                             result["total_new_payments"] += 1
+                        frappe.logger().warning(
+                            f"Orphaned payment {payment_id}: {currency} {amount}, "
+                            f"type: {payment_type}, processable: {is_processable}"
+                        )
+                    else:
+                        if payment.status == "paid" and payment_type == "dues" and currency == "EUR":
+                            result["total_new_payments"] += 1
 
-                    # Reduced delay for balance mode (100ms instead of 600ms)
-                    # We're not hammering the primary payments API, just fetching details
                     time.sleep(0.1)
 
                 except Exception as e:
                     result["errors"] += 1
-                    error_msg = str(e)
                     result["error_details"].append(
-                        {"payment_id": payment_id, "error": error_msg, "step": "payment_detail_fetch"}
+                        {"payment_id": payment_id, "error": str(e), "step": "payment_detail_fetch"}
                     )
                     frappe.logger().warning(f"Error checking payment {payment_id}: {e}")
 
             result["completed_at"] = frappe.utils.now()
 
-            # Generate summary
             orphaned_count = len(result["orphaned_transactions"])
             processable_orphaned = sum(1 for o in result["orphaned_transactions"] if o.get("processable"))
             result["processable_orphaned_count"] = processable_orphaned
@@ -1147,10 +1088,10 @@ class BulkPaymentChecker:
 
             if orphaned_count > 0:
                 frappe.logger().warning(
-                    f"⚠️ {orphaned_count} orphaned payments found ({processable_orphaned} processable for BT-only import)"
+                    f"{orphaned_count} orphaned payments found ({processable_orphaned} processable for BT-only import)"
                 )
 
-            frappe.logger().info(f"✅ Balance transaction check complete: {result['summary']}")
+            frappe.logger().info(f"Balance transaction check complete: {result['summary']}")
 
         except Exception as e:
             result["error"] = str(e)

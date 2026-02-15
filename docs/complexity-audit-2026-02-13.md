@@ -76,7 +76,7 @@
 | `e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py` | 2171 | 52 | 1 | 0 | 1 | 6 | 43 | 1 | `import_single_mutation` |
 | `vereinigingen_payments/utils/payment_gateways.py` | 2167 | 57 | 0 | 1 | 0 | 4 | ~~34~~ 6 | 0 | `mollie_subscription_webhook` (was CC 34) |
 | `api/member_management.py` | 2066 | 31 | 0 | 0 | ~~4~~ 0 | 6 | ~~30~~ 13 | 2 | `extract_transaction_data_improved` (was CC 30) |
-| `permissions.py` | 2005 | 34 | 0 | 0 | 1 | 14 | 22 | 16 | `has_volunteer_permission` |
+| `permissions.py` | 2005 | 34 | 0 | 0 | ~~1~~ 0 | 14 | ~~22~~ 20 | 16 | `has_volunteer_permission` (was CC 22) |
 | `mijnrood_sync/services/event_application_service.py` | 1987 | 46 | 0 | 0 | 1 | 8 | 21 | 1 | `_process_member_roles` |
 | `api/membership_application.py` | 1822 | 51 | 0 | 0 | ~~4~~ 0 | 1 | ~~29~~ 13 | 8 | `submit_application` (was CC 29) |
 | `templates/pages/donate.py` | 1793 | 26 | 0 | 0 | 0 | 4 | 17 | 16 | `get_context` |
@@ -96,7 +96,7 @@
 |---:|:-----:|----------|--------|------|
 | 110 | F | `nuclear_cleanup_all_members` | Cleanup tooling, low priority | `utils/member_import_cleanup.py` |
 | 53 | F | `validate_csv_members` | Template page | `templates/pages/mollie_bulk_payment_creation.py` |
-| 50 | F | `approve_membership_application` | **Production API** | `api/membership_application_review.py` |
+| ~~50~~ 11 | ~~F~~ C | `approve_membership_application` | **Refactored** (was 50) | `api/membership_application_review.py` |
 | 49 | F | `get_smart_account_type` | eBoekhouden util | `e_boekhouden/utils/eboekhouden_smart_account_typing.py` |
 | 48 | F | `_classify_by_code_pattern` | eBoekhouden service | `e_boekhouden/services/account_classification_service.py` |
 | 48 | F | `get_or_create_item_improved` | eBoekhouden util | `e_boekhouden/utils/eboekhouden_improved_item_naming.py` |
@@ -109,13 +109,13 @@
 | ~~42~~ 14 | ~~F~~ C | `process_payment` (MolliePaymentOrchestrator) | **Refactored** (was 42) | `vereinigingen_payments/services/mollie_payment_orchestrator.py` |
 | 42 | F | `parse_and_validate_csv` | Template page | `templates/pages/mollie_subscription_recreation.py` |
 | 40 | E | `create_account` (AccountMigrationService) | eBoekhouden service | `e_boekhouden/services/account_migration_service.py` |
-| 40 | E | `check_payments_for_customer` | Payment checker | `vereinigingen_payments/mollie/services/bulk_payment_checker.py` |
+| ~~40~~ 15 | ~~E~~ C | `check_payments_for_customer` | **Refactored** (was 40) | `vereinigingen_payments/mollie/services/bulk_payment_checker.py` |
 | 39 | E | `_import_opening_balances` | **Refactored** (was 52) | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` |
 | ~~39~~ | ~~E~~ | ~~`_update_member_fields`~~ | **Deleted** (dead code) | `vereinigingen/doctype/mijnrood_csv_import/` |
 | 39 | E | `nuclear_truncate_member_tables` | Cleanup tooling | `utils/member_import_cleanup.py` |
 | 39 | E | `get_data` (new_members) | Report | `vereinigingen/report/new_members/` |
 | 39 | E | `check_transaction_status` | Balance transactions API | `vereinigingen_payments/api/balance_transaction_processing.py` |
-| 39 | E | `_check_via_balance_transactions` | Payment checker | `vereinigingen_payments/mollie/services/bulk_payment_checker.py` |
+| ~~39~~ 16 | ~~E~~ D | `_check_via_balance_transactions` | **Refactored** (was 39) | `vereinigingen_payments/mollie/services/bulk_payment_checker.py` |
 | 38 | E | `cleanup_all_test_data` | Cleanup tooling | `utils/member_import_cleanup.py` |
 | 38 | E | `robust_cleanup_all_imported_data` | Cleanup tooling | `utils/robust_cleanup_all_data.py` |
 | 38 | E | `load_payment_history_batch_optimized` | Background jobs | `utils/background_jobs.py` |
@@ -126,12 +126,12 @@
 | 36 | E | `_retrieve_global_payments_with_orphans` | Template page | `templates/pages/mollie_payment_processing.py` |
 | 36 | E | `auto_calculate_derived_colors` | Brand settings | `vereinigingen/doctype/brand_settings/` |
 | 36 | E | `cleanup_child_table_broken_links` | History util | `utils/history_manager_utils.py` |
-| 35 | E | `incremental_update_history_tables` | Member history service | `services/member/history/member_history_update_service.py` |
+| ~~35~~ 15 | ~~E~~ C | `incremental_update_history_tables` | **Refactored** (was 35) | `services/member/history/member_history_update_service.py` |
 | 35 | E | `_create_bank_transaction_for_journal_entry` | Payment processor | `e_boekhouden/utils/processors/payment_processor.py` |
 | 35 | E | `process_dues_payment` | **Payment processing** | `vereinigingen_payments/mollie/services/dues_payment_processor.py` |
 | 35 | E | `find_party_by_iban_or_name` | MT940 util | `utils/mt940_import.py` |
 | 35 | E | `get_data` (overdue, payments report) | Report | `vereinigingen_payments/report/overdue_member_payments/` |
-| 34 | E | `_update_invoice_payment_history` | Member history service | `services/member/history/member_history_update_service.py` |
+| ~~34~~ 10 | ~~E~~ B | `_update_invoice_payment_history` | **Refactored** (was 34) | `services/member/history/member_history_update_service.py` |
 | ~~34~~ 6 | ~~E~~ B | `mollie_subscription_webhook` | **Refactored** (was 34) | `vereinigingen_payments/utils/payment_gateways.py` |
 | 34 | E | `get_pending_applications` | API | `api/membership_application_review.py` |
 | 34 | E | `validate_row` (CSVDataValidator) | CSV util | `utils/csv/csv_data_validator.py` |
@@ -170,9 +170,9 @@
 
 **Status:** Decomposed `create_user_account` from CC 45 → 14 in commit `b7dd379e` (2026-02-15). Extracted 5 helpers: `_parse_name_components`, `_prepare_user_data`, `_bulk_import_flags`, `_insert_user_with_deadlock_retry`, `_handle_username_conflict`. Also fixed latent bug where deadlock retries during username conflict lost the username override. 36 existing tests pass unchanged.
 
-#### ~~4. `api/membership_application_review.py`~~ COMPLETED (extraction)
+#### ~~4. `api/membership_application_review.py`~~ COMPLETED (extraction + CC decomposition)
 
-**Status:** Debug/admin/notification endpoints extracted in `54c5ae9c` (2026-02-15). Approval orchestration unified in `ad5582ad`. 994 LOC, 10 functions remain. `approve_membership_application` still CC 50 — CC decomposition deferred (separate concern from file organization).
+**Status:** Debug/admin/notification endpoints extracted in `54c5ae9c` (2026-02-15). Approval orchestration unified in `ad5582ad`. CC decomposition of `approve_membership_application` completed (2026-02-15): CC 50 → 11 (F → C). Extracted 7 helpers: `_handle_idempotent_approval`, `_prepare_approval_fields`, `_calculate_billing_amount`, `_activate_volunteer_if_requested`, `_create_user_account_safe`, `_send_approval_email_safe`, `_build_approval_response`. All helpers are A/B-grade. Pure code moves, no logic changes.
 
 ### Tier 2 — High Priority (production code, E/D-grade, mixed concerns)
 
@@ -208,11 +208,11 @@
 
 | File | Max CC | Tests | Notes |
 |------|-------:|------:|-------|
-| `permissions.py` | 22 | 16 | 6 near-identical `has_*_permission` functions — DRY opportunity |
+| ~~`permissions.py`~~ | ~~22~~ 20 | 16 | **DONE** — D-grade `has_volunteer_permission` (CC 22→20) already refactored |
 | `services/mollie_debug_service.py` | 33 | 0 | Admin debug tooling, low production risk |
 | `mijnrood_sync/services/event_application_service.py` | 21 | 1 | Already in service layer |
-| `services/member/history/member_history_update_service.py` | 35 | ? | 2 E-grade functions, history updates |
-| `vereinigingen_payments/mollie/services/bulk_payment_checker.py` | 40 | ? | 2 E-grade payment checking functions |
+| ~~`services/member/history/member_history_update_service.py`~~ | ~~35~~ 15 | 1 | **DONE** — 3 D/E-grade functions decomposed, 7 helpers extracted |
+| ~~`vereinigingen_payments/mollie/services/bulk_payment_checker.py`~~ | ~~40~~ 16 | 0 | **DONE** — 2 E-grade functions decomposed, 7 helpers extracted |
 
 ### Tier 4 — Low Priority / Acceptable
 
@@ -257,6 +257,10 @@
 | `vereinigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | Tier 2 #6: Removed 19 dead methods (1015 LOC), eliminated E-grade `_update_member_fields` (CC 39) + 2 D-grade | `22c20825` | 2026-02-15 |
 | `api/member_management.py` | Tier 2 #8: Decomposed 3 D-grade functions (CC 30→13, CC 23→11, CC 23→7), extracted 6 helpers | — | 2026-02-15 |
 | `api/membership_application.py` | Tier 2 #9: Decomposed `submit_application` (CC 16→13) + `fix_specific_member` (CC 13→B), extracted 2 helpers | — | 2026-02-15 |
+| `api/membership_application_review.py` | Tier 1 #4 CC decomposition: `approve_membership_application` (CC 50→11), extracted 7 helpers, all A/B-grade | — | 2026-02-15 |
+| `permissions.py` | Tier 3: D-grade `has_volunteer_permission` (CC 22→20) already refactored in earlier pass | — | 2026-02-15 |
+| `services/member/history/member_history_update_service.py` | Tier 3: Decomposed 3 E-grade functions (`refresh_fee_change_history` CC 29→15, `_update_dues_payment_history` CC 23→B, `_update_invoice_payment_history` CC 34→B). Extracted 7 helpers: 3 shared (`_remove_stale_history_rows`, `_row_needs_update`, `_update_or_add_history_row`), 1 dues-specific (`_build_dues_payment_row`), 1 invoice-specific (`_process_single_invoice`), 2 fee-specific (`_process_fee_amendments`, `_process_fee_schedule`) | — | 2026-02-15 |
+| `vereinigingen_payments/mollie/services/bulk_payment_checker.py` | Tier 3: Decomposed 2 E-grade functions (`check_payments_for_customer` CC 40→15, `_check_via_balance_transactions` CC 39→16). Extracted 7 helpers: `_fetch_customer_with_rate_limit_retry`, `_check_for_matching_invoice`, `_build_payment_info`, `_filter_payment_by_date`, `_extract_payment_ids_from_transactions`, `_batch_check_already_processed`, `_classify_orphaned_payment` | — | 2026-02-15 |
 
 ---
 

@@ -448,6 +448,97 @@ class MemberHistoryUpdateService(StatelessService):
         # Feature archived - volunteer_expenses child table no longer exists
         return 0
 
+    @staticmethod
+    def _remove_stale_history_rows(member_doc, field_name, valid_names, filter_field, filter_value):
+        """Remove history rows whose reference is no longer in the valid set.
+
+        Args:
+            member_doc: Member document
+            field_name: Child table field (e.g. "payment_history")
+            valid_names: Set of currently valid reference names
+            filter_field: Row field to match against valid_names (e.g. "payment_entry")
+            filter_value: Tuple of (field, value) to narrow removal scope (e.g. ("transaction_type", "Membership Dues Payment"))
+
+        Returns:
+            int: Number of rows removed
+        """
+        rows = getattr(member_doc, field_name, None) or []
+        scope_field, scope_value = filter_value
+        rows_to_remove = [
+            idx
+            for idx, row in enumerate(rows)
+            if getattr(row, filter_field, None)
+            and getattr(row, filter_field) not in valid_names
+            and getattr(row, scope_field, None) == scope_value
+        ]
+        for idx in reversed(rows_to_remove):
+            rows.pop(idx)
+        return len(rows_to_remove)
+
+    @staticmethod
+    def _row_needs_update(existing_row, expected_row):
+        """Check if an existing history row differs from expected values."""
+        return any(
+            getattr(existing_row, field_name, None) != expected_value
+            for field_name, expected_value in expected_row.items()
+        )
+
+    def _update_or_add_history_row(self, member_doc, field_name, key, expected_row, existing_lookup):
+        """Update an existing history row or append a new one.
+
+        Args:
+            member_doc: Member document
+            field_name: Child table field name
+            key: Lookup key (e.g. payment entry name or invoice name)
+            expected_row: Dict of expected field values
+            existing_lookup: Dict mapping key -> existing row
+
+        Returns:
+            Tuple of (updated_count, added_count)
+        """
+        if key in existing_lookup:
+            existing_row = existing_lookup[key]
+            if self._row_needs_update(existing_row, expected_row):
+                for field_name_inner, expected_value in expected_row.items():
+                    setattr(existing_row, field_name_inner, expected_value)
+                return 1, 0
+            return 0, 0
+
+        try:
+            member_doc.append(field_name, expected_row)
+            return 0, 1
+        except Exception as e:
+            self.logger.error(f"Failed to append {key} for {member_doc.name}: {str(e)}")
+            return 0, 0
+
+    @staticmethod
+    def _build_dues_payment_row(payment):
+        """Build expected history row dict from an unreconciled Payment Entry."""
+        notes_parts = []
+        if payment.remarks:
+            notes_parts.append(payment.remarks)
+        if payment.reference_no:
+            notes_parts.append(f"Ref: {payment.reference_no}")
+
+        return {
+            "payment_entry": payment.name,
+            "payment_entry_doctype": "Payment Entry",
+            "transaction_type": "Membership Dues Payment",
+            "posting_date": payment.posting_date,
+            "payment_date": payment.posting_date,
+            "amount": payment.received_amount or payment.paid_amount,
+            "paid_amount": payment.received_amount or payment.paid_amount,
+            "payment_status": "Paid",
+            "payment_method": payment.mode_of_payment,
+            # NOTE: reference_name is a Dynamic Link field requiring reference_doctype.
+            # For dues payments, reference should link to Payment Entry (already in payment_entry field)
+            # or be empty. Do NOT store arbitrary strings like Mollie transaction IDs here.
+            "reference_doctype": None,
+            "reference_name": None,
+            "reconciled": 0,  # Unallocated payments are not reconciled
+            "notes": " | ".join(notes_parts) if notes_parts else "",
+        }
+
     def _update_dues_payment_history(
         self, member_doc: "Document", payment_cache: PaymentReferenceCache
     ) -> int:
@@ -466,7 +557,6 @@ class MemberHistoryUpdateService(StatelessService):
         Returns:
             int: Total number of changes (adds + updates + removals)
         """
-        removed_count = 0
         updated_count = 0
         added_count = 0
 
@@ -492,80 +582,28 @@ class MemberHistoryUpdateService(StatelessService):
         )
 
         # Use cached reconciled payment entries to filter out payments already shown via invoices
-        # This avoids redundant queries - the data was prefetched by _prefetch_payment_references()
         unreconciled_payments = [
             p for p in current_payments if p.name not in payment_cache.reconciled_payment_entries
         ]
 
-        # Build a lookup of existing payment entries in history
         existing_payments = {row.payment_entry: row for row in (member_doc.payment_history or [])}
         current_payment_names = {payment.name for payment in unreconciled_payments}
 
-        # Remove dues payment entries that no longer exist in database
-        rows_to_remove = [
-            idx
-            for idx, row in enumerate(member_doc.payment_history or [])
-            if row.payment_entry
-            and row.payment_entry not in current_payment_names
-            and row.transaction_type == "Membership Dues Payment"  # Only remove dues payments
-        ]
+        removed_count = self._remove_stale_history_rows(
+            member_doc,
+            "payment_history",
+            current_payment_names,
+            "payment_entry",
+            ("transaction_type", "Membership Dues Payment"),
+        )
 
-        # Remove in reverse order to maintain indices
-        for idx in reversed(rows_to_remove):
-            member_doc.payment_history.pop(idx)
-            removed_count += 1
-
-        # Process each unreconciled payment (reconciled ones are shown via invoice rows)
         for payment in unreconciled_payments:
-            # Build notes with reference_no if available (e.g., Mollie transaction ID)
-            notes_parts = []
-            if payment.remarks:
-                notes_parts.append(payment.remarks)
-            if payment.reference_no:
-                notes_parts.append(f"Ref: {payment.reference_no}")
-
-            expected_row = {
-                "payment_entry": payment.name,
-                "payment_entry_doctype": "Payment Entry",
-                "transaction_type": "Membership Dues Payment",
-                "posting_date": payment.posting_date,
-                "payment_date": payment.posting_date,
-                "amount": payment.received_amount or payment.paid_amount,
-                "paid_amount": payment.received_amount or payment.paid_amount,
-                "payment_status": "Paid",
-                "payment_method": payment.mode_of_payment,
-                # NOTE: reference_name is a Dynamic Link field requiring reference_doctype.
-                # For dues payments, reference should link to Payment Entry (already in payment_entry field)
-                # or be empty. Do NOT store arbitrary strings like Mollie transaction IDs here.
-                "reference_doctype": None,
-                "reference_name": None,
-                "reconciled": 0,  # Unallocated payments are not reconciled
-                "notes": " | ".join(notes_parts) if notes_parts else "",
-            }
-
-            if payment.name in existing_payments:
-                # Check if existing row needs updating
-                existing_row = existing_payments[payment.name]
-                needs_update = any(
-                    getattr(existing_row, field_name, None) != expected_value
-                    for field_name, expected_value in expected_row.items()
-                )
-
-                if needs_update:
-                    for field_name, expected_value in expected_row.items():
-                        setattr(existing_row, field_name, expected_value)
-                    updated_count += 1
-            else:
-                # Add new row
-                try:
-                    member_doc.append("payment_history", expected_row)
-                    added_count += 1
-                except Exception as e:
-                    self.logger.error(
-                        f"Failed to append dues payment {payment.name} for {member_doc.name}: {str(e)}"
-                    )
-                    # Continue processing other entries - don't break entire update
-                    continue
+            expected_row = self._build_dues_payment_row(payment)
+            u, a = self._update_or_add_history_row(
+                member_doc, "payment_history", payment.name, expected_row, existing_payments
+            )
+            updated_count += u
+            added_count += a
 
         return removed_count + updated_count + added_count
 
@@ -659,6 +697,23 @@ class MemberHistoryUpdateService(StatelessService):
             "reference_name": None,
         }
 
+    def _process_single_invoice(self, member_doc, invoice, payment_cache, existing_invoices):
+        """Process a single invoice for history update. Returns (updated, added) counts."""
+        payment_refs = payment_cache.payment_refs_by_invoice.get(invoice.name, [])
+        paid_amount = sum(float(ref.allocated_amount or 0) for ref in payment_refs)
+
+        payment_entry, payment_date, payment_method, reconciled = self._resolve_payment_entry(
+            payment_refs, payment_cache.payment_entries_data
+        )
+        payment_status = self._determine_payment_status(invoice, paid_amount)
+        expected_row = self._build_invoice_history_row(
+            invoice, payment_entry, payment_date, payment_method, paid_amount, reconciled, payment_status
+        )
+
+        return self._update_or_add_history_row(
+            member_doc, "payment_history", invoice.name, expected_row, existing_invoices
+        )
+
     def _update_invoice_payment_history(
         self, member_doc: "Document", payment_cache: PaymentReferenceCache
     ) -> int:
@@ -675,7 +730,6 @@ class MemberHistoryUpdateService(StatelessService):
         if not member_doc.customer:
             return 0
 
-        removed_count = 0
         updated_count = 0
         added_count = 0
 
@@ -701,68 +755,22 @@ class MemberHistoryUpdateService(StatelessService):
             order_by="posting_date desc",
         )
 
-        # Build a lookup of existing invoices in history
         existing_invoices = {row.invoice: row for row in (member_doc.payment_history or []) if row.invoice}
         current_invoice_names = {invoice.name for invoice in current_invoices}
 
-        # Remove invoice entries that no longer exist in database
-        rows_to_remove = [
-            idx
-            for idx, row in enumerate(member_doc.payment_history or [])
-            if row.invoice
-            and row.invoice not in current_invoice_names
-            and row.invoice_doctype == "Sales Invoice"
-        ]
+        removed_count = self._remove_stale_history_rows(
+            member_doc,
+            "payment_history",
+            current_invoice_names,
+            "invoice",
+            ("invoice_doctype", "Sales Invoice"),
+        )
 
-        for idx in reversed(rows_to_remove):
-            member_doc.payment_history.pop(idx)
-            removed_count += 1
-
-        # Use prefetched payment reference data from cache
-        payment_refs_by_invoice = payment_cache.payment_refs_by_invoice
-        payment_entries_data = payment_cache.payment_entries_data
-
-        # Process each current invoice
         for invoice in current_invoices:
             try:
-                payment_refs = payment_refs_by_invoice.get(invoice.name, [])
-                paid_amount = sum(float(ref.allocated_amount or 0) for ref in payment_refs)
-
-                payment_entry, payment_date, payment_method, reconciled = self._resolve_payment_entry(
-                    payment_refs, payment_entries_data
-                )
-                payment_status = self._determine_payment_status(invoice, paid_amount)
-                expected_row = self._build_invoice_history_row(
-                    invoice,
-                    payment_entry,
-                    payment_date,
-                    payment_method,
-                    paid_amount,
-                    reconciled,
-                    payment_status,
-                )
-
-                if invoice.name in existing_invoices:
-                    existing_row = existing_invoices[invoice.name]
-                    needs_update = any(
-                        getattr(existing_row, field_name, None) != expected_value
-                        for field_name, expected_value in expected_row.items()
-                    )
-
-                    if needs_update:
-                        for field_name, expected_value in expected_row.items():
-                            setattr(existing_row, field_name, expected_value)
-                        updated_count += 1
-                else:
-                    try:
-                        member_doc.append("payment_history", expected_row)
-                        added_count += 1
-                    except Exception as e:
-                        self.logger.error(
-                            f"Failed to append invoice {invoice.name} for {member_doc.name}: {str(e)}"
-                        )
-                        continue
-
+                u, a = self._process_single_invoice(member_doc, invoice, payment_cache, existing_invoices)
+                updated_count += u
+                added_count += a
             except Exception as e:
                 self.logger.error(f"Failed to process invoice {invoice.name} for {member_doc.name}: {str(e)}")
                 continue
@@ -859,56 +867,105 @@ class MemberHistoryUpdateService(StatelessService):
             "payment_status": "Archived",
         }
 
+    @staticmethod
+    def _process_fee_amendments(member_doc, applied_amendments, existing_entries_by_amendment):
+        """Process applied amendments, adding new fee change history entries. Returns True if changes made."""
+        changes_made = False
+        for amendment in applied_amendments:
+            if amendment.name not in existing_entries_by_amendment:
+                amendment_data = {
+                    "amendment_request": amendment.name,
+                    "dues_rate": amendment.requested_amount,
+                    "old_dues_rate": amendment.current_amount or 0,
+                    "change_type": "Fee Adjustment",
+                    "reason": (
+                        f"Amendment: {amendment.reason}"
+                        if amendment.reason
+                        else f"Amendment {amendment.name}"
+                    ),
+                    "change_date": amendment.applied_date or amendment.effective_date,
+                    "changed_by": amendment.applied_by or "Administrator",
+                }
+                member_doc.add_fee_change_to_history(amendment_data)
+                changes_made = True
+        return changes_made
+
+    @staticmethod
+    def _process_fee_schedule(member_doc, schedule, existing_entry):
+        """Process a single dues schedule for fee history. Returns True if changes made."""
+        schedule_label = f"Dues schedule: {schedule.schedule_name or schedule.name}"
+
+        if existing_entry:
+            needs_update = (
+                existing_entry.new_dues_rate != schedule.dues_rate
+                or existing_entry.billing_frequency  # ast-skip: Dues Schedule field
+                != schedule.billing_frequency
+                or existing_entry.reason != schedule_label  # ast-skip: Member Fee Change History field
+            )
+            if needs_update:
+                member_doc.update_fee_change_in_history(
+                    {
+                        "name": schedule.name,
+                        "schedule_name": schedule.schedule_name,
+                        "dues_rate": schedule.dues_rate,
+                        "billing_frequency": schedule.billing_frequency,
+                        "old_dues_rate": existing_entry.old_dues_rate,
+                        "change_type": "Fee Adjustment",
+                        "reason": schedule_label,
+                        "change_date": frappe.utils.now_datetime(),
+                        "changed_by": frappe.session.user or "Administrator",
+                    }
+                )
+                return True
+            return False
+
+        # New entry (initial schedule creation)
+        member_doc.add_fee_change_to_history(
+            {
+                "name": schedule.name,
+                "schedule_name": schedule.schedule_name,
+                "dues_rate": schedule.dues_rate,
+                "billing_frequency": schedule.billing_frequency,
+                "creation": schedule.creation,
+                "old_dues_rate": 0,
+                "change_type": "Schedule Created",
+                "reason": schedule_label,
+                "changed_by": frappe.session.user or "Administrator",
+            }
+        )
+        return True
+
     def refresh_fee_change_history(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """
         Refresh fee change history from dues schedules and amendments with integrity checking.
 
-        This method performs a complete rebuild of the member's fee_change_history child table
-        by pulling data from:
-        1. Membership Dues Schedules (for schedule creation events)
-        2. Contribution Amendment Requests (for fee adjustments)
-
-        The process includes:
-        - Cleaning broken history entries via HistoryIntegrityManager
-        - Processing applied amendments to capture fee changes
-        - Processing dues schedules for initial schedule creation
-        - Using secure_document_operation for atomic updates
+        Performs a complete rebuild of the member's fee_change_history child table from
+        Membership Dues Schedules and Contribution Amendment Requests.
 
         Args:
             member_name: Name/ID of the member document
 
         Returns:
-            OperationResult[Dict[str, Any]]: Result with metadata:
-                - history_count (int): Total history entries processed
-                - amendments_found (int): Number of amendments processed
-                - dues_schedules_found (int): Number of schedules processed
-                - removed_entries (int): Number of broken entries cleaned
-                - cleanup_details (dict): Detailed cleanup statistics
-                - method (str): Method used (atomic_with_amendments/no_changes)
-                - reload_doc (bool, optional): Whether to reload document
+            OperationResult[Dict[str, Any]]: Result with history_count, amendments_found,
+                dues_schedules_found, removed_entries, cleanup_details, method, reload_doc.
 
         Note:
-            - Never throws exceptions (returns failed OperationResult)
-            - All errors logged and returned as OperationResult.fail()
+            Never throws exceptions — all errors returned as OperationResult.fail().
         """
         try:
-            # Import dependencies
             from verenigingen.utils.member_history_integrity import cleanup_member_history
             from verenigingen.utils.secure_operations import secure_document_operation
 
-            # Get the member document - use get_doc with for_update to handle concurrency
             member_doc = frappe.get_doc("Member", member_name, for_update=True)
 
-            # STEP 1: Clean broken history entries (all types for consistency)
+            # STEP 1: Clean broken history entries
             cleanup_result = cleanup_member_history(member_doc)
-            # Extract fee-specific stats for backward compatibility
             cleanup_stats = {
                 "removed": cleanup_result["fee_history"]["removed"],
                 "reasons": {"total": cleanup_result["fee_history"]["removed"]},
                 "errors": cleanup_result["fee_history"]["errors"],
             }
 
-            # Get all dues schedules for this member
             dues_schedules = frappe.get_all(
                 "Membership Dues Schedule",
                 filters={"member": member_name},
@@ -916,7 +973,6 @@ class MemberHistoryUpdateService(StatelessService):
                 order_by="creation",
             )
 
-            # Get existing fee change history entries - track by both schedule and amendment
             existing_entries_by_schedule = {
                 row.dues_schedule: row for row in member_doc.fee_change_history or [] if row.dues_schedule
             }
@@ -926,7 +982,7 @@ class MemberHistoryUpdateService(StatelessService):
                 if row.amendment_request
             }
 
-            # STEP 2: Get all applied amendments for this member
+            # STEP 2: Process applied amendments
             applied_amendments = frappe.get_all(
                 "Contribution Amendment Request",
                 filters={"member": member_name, "status": "Applied"},
@@ -942,97 +998,30 @@ class MemberHistoryUpdateService(StatelessService):
                 order_by="effective_date, applied_date",
             )
 
-            # Track if any changes are made to avoid unnecessary saves
-            changes_made = False
+            changes_made = self._process_fee_amendments(
+                member_doc, applied_amendments, existing_entries_by_amendment
+            )
 
-            # Process amendments first to capture all changes
-            for amendment in applied_amendments:
-                amendment_name = amendment.name
-
-                # Check if we already have an entry for this amendment
-                if amendment_name not in existing_entries_by_amendment:
-                    # Add new amendment entry
-                    amendment_data = {
-                        "amendment_request": amendment_name,
-                        "dues_rate": amendment.requested_amount,
-                        "old_dues_rate": amendment.current_amount or 0,
-                        "change_type": "Fee Adjustment",
-                        "reason": (
-                            f"Amendment: {amendment.reason}"
-                            if amendment.reason
-                            else f"Amendment {amendment_name}"
-                        ),
-                        "change_date": amendment.applied_date or amendment.effective_date,
-                        "changed_by": amendment.applied_by or "Administrator",
-                    }
-                    member_doc.add_fee_change_to_history(amendment_data)
-                    changes_made = True
-
-            # STEP 3: Process schedules (for initial schedule creation only)
+            # STEP 3: Process schedules
             for schedule in dues_schedules:
-                schedule_name = schedule.name
-
-                # Check if entry already exists for this schedule
-                if schedule_name in existing_entries_by_schedule:
-                    # Update existing entry if needed
-                    existing_entry = existing_entries_by_schedule[schedule_name]
-
-                    # Check if update is needed (compare key fields)
-                    needs_update = (
-                        existing_entry.new_dues_rate != schedule.dues_rate
-                        or existing_entry.billing_frequency  # ast-skip: Dues Schedule field
-                        != schedule.billing_frequency
-                        or existing_entry.reason  # ast-skip: Member Fee Change History field
-                        != f"Dues schedule: {schedule.schedule_name or schedule.name}"
-                    )
-
-                    if needs_update:
-                        # Use atomic update method
-                        schedule_data = {
-                            "name": schedule.name,
-                            "schedule_name": schedule.schedule_name,
-                            "dues_rate": schedule.dues_rate,
-                            "billing_frequency": schedule.billing_frequency,
-                            "old_dues_rate": existing_entry.old_dues_rate,  # Preserve old rate
-                            "change_type": "Fee Adjustment",
-                            "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
-                            "change_date": frappe.utils.now_datetime(),  # Update timestamp
-                            "changed_by": frappe.session.user or "Administrator",
-                        }
-                        member_doc.update_fee_change_in_history(schedule_data)
-                        changes_made = True
-                else:
-                    # Add new entry using atomic method (initial schedule creation only)
-                    schedule_data = {
-                        "name": schedule.name,
-                        "schedule_name": schedule.schedule_name,
-                        "dues_rate": schedule.dues_rate,
-                        "billing_frequency": schedule.billing_frequency,
-                        "creation": schedule.creation,
-                        "old_dues_rate": 0,  # First schedule for this member
-                        "change_type": "Schedule Created",
-                        "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
-                        "changed_by": frappe.session.user or "Administrator",
-                    }
-                    member_doc.add_fee_change_to_history(schedule_data)
+                existing_entry = existing_entries_by_schedule.get(schedule.name)
+                if self._process_fee_schedule(member_doc, schedule, existing_entry):
                     changes_made = True
 
-            # Account for cleanup operations that may have removed entries
             if cleanup_stats["removed"] > 0:
                 changes_made = True
 
-            # Only save if changes were made
             if not changes_made:
-                result_data = {
-                    "history_count": len(member_doc.fee_change_history or []),
-                    "amendments_found": len(applied_amendments),
-                    "dues_schedules_found": len(dues_schedules),
-                    "removed_entries": 0,
-                    "cleanup_details": cleanup_stats,
-                    "method": "no_changes",
-                }
                 return OperationResult.ok(
-                    result_data, message=f"Fee change history is already up to date for {member_name}"
+                    {
+                        "history_count": len(member_doc.fee_change_history or []),
+                        "amendments_found": len(applied_amendments),
+                        "dues_schedules_found": len(dues_schedules),
+                        "removed_entries": 0,
+                        "cleanup_details": cleanup_stats,
+                        "method": "no_changes",
+                    },
+                    message=f"Fee change history is already up to date for {member_name}",
                 )
 
             # Fee history updates are administrative operations that preserve audit trail
@@ -1043,12 +1032,11 @@ class MemberHistoryUpdateService(StatelessService):
                 doc=member_doc,
                 justification=f"Update fee change history for member {member_doc.name}",
                 required_permissions=["Member:write"],
-                allow_system_user=False,  # Require explicit user permissions for financial data
-                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+                allow_system_user=False,
+                bypass_validations=["link_validation"],
             )
 
             if not fee_history_result.success:
-                # Log full traceback for debugging
                 self.logger.error(
                     f"Fee history update failed for {member_doc.name}: {'; '.join(fee_history_result.errors)}"
                 )
@@ -1058,27 +1046,28 @@ class MemberHistoryUpdateService(StatelessService):
                     )
                 )
 
-            # Commit the changes to ensure they're saved
             frappe.db.commit()
 
-            result_data = {
-                "history_count": len(applied_amendments) + len(dues_schedules),
-                "reload_doc": True,  # Signal to reload the document
-                "amendments_found": len(applied_amendments),
-                "dues_schedules_found": len(dues_schedules),
-                "removed_entries": cleanup_stats["removed"],
-                "cleanup_details": cleanup_stats,
-                "method": "atomic_with_amendments",
-            }
-
             return OperationResult.ok(
-                result_data,
-                message=f"Fee change history refreshed for {member_name} - {len(applied_amendments)} amendments + {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
+                {
+                    "history_count": len(applied_amendments) + len(dues_schedules),
+                    "reload_doc": True,
+                    "amendments_found": len(applied_amendments),
+                    "dues_schedules_found": len(dues_schedules),
+                    "removed_entries": cleanup_stats["removed"],
+                    "cleanup_details": cleanup_stats,
+                    "method": "atomic_with_amendments",
+                },
+                message=(
+                    f"Fee change history refreshed for {member_name} - "
+                    f"{len(applied_amendments)} amendments + {len(dues_schedules)} schedules processed, "
+                    f"{cleanup_stats['removed']} broken entries cleaned"
+                ),
             )
 
         except Exception as e:
             log_operation_error("HIST_006", f"member {member_name}", e)
-            error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
+            error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
             return OperationResult.fail(
                 f"Error: {error_msg}",
                 errors=[str(e)],
