@@ -37,6 +37,7 @@ Author: Verenigingen Development Team
 import random
 import time
 import traceback
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Dict
 
@@ -527,212 +528,43 @@ class AccountCreationManager:
             frappe.logger().info(
                 f"User account already exists: {self.request.email}, will proceed to role assignment and linking"
             )
-            # Exit user creation, but pipeline will continue with role assignment and linking
             return {"success": True, "user": self.created_user, "already_existed": True}
 
         try:
-            # Parse name components - handle Dutch tussenvoegsel properly
-            if self.request.request_type == "Member" and self.source_doc:
-                # For Members, use individual name fields to properly handle tussenvoegsel
-                first_name = self.source_doc.first_name or "User"
+            first_name, last_name = self._parse_name_components()
 
-                # Combine tussenvoegsel with last_name if present
-                if hasattr(self.source_doc, "tussenvoegsel") and self.source_doc.tussenvoegsel:
-                    last_name = get_full_last_name(
-                        self.source_doc.last_name or "", self.source_doc.tussenvoegsel
-                    )
-                else:
-                    last_name = self.source_doc.last_name or ""
-            else:
-                # For non-Member source docs, fall back to splitting full_name
-                name_parts = self.request.full_name.split() if self.request.full_name else ["User"]
-                first_name = name_parts[0] if name_parts else "User"
-                last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-
-            # Determine user type based on request type
-            # Members get Website User for portal access
-            # Volunteers get System User for full system access
-            user_type = "System User" if self.request.request_type == "Volunteer" else "Website User"
-
-            # Check if this is a bulk operation FIRST - we need this for multiple decisions
             is_bulk_operation = getattr(frappe.flags, "bulk_account_creation", False)
-
-            # Skip welcome emails during bulk imports
-            send_welcome = (
-                0 if (is_bulk_operation or frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
-            )
-
-            # Create user document
-            user_data = {
-                "doctype": "User",
-                "email": self.request.email,
-                "first_name": first_name,
-                "last_name": last_name,
-                "full_name": self.request.full_name,
-                "enabled": 1,
-                "user_type": user_type,
-                "send_welcome_email": send_welcome,  # Skip during bulk imports
-            }
-
-            # CRITICAL: Only set password for non-bulk operations
-            # Setting new_password triggers Frappe's email sending code, which fails during bulk imports
-            # when SMTP is not configured or frappe.flags.mute_emails isn't respected
-            # For bulk operations, users will need to use password reset when they first log in
-            if not is_bulk_operation:
-                user_data["new_password"] = frappe.generate_hash(length=20)
-
+            user_data = self._prepare_user_data(first_name, last_name, is_bulk_operation)
             user_doc = frappe.get_doc(user_data)
 
-            # Add personal email if available
-            if hasattr(self.source_doc, "personal_email") and self.source_doc.personal_email:
-                # Don't add this to user_doc as it's not a standard field
-                pass
-
-            # Insert with proper permissions - NO ignore_permissions=True
-            # For bulk operations (CSV imports), bypass rate limiting by setting in_import flag
-            # This is the intended use of frappe.flags.in_import as per Frappe core throttle_user_creation()
-
-            # Save original flag state for restoration
-            original_in_import = getattr(frappe.flags, "in_import", False)
-            original_mute_emails = getattr(frappe.flags, "mute_emails", False)
-            original_in_install = getattr(frappe.flags, "in_install", False)
-
-            try:
-                # Use Frappe's native email muting for bulk operations
-                if is_bulk_operation:
-                    frappe.flags.in_import = True
-                    frappe.flags.mute_emails = True  # Frappe-native email suppression
-                    frappe.flags.in_install = (
-                        True  # CRITICAL: Prevents User.after_insert() from queuing background jobs
-                    )
-
-                # Retry logic for deadlock errors during user creation
-                # MySQL deadlocks can occur when multiple users are created concurrently
-                # and they all try to insert default values (timezone, etc.) simultaneously
-                max_retries = 5
-                retry_delay_base = 0.1  # 100ms base delay
-
-                for attempt in range(max_retries):
-                    try:
-                        user_doc.insert()
-                        break  # Success - exit retry loop
-
-                    except (frappe.exceptions.QueryDeadlockError, frappe.db.InternalError) as deadlock_error:
-                        # Check if it's actually a deadlock (MySQL error 1213)
-                        error_str = str(deadlock_error)
-                        is_deadlock = (
-                            "1213" in error_str or "Deadlock" in error_str or "deadlock" in error_str.lower()
-                        )
-
-                        if not is_deadlock or attempt >= max_retries - 1:
-                            # Not a deadlock or exhausted retries - re-raise
-                            raise
-
-                        # Deadlock detected - retry with exponential backoff + jitter
-                        import random
-                        import time
-
-                        # Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
-                        delay = retry_delay_base * (2**attempt) + random.uniform(0, 0.05)
-
-                        frappe.logger().warning(
-                            f"Deadlock during user creation for {self.request.email}, "
-                            f"retrying in {delay:.3f}s (attempt {attempt + 1}/{max_retries})"
-                        )
-
-                        time.sleep(delay)
-
-                        # Rollback any partial transaction before retrying
-                        frappe.db.rollback()
-
-                        # Create a fresh user document for retry
-                        user_doc = frappe.get_doc(user_data)
-
-                        continue  # Retry the insert
-
-            except frappe.exceptions.UniqueValidationError as e:
-                # Handle duplicate username - Frappe auto-generates username from first name
-                error_msg = str(e)
-                if "Duplicate entry" in error_msg and "for key 'username'" in error_msg:
-                    # Username conflict - let Frappe handle this by trying with email as username
-                    frappe.logger().info(
-                        f"Username conflict for {first_name}, retrying with email as username"
-                    )
-                    user_doc.username = self.request.email.split("@")[0]  # Use email prefix
-                    try:
-                        # Email suppression already set via frappe.flags.mute_emails above
-                        # Apply same retry logic for username retry attempt
-                        for retry_attempt in range(max_retries):
-                            try:
-                                user_doc.insert()
-                                break
-                            except (
-                                frappe.exceptions.QueryDeadlockError,
-                                frappe.db.InternalError,
-                            ) as retry_deadlock:
-                                retry_error_str = str(retry_deadlock)
-                                retry_is_deadlock = (
-                                    "1213" in retry_error_str
-                                    or "Deadlock" in retry_error_str
-                                    or "deadlock" in retry_error_str.lower()
-                                )
-
-                                if not retry_is_deadlock or retry_attempt >= max_retries - 1:
-                                    raise
-
-                                import random
-                                import time
-
-                                retry_delay = retry_delay_base * (2**retry_attempt) + random.uniform(
-                                    0, 0.05
-                                )
-                                frappe.logger().warning(
-                                    f"Deadlock on username retry for {self.request.email}, "
-                                    f"retrying in {retry_delay:.3f}s (attempt {retry_attempt + 1}/{max_retries})"
-                                )
-                                time.sleep(retry_delay)
-                                frappe.db.rollback()
-                                user_doc = frappe.get_doc(user_data)
-                                user_doc.username = self.request.email.split("@")[0]
-                                continue
-                    except:
-                        # If still fails, this is a real duplicate - check if user exists
-                        if frappe.db.exists("User", self.request.email):
-                            self.created_user = self.request.email
-                            self.request.created_user = self.created_user
-                            frappe.logger().info(
-                                f"User {self.request.email} already exists, will skip creation and continue"
-                            )
+            with self._bulk_import_flags(is_bulk_operation):
+                try:
+                    user_doc = self._insert_user_with_deadlock_retry(user_doc, user_data)
+                except frappe.exceptions.UniqueValidationError as e:
+                    error_msg = str(e)
+                    if "Duplicate entry" in error_msg and "for key 'username'" in error_msg:
+                        result = self._handle_username_conflict(user_doc, user_data)
+                        if result is None:
                             return {"success": True, "user": self.created_user, "already_existed": True}
-                        else:
-                            raise
-                else:
-                    raise
-            except frappe.exceptions.OutgoingEmailError:
-                # Suppress email errors during bulk imports - missing email account is expected
-                if frappe.flags.in_import or frappe.flags.in_bulk_import:
-                    frappe.logger().debug(
-                        f"Suppressed email notification error for {self.request.email} during bulk import"
+                        user_doc = result
+                    else:
+                        raise
+                except frappe.exceptions.OutgoingEmailError:
+                    # Suppress email errors during bulk imports - missing email account is expected
+                    if frappe.flags.in_import or frappe.flags.in_bulk_import:
+                        frappe.logger().debug(
+                            f"Suppressed email notification error for {self.request.email} during bulk import"
+                        )
+                    else:
+                        raise
+                except frappe.exceptions.TimestampMismatchError as e:
+                    # Suppress timestamp mismatch errors from Contact hook during concurrent user creation
+                    # The User record is still created successfully even if Contact update fails
+                    # This race condition happens in Frappe core (contact.py line 339) during after_insert
+                    frappe.logger().warning(
+                        f"TimestampMismatchError during user creation for {self.request.email}: {str(e)}. "
+                        f"User was created successfully, Contact hook failed due to concurrent modification."
                     )
-                    # User was still created, just email failed - that's fine for bulk imports
-                    pass
-                else:
-                    raise
-            except frappe.exceptions.TimestampMismatchError as e:
-                # Suppress timestamp mismatch errors from Contact hook during concurrent user creation
-                # The User record is still created successfully even if Contact update fails
-                # This race condition happens in Frappe core (contact.py line 339) during after_insert
-                frappe.logger().warning(
-                    f"TimestampMismatchError during user creation for {self.request.email}: {str(e)}. "
-                    f"User was created successfully, Contact hook failed due to concurrent modification."
-                )
-                # User was still created despite Contact hook failure - continue normally
-                pass
-            finally:
-                # Always restore original flag state
-                frappe.flags.in_import = original_in_import
-                frappe.flags.mute_emails = original_mute_emails
-                frappe.flags.in_install = original_in_install
 
             # CRITICAL: Verify user was actually committed before marking as created
             # This prevents phantom users where created_user is set but user doesn't exist
@@ -756,7 +588,6 @@ class AccountCreationManager:
             # contacts will be retried/created eventually. We store the user for contact
             # linking in the linking phase.
 
-            # Return success result for verification in tests
             return {"success": True, "user": user_doc.name}
 
         except Exception as e:
@@ -780,7 +611,6 @@ class AccountCreationManager:
                     f"User account creation rate limited (will retry automatically): {error_msg}"
                 )
             else:
-                # Log full traceback for debugging
                 frappe.logger().error(
                     f"Failed to create user account for {self.request.email}: {error_type}: {error_msg}\n"
                     f"Full traceback:\n{full_traceback}"
@@ -793,6 +623,161 @@ class AccountCreationManager:
                     f"User account creation failed ({error_type}): {error_msg}. "
                     f"Check Error Log for full traceback."
                 )
+
+    def _parse_name_components(self):
+        """Parse name components from source document, handling Dutch tussenvoegsel.
+
+        Returns:
+            tuple: (first_name, last_name)
+        """
+        if self.request.request_type == "Member" and self.source_doc:
+            first_name = self.source_doc.first_name or "User"
+            if hasattr(self.source_doc, "tussenvoegsel") and self.source_doc.tussenvoegsel:
+                last_name = get_full_last_name(self.source_doc.last_name or "", self.source_doc.tussenvoegsel)
+            else:
+                last_name = self.source_doc.last_name or ""
+        else:
+            name_parts = self.request.full_name.split() if self.request.full_name else ["User"]
+            first_name = name_parts[0] if name_parts else "User"
+            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+        return first_name, last_name
+
+    def _prepare_user_data(self, first_name, last_name, is_bulk_operation):
+        """Build user document data dict.
+
+        Args:
+            first_name: User's first name
+            last_name: User's last name
+            is_bulk_operation: Whether this is a bulk import (suppresses emails/passwords)
+
+        Returns:
+            dict: Data dict suitable for frappe.get_doc()
+        """
+        user_type = "System User" if self.request.request_type == "Volunteer" else "Website User"
+
+        send_welcome = (
+            0 if (is_bulk_operation or frappe.flags.in_import or frappe.flags.in_bulk_import) else 1
+        )
+
+        user_data = {
+            "doctype": "User",
+            "email": self.request.email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "full_name": self.request.full_name,
+            "enabled": 1,
+            "user_type": user_type,
+            "send_welcome_email": send_welcome,
+        }
+
+        # CRITICAL: Only set password for non-bulk operations
+        # Setting new_password triggers Frappe's email sending code, which fails during bulk imports
+        # when SMTP is not configured or frappe.flags.mute_emails isn't respected
+        # For bulk operations, users will need to use password reset when they first log in
+        if not is_bulk_operation:
+            user_data["new_password"] = frappe.generate_hash(length=20)
+
+        return user_data
+
+    @contextmanager
+    def _bulk_import_flags(self, is_bulk_operation):
+        """Set and restore frappe.flags for bulk import operations.
+
+        Temporarily sets in_import, mute_emails, and in_install flags to suppress
+        email sending and background job queuing during bulk user creation.
+        """
+        original = {
+            "in_import": getattr(frappe.flags, "in_import", False),
+            "mute_emails": getattr(frappe.flags, "mute_emails", False),
+            "in_install": getattr(frappe.flags, "in_install", False),
+        }
+        try:
+            if is_bulk_operation:
+                frappe.flags.in_import = True
+                frappe.flags.mute_emails = True  # Frappe-native email suppression
+                frappe.flags.in_install = (
+                    True  # CRITICAL: Prevents User.after_insert() from queuing background jobs
+                )
+            yield
+        finally:
+            for key, val in original.items():
+                setattr(frappe.flags, key, val)
+
+    def _insert_user_with_deadlock_retry(self, user_doc, user_data, max_retries=5, retry_delay_base=0.1):
+        """Insert user document with exponential backoff retry on MySQL deadlocks.
+
+        MySQL deadlocks can occur when multiple users are created concurrently
+        and they all try to insert default values (timezone, etc.) simultaneously.
+
+        Args:
+            user_doc: The frappe User document to insert
+            user_data: The user data dict (used to recreate doc on retry)
+            max_retries: Maximum number of retry attempts (default 5)
+            retry_delay_base: Initial delay in seconds before first retry (default 0.1)
+
+        Returns:
+            The inserted user document
+        """
+        for attempt in range(max_retries):
+            try:
+                user_doc.insert()
+                return user_doc
+            except (frappe.exceptions.QueryDeadlockError, frappe.db.InternalError) as deadlock_error:
+                error_str = str(deadlock_error)
+                is_deadlock = (
+                    "1213" in error_str or "Deadlock" in error_str or "deadlock" in error_str.lower()
+                )
+
+                if not is_deadlock or attempt >= max_retries - 1:
+                    raise
+
+                # Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
+                delay = retry_delay_base * (2**attempt) + random.uniform(0, 0.05)
+                frappe.logger().warning(
+                    f"Deadlock during user creation for {self.request.email}, "
+                    f"retrying in {delay:.3f}s (attempt {attempt + 1}/{max_retries})"
+                )
+                time.sleep(delay)
+
+                # Rollback any partial transaction before retrying
+                frappe.db.rollback()
+
+                # Create a fresh user document for retry
+                user_doc = frappe.get_doc(user_data)
+        raise frappe.ValidationError(f"Deadlock retry loop exhausted for {self.request.email}")
+
+    def _handle_username_conflict(self, user_doc, user_data):
+        """Handle duplicate username by retrying with email prefix as username.
+
+        When Frappe auto-generates a username from first_name and it conflicts,
+        fall back to using the email prefix as username.
+
+        Args:
+            user_doc: The user document that failed to insert
+            user_data: The user data dict (used to recreate doc on retry)
+
+        Returns:
+            The inserted user document, or None if user already existed
+        """
+        frappe.logger().info(
+            f"Username conflict for {user_data.get('first_name')}, retrying with email as username"
+        )
+        username = self.request.email.split("@")[0]
+        user_doc.username = username
+        # Set in user_data so deadlock retries (which recreate user_doc) preserve the username
+        user_data["username"] = username
+        try:
+            return self._insert_user_with_deadlock_retry(user_doc, user_data)
+        except Exception:
+            # If still fails, check if user was created by a concurrent process
+            if frappe.db.exists("User", self.request.email):
+                self.created_user = self.request.email
+                self.request.created_user = self.created_user
+                frappe.logger().info(
+                    f"User {self.request.email} already exists, will skip creation and continue"
+                )
+                return None  # Signal: user already existed
+            raise
 
     def assign_roles_and_profile(self):
         """Assign roles and role profile with proper permission validation"""
