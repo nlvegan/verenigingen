@@ -1,6 +1,6 @@
 # Cyclomatic Complexity Audit — Python Controllers >1600 LOC
 
-**Date:** 2026-02-13 (updated 2026-02-14)
+**Date:** 2026-02-13 (updated 2026-02-15)
 **Tool:** radon 6.0.1 (`radon cc -s`)
 **Scope:** All non-test Python files >1600 LOC in `verenigingen/`
 **Files analyzed:** 18
@@ -67,7 +67,7 @@
 | File | LOC | Funcs | F | E | D | C | Max CC | Tests | Worst function |
 |------|----:|------:|--:|--:|--:|--:|-------:|------:|----------------|
 | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` | **4549** | **75** | **0** | **2** | **3** | **12** | **39** | **45** | `_import_opening_balances` |
-| `api/chapter_dashboard_api.py` | 3174 | 52 | 0 | 0 | 0 | 6 | 18 | 0 | `debug_mt940_import` |
+| `api/chapter_dashboard_api.py` | **921** | **15** | 0 | 0 | 0 | 1 | 18 | 0 | `reprocess_mt940_import` (production only; debug in `chapter_dashboard_debug.py`) |
 | `services/mollie_debug_service.py` | 3071 | 32 | 0 | 2 | 3 | 13 | 33 | 0 | `bulk_retrieve_all_member_payments` |
 | `verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | 2995 | 75 | 0 | 1 | 3 | 9 | 39 | 1 | `_update_member_fields` |
 | `setup/__init__.py` | 2903 | 69 | 0 | 0 | 0 | 3 | 17 | 0 | `update_workspace_links` |
@@ -277,28 +277,31 @@
 | `templates/pages/donate.py` | 1793 | 17 | 16 | Well-tested, reasonable CC |
 | `utils/security/api_security_framework.py` | 1736 | 19 | 0 | Infrastructure, stable |
 | `verenigingen/page/membership_analytics/membership_analytics.py` | 1733 | 12 | 0 | Mostly SQL query builders |
-| `api/chapter_dashboard_api.py` | 3174 | 18 | 0 | Max CC 18 but should split debug from production |
+| ~~`api/chapter_dashboard_api.py`~~ | ~~3174~~ **921** | 18 | 0 | **DONE** — Debug/admin functions extracted to `chapter_dashboard_debug.py` (2310 LOC) |
 
 ---
 
 ## Quick Wins (< 1 hour each)
 
-1. **Delete test functions from `api/membership_application.py`** — Remove `test_status_field_integration` (149 LOC) and `test_chapter_membership_workflow` (206 LOC). Test functions in a production file. Saves 355 LOC.
+1. ~~**Delete test functions from `api/membership_application.py`**~~ **DONE** (commit `80cfdbd6`, 2026-02-14) — Removed `test_status_field_integration` and `test_chapter_membership_workflow`. Saved 355 LOC.
 
-2. **Move debug functions from `api/member_management.py`** — Move 5 `debug_*` functions to `api/member_management_debug.py`. Pure file reorganization.
+2. ~~**Move debug functions from `api/member_management.py`**~~ **DONE** (commits `c46c096c` + `53198d51`, 2026-02-14) — Extracted 5 `debug_*` functions to `api/member_management_debug.py`.
 
-3. **Move debug functions from `api/chapter_dashboard_api.py`** — Same pattern. 3174 LOC but max CC is only 18.
+3. ~~**Move debug functions from `api/chapter_dashboard_api.py`**~~ **DONE** (2026-02-15) — Removed 37 debug/admin/setup functions (already copied to `chapter_dashboard_debug.py`). 3174 → 921 LOC, 15 production endpoints remain.
 
 ---
 
 ## Previously Completed Refactorings
 
-| Target | What was done | PR | Date |
-|--------|--------------|-----|------|
+| Target | What was done | PR/Commit | Date |
+|--------|--------------|-----------|------|
 | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` | Decomposed 7 F-grade functions, added 45 tests | [#20](https://github.com/nlvegan/verenigingen/pull/20) | 2026-02-14 |
 | `templates/pages/donation_dashboard.py` | Extracted to `services/donation/dashboard_service.py` | `2bff88b1` | 2026-02-13 |
 | `www/e_boekhouden_dashboard.py` | Extracted to `e_boekhouden/services/dashboard_service.py` | `2ed46a24` | 2026-02-13 |
 | `templates/pages/membership_application.py` | Extracted to `services/member/application/membership_application_service.py` | `2ed46a24` | 2026-02-13 |
+| `api/membership_application.py` | Quick Win #1: Removed 2 test functions (355 LOC) | `80cfdbd6` | 2026-02-14 |
+| `api/member_management.py` | Quick Win #2: Extracted debug functions to `member_management_debug.py` | `c46c096c`, `53198d51` | 2026-02-14 |
+| `api/chapter_dashboard_api.py` | Quick Win #3: Removed 37 debug/admin functions (3174→921 LOC); already in `chapter_dashboard_debug.py` | — | 2026-02-15 |
 
 ---
 
