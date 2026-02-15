@@ -118,6 +118,246 @@ def assign_member_to_chapter(member, chapter, notify=None):
         frappe.logger().warning(f"Could not assign member to chapter: {str(e)}")
 
 
+def _handle_idempotent_approval(member_name):
+    """Check if member is already approved and return existing data if so.
+
+    Returns dict with existing membership/invoice data if already approved, None otherwise.
+    """
+    member_status = frappe.db.get_value("Member", member_name, ["application_status", "status"], as_dict=True)
+    if member_status and member_status.application_status == "Approved":
+        frappe.logger().info(
+            f"Member {member_name} already approved (application_status=Approved), returning existing approval"
+        )
+        existing_membership = frappe.db.get_value(
+            "Membership", {"member": member_name, "status": "Active", "docstatus": 1}, "name"
+        )
+        existing_invoice = frappe.db.get_value(
+            "Sales Invoice",
+            {"customer": frappe.db.get_value("Member", member_name, "customer"), "docstatus": 1},
+            "name",
+            order_by="creation desc",
+        )
+        return {
+            "success": True,
+            "message": _("Member application already approved"),
+            "membership": existing_membership,
+            "invoice": existing_invoice,
+            "idempotent": True,
+        }
+    return None
+
+
+def _prepare_approval_fields(member, membership_type, notes):
+    """Build approval fields dict for create_membership_on_approval().
+
+    Includes conditional review_notes and fee_override_reason.
+    """
+    approval_fields = {
+        "application_status": "Approved",
+        "status": "Active",
+        "member_since": today(),
+        "reviewed_by": frappe.session.user,
+        "review_date": now_datetime(),
+        "selected_membership_type": membership_type,
+    }
+    if notes:
+        approval_fields["review_notes"] = notes
+
+    # If member has custom dues rate, set fee_override_reason to satisfy validation
+    if hasattr(member, "dues_rate") and member.dues_rate:
+        if not hasattr(member, "fee_override_reason") or not member.fee_override_reason:
+            approval_fields["fee_override_reason"] = "Application approval"
+
+    return approval_fields
+
+
+def _calculate_billing_amount(member, invoice, membership_type_doc):
+    """Calculate billing amount with 3-way fallback: invoice -> member rate -> membership type minimum."""
+    billing_amount = 0
+    if invoice and hasattr(invoice, "grand_total"):
+        billing_amount = invoice.grand_total
+    elif hasattr(member, "dues_rate") and member.dues_rate:
+        billing_amount = member.dues_rate
+    else:
+        billing_amount = membership_type_doc.minimum_amount
+
+    frappe.logger().info(
+        f"Billing amount for approval response: {billing_amount} "
+        f"(source: {'invoice' if invoice and hasattr(invoice, 'grand_total') else 'member_rate' if hasattr(member, 'dues_rate') and member.dues_rate else 'membership_type'})"
+    )
+    return billing_amount
+
+
+def _activate_volunteer_if_requested(member, activate_as_volunteer):
+    """Handle volunteer activation based on interest flag and activation checkbox.
+
+    4-way branch: interest+activate, interest-only, activate-only, neither.
+    Returns should_activate_volunteer flag for role profile selection.
+    """
+    should_activate_volunteer = False
+    has_volunteer_interest = (
+        hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering
+    )
+
+    if has_volunteer_interest and activate_as_volunteer:
+        # Full activation: checkbox was checked for member with volunteer interest
+        # Validate age requirement (volunteers must be 16+)
+        if member.birth_date:
+            from verenigingen.utils.validation_utilities import AgeValidator
+
+            age_result = AgeValidator.validate_age(
+                member.birth_date, context="volunteer", throw_on_error=False
+            )
+            if not age_result.get("valid"):
+                frappe.throw(
+                    _("Cannot activate as volunteer: {0}").format(
+                        age_result.get("message", "Age requirement not met")
+                    )
+                )
+
+        try:
+            activate_volunteer_record(member)
+            should_activate_volunteer = True
+            frappe.logger().info(
+                f"Activated volunteer record for {member.name} during approval (full activation)"
+            )
+        except Exception as e:
+            safe_log_error(
+                "Volunteer activation failed",
+                f"Failed to activate volunteer record for {member.name}: {str(e)}",
+            )
+            # Continue with approval - this is not critical
+    elif has_volunteer_interest:
+        # Interest-only: volunteer record exists but no full activation requested
+        frappe.logger().info(
+            f"Volunteer interest registered for {member.name} - full activation deferred (checkbox not checked)"
+        )
+    elif activate_as_volunteer:
+        # Edge case: explicit activation requested but no volunteer interest flag
+        frappe.logger().warning(
+            f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag set"
+        )
+
+    return should_activate_volunteer
+
+
+def _create_user_account_safe(member, should_activate_volunteer):
+    """Create user account with error handling. Non-critical - approval continues on failure."""
+    user_creation_result = {"success": False, "error": "Not attempted"}
+    try:
+        user_creation_result = create_secure_user_account_for_member(
+            member, activate_as_volunteer=should_activate_volunteer
+        )
+    except Exception as e:
+        safe_log_error(
+            "User account creation failed", f"User account creation failed for {member.name}: {str(e)}"
+        )
+        user_creation_result = {"success": False, "error": "Account creation failed"}
+        # Continue with approval - user accounts can be created manually later
+
+    # AccountCreationManager handles all user document management
+    # including role assignment, refreshing, and linking - no manual intervention needed
+    if user_creation_result.get("action") == "queued_secure":
+        frappe.logger().info(
+            f"User account creation queued for member {member.name} - AccountCreationManager will handle all user setup"
+        )
+    elif user_creation_result.get("success"):
+        frappe.logger().info(
+            f"User account {'linked' if user_creation_result.get('action') == 'linked_existing' else 'processed'} for member {member.name}"
+        )
+
+    return user_creation_result
+
+
+def _send_approval_email_safe(member, invoice, membership_type_doc):
+    """Send approval email with nested error handling. Fire-and-forget."""
+    try:
+        email_result = send_approval_notification(member, invoice, membership_type_doc)
+        if not email_result or not email_result.success:
+            frappe.log_error(
+                f"Approval email failed for {member.name} ({member.email}): {'; '.join(email_result.errors or []) if email_result else 'No result returned'}",
+                "Approval Email Failed",
+            )
+            frappe.msgprint(
+                _(
+                    "⚠️ Approval successful, but email notification failed. Please check error logs or send the approval email manually."
+                ),
+                title=_("Email Warning"),
+                indicator="orange",
+            )
+    except Exception as e:
+        frappe.log_error(
+            f"Exception sending approval email for {member.name} ({member.email}): {str(e)}\n{frappe.get_traceback()}",
+            "Approval Email Exception",
+        )
+        frappe.msgprint(
+            _(
+                "⚠️ Approval successful, but email notification encountered an error. Please check error logs."
+            ),
+            title=_("Email Error"),
+            indicator="orange",
+        )
+        # Continue with approval - emails can be sent manually
+
+
+def _build_approval_response(member, invoice, billing_amount, user_creation_result):
+    """Build approval response dict with 5-way user account status branching."""
+    message = _("Application approved. Invoice sent to applicant.")
+    user_account_status = "pending"
+
+    if user_creation_result.get("success"):
+        if user_creation_result.get("action") in ["created_new", "created_new_immediate"]:
+            message += _(" User account created for portal access.")
+            user_account_status = "created"
+            if user_creation_result.get("action") == "created_new_immediate":
+                # Show success message for immediate processing
+                frappe.msgprint(
+                    _("✅ User account created successfully! The member can now log in to the portal."),
+                    title=_("Account Created"),
+                    indicator="green",
+                )
+        elif user_creation_result.get("action") == "linked_existing":
+            message += _(" Linked to existing user account.")
+            user_account_status = "linked"
+        elif user_creation_result.get("action") == "queued_secure":
+            message += _(
+                " User account creation queued for secure background processing"
+                " - member will receive portal access within 2-3 minutes."
+            )
+            user_account_status = "queued"
+            # Add specific timing expectations
+            frappe.msgprint(
+                _(
+                    "User account creation is being processed securely in the background."
+                    " The member will receive login credentials via email within 2-3 minutes."
+                ),
+                title=_("Account Creation in Progress"),
+                indicator="blue",
+            )
+    else:
+        message += _(" Note: Could not create user account - member will need manual account creation.")
+        user_account_status = "failed"
+
+    return {
+        "success": True,
+        "message": message,
+        "invoice": invoice.name if invoice else None,
+        "amount": billing_amount,
+        "user_account": user_creation_result,
+        "user_account_status": user_account_status,
+        # Enhanced progress tracking for better UX
+        "progress_tracking": {
+            "account_request_id": user_creation_result.get("account_request"),
+            "estimated_completion": "2-3 minutes" if user_account_status == "queued" else None,
+            "tracking_url": (
+                f"/app/account-creation-request/{user_creation_result.get('account_request')}"
+                if user_creation_result.get("account_request")
+                else None
+            ),
+        },
+    }
+
+
 @frappe.whitelist()
 @high_security_api()  # Member application approval workflow
 def approve_membership_application(
@@ -197,31 +437,9 @@ def approve_membership_application(
     notes = sanitized["notes"]
 
     # Idempotency check - if already approved, return success
-    member_status = frappe.db.get_value("Member", member_name, ["application_status", "status"], as_dict=True)
-    if member_status and member_status.application_status == "Approved":
-        frappe.logger().info(
-            f"Member {member_name} already approved (application_status=Approved), returning existing approval"
-        )
-        # Get existing membership for response
-        existing_membership = frappe.db.get_value(
-            "Membership", {"member": member_name, "status": "Active", "docstatus": 1}, "name"
-        )
-
-        # Get most recent invoice for this member if exists
-        existing_invoice = frappe.db.get_value(
-            "Sales Invoice",
-            {"customer": frappe.db.get_value("Member", member_name, "customer"), "docstatus": 1},
-            "name",
-            order_by="creation desc",
-        )
-
-        return {
-            "success": True,
-            "message": _("Member application already approved"),
-            "membership": existing_membership,
-            "invoice": existing_invoice,
-            "idempotent": True,  # Flag to indicate this was already done
-        }
+    idempotent_result = _handle_idempotent_approval(member_name)
+    if idempotent_result:
+        return idempotent_result
 
     member = frappe.get_doc("Member", member_name)
 
@@ -234,18 +452,12 @@ def approve_membership_application(
 
     validate_chapter_permission_or_throw(member_name, "approve")
 
-    # Resolve membership type using helper function
+    # Resolve and validate membership type
     membership_type = resolve_membership_type(member, membership_type)
-
-    # Pre-check: Validate membership type has a valid dues schedule template
     validate_membership_type_for_approval(membership_type, member, is_application_approval=True)
 
-    # Note: Frappe automatically manages transactions for @frappe.whitelist() functions
-
-    # Assign member to chapter using helper function
+    # Assign member to chapter
     assign_member_to_chapter(member, chapter)
-
-    # Explicitly update chapter display after assignment to ensure it's set
     if chapter:
         member.reload()
         member.update_current_chapter_display()
@@ -255,11 +467,9 @@ def approve_membership_application(
     try:
         member.selected_membership_type = membership_type
     except AttributeError:
-        # Field might not exist in the database yet, log but continue
         frappe.logger().warning(f"Could not set selected_membership_type field on member {member.name}")
 
-    # Employee creation for volunteers is handled by AccountCreationManager
-    # This ensures proper security compliance and avoids duplicate processing
+    # Log volunteer record info for AccountCreationManager
     if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
         volunteer_record = get_volunteer_for_member(member.name)
         if volunteer_record:
@@ -267,165 +477,23 @@ def approve_membership_application(
                 f"Volunteer record {volunteer_record} exists - AccountCreationManager will handle employee creation"
             )
 
-    # Create initial IBAN history using helper function
     create_member_iban_history(member)
 
-    # Prepare approval fields to pass to create_membership_on_approval()
-    # These will be set after reload and saved in one consolidated operation
-    approval_fields = {
-        "application_status": "Approved",
-        "status": "Active",
-        "member_since": today(),
-        "reviewed_by": frappe.session.user,
-        "review_date": now_datetime(),
-        "selected_membership_type": membership_type,  # Include to prevent duplicate save
-    }
-    if notes:
-        approval_fields["review_notes"] = notes
-
-    # If member has custom dues rate, set fee_override_reason to satisfy validation
-    if hasattr(member, "dues_rate") and member.dues_rate:
-        if not hasattr(member, "fee_override_reason") or not member.fee_override_reason:
-            approval_fields["fee_override_reason"] = "Application approval"
-
-    # Create membership using member's built-in method which handles:
-    # - Context manager coordination to prevent duplicate saves
-    # - Invoice creation (sets application_invoice field)
-    # - Dues schedule creation
-    # - Approval fields setting after reload
-    # - Consolidated member save with all fields updated once
+    approval_fields = _prepare_approval_fields(member, membership_type, notes)
     membership = member.create_membership_on_approval(create_invoice=True, approval_fields=approval_fields)
 
-    # Note: Customer creation happens in member.after_insert() hook, not during approval
-
-    # Get invoice and membership type for email notification
+    # Get invoice and membership type docs for downstream steps
     invoice = None
     if hasattr(member, "application_invoice") and member.application_invoice:
         invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
-
     membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
 
-    # Calculate billing amount for response
-    # Prefer invoice amount, fallback to member rate, then membership type minimum
-    billing_amount = 0
-    if invoice and hasattr(invoice, "grand_total"):
-        billing_amount = invoice.grand_total
-    elif hasattr(member, "dues_rate") and member.dues_rate:
-        billing_amount = member.dues_rate
-    else:
-        billing_amount = membership_type_doc.minimum_amount
+    billing_amount = _calculate_billing_amount(member, invoice, membership_type_doc)
+    should_activate_volunteer = _activate_volunteer_if_requested(member, activate_as_volunteer)
+    user_creation_result = _create_user_account_safe(member, should_activate_volunteer)
+    _send_approval_email_safe(member, invoice, membership_type_doc)
 
-    frappe.logger().info(
-        f"Billing amount for approval response: {billing_amount} "
-        f"(source: {'invoice' if invoice and hasattr(invoice, 'grand_total') else 'member_rate' if hasattr(member, 'dues_rate') and member.dues_rate else 'membership_type'})"
-    )
-
-    # Activate volunteer record only when explicitly requested via checkbox
-    # The volunteer record was created during application submission if interested_in_volunteering
-    should_activate_volunteer = False
-    has_volunteer_interest = (
-        hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering
-    )
-
-    if has_volunteer_interest and activate_as_volunteer:
-        # Full activation: checkbox was checked for member with volunteer interest
-        # Validate age requirement (volunteers must be 16+)
-        if member.birth_date:
-            from verenigingen.utils.validation_utilities import AgeValidator
-
-            age_result = AgeValidator.validate_age(
-                member.birth_date, context="volunteer", throw_on_error=False
-            )
-            if not age_result.get("valid"):
-                frappe.throw(
-                    _("Cannot activate as volunteer: {0}").format(
-                        age_result.get("message", "Age requirement not met")
-                    )
-                )
-
-        try:
-            activate_volunteer_record(member)
-            should_activate_volunteer = True  # Set flag for user account creation with Volunteer role
-            frappe.logger().info(
-                f"Activated volunteer record for {member.name} during approval (full activation)"
-            )
-        except Exception as e:
-            safe_log_error(
-                "Volunteer activation failed",
-                f"Failed to activate volunteer record for {member.name}: {str(e)}",
-            )
-            # Continue with approval - this is not critical
-    elif has_volunteer_interest:
-        # Interest-only: volunteer record exists but no full activation requested
-        frappe.logger().info(
-            f"Volunteer interest registered for {member.name} - full activation deferred (checkbox not checked)"
-        )
-    elif activate_as_volunteer:
-        # Edge case: explicit activation requested but no volunteer interest flag
-        frappe.logger().warning(
-            f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag set"
-        )
-
-    # Create user account for portal access using secure AccountCreationManager
-    # Pass should_activate_volunteer to ensure correct role profile assignment
-    user_creation_result = {"success": False, "error": "Not attempted"}
-    try:
-        user_creation_result = create_secure_user_account_for_member(
-            member, activate_as_volunteer=should_activate_volunteer
-        )
-    except Exception as e:
-        safe_log_error(
-            "User account creation failed", f"User account creation failed for {member.name}: {str(e)}"
-        )
-        user_creation_result = {"success": False, "error": "Account creation failed"}
-        # Continue with approval - user accounts can be created manually later
-
-    # AccountCreationManager handles all user document management
-    # including role assignment, refreshing, and linking - no manual intervention needed
-    if user_creation_result.get("action") == "queued_secure":
-        frappe.logger().info(
-            f"User account creation queued for member {member.name} - AccountCreationManager will handle all user setup"
-        )
-    elif user_creation_result.get("success"):
-        frappe.logger().info(
-            f"User account {'linked' if user_creation_result.get('action') == 'linked_existing' else 'processed'} for member {member.name}"
-        )
-
-    # Send approval email with payment link
-    try:
-        email_result = send_approval_notification(member, invoice, membership_type_doc)
-        if not email_result or not email_result.success:
-            frappe.log_error(
-                f"Approval email failed for {member.name} ({member.email}): {'; '.join(email_result.errors or []) if email_result else 'No result returned'}",
-                "Approval Email Failed",
-            )
-            frappe.msgprint(
-                _(
-                    "⚠️ Approval successful, but email notification failed. Please check error logs or send the approval email manually."
-                ),
-                title=_("Email Warning"),
-                indicator="orange",
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Exception sending approval email for {member.name} ({member.email}): {str(e)}\n{frappe.get_traceback()}",
-            "Approval Email Exception",
-        )
-        frappe.msgprint(
-            _(
-                "⚠️ Approval successful, but email notification encountered an error. Please check error logs."
-            ),
-            title=_("Email Error"),
-            indicator="orange",
-        )
-        # Continue with approval - emails can be sent manually
-
-    # Note: finalize_member_approval() call removed - approval fields are already set
-    # and saved by member.create_membership_on_approval() in one consolidated save
-
-    # Log status change for auditing
     # Queue background job to update payment history with initial invoice
-    # This runs after a short delay to allow invoice to be fully committed
     if invoice:
         frappe.enqueue(
             "verenigingen.api.membership_application_review.update_payment_history_for_invoice",
@@ -442,61 +510,7 @@ def approve_membership_application(
         severity="info",
     )
 
-    # Note: Frappe automatically commits successful transactions
-
-    # Prepare response message with enhanced user feedback
-    message = _("Application approved. Invoice sent to applicant.")
-    user_account_status = "pending"
-
-    if user_creation_result.get("success"):
-        if user_creation_result.get("action") in ["created_new", "created_new_immediate"]:
-            message += _(" User account created for portal access.")
-            user_account_status = "created"
-            if user_creation_result.get("action") == "created_new_immediate":
-                # Show success message for immediate processing
-                frappe.msgprint(
-                    _("✅ User account created successfully! The member can now log in to the portal."),
-                    title=_("Account Created"),
-                    indicator="green",
-                )
-        elif user_creation_result.get("action") == "linked_existing":
-            message += _(" Linked to existing user account.")
-            user_account_status = "linked"
-        elif user_creation_result.get("action") == "queued_secure":
-            message += _(
-                " User account creation queued for secure background processing - member will receive portal access within 2-3 minutes."
-            )
-            user_account_status = "queued"
-            # Add specific timing expectations
-            frappe.msgprint(
-                _(
-                    "User account creation is being processed securely in the background. The member will receive login credentials via email within 2-3 minutes."
-                ),
-                title=_("Account Creation in Progress"),
-                indicator="blue",
-            )
-    else:
-        message += _(" Note: Could not create user account - member will need manual account creation.")
-        user_account_status = "failed"
-
-    return {
-        "success": True,
-        "message": message,
-        "invoice": invoice.name if invoice else None,
-        "amount": billing_amount,
-        "user_account": user_creation_result,
-        "user_account_status": user_account_status,
-        # Enhanced progress tracking for better UX
-        "progress_tracking": {
-            "account_request_id": user_creation_result.get("account_request"),
-            "estimated_completion": "2-3 minutes" if user_account_status == "queued" else None,
-            "tracking_url": (
-                f"/app/account-creation-request/{user_creation_result.get('account_request')}"
-                if user_creation_result.get("account_request")
-                else None
-            ),
-        },
-    }
+    return _build_approval_response(member, invoice, billing_amount, user_creation_result)
 
 
 @frappe.whitelist()
