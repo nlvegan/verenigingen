@@ -103,6 +103,7 @@ class AbstractPaymentProcessor(ABC):
             "paid_at": getattr(payment, "paid_at", None),  # Keep raw for dict return
             "description": extractor.extract_description(payment, fallback_description=None),
             "metadata": getattr(payment, "metadata", {}),
+            "sequence_type": getattr(payment, "sequence_type", None),
         }
 
 
@@ -419,7 +420,16 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
         Priority 5: Legacy JSON description parsing
         Priority 6: Existing donation status
         """
-        # Priority 1: Explicit metadata override (highest priority)
+        # Priority 0: Mollie sequence_type (most reliable — set by Mollie itself)
+        sequence_type = mollie_data.get("sequence_type")
+        if sequence_type in ("first", "recurring"):
+            self.logger.info(f"Mollie sequence_type={sequence_type} - marking as recurring")
+            return True
+        if sequence_type == "oneoff":
+            self.logger.info("Mollie sequence_type=oneoff - marking as one-time")
+            return False
+
+        # Priority 1: Explicit metadata override
         if "metadata" in mollie_data and mollie_data["metadata"]:
             metadata = mollie_data["metadata"]
             subscription_setup = metadata.get("subscription_setup")

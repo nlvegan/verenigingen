@@ -523,32 +523,34 @@ class WebhookService:
             "subscription_id": getattr(payment, "subscription_id", None),
             "metadata": getattr(payment, "metadata", {}),
             "details": getattr(payment, "details", {}),
+            "sequence_type": getattr(payment, "sequence_type", None),
         }
 
     def _determine_recurring_status(self, donation: Document, mollie_data: dict) -> bool:
         """
         Determine if payment should be treated as recurring based on Mollie data and donation status.
-        Complete port from original implementation (lines 441-468).
         """
+        # Check 0: Mollie sequence_type (most reliable — set by Mollie itself)
+        sequence_type = mollie_data.get("sequence_type")
+        if sequence_type in ("first", "recurring"):
+            frappe.logger().info(f"Mollie sequence_type={sequence_type} - marking as recurring")
+            return True
+        if sequence_type == "oneoff":
+            frappe.logger().info("Mollie sequence_type=oneoff - marking as one-time")
+            return False
+
         # Check 1: Has Mollie subscription ID
         has_mollie_subscription = bool(mollie_data.get("subscription_id"))
 
         # Check 2: For first payments of subscriptions, check description metadata
         donation_metadata_recurring = False
         mollie_description = mollie_data.get("description")
-        frappe.logger().info(f"🔍 Mollie description raw: {repr(mollie_description)}")
-
         if mollie_description:
             try:
                 desc_data = json.loads(mollie_description)
                 donation_metadata_recurring = desc_data.get("type") == "recurring"
-                frappe.logger().info(f"🔍 Parsed description JSON: {desc_data}")
-                frappe.logger().info(f"🔍 Type field: {desc_data.get('type')}")
-                frappe.logger().info(f"🔍 Is recurring from description: {donation_metadata_recurring}")
-            except (json.JSONDecodeError, TypeError) as e:
-                frappe.logger().info(f"⚠️ Failed to parse Mollie description JSON: {e}")
-        else:
-            frappe.logger().info("⚠️ No Mollie description found")
+            except (json.JSONDecodeError, TypeError):
+                pass
 
         # Check 3: Check if donation was already marked as recurring (for subsequent payments)
         already_recurring = donation.get("status") == "Recurring" if hasattr(donation, "status") else False
@@ -556,7 +558,8 @@ class WebhookService:
         is_recurring = has_mollie_subscription or donation_metadata_recurring or already_recurring
 
         frappe.logger().info(
-            f"🔍 Recurring detection: subscription={has_mollie_subscription}, metadata={donation_metadata_recurring}, already={already_recurring} → {is_recurring}"
+            f"Recurring detection: subscription={has_mollie_subscription}, "
+            f"metadata={donation_metadata_recurring}, already={already_recurring} -> {is_recurring}"
         )
 
         return is_recurring

@@ -161,7 +161,16 @@ def _determine_recurring_status(donation, mollie_data):
     Priority 6: Existing donation status
     """
 
-    # Priority 1: Explicit metadata override (highest priority)
+    # Priority 0: Mollie sequence_type (most reliable — set by Mollie itself)
+    sequence_type = mollie_data.get("sequence_type")
+    if sequence_type in ("first", "recurring"):
+        frappe.logger().info(f"Mollie sequence_type={sequence_type} - marking as recurring")
+        return True
+    if sequence_type == "oneoff":
+        frappe.logger().info("Mollie sequence_type=oneoff - marking as one-time")
+        return False
+
+    # Priority 1: Explicit metadata override
     if "metadata" in mollie_data and mollie_data["metadata"]:
         metadata = mollie_data["metadata"]
         subscription_setup = metadata.get("subscription_setup")
@@ -434,6 +443,7 @@ def extract_mollie_payment_data(payment):
         "paid_at": getattr(payment, "paid_at", None),
         "description": getattr(payment, "description", None),
         "metadata": getattr(payment, "metadata", {}),
+        "sequence_type": getattr(payment, "sequence_type", None),
     }
 
 
