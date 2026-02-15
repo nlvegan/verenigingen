@@ -74,7 +74,7 @@
 | `utils/member_import_cleanup.py` | 2569 | 12 | 1 | 2 | 2 | 3 | **110** | 0 | `nuclear_cleanup_all_members` |
 | `utils/account_creation_manager.py` | **2358** | **34** | **0** | **0** | **1** | **9** | **14** | 5 | `create_user_account` (was CC 45) |
 | `e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py` | 2171 | 52 | 1 | 0 | 1 | 6 | 43 | 1 | `import_single_mutation` |
-| `vereinigingen_payments/utils/payment_gateways.py` | 2167 | 57 | 0 | 1 | 0 | 4 | 34 | 0 | `mollie_subscription_webhook` |
+| `vereinigingen_payments/utils/payment_gateways.py` | 2167 | 57 | 0 | 1 | 0 | 4 | ~~34~~ 6 | 0 | `mollie_subscription_webhook` (was CC 34) |
 | `api/member_management.py` | 2066 | 31 | 0 | 0 | 4 | 6 | 30 | 2 | `extract_transaction_data_improved` |
 | `permissions.py` | 2005 | 34 | 0 | 0 | 1 | 14 | 22 | 16 | `has_volunteer_permission` |
 | `mijnrood_sync/services/event_application_service.py` | 1987 | 46 | 0 | 0 | 1 | 8 | 21 | 1 | `_process_member_roles` |
@@ -106,7 +106,7 @@
 | 44 | F | `auto_create_ledger_mapping` | eBoekhouden util | `e_boekhouden/utils/invoice_helpers.py` |
 | 43 | F | `import_single_mutation` | eBoekhouden migration | `e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py` |
 | 43 | F | `get_data` (members_without_chapter) | Report | `vereinigingen/report/members_without_chapter/` |
-| 42 | F | `process_payment` (MolliePaymentOrchestrator) | **Payment processing** | `vereinigingen_payments/services/mollie_payment_orchestrator.py` |
+| ~~42~~ 14 | ~~F~~ C | `process_payment` (MolliePaymentOrchestrator) | **Refactored** (was 42) | `vereinigingen_payments/services/mollie_payment_orchestrator.py` |
 | 42 | F | `parse_and_validate_csv` | Template page | `templates/pages/mollie_subscription_recreation.py` |
 | 40 | E | `create_account` (AccountMigrationService) | eBoekhouden service | `e_boekhouden/services/account_migration_service.py` |
 | 40 | E | `check_payments_for_customer` | Payment checker | `vereinigingen_payments/mollie/services/bulk_payment_checker.py` |
@@ -132,7 +132,7 @@
 | 35 | E | `find_party_by_iban_or_name` | MT940 util | `utils/mt940_import.py` |
 | 35 | E | `get_data` (overdue, payments report) | Report | `vereinigingen_payments/report/overdue_member_payments/` |
 | 34 | E | `_update_invoice_payment_history` | Member history service | `services/member/history/member_history_update_service.py` |
-| 34 | E | `mollie_subscription_webhook` | **Webhook handler** | `vereinigingen_payments/utils/payment_gateways.py` |
+| ~~34~~ 6 | ~~E~~ B | `mollie_subscription_webhook` | **Refactored** (was 34) | `vereinigingen_payments/utils/payment_gateways.py` |
 | 34 | E | `get_pending_applications` | API | `api/membership_application_review.py` |
 | 34 | E | `validate_row` (CSVDataValidator) | CSV util | `utils/csv/csv_data_validator.py` |
 | 33 | E | `start_full_rest_import` | **Refactored** (was 33, unchanged) | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` |
@@ -176,16 +176,9 @@
 
 ### Tier 2 — High Priority (production code, E/D-grade, mixed concerns)
 
-#### 5. `vereinigingen_payments/utils/payment_gateways.py` (2167 LOC)
+#### ~~5. `vereinigingen_payments/utils/payment_gateways.py`~~ COMPLETED
 
-| Metric | Value |
-|--------|-------|
-| E-grade functions | 1 (CC 34) |
-| Worst function | `mollie_subscription_webhook` — CC 34, 226 lines |
-| Test files | **0** — untested |
-| Classification | Webhook handler called by Mollie payment provider |
-
-**Risk:** Very high. Payment webhooks from an external provider — any regression means lost payments. Zero test coverage.
+**Status:** Decomposed `mollie_subscription_webhook` from CC 34 → 6 in commit `30386ce5` (2026-02-15). Extracted 3 helpers: `_authenticate_and_parse_subscription_payload` (C), `_find_member_for_subscription` (A), `_update_subscription_status` (A). Reuses existing `MollieWebhookParser` for event routing instead of duplicating its logic inline. Public API unchanged.
 
 #### 6. `vereinigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` (2995 LOC)
 
@@ -197,15 +190,9 @@
 
 **Risk:** Medium. Import operations are batch admin tasks.
 
-#### 7. `vereinigingen_payments/services/mollie_payment_orchestrator.py` — NEW
+#### ~~7. `vereinigingen_payments/services/mollie_payment_orchestrator.py`~~ COMPLETED
 
-| Metric | Value |
-|--------|-------|
-| F-grade functions | 1 (CC 42) |
-| Worst function | `process_payment` — CC 42 |
-| Classification | **Core payment processing** |
-
-**Risk:** Very high. This is the main Mollie payment processing orchestrator.
+**Status:** Decomposed `process_payment` from CC 42 → 14 in commit `2f33e337` (2026-02-15). Extracted 5 helpers: `_validate_payment_preconditions` (B), `_determine_final_status` (B), `_determine_failed_step` (A), `_resolve_invoice` (A), `_resolve_invoice_fresh` (A). Also fixed `test_factory.py` using wrong `custom_` prefix for Member fields. Public API unchanged.
 
 #### 8. `api/member_management.py` (2066 LOC)
 
@@ -275,6 +262,8 @@
 | `utils/create_unreconciled_payment.py` | Deleted dead code (CC 47, zero callers) | `240962e3` | 2026-02-14 |
 | `api/membership_application_review.py` | Tier 1 #4: Extracted debug/admin/notification endpoints + unified approval orchestration | `54c5ae9c`, `ad5582ad` | 2026-02-15 |
 | `utils/account_creation_manager.py` | Tier 1 #3: Decomposed `create_user_account` (CC 45→14), deduplicated deadlock retry, fixed username bug | `b7dd379e` | 2026-02-15 |
+| `vereinigingen_payments/services/mollie_payment_orchestrator.py` | Tier 2 #7: Decomposed `process_payment` (CC 42→14), extracted 5 helpers, fixed test_factory.py field names | `2f33e337` | 2026-02-15 |
+| `vereinigingen_payments/utils/payment_gateways.py` | Tier 2 #5: Decomposed `mollie_subscription_webhook` (CC 34→6), extracted 3 helpers, reused MollieWebhookParser | `30386ce5` | 2026-02-15 |
 
 ---
 

@@ -2139,7 +2139,7 @@ def fix_dashboard_simple():
     """Simple dashboard fix without deleting linked cards"""
 
     try:
-        from vereinigingen.api.chapter_dashboard_api import get_active_members_count
+        from verenigingen.api.chapter_dashboard_api import get_active_members_count
 
         # Get the dashboard
         dashboard = frappe.get_doc("Dashboard", "Chapter Board Dashboard")
@@ -2176,7 +2176,7 @@ def restore_all_member_cards():
     """Restore all the important member overview cards"""
 
     try:
-        from vereinigingen.api.chapter_dashboard_api import (
+        from verenigingen.api.chapter_dashboard_api import (
             get_active_members_count,
             get_board_members_count,
             get_new_members_count,
