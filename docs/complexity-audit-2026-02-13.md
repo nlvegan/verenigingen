@@ -69,7 +69,7 @@
 | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` | **4549** | **75** | **0** | **2** | **3** | **12** | **39** | **45** | `_import_opening_balances` |
 | `api/chapter_dashboard_api.py` | **921** | **15** | 0 | 0 | 0 | 1 | 18 | 0 | `reprocess_mt940_import` (production only; debug in `chapter_dashboard_debug.py`) |
 | `services/mollie_debug_service.py` | 3071 | 32 | 0 | 2 | 3 | 13 | 33 | 0 | `bulk_retrieve_all_member_payments` |
-| `verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | 2995 | 75 | 0 | 1 | 3 | 9 | 39 | 1 | `_update_member_fields` |
+| `verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | **1980** | **56** | 0 | 0 | **1** | **8** | **23** | 1 | ~~`_update_member_fields`~~ `_finalize_import_results` |
 | `setup/__init__.py` | 2903 | 69 | 0 | 0 | 0 | 3 | 17 | 0 | `update_workspace_links` |
 | `utils/member_import_cleanup.py` | 2569 | 12 | 1 | 2 | 2 | 3 | **110** | 0 | `nuclear_cleanup_all_members` |
 | `utils/account_creation_manager.py` | **2358** | **34** | **0** | **0** | **1** | **9** | **14** | 5 | `create_user_account` (was CC 45) |
@@ -111,7 +111,7 @@
 | 40 | E | `create_account` (AccountMigrationService) | eBoekhouden service | `e_boekhouden/services/account_migration_service.py` |
 | 40 | E | `check_payments_for_customer` | Payment checker | `vereinigingen_payments/mollie/services/bulk_payment_checker.py` |
 | 39 | E | `_import_opening_balances` | **Refactored** (was 52) | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` |
-| 39 | E | `_update_member_fields` | CSV import | `vereinigingen/doctype/mijnrood_csv_import/` |
+| ~~39~~ | ~~E~~ | ~~`_update_member_fields`~~ | **Deleted** (dead code) | `vereinigingen/doctype/mijnrood_csv_import/` |
 | 39 | E | `nuclear_truncate_member_tables` | Cleanup tooling | `utils/member_import_cleanup.py` |
 | 39 | E | `get_data` (new_members) | Report | `vereinigingen/report/new_members/` |
 | 39 | E | `check_transaction_status` | Balance transactions API | `vereinigingen_payments/api/balance_transaction_processing.py` |
@@ -180,15 +180,9 @@
 
 **Status:** Decomposed `mollie_subscription_webhook` from CC 34 → 6 in commit `30386ce5` (2026-02-15). Extracted 3 helpers: `_authenticate_and_parse_subscription_payload` (C), `_find_member_for_subscription` (A), `_update_subscription_status` (A). Reuses existing `MollieWebhookParser` for event routing instead of duplicating its logic inline. Public API unchanged.
 
-#### 6. `vereinigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` (2995 LOC)
+#### ~~6. `vereinigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` (2995 LOC)~~ COMPLETED
 
-| Metric | Value |
-|--------|-------|
-| E/D-grade functions | 4 (1E + 3D) |
-| Worst function | `_update_member_fields` — CC 39, 197 lines |
-| Test files | **1** |
-
-**Risk:** Medium. Import operations are batch admin tasks.
+**Status:** Removed 19 dead methods (~1015 LOC) in commit `22c20825` (2026-02-15). Methods were superseded by extracted services (MemberImportService, AddressImportService, MollieSyncService, MembershipImportService). 2995 → 1980 LOC. 1 E-grade (`_update_member_fields` CC 39) + 2 D-grade eliminated. Remaining: `_finalize_import_results` (CC 23, D-grade). 23 tests pass.
 
 #### ~~7. `vereinigingen_payments/services/mollie_payment_orchestrator.py`~~ COMPLETED
 
@@ -264,6 +258,7 @@
 | `utils/account_creation_manager.py` | Tier 1 #3: Decomposed `create_user_account` (CC 45→14), deduplicated deadlock retry, fixed username bug | `b7dd379e` | 2026-02-15 |
 | `vereinigingen_payments/services/mollie_payment_orchestrator.py` | Tier 2 #7: Decomposed `process_payment` (CC 42→14), extracted 5 helpers, fixed test_factory.py field names | `2f33e337` | 2026-02-15 |
 | `vereinigingen_payments/utils/payment_gateways.py` | Tier 2 #5: Decomposed `mollie_subscription_webhook` (CC 34→6), extracted 3 helpers, reused MollieWebhookParser | `30386ce5` | 2026-02-15 |
+| `vereinigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | Tier 2 #6: Removed 19 dead methods (1015 LOC), eliminated E-grade `_update_member_fields` (CC 39) + 2 D-grade | `22c20825` | 2026-02-15 |
 
 ---
 

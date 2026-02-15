@@ -373,9 +373,135 @@ class TestMemberHistoryUpdateService(EnhancedTestCase):
         self.assertIsNone(row.invoice)  # No invoice linked
 
 
+class TestInvoiceHistoryHelpers(EnhancedTestCase):
+    """Unit tests for static helpers extracted from _update_invoice_payment_history.
+
+    These are pure functions with no database dependencies — tests use
+    lightweight mock objects (frappe._dict) instead of real documents.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = MemberHistoryUpdateService()
+
+    # -- _determine_payment_status --
+
+    def test_determine_payment_status_draft(self):
+        invoice = frappe._dict(docstatus=0, status="Draft", outstanding_amount=100, grand_total=100)
+        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Draft")
+
+    def test_determine_payment_status_paid_by_status(self):
+        invoice = frappe._dict(docstatus=1, status="Paid", outstanding_amount=0, grand_total=100)
+        self.assertEqual(self.service._determine_payment_status(invoice, 100), "Paid")
+
+    def test_determine_payment_status_paid_by_outstanding(self):
+        """outstanding_amount <= 0 should return Paid even if status is not 'Paid'"""
+        invoice = frappe._dict(docstatus=1, status="Submitted", outstanding_amount=0, grand_total=100)
+        self.assertEqual(self.service._determine_payment_status(invoice, 100), "Paid")
+
+    def test_determine_payment_status_overdue(self):
+        invoice = frappe._dict(docstatus=1, status="Overdue", outstanding_amount=100, grand_total=100)
+        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Overdue")
+
+    def test_determine_payment_status_cancelled(self):
+        invoice = frappe._dict(docstatus=1, status="Cancelled", outstanding_amount=100, grand_total=100)
+        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Cancelled")
+
+    def test_determine_payment_status_partially_paid(self):
+        invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=50, grand_total=100)
+        self.assertEqual(self.service._determine_payment_status(invoice, 50), "Partially Paid")
+
+    def test_determine_payment_status_unpaid(self):
+        invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=100, grand_total=100)
+        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Unpaid")
+
+    # -- _resolve_payment_entry --
+
+    def test_resolve_payment_entry_empty_refs(self):
+        entry, date, method, reconciled = self.service._resolve_payment_entry([], {})
+        self.assertIsNone(entry)
+        self.assertEqual(reconciled, 0)
+
+    def test_resolve_payment_entry_single_ref(self):
+        refs = [frappe._dict(parent="PE-001", allocated_amount=100)]
+        entries_data = {
+            "PE-001": frappe._dict(name="PE-001", posting_date="2025-06-01", mode_of_payment="Bank Transfer"),
+        }
+        entry, date, method, reconciled = self.service._resolve_payment_entry(refs, entries_data)
+        self.assertEqual(entry, "PE-001")
+        self.assertEqual(str(date), "2025-06-01")
+        self.assertEqual(method, "Bank Transfer")
+        self.assertEqual(reconciled, 1)
+
+    def test_resolve_payment_entry_picks_most_recent(self):
+        refs = [
+            frappe._dict(parent="PE-001", allocated_amount=50),
+            frappe._dict(parent="PE-002", allocated_amount=50),
+        ]
+        entries_data = {
+            "PE-001": frappe._dict(name="PE-001", posting_date="2025-01-01", mode_of_payment="Cash"),
+            "PE-002": frappe._dict(name="PE-002", posting_date="2025-06-01", mode_of_payment="Wire"),
+        }
+        entry, date, method, reconciled = self.service._resolve_payment_entry(refs, entries_data)
+        self.assertEqual(entry, "PE-002")
+        self.assertEqual(method, "Wire")
+
+    def test_resolve_payment_entry_missing_entry_data(self):
+        """Refs pointing to entries not in prefetched data should be skipped"""
+        refs = [frappe._dict(parent="PE-GONE", allocated_amount=100)]
+        entry, date, method, reconciled = self.service._resolve_payment_entry(refs, {})
+        self.assertIsNone(entry)
+        self.assertEqual(reconciled, 0)
+
+    # -- _build_invoice_history_row --
+
+    def test_build_invoice_history_row_membership(self):
+        invoice = frappe._dict(
+            name="INV-001",
+            posting_date="2025-01-15",
+            due_date="2025-02-15",
+            grand_total=120,
+            outstanding_amount=0,
+            status="Paid",
+            custom_coverage_start_date="2025-01-01",
+            custom_coverage_end_date="2025-12-31",
+            is_membership_invoice=True,
+        )
+        row = self.service._build_invoice_history_row(
+            invoice, "PE-001", "2025-01-20", "Bank Transfer", 120, 1, "Paid"
+        )
+        self.assertEqual(row["invoice"], "INV-001")
+        self.assertEqual(row["transaction_type"], "Membership Invoice")
+        self.assertEqual(row["paid_amount"], 120)
+        self.assertEqual(row["reconciled"], 1)
+        self.assertEqual(row["coverage_start_date"], "2025-01-01")
+        self.assertIsNone(row["reference_doctype"])
+
+    def test_build_invoice_history_row_regular(self):
+        invoice = frappe._dict(
+            name="INV-002",
+            posting_date="2025-03-01",
+            due_date="2025-04-01",
+            grand_total=50,
+            outstanding_amount=50,
+            status="Unpaid",
+            custom_coverage_start_date=None,
+            custom_coverage_end_date=None,
+            is_membership_invoice=False,
+        )
+        row = self.service._build_invoice_history_row(
+            invoice, None, None, None, 0, 0, "Unpaid"
+        )
+        self.assertEqual(row["transaction_type"], "Regular Invoice")
+        self.assertIsNone(row["payment_entry"])
+        self.assertEqual(row["reconciled"], 0)
+
+
 def run_tests():
     """Helper function to run tests from console"""
     frappe.flags.in_test = True
     import unittest
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestMemberHistoryUpdateService)
+    suite = unittest.TestSuite()
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMemberHistoryUpdateService))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestInvoiceHistoryHelpers))
     unittest.TextTestRunner(verbosity=2).run(suite)

@@ -129,12 +129,9 @@ class MemberHistoryUpdateService(StatelessService):
             - All errors logged and returned as OperationResult.fail()
             - Each step has independent error handling for accurate error attribution
         """
-        # Initialize results for each step - track success/failure independently
         changes_made = False
-        cleanup_removed = 0
         has_errors = False
 
-        # Results dict with step-specific tracking
         results = {
             "volunteer_expenses": {"success": True, "count": 0, "cleaned": 0},
             "donations": {"success": True, "count": 0},
@@ -142,93 +139,27 @@ class MemberHistoryUpdateService(StatelessService):
             "invoices": {"success": True, "count": 0},
         }
 
-        # STEP 1: Clean broken volunteer expense entries (if employee linked)
-        try:
-            if hasattr(member_doc, "employee") and member_doc.employee:
-                from verenigingen.utils.member_history_integrity import HistoryIntegrityManager
+        # STEP 1: Clean broken volunteer expense entries
+        cleanup_removed, step_err = self._step_cleanup_volunteer_expenses(member_doc, results)
+        if step_err:
+            has_errors = True
+        if cleanup_removed > 0:
+            changes_made = True
 
-                manager = HistoryIntegrityManager(member_doc)
-                cleanup_stats = manager.cleanup_volunteer_expense_history()
-                cleanup_removed = cleanup_stats["removed"]
-                results["volunteer_expenses"]["cleaned"] = cleanup_removed
-
-                if cleanup_removed > 0:
-                    changes_made = True
-        except Exception as e:
-            log_operation_error("HIST_008", f"member {member_doc.name}", e)
-            results["volunteer_expenses"]["success"] = False
-            results["volunteer_expenses"]["error"] = f"Cleanup failed: {str(e)}"
-            results["volunteer_expenses"]["error_code"] = "HIST_008"
+        # STEP 2: Update donation history
+        if self._step_sync_donation_history(member_doc, results):
+            changes_made = True
+        elif results["donations"].get("error"):
             has_errors = True
 
-        # STEP 2: Update donation history if donor exists
-        try:
-            from verenigingen.utils.donor_member_reconciliation import get_donor_for_member
-
-            donor_name = get_donor_for_member(member_doc)
-            if donor_name:
-                from verenigingen.utils.donation_history_manager import sync_donor_history
-
-                original_donation_count = len(getattr(member_doc, "donation_history", []))
-                sync_donor_history(donor_name)
-                member_doc.reload()
-                donation_changes = abs(
-                    len(getattr(member_doc, "donation_history", [])) - original_donation_count
-                )
-                results["donations"]["count"] = donation_changes
-                if donation_changes > 0:
-                    changes_made = True
-        except Exception as e:
-            log_operation_error("HIST_001", f"member {member_doc.name}", e)
-            results["donations"]["success"] = False
-            results["donations"]["error"] = str(e)
-            results["donations"]["error_code"] = "HIST_001"
+        # STEPS 3-5: Prefetch and update payment histories
+        payment_changes, pay_err = self._step_prefetch_and_update_payments(member_doc, results)
+        if payment_changes:
+            changes_made = True
+        if pay_err:
             has_errors = True
 
-        # STEP 3: Prefetch payment reference data (shared between dues and invoice methods)
-        payment_cache = None
-        try:
-            payment_cache = self._prefetch_payment_references(member_doc)
-        except Exception as e:
-            log_operation_error("HIST_002", f"member {member_doc.name}", e)
-            # This affects both dues and invoices
-            results["dues_payments"]["success"] = False
-            results["dues_payments"]["error"] = f"Payment reference prefetch failed: {str(e)}"
-            results["dues_payments"]["error_code"] = "HIST_002"
-            results["invoices"]["success"] = False
-            results["invoices"]["error"] = f"Payment reference prefetch failed: {str(e)}"
-            results["invoices"]["error_code"] = "HIST_002"
-            has_errors = True
-
-        # STEP 4: Update dues payment history (from Payment Entry custom_member field)
-        if payment_cache is not None and results["dues_payments"]["success"]:
-            try:
-                dues_changes = self._update_dues_payment_history(member_doc, payment_cache)
-                results["dues_payments"]["count"] = dues_changes
-                if dues_changes > 0:
-                    changes_made = True
-            except Exception as e:
-                log_operation_error("HIST_003", f"member {member_doc.name}", e)
-                results["dues_payments"]["success"] = False
-                results["dues_payments"]["error"] = str(e)
-                results["dues_payments"]["error_code"] = "HIST_003"
-                has_errors = True
-
-        # STEP 5: Update invoice payment history (from Sales Invoices linked to member)
-        if payment_cache is not None and results["invoices"]["success"]:
-            try:
-                invoice_changes = self._update_invoice_payment_history(member_doc, payment_cache)
-                results["invoices"]["count"] = invoice_changes
-                if invoice_changes > 0:
-                    changes_made = True
-            except Exception as e:
-                log_operation_error("HIST_004", f"member {member_doc.name}", e)
-                results["invoices"]["success"] = False
-                results["invoices"]["error"] = str(e)
-                results["invoices"]["error_code"] = "HIST_004"
-                has_errors = True
-
-        # STEP 6: Update volunteer expense history if employee is linked
+        # STEP 6: Update volunteer expense history
         try:
             expense_changes = self._update_volunteer_expense_history(member_doc)
             results["volunteer_expenses"]["count"] = expense_changes
@@ -241,25 +172,137 @@ class MemberHistoryUpdateService(StatelessService):
             results["volunteer_expenses"]["error_code"] = "HIST_005"
             has_errors = True
 
-        # Only save if something actually changed and we have some successes
+        # Save if needed
         if changes_made:
-            try:
-                # Configure flags for automated history synchronization
-                member_doc.flags.ignore_version = True
-                member_doc.flags.ignore_links = True
-                member_doc.flags.ignore_comment = True
-                member_doc.save()
-            except Exception as e:
-                log_operation_error("HIST_007", f"member {member_doc.name}", e)
-                # Add save error to all results
-                for key in results:
-                    if results[key]["success"]:
-                        results[key]["success"] = False
-                        results[key]["error"] = f"Save failed: {str(e)}"
-                        results[key]["error_code"] = "HIST_007"
+            save_err = self._step_save_history_changes(member_doc, results)
+            if save_err:
                 has_errors = True
 
-        # Build summary message
+        return self._build_history_result(results, member_doc.name, cleanup_removed, has_errors)
+
+    def _step_cleanup_volunteer_expenses(self, member_doc: "Document", results: dict) -> tuple:
+        """STEP 1: Clean broken volunteer expense entries if employee is linked.
+
+        Returns:
+            Tuple of (cleanup_removed_count, had_error)
+        """
+        try:
+            if hasattr(member_doc, "employee") and member_doc.employee:
+                from verenigingen.utils.member_history_integrity import HistoryIntegrityManager
+
+                manager = HistoryIntegrityManager(member_doc)
+                cleanup_stats = manager.cleanup_volunteer_expense_history()
+                removed = cleanup_stats["removed"]
+                results["volunteer_expenses"]["cleaned"] = removed
+                return removed, False
+        except Exception as e:
+            log_operation_error("HIST_008", f"member {member_doc.name}", e)
+            results["volunteer_expenses"]["success"] = False
+            results["volunteer_expenses"]["error"] = f"Cleanup failed: {str(e)}"
+            results["volunteer_expenses"]["error_code"] = "HIST_008"
+            return 0, True
+        return 0, False
+
+    def _step_sync_donation_history(self, member_doc: "Document", results: dict) -> bool:
+        """STEP 2: Update donation history if donor exists.
+
+        Returns:
+            True if changes were made
+        """
+        try:
+            from verenigingen.utils.donor_member_reconciliation import get_donor_for_member
+
+            donor_name = get_donor_for_member(member_doc)
+            if donor_name:
+                from verenigingen.utils.donation_history_manager import sync_donor_history
+
+                original_count = len(getattr(member_doc, "donation_history", []))
+                sync_donor_history(donor_name)
+                member_doc.reload()
+                changes = abs(len(getattr(member_doc, "donation_history", [])) - original_count)
+                results["donations"]["count"] = changes
+                return changes > 0
+        except Exception as e:
+            log_operation_error("HIST_001", f"member {member_doc.name}", e)
+            results["donations"]["success"] = False
+            results["donations"]["error"] = str(e)
+            results["donations"]["error_code"] = "HIST_001"
+        return False
+
+    def _step_prefetch_and_update_payments(self, member_doc: "Document", results: dict) -> tuple:
+        """STEPS 3-5: Prefetch payment references, update dues and invoice histories.
+
+        Returns:
+            Tuple of (had_changes, had_errors)
+        """
+        changes_made = False
+        has_errors = False
+
+        # STEP 3: Prefetch payment reference data
+        payment_cache = None
+        try:
+            payment_cache = self._prefetch_payment_references(member_doc)
+        except Exception as e:
+            log_operation_error("HIST_002", f"member {member_doc.name}", e)
+            err_msg = f"Payment reference prefetch failed: {str(e)}"
+            for key in ("dues_payments", "invoices"):
+                results[key]["success"] = False
+                results[key]["error"] = err_msg
+                results[key]["error_code"] = "HIST_002"
+            return False, True
+
+        # STEP 4: Update dues payment history
+        if results["dues_payments"]["success"]:
+            try:
+                dues_changes = self._update_dues_payment_history(member_doc, payment_cache)
+                results["dues_payments"]["count"] = dues_changes
+                if dues_changes > 0:
+                    changes_made = True
+            except Exception as e:
+                log_operation_error("HIST_003", f"member {member_doc.name}", e)
+                results["dues_payments"]["success"] = False
+                results["dues_payments"]["error"] = str(e)
+                results["dues_payments"]["error_code"] = "HIST_003"
+                has_errors = True
+
+        # STEP 5: Update invoice payment history
+        if results["invoices"]["success"]:
+            try:
+                invoice_changes = self._update_invoice_payment_history(member_doc, payment_cache)
+                results["invoices"]["count"] = invoice_changes
+                if invoice_changes > 0:
+                    changes_made = True
+            except Exception as e:
+                log_operation_error("HIST_004", f"member {member_doc.name}", e)
+                results["invoices"]["success"] = False
+                results["invoices"]["error"] = str(e)
+                results["invoices"]["error_code"] = "HIST_004"
+                has_errors = True
+
+        return changes_made, has_errors
+
+    def _step_save_history_changes(self, member_doc: "Document", results: dict) -> bool:
+        """Save member doc with history flags. Returns True if save failed."""
+        try:
+            member_doc.flags.ignore_version = True
+            member_doc.flags.ignore_links = True
+            member_doc.flags.ignore_comment = True
+            member_doc.save()
+            return False
+        except Exception as e:
+            log_operation_error("HIST_007", f"member {member_doc.name}", e)
+            for key in results:
+                if results[key]["success"]:
+                    results[key]["success"] = False
+                    results[key]["error"] = f"Save failed: {str(e)}"
+                    results[key]["error_code"] = "HIST_007"
+            return True
+
+    @staticmethod
+    def _build_history_result(
+        results: dict, member_name: str, cleanup_removed: int, has_errors: bool
+    ) -> OperationResult:
+        """Build the final OperationResult from step results."""
         message_parts = []
         if results["donations"]["count"] > 0:
             message_parts.append(f"{results['donations']['count']} donation changes")
@@ -275,7 +318,6 @@ class MemberHistoryUpdateService(StatelessService):
         summary = ", ".join(message_parts) if message_parts else "No changes"
 
         if has_errors:
-            # Collect error messages and codes
             error_messages = []
             error_codes = []
             for key, value in results.items():
@@ -284,15 +326,13 @@ class MemberHistoryUpdateService(StatelessService):
                     if "error_code" in value:
                         error_codes.append(value["error_code"])
 
-            # Use first error code as primary (most relevant)
             primary_error_code = error_codes[0] if error_codes else None
-
             return OperationResult.fail(
                 f"Partial update completed with errors: {summary}",
                 errors=error_messages,
                 error_code=primary_error_code,
                 **results,
-                member=member_doc.name,
+                member=member_name,
             )
 
         return OperationResult.ok(
@@ -529,6 +569,96 @@ class MemberHistoryUpdateService(StatelessService):
 
         return removed_count + updated_count + added_count
 
+    @staticmethod
+    def _determine_payment_status(invoice, paid_amount: float) -> str:
+        """Determine payment status string from invoice data and paid amount.
+
+        Args:
+            invoice: Invoice dict with docstatus, status, outstanding_amount, grand_total
+            paid_amount: Total amount paid against this invoice
+
+        Returns:
+            Payment status string: Draft, Paid, Overdue, Cancelled, Partially Paid, or Unpaid
+        """
+        if invoice.docstatus == 0:
+            return "Draft"
+        if invoice.status == "Paid" or invoice.outstanding_amount <= 0:
+            return "Paid"
+        if invoice.status == "Overdue":
+            return "Overdue"
+        if invoice.status == "Cancelled":
+            return "Cancelled"
+        if paid_amount > 0 and paid_amount < invoice.grand_total:
+            return "Partially Paid"
+        return "Unpaid"
+
+    @staticmethod
+    def _resolve_payment_entry(payment_refs, payment_entries_data):
+        """Resolve the most recent payment entry from prefetched reference data.
+
+        Args:
+            payment_refs: List of payment reference dicts for an invoice
+            payment_entries_data: Dict mapping payment entry name → payment entry data
+
+        Returns:
+            Tuple of (payment_entry_name, payment_date, payment_method, reconciled)
+        """
+        if not payment_refs:
+            return None, None, None, 0
+
+        parent_names = [ref.parent for ref in payment_refs]
+        valid_payments = [payment_entries_data[name] for name in parent_names if name in payment_entries_data]
+
+        if not valid_payments:
+            return None, None, None, 0
+
+        most_recent = max(valid_payments, key=lambda p: p.posting_date)
+        return (
+            most_recent.name,
+            most_recent.posting_date,  # ast-skip: Payment Entry field
+            most_recent.mode_of_payment,  # ast-skip: Payment Entry field
+            1,
+        )
+
+    @staticmethod
+    def _build_invoice_history_row(
+        invoice, payment_entry, payment_date, payment_method, paid_amount, reconciled, payment_status
+    ):
+        """Build a payment history row dict from invoice and payment data.
+
+        Args:
+            invoice: Invoice dict with all required fields
+            payment_entry: Payment entry name or None
+            payment_date: Payment date or None
+            payment_method: Payment method string or None
+            paid_amount: Total paid amount
+            reconciled: 1 if reconciled, 0 otherwise
+            payment_status: Status string from _determine_payment_status
+
+        Returns:
+            Dict suitable for appending to member_doc.payment_history
+        """
+        return {
+            "invoice": invoice.name,
+            "invoice_doctype": "Sales Invoice",
+            "posting_date": invoice.posting_date,
+            "due_date": invoice.due_date,
+            "amount": invoice.grand_total,
+            "outstanding_amount": invoice.outstanding_amount,
+            "payment_status": payment_status,
+            "status": invoice.status,
+            "payment_date": payment_date,
+            "payment_entry": payment_entry,
+            "payment_method": payment_method,
+            "paid_amount": paid_amount,
+            "reconciled": reconciled,
+            "coverage_start_date": invoice.custom_coverage_start_date,
+            "coverage_end_date": invoice.custom_coverage_end_date,
+            "transaction_type": "Membership Invoice" if invoice.is_membership_invoice else "Regular Invoice",
+            "reference_doctype": None,
+            "reference_name": None,
+        }
+
     def _update_invoice_payment_history(
         self, member_doc: "Document", payment_cache: PaymentReferenceCache
     ) -> int:
@@ -550,7 +680,6 @@ class MemberHistoryUpdateService(StatelessService):
         added_count = 0
 
         # Get ALL Sales Invoices for this member's customer - full rebuild
-        # ✅ OPTIMIZATION: Fetch all fields needed by PaymentHistoryEntryBuilder to avoid N+1
         current_invoices = frappe.get_all(
             "Sales Invoice",
             filters={
@@ -564,7 +693,7 @@ class MemberHistoryUpdateService(StatelessService):
                 "grand_total",
                 "outstanding_amount",
                 "status",
-                "docstatus",  # ✅ Added for payment status determination
+                "docstatus",
                 "custom_coverage_start_date",
                 "custom_coverage_end_date",
                 "is_membership_invoice",
@@ -582,88 +711,38 @@ class MemberHistoryUpdateService(StatelessService):
             for idx, row in enumerate(member_doc.payment_history or [])
             if row.invoice
             and row.invoice not in current_invoice_names
-            and row.invoice_doctype == "Sales Invoice"  # Only remove sales invoices
+            and row.invoice_doctype == "Sales Invoice"
         ]
 
-        # Remove in reverse order to maintain indices
         for idx in reversed(rows_to_remove):
             member_doc.payment_history.pop(idx)
             removed_count += 1
 
-        # ✅ OPTIMIZATION: Use prefetched payment reference data from cache
-        # This data was fetched once by _prefetch_payment_references() and shared
-        # with _update_dues_payment_history() to avoid redundant queries
+        # Use prefetched payment reference data from cache
         payment_refs_by_invoice = payment_cache.payment_refs_by_invoice
         payment_entries_data = payment_cache.payment_entries_data
 
         # Process each current invoice
         for invoice in current_invoices:
             try:
-                # ✅ OPTIMIZATION: Build entry from prefetched data instead of get_doc()
-                # Calculate payment information from prefetched data
                 payment_refs = payment_refs_by_invoice.get(invoice.name, [])
                 paid_amount = sum(float(ref.allocated_amount or 0) for ref in payment_refs)
 
-                payment_entry = None
-                payment_date = None
-                payment_method = None
-                reconciled = 0
-
-                if payment_refs:
-                    # Find most recent payment entry from prefetched data
-                    parent_names = [ref.parent for ref in payment_refs]
-                    valid_payments = [
-                        payment_entries_data[name] for name in parent_names if name in payment_entries_data
-                    ]
-
-                    if valid_payments:
-                        # Sort by posting date (most recent first)
-                        most_recent = max(valid_payments, key=lambda p: p.posting_date)
-                        payment_entry = most_recent.name
-                        payment_date = most_recent.posting_date  # ast-skip: Payment Entry field
-                        payment_method = most_recent.mode_of_payment  # ast-skip: Payment Entry field
-                        reconciled = 1
-
-                # Determine payment status from invoice data
-                if invoice.docstatus == 0:
-                    payment_status = "Draft"
-                elif invoice.status == "Paid" or invoice.outstanding_amount <= 0:
-                    payment_status = "Paid"
-                elif invoice.status == "Overdue":
-                    payment_status = "Overdue"
-                elif invoice.status == "Cancelled":
-                    payment_status = "Cancelled"
-                elif paid_amount > 0 and paid_amount < invoice.grand_total:
-                    payment_status = "Partially Paid"
-                else:
-                    payment_status = "Unpaid"
-
-                # Build the expected row directly from invoice dict data
-                expected_row = {
-                    "invoice": invoice.name,
-                    "invoice_doctype": "Sales Invoice",
-                    "posting_date": invoice.posting_date,
-                    "due_date": invoice.due_date,
-                    "amount": invoice.grand_total,
-                    "outstanding_amount": invoice.outstanding_amount,
-                    "payment_status": payment_status,
-                    "status": invoice.status,
-                    "payment_date": payment_date,
-                    "payment_entry": payment_entry,
-                    "payment_method": payment_method,
-                    "paid_amount": paid_amount,
-                    "reconciled": reconciled,
-                    "coverage_start_date": invoice.custom_coverage_start_date,
-                    "coverage_end_date": invoice.custom_coverage_end_date,
-                    "transaction_type": "Membership Invoice"
-                    if invoice.is_membership_invoice
-                    else "Regular Invoice",
-                    "reference_doctype": None,
-                    "reference_name": None,
-                }
+                payment_entry, payment_date, payment_method, reconciled = self._resolve_payment_entry(
+                    payment_refs, payment_entries_data
+                )
+                payment_status = self._determine_payment_status(invoice, paid_amount)
+                expected_row = self._build_invoice_history_row(
+                    invoice,
+                    payment_entry,
+                    payment_date,
+                    payment_method,
+                    paid_amount,
+                    reconciled,
+                    payment_status,
+                )
 
                 if invoice.name in existing_invoices:
-                    # Check if existing row needs updating
                     existing_row = existing_invoices[invoice.name]
                     needs_update = any(
                         getattr(existing_row, field_name, None) != expected_value
@@ -675,7 +754,6 @@ class MemberHistoryUpdateService(StatelessService):
                             setattr(existing_row, field_name, expected_value)
                         updated_count += 1
                 else:
-                    # Add new row
                     try:
                         member_doc.append("payment_history", expected_row)
                         added_count += 1
@@ -683,12 +761,10 @@ class MemberHistoryUpdateService(StatelessService):
                         self.logger.error(
                             f"Failed to append invoice {invoice.name} for {member_doc.name}: {str(e)}"
                         )
-                        # Continue processing other entries - don't break entire update
                         continue
 
             except Exception as e:
                 self.logger.error(f"Failed to process invoice {invoice.name} for {member_doc.name}: {str(e)}")
-                # Continue processing other entries
                 continue
 
         return removed_count + updated_count + added_count
