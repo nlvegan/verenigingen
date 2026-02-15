@@ -558,27 +558,7 @@ def submit_application(**kwargs) -> OperationResult[Dict[str, Any]]:
 
         # Create pending Chapter Member record after member is committed
         if suggested_chapter:
-            try:
-                chapter_member = create_pending_chapter_membership(member, suggested_chapter)
-                if chapter_member:
-                    frappe.logger().info(
-                        f"Created pending chapter membership for {member.name} in {suggested_chapter}"
-                    )
-                else:
-                    frappe.logger().warning(
-                        f"Failed to create pending chapter membership for {member.name} in {suggested_chapter}"
-                    )
-            except Exception as e:
-                # Log error with shorter message to avoid title length issues
-                try:
-                    frappe.log_error(
-                        f"Chapter membership creation failed for {member.name}: {str(e)[:200]}",
-                        "Chapter Setup Error",
-                    )
-                except Exception:
-                    # Fallback: just log to system log if error log creation fails
-                    frappe.logger().error(f"Chapter membership creation failed for {member.name}")
-                # Don't fail the application submission if chapter membership creation fails
+            _create_pending_chapter_membership_safe(member, suggested_chapter)
 
         # Notifications are now handled via Frappe's native Notification system:
         # - "New Membership Application Submitted" notifies administrators
@@ -766,6 +746,31 @@ def _save_suggested_chapter(member, suggested_chapter, application_id):
             else:
                 member.current_chapter_display = suggested_chapter
             member.save()
+
+
+def _create_pending_chapter_membership_safe(member, suggested_chapter):
+    """Create pending Chapter Member record after member commit.
+
+    Fire-and-forget: logs errors but never fails the application submission.
+    """
+    try:
+        chapter_member = create_pending_chapter_membership(member, suggested_chapter)
+        if chapter_member:
+            frappe.logger().info(
+                f"Created pending chapter membership for {member.name} in {suggested_chapter}"
+            )
+        else:
+            frappe.logger().warning(
+                f"Failed to create pending chapter membership for {member.name} in {suggested_chapter}"
+            )
+    except Exception as e:
+        try:
+            frappe.log_error(
+                f"Chapter membership creation failed for {member.name}: {str(e)[:200]}",
+                "Chapter Setup Error",
+            )
+        except Exception:
+            frappe.logger().error(f"Chapter membership creation failed for {member.name}")
 
 
 @frappe.whitelist()
@@ -1134,6 +1139,27 @@ def debug_member_issue(member_name="Assoc-Member-2025-06-0091") -> OperationResu
         )
 
 
+def _determine_chapter_for_member(member):
+    """Determine chapter name from member fields or postal code lookup.
+
+    Tries current_chapter_display first, falls back to postal code/city/state lookup.
+    Returns chapter name string or None.
+    """
+    if hasattr(member, "current_chapter_display") and member.current_chapter_display:
+        return member.current_chapter_display
+
+    try:
+        return determine_chapter_from_application(
+            {
+                "postal_code": getattr(member, "pincode", ""),
+                "city": getattr(member, "city", ""),
+                "state": getattr(member, "state", ""),
+            }
+        )
+    except Exception:
+        return None
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def fix_specific_member(member_name, chapter_name=None, dry_run=True) -> OperationResult[Dict[str, Any]]:
@@ -1177,22 +1203,7 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True) -> Operati
 
         # Determine chapter if not provided
         if not chapter_name:
-            # Note: suggested_chapter field was planned but never implemented
-            # Use current_chapter_display which shows current chapter membership
-            if hasattr(member, "current_chapter_display") and member.current_chapter_display:
-                chapter_name = member.current_chapter_display
-            else:
-                # Try postal code lookup
-                try:
-                    chapter_name = determine_chapter_from_application(
-                        {
-                            "postal_code": getattr(member, "pincode", ""),
-                            "city": getattr(member, "city", ""),
-                            "state": getattr(member, "state", ""),
-                        }
-                    )
-                except Exception:
-                    pass
+            chapter_name = _determine_chapter_for_member(member)
 
         if not chapter_name:
             return OperationResult.fail(

@@ -78,7 +78,7 @@
 | `api/member_management.py` | 2066 | 31 | 0 | 0 | ~~4~~ 0 | 6 | ~~30~~ 13 | 2 | `extract_transaction_data_improved` (was CC 30) |
 | `permissions.py` | 2005 | 34 | 0 | 0 | 1 | 14 | 22 | 16 | `has_volunteer_permission` |
 | `mijnrood_sync/services/event_application_service.py` | 1987 | 46 | 0 | 0 | 1 | 8 | 21 | 1 | `_process_member_roles` |
-| `api/membership_application.py` | 1822 | 51 | 0 | 0 | 4 | 1 | 29 | 8 | `submit_application` |
+| `api/membership_application.py` | 1822 | 51 | 0 | 0 | ~~4~~ 0 | 1 | ~~29~~ 13 | 8 | `submit_application` (was CC 29) |
 | `templates/pages/donate.py` | 1793 | 26 | 0 | 0 | 0 | 4 | 17 | 16 | `get_context` |
 | `vereinigingen_payments/mollie/services/webhook_wrapper_service_unified.py` | 1754 | 22 | 0 | 0 | 1 | 8 | 26 | 0 | `_process_pending_refunds` |
 | `utils/security/api_security_framework.py` | 1736 | 49 | 0 | 0 | 0 | 5 | 19 | 0 | `analyze_api_security_status` |
@@ -200,15 +200,9 @@
 
 **Status:** Decomposed 3 D-grade functions (2026-02-15). Extracted 6 helpers: `_parse_mt940_amount` (B/8), `_build_transaction_description` (B/10), `_sanitize_member_filters` (B/7), `_enrich_members_with_chapters` (B/7), `_resolve_mt940_bank_account` (B/9), `_process_mt940_statements` (B/10). Results: `extract_transaction_data_improved` CC 30→13, `get_members_with_chapter_info` CC 23→11, `import_mt940_improved` CC 23→7. No D-grade functions remain. Public API unchanged.
 
-#### 9. `api/membership_application.py` (1822 LOC)
+#### ~~9. `api/membership_application.py`~~ COMPLETED
 
-| Metric | Value |
-|--------|-------|
-| D-grade functions | 4 |
-| Worst function | `submit_application` — CC 29, 291 lines |
-| Test files | **8** — extensively tested |
-
-**Key issue: test functions in production file.** `test_status_field_integration` (CC 29) and `test_chapter_membership_workflow` (CC 25) don't belong here.
+**Status:** Decomposed remaining D/C-grade functions (2026-02-15). Quick Win #1 (commit `80cfdbd6`) already removed 2 test functions (CC 29, 25). This pass extracted `_create_pending_chapter_membership_safe` from `submit_application` (CC 16→13) and `_determine_chapter_for_member` from `fix_specific_member` (CC 13→B). No D-grade functions remain. Only `_match_chapter_region_heuristic` (CC 12, 21 lines) left as C-grade — too small to decompose.
 
 ### Tier 3 — Moderate Priority
 
@@ -262,6 +256,7 @@
 | `vereinigingen_payments/utils/payment_gateways.py` | Tier 2 #5: Decomposed `mollie_subscription_webhook` (CC 34→6), extracted 3 helpers, reused MollieWebhookParser | `30386ce5` | 2026-02-15 |
 | `vereinigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | Tier 2 #6: Removed 19 dead methods (1015 LOC), eliminated E-grade `_update_member_fields` (CC 39) + 2 D-grade | `22c20825` | 2026-02-15 |
 | `api/member_management.py` | Tier 2 #8: Decomposed 3 D-grade functions (CC 30→13, CC 23→11, CC 23→7), extracted 6 helpers | — | 2026-02-15 |
+| `api/membership_application.py` | Tier 2 #9: Decomposed `submit_application` (CC 16→13) + `fix_specific_member` (CC 13→B), extracted 2 helpers | — | 2026-02-15 |
 
 ---
 
