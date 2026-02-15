@@ -74,6 +74,7 @@ from verenigingen.events.chapter_events import (
     emit_chapter_settings_changed,
 )
 from verenigingen.utils.error_handling import handle_api_error, log_error
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -432,7 +433,7 @@ class Chapter(Document):
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
-    def bulk_add_members(self, member_data_list):
+    def bulk_add_members(self, member_data_list: str):
         """Bulk add members - delegates to MemberManager"""
         return self.member_manager.bulk_add_members(member_data_list)
 
@@ -769,7 +770,7 @@ def get_list_context(context):
     # Get current user's member chapters
     context.user_chapters = []
     if frappe.session.user != "Guest":
-        member = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
+        member = get_current_user_member_name()
         if member:
             context.user_chapters = frappe.get_all(
                 "Chapter Member", filters={"member": member, "enabled": 1}, pluck="parent"
@@ -847,7 +848,7 @@ def get_user_accessible_chapters_optimized(user):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def leave(title, member_id, leave_reason):
+def leave(title: str, member_id: str, leave_reason: str):
     """Leave a chapter"""
     try:
         if not title or not member_id:
@@ -865,7 +866,7 @@ def leave(title, member_id, leave_reason):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_board_memberships(member_name):
+def get_board_memberships(member_name: str):
     """Get board memberships for a member.
 
     Permission check extracted to ChapterPermissionService.can_user_view_member_board_info()
@@ -901,7 +902,7 @@ def get_board_memberships(member_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def remove_from_board(chapter_name, member_name, end_date=None):
+def remove_from_board(chapter_name: str, member_name: str, end_date: str = None):
     """Remove a member from the board"""
     try:
         if not chapter_name or not member_name:
@@ -919,7 +920,7 @@ def remove_from_board(chapter_name, member_name, end_date=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_chapter_board_history(chapter_name):
+def get_chapter_board_history(chapter_name: str):
     """Get complete board history for a chapter.
 
     Permission check extracted to ChapterPermissionService.can_user_view_chapter_board_history()
@@ -946,7 +947,7 @@ def get_chapter_board_history(chapter_name):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_chapter_stats(chapter_name):
+def get_chapter_stats(chapter_name: str):
     """Get statistics for a chapter"""
     try:
         if not chapter_name:
@@ -964,7 +965,7 @@ def get_chapter_stats(chapter_name):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.PUBLIC)
-def get_chapters_by_postal_code(postal_code):
+def get_chapters_by_postal_code(postal_code: str):
     """Get chapters that match a postal code.
 
     EXTRACTED: Moved to ChapterMatchingService.get_chapters_by_postal_code()
@@ -979,7 +980,7 @@ def get_chapters_by_postal_code(postal_code):
 
 @frappe.whitelist(allow_guest=True)
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def suggest_chapters_for_member(member, postal_code=None, state=None, city=None):
+def suggest_chapters_for_member(member: str, postal_code: str = None, state: str = None, city: str = None):
     """Suggest appropriate chapters for a member based on location data.
 
     EXTRACTED: Moved to ChapterMatchingService.suggest_chapters_for_member()
@@ -994,7 +995,9 @@ def suggest_chapters_for_member(member, postal_code=None, state=None, city=None)
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def suggest_chapter_for_member(member_name, postal_code=None, state=None, city=None):
+def suggest_chapter_for_member(
+    member_name: str, postal_code: str = None, state: str = None, city: str = None
+):
     """Legacy function - calls the new suggest_chapters_for_member"""
     return suggest_chapters_for_member(member_name, postal_code, state, city)
 
@@ -1014,7 +1017,7 @@ def is_chapter_management_enabled():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def assign_member_to_chapter(member, chapter, note=None):
+def assign_member_to_chapter(member: str, chapter: str, note: str = None):
     """Assign a member to a chapter.
 
     EXTRACTED: Moved to ChapterAssignmentService.assign_member()
@@ -1029,7 +1032,7 @@ def assign_member_to_chapter(member, chapter, note=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def join_chapter(member_name, chapter_name, introduction=None, website_url=None):
+def join_chapter(member_name: str, chapter_name: str, introduction: str = None, website_url: str = None):
     """Web method for a member to join a chapter via portal"""
     # Use centralized chapter membership manager for consistency
     from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
@@ -1047,7 +1050,7 @@ def join_chapter(member_name, chapter_name, introduction=None, website_url=None)
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def leave_chapter(member_name, chapter_name, leave_reason=None):
+def leave_chapter(member_name: str, chapter_name: str, leave_reason: str = None):
     """Web method for a member to leave a chapter via portal"""
     # Use centralized chapter membership manager for consistency
     from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
@@ -1067,7 +1070,7 @@ def leave_chapter(member_name, chapter_name, leave_reason=None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
+def assign_member_to_chapter_with_cleanup(member: str, chapter: str, note: str = None):
     """Assign a member to a chapter with automatic cleanup of existing memberships.
 
     EXTRACTED: Moved to ChapterAssignmentService.assign_with_cleanup()
@@ -1082,7 +1085,7 @@ def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_board_role_profile_preview(chapter_name):
+def get_board_role_profile_preview(chapter_name: str):
     """Get preview of which role profiles would be assigned to chapter board members.
 
     CONSOLIDATED: Already uses centralized chapter_role_profile_manager (utils/).
@@ -1144,7 +1147,7 @@ def get_board_role_profile_preview(chapter_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def bulk_apply_chapter_board_role_profiles(chapter_name):
+def bulk_apply_chapter_board_role_profiles(chapter_name: str):
     """Apply role profiles to all current chapter board members.
 
     CONSOLIDATED: Already uses centralized chapter_role_profile_manager (utils/).
