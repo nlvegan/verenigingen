@@ -72,7 +72,7 @@
 | `verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | 2995 | 75 | 0 | 1 | 3 | 9 | 39 | 1 | `_update_member_fields` |
 | `setup/__init__.py` | 2903 | 69 | 0 | 0 | 0 | 3 | 17 | 0 | `update_workspace_links` |
 | `utils/member_import_cleanup.py` | 2569 | 12 | 1 | 2 | 2 | 3 | **110** | 0 | `nuclear_cleanup_all_members` |
-| `utils/account_creation_manager.py` | 2370 | 29 | 1 | 0 | 1 | 8 | 45 | 5 | `create_user_account` |
+| `utils/account_creation_manager.py` | **2358** | **34** | **0** | **0** | **1** | **9** | **14** | 5 | `create_user_account` (was CC 45) |
 | `e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py` | 2171 | 52 | 1 | 0 | 1 | 6 | 43 | 1 | `import_single_mutation` |
 | `vereinigingen_payments/utils/payment_gateways.py` | 2167 | 57 | 0 | 1 | 0 | 4 | 34 | 0 | `mollie_subscription_webhook` |
 | `api/member_management.py` | 2066 | 31 | 0 | 0 | 4 | 6 | 30 | 2 | `extract_transaction_data_improved` |
@@ -102,7 +102,7 @@
 | 48 | F | `get_or_create_item_improved` | eBoekhouden util | `e_boekhouden/utils/eboekhouden_improved_item_naming.py` |
 | ~~47~~ 9 | ~~F~~ A | `_process_payment_mutation_internal` | **Refactored** (was 47) | `e_boekhouden/utils/payment_processing/payment_entry_handler.py` |
 | ~~47~~ | ~~F~~ | ~~`create_unreconciled_payment_entry`~~ | **Deleted** (zero callers) | ~~`utils/create_unreconciled_payment.py`~~ |
-| 45 | F | `create_user_account` | **Production** | `utils/account_creation_manager.py` |
+| ~~45~~ 14 | ~~F~~ C | `create_user_account` | **Refactored** (was 45) | `utils/account_creation_manager.py` |
 | 44 | F | `auto_create_ledger_mapping` | eBoekhouden util | `e_boekhouden/utils/invoice_helpers.py` |
 | 43 | F | `import_single_mutation` | eBoekhouden migration | `e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.py` |
 | 43 | F | `get_data` (members_without_chapter) | Report | `vereinigingen/report/members_without_chapter/` |
@@ -166,21 +166,9 @@
 
 **Status:** Refactored in commit `d6bc0f2b` (2026-02-14). `_process_payment_mutation_internal` decomposed from CC 47 → 9. Also `create_unreconciled_payment.py` (CC 47, zero callers) deleted in `240962e3`. F-grade → 0, worst now E-grade (CC 22).
 
-#### 3. `utils/account_creation_manager.py` (2370 LOC)
+#### ~~3. `utils/account_creation_manager.py` (2370 LOC)~~ COMPLETED
 
-| Metric | Value |
-|--------|-------|
-| F/E-grade functions | 2 (1F + 1D) |
-| Worst function | `create_user_account` — CC 45, 279 lines |
-| Test files | **5** — well covered |
-| Classification | Production: creates user accounts for new members |
-
-**Concrete extraction plan:**
-1. Already has phase methods — the phases themselves need decomposition
-2. Extract `_handle_existing_user()` from `create_user_account` (~80 lines)
-3. Extract `_assign_initial_roles()` from `create_user_account` (~50 lines)
-
-**Risk:** Medium. Well-tested, but production-critical (member onboarding path).
+**Status:** Decomposed `create_user_account` from CC 45 → 14 in commit `b7dd379e` (2026-02-15). Extracted 5 helpers: `_parse_name_components`, `_prepare_user_data`, `_bulk_import_flags`, `_insert_user_with_deadlock_retry`, `_handle_username_conflict`. Also fixed latent bug where deadlock retries during username conflict lost the username override. 36 existing tests pass unchanged.
 
 #### ~~4. `api/membership_application_review.py`~~ COMPLETED (extraction)
 
@@ -286,6 +274,7 @@
 | `e_boekhouden/utils/payment_processing/payment_entry_handler.py` | Tier 1 #2: Decomposed `_process_payment_mutation_internal` (CC 47→9) | `d6bc0f2b` | 2026-02-14 |
 | `utils/create_unreconciled_payment.py` | Deleted dead code (CC 47, zero callers) | `240962e3` | 2026-02-14 |
 | `api/membership_application_review.py` | Tier 1 #4: Extracted debug/admin/notification endpoints + unified approval orchestration | `54c5ae9c`, `ad5582ad` | 2026-02-15 |
+| `utils/account_creation_manager.py` | Tier 1 #3: Decomposed `create_user_account` (CC 45→14), deduplicated deadlock retry, fixed username bug | `b7dd379e` | 2026-02-15 |
 
 ---
 
