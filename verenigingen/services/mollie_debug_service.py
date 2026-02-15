@@ -537,6 +537,49 @@ class MollieDebugService(StatelessService):
             else:
                 raise api_error
 
+    @staticmethod
+    def _validate_mandate_params(
+        customer_id, consumer_name, consumer_account, consumer_bic, signature_date, mandate_reference
+    ):
+        """Validate SEPA mandate parameters. Returns normalized signature_date."""
+        from verenigingen.utils.validation.iban_validator import validate_iban
+        from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
+
+        if not customer_id:
+            raise ValueError(_("Customer ID is required"))
+        if not consumer_name:
+            raise ValueError(_("Consumer name is required"))
+        if not consumer_account:
+            raise ValueError(_("IBAN is required"))
+        if len(consumer_name) > 70:
+            raise ValueError(_("Consumer name must not exceed 70 characters"))
+        if mandate_reference and len(mandate_reference) > 35:
+            raise ValueError(_("Mandate reference must not exceed 35 characters"))
+
+        iban_validation = validate_iban(consumer_account)
+        if not iban_validation.get("valid"):
+            raise ValueError(_("Invalid IBAN: {0}").format(iban_validation.get("message")))
+
+        if consumer_bic:
+            bic_validation = SEPAInputValidator.validate_bic(consumer_bic)
+            if not bic_validation.get("valid"):
+                raise ValueError(_("Invalid BIC: {0}").format(", ".join(bic_validation.get("errors", []))))
+
+        if signature_date:
+            try:
+                from frappe.utils import getdate
+
+                parsed_date = getdate(signature_date)
+                if parsed_date > getdate():
+                    raise ValueError(_("Signature date cannot be in the future"))
+                return str(parsed_date)
+            except ValueError:
+                raise
+            except Exception:
+                raise ValueError(_("Invalid signature date format - use YYYY-MM-DD"))
+
+        return signature_date
+
     def create_mandate(
         self,
         customer_id,
@@ -560,47 +603,9 @@ class MollieDebugService(StatelessService):
         Returns:
             dict with created mandate details
         """
-        from verenigingen.utils.validation.iban_validator import validate_iban
-        from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
-
-        # Required field validation
-        if not customer_id:
-            raise ValueError(_("Customer ID is required"))
-        if not consumer_name:
-            raise ValueError(_("Consumer name is required"))
-        if not consumer_account:
-            raise ValueError(_("IBAN is required"))
-
-        # Input length validation per SEPA specifications
-        if len(consumer_name) > 70:
-            raise ValueError(_("Consumer name must not exceed 70 characters"))
-        if mandate_reference and len(mandate_reference) > 35:
-            raise ValueError(_("Mandate reference must not exceed 35 characters"))
-
-        # IBAN validation using existing validator
-        iban_validation = validate_iban(consumer_account)
-        if not iban_validation.get("valid"):
-            raise ValueError(_("Invalid IBAN: {0}").format(iban_validation.get("message")))
-
-        # BIC validation if provided
-        if consumer_bic:
-            bic_validation = SEPAInputValidator.validate_bic(consumer_bic)
-            if not bic_validation.get("valid"):
-                raise ValueError(_("Invalid BIC: {0}").format(", ".join(bic_validation.get("errors", []))))
-
-        # Signature date validation if provided
-        if signature_date:
-            try:
-                from frappe.utils import getdate
-
-                parsed_date = getdate(signature_date)
-                if parsed_date > getdate():
-                    raise ValueError(_("Signature date cannot be in the future"))
-                signature_date = str(parsed_date)
-            except ValueError:
-                raise
-            except Exception:
-                raise ValueError(_("Invalid signature date format - use YYYY-MM-DD"))
+        signature_date = self._validate_mandate_params(
+            customer_id, consumer_name, consumer_account, consumer_bic, signature_date, mandate_reference
+        )
 
         try:
             client = self.mollie_client.sdk_client
@@ -1652,6 +1657,73 @@ class MollieDebugService(StatelessService):
                 },
             )
 
+    @staticmethod
+    def _validate_subscription_params(customer_id, amount, interval_count, interval_unit, times):
+        """Validate and normalize subscription creation parameters.
+
+        Returns:
+            Tuple of (amount_float, interval_count_int, mollie_interval).
+
+        Raises:
+            ValueError: If any parameter is invalid.
+        """
+        if not customer_id:
+            raise ValueError(_("Customer ID is required"))
+
+        try:
+            amount_float = float(amount)
+        except (ValueError, TypeError):
+            raise ValueError(_("Invalid amount format - must be a number"))
+        if amount_float <= 0:
+            raise ValueError(_("Amount must be positive"))
+        if amount_float > 1000.00:
+            raise ValueError(_("Test subscription amount cannot exceed €1,000"))
+
+        try:
+            interval_count_int = int(interval_count)
+        except (ValueError, TypeError):
+            raise ValueError(_("Invalid interval count - must be a number"))
+        if interval_unit not in ["weeks", "months"]:
+            raise ValueError(_("Interval unit must be 'weeks' or 'months'"))
+        if interval_unit == "months" and not (1 <= interval_count_int <= 12):
+            raise ValueError(_("For months, interval count must be between 1 and 12"))
+        if interval_unit == "weeks" and not (1 <= interval_count_int <= 52):
+            raise ValueError(_("For weeks, interval count must be between 1 and 52"))
+
+        mollie_interval = (
+            f"{interval_count_int} {interval_unit[:-1] if interval_count_int == 1 else interval_unit}"
+        )
+
+        if times is not None:
+            try:
+                times_int = int(times)
+                if times_int < 1:
+                    raise ValueError(_("Times must be at least 1"))
+                if times_int > 999:
+                    raise ValueError(_("Times cannot exceed 999 payments"))
+            except (ValueError, TypeError):
+                raise ValueError(_("Invalid times format - must be a number"))
+
+        return amount_float, interval_count_int, mollie_interval
+
+    def _resolve_subscription_start_date(self, start_date, mollie_interval):
+        """Resolve start date: use explicit value, or auto-calculate for quarterly/yearly."""
+        if start_date:
+            return start_date
+
+        if mollie_interval in ["3 months", "6 months", "12 months"]:
+            mollie_settings = frappe.get_single("Mollie Settings")
+            calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(min_months_ahead=2)
+            if calculated_start:
+                self.logger.info(
+                    f"Auto-calculated subscription start date: {calculated_start} "
+                    f"(interval: {mollie_interval}, configured months: "
+                    f"{mollie_settings.quarterly_yearly_payment_months})"
+                )
+                return calculated_start
+
+        return None
+
     def create_scheduled_subscription(
         self,
         customer_id: str,
@@ -1685,57 +1757,10 @@ class MollieDebugService(StatelessService):
 
         Raises:
             ValueError: If validation fails for any input parameter
-
-        Note:
-            - For monthly intervals, payments will be scheduled on the configured payment_day_of_month
-            - For quarterly/yearly intervals without explicit start_date, uses configured scheduled months
-            - This operation is restricted to Verenigingen Administrator role
         """
-        if not customer_id:
-            raise ValueError(_("Customer ID is required"))
-
-        # Validate amount
-        try:
-            amount_float = float(amount)
-        except (ValueError, TypeError):
-            raise ValueError(_("Invalid amount format - must be a number"))
-
-        if amount_float <= 0:
-            raise ValueError(_("Amount must be positive"))
-
-        if amount_float > 1000.00:
-            raise ValueError(_("Test subscription amount cannot exceed €1,000"))
-
-        # Validate interval
-        try:
-            interval_count_int = int(interval_count)
-        except (ValueError, TypeError):
-            raise ValueError(_("Invalid interval count - must be a number"))
-
-        if interval_unit not in ["weeks", "months"]:
-            raise ValueError(_("Interval unit must be 'weeks' or 'months'"))
-
-        if interval_unit == "months" and not (1 <= interval_count_int <= 12):
-            raise ValueError(_("For months, interval count must be between 1 and 12"))
-
-        if interval_unit == "weeks" and not (1 <= interval_count_int <= 52):
-            raise ValueError(_("For weeks, interval count must be between 1 and 52"))
-
-        # Build Mollie interval string
-        mollie_interval = (
-            f"{interval_count_int} {interval_unit[:-1] if interval_count_int == 1 else interval_unit}"
+        amount_float, interval_count_int, mollie_interval = self._validate_subscription_params(
+            customer_id, amount, interval_count, interval_unit, times
         )
-
-        # Validate times (payment count limit)
-        if times is not None:
-            try:
-                times_int = int(times)
-                if times_int < 1:
-                    raise ValueError(_("Times must be at least 1"))
-                if times_int > 999:
-                    raise ValueError(_("Times cannot exceed 999 payments"))
-            except (ValueError, TypeError):
-                raise ValueError(_("Invalid times format - must be a number"))
 
         result = {
             "customer_id": customer_id,
@@ -1746,10 +1771,8 @@ class MollieDebugService(StatelessService):
         }
 
         try:
-            # Get the raw Mollie client
             client = self.mollie_client.sdk_client
 
-            # Build subscription data
             subscription_data = {
                 "amount": format_mollie_amount(amount_float),
                 "interval": mollie_interval,
@@ -1763,31 +1786,15 @@ class MollieDebugService(StatelessService):
                 },
             }
 
-            # Add optional parameters
             if mandate_id:
                 subscription_data["mandateId"] = mandate_id
-
             if times is not None:
                 subscription_data["times"] = int(times)
 
-            # Handle start date - use configured scheduled months if not explicitly provided
-            if start_date:
-                subscription_data["startDate"] = start_date
-            else:
-                # For quarterly/yearly subscriptions, calculate optimal start date
-                if mollie_interval in ["3 months", "6 months", "12 months"]:
-                    mollie_settings = frappe.get_single("Mollie Settings")
-                    calculated_start = mollie_settings.get_next_payment_date_for_scheduled_months(
-                        min_months_ahead=2
-                    )
-                    if calculated_start:
-                        subscription_data["startDate"] = calculated_start
-                        self.logger.info(
-                            f"Auto-calculated subscription start date: {calculated_start} "
-                            f"(interval: {mollie_interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
-                        )
+            resolved_start = self._resolve_subscription_start_date(start_date, mollie_interval)
+            if resolved_start:
+                subscription_data["startDate"] = resolved_start
 
-            # Create subscription
             customer = client.customers.get(customer_id)
             subscription = customer.subscriptions.create(subscription_data)
 
@@ -1801,7 +1808,6 @@ class MollieDebugService(StatelessService):
                 subscription, "webhookUrl", None
             )
 
-            # Add optional fields if present
             if hasattr(subscription, "start_date") and subscription.start_date:
                 result["start_date"] = str(subscription.start_date)
             if hasattr(subscription, "next_payment_date") and subscription.next_payment_date:
@@ -1809,7 +1815,6 @@ class MollieDebugService(StatelessService):
             if hasattr(subscription, "times") and subscription.times:
                 result["times"] = subscription.times
 
-            # Enhanced audit logging
             self.logger.info(
                 f"DEBUG SUBSCRIPTION CREATION: User {frappe.session.user} "
                 f"created subscription {subscription.id} for customer {customer_id} "
@@ -1818,12 +1823,9 @@ class MollieDebugService(StatelessService):
             )
 
         except Exception as e:
-            # Sanitize error message before returning to client
             sanitized_error = self._sanitize_error_message(str(e))
             result["error"] = sanitized_error
             result["status"] = "error"
-
-            # Log full error internally with user context
             self.logger.error(
                 f"Mollie scheduled subscription creation error for user {frappe.session.user}, "
                 f"customer {customer_id}: {str(e)}"
@@ -2383,144 +2385,7 @@ class MollieDebugService(StatelessService):
                 }
 
                 try:
-                    # Get customer data from Mollie
-                    client = self.mollie_client.sdk_client
-
-                    try:
-                        customer_obj = client.customers.get(member.mollie_customer_id)
-                    except Exception as api_error:
-                        # Handle deleted customers gracefully (HTTP 410 Gone)
-                        error_msg = str(api_error)
-                        if "no longer available" in error_msg.lower() or "410" in error_msg:
-                            member_result["error"] = "Customer deleted in Mollie (410 Gone)"
-                            member_result["skipped"] = True
-                            result["members"].append(member_result)
-                            continue
-                        else:
-                            raise  # Re-raise if it's a different error
-
-                    # Get subscriptions
-                    subscriptions = customer_obj.subscriptions.list()
-
-                    # Find the most recent canceled subscription
-                    latest_canceled_at = None
-                    for sub in subscriptions:
-                        if hasattr(sub, "canceled_at") and sub.canceled_at:
-                            # Compare datetime objects
-                            if latest_canceled_at is None or sub.canceled_at > latest_canceled_at:
-                                latest_canceled_at = sub.canceled_at
-                                member_result["subscription_id"] = sub.id
-
-                    if latest_canceled_at:
-                        # Convert to date string for Frappe
-                        from datetime import datetime
-
-                        if isinstance(latest_canceled_at, str):
-                            # Parse ISO string
-                            canceled_date = datetime.fromisoformat(
-                                latest_canceled_at.replace("Z", "+00:00")
-                            ).date()
-                        else:
-                            # Already datetime object
-                            canceled_date = latest_canceled_at.date()
-
-                        member_result["canceled_at"] = str(canceled_date)
-
-                        # Get current member end date from Member DocType
-                        member_doc = frappe.get_doc("Member", member.name)
-                        current_member_end_date = member_doc.get("member_end_date")
-                        member_result["current_member_end_date"] = (
-                            str(current_member_end_date) if current_member_end_date else None
-                        )
-
-                        # Check if update is needed
-                        if not current_member_end_date or str(current_member_end_date) != str(canceled_date):
-                            member_result["needs_update"] = True
-                            result["updates_needed"] += 1
-
-                            # Apply update if not dry run
-                            if not dry_run:
-                                # Use db_set for audit-trailed update
-                                # This updates the member_end_date field on the Member record
-                                frappe.db.set_value(
-                                    "Member",
-                                    member.name,
-                                    "member_end_date",
-                                    canceled_date,
-                                    update_modified=False,  # Don't change modified timestamp
-                                )
-                                frappe.db.commit()  # Commit immediately for safety
-                                member_result["updated"] = True
-                                result["updates_applied"] += 1
-
-                                self.logger.info(
-                                    f"Updated member {member.name} member_end_date "
-                                    f"from {current_member_end_date} to {canceled_date} "
-                                    f"based on Mollie subscription cancellation"
-                                )
-
-                        # Get Sales Invoices for this member
-                        sales_invoices = frappe.get_all(
-                            "Sales Invoice",
-                            filters={"member": member.name, "docstatus": 1},
-                            fields=["name", "posting_date", "grand_total", "status"],
-                            order_by="posting_date desc",
-                            limit=5,  # Show last 5 invoices
-                        )
-                        member_result["sales_invoices"] = [
-                            {
-                                "name": inv.name,
-                                "date": str(inv.posting_date),
-                                "amount": float(inv.grand_total),
-                                "status": inv.status,
-                            }
-                            for inv in sales_invoices
-                        ]
-                        member_result["invoice_count"] = len(sales_invoices)
-
-                        # Also update Membership records if they exist
-                        membership = frappe.get_all(
-                            "Membership",
-                            filters={"member": member.name, "docstatus": 1},
-                            fields=["name", "cancellation_date"],
-                            order_by="creation desc",
-                            limit=1,
-                        )
-
-                        if membership:
-                            current_cancellation_date = membership[0].get("cancellation_date")
-                            member_result["current_cancellation_date"] = (
-                                str(current_cancellation_date) if current_cancellation_date else None
-                            )
-                            member_result["membership"] = membership[0].name
-
-                            # Check if Membership update is needed
-                            if not current_cancellation_date or str(current_cancellation_date) != str(
-                                canceled_date
-                            ):
-                                # Apply update if not dry run
-                                if not dry_run:
-                                    # Use db_set for audit-trailed update without document validation
-                                    # This is appropriate for syncing external data (Mollie) to submitted docs
-                                    frappe.db.set_value(
-                                        "Membership",
-                                        membership[0].name,
-                                        "cancellation_date",
-                                        canceled_date,
-                                        update_modified=False,  # Don't change modified timestamp
-                                    )
-                                    frappe.db.commit()  # Commit immediately for safety
-
-                                    self.logger.info(
-                                        f"Updated membership {membership[0].name} cancellation_date "
-                                        f"from {current_cancellation_date} to {canceled_date} "
-                                        f"for member {member.name}"
-                                    )
-                        else:
-                            member_result[
-                                "membership_note"
-                            ] = "No submitted membership found (member end date still updated)"
-
+                    self._sync_single_member_end_date(member, member_result, result, dry_run)
                 except Exception as member_error:
                     member_result["error"] = str(member_error)
                     self.logger.error(
@@ -2546,6 +2411,260 @@ class MollieDebugService(StatelessService):
             self.logger.error(f"Mollie membership end date sync error: {str(e)}")
 
         return result
+
+    def _fetch_mollie_cancellation_date(self, customer_id, member_result):
+        """Fetch the latest subscription cancellation date from Mollie.
+
+        Returns canceled date object or None. Marks member_result as skipped on 410.
+        """
+        from datetime import datetime
+
+        client = self.mollie_client.sdk_client
+
+        try:
+            customer_obj = client.customers.get(customer_id)
+        except Exception as api_error:
+            error_msg = str(api_error)
+            if "no longer available" in error_msg.lower() or "410" in error_msg:
+                member_result["error"] = "Customer deleted in Mollie (410 Gone)"
+                member_result["skipped"] = True
+                return None
+            raise
+
+        subscriptions = customer_obj.subscriptions.list()
+        latest_canceled_at = None
+        for sub in subscriptions:
+            if hasattr(sub, "canceled_at") and sub.canceled_at:
+                if latest_canceled_at is None or sub.canceled_at > latest_canceled_at:
+                    latest_canceled_at = sub.canceled_at
+                    member_result["subscription_id"] = sub.id
+
+        if not latest_canceled_at:
+            return None
+
+        if isinstance(latest_canceled_at, str):
+            return datetime.fromisoformat(latest_canceled_at.replace("Z", "+00:00")).date()
+        return latest_canceled_at.date()
+
+    def _sync_single_member_end_date(self, member, member_result, result, dry_run):
+        """Sync end date for a single member from Mollie subscription cancellation.
+
+        Mutates member_result and result dicts in place.
+        """
+        canceled_date = self._fetch_mollie_cancellation_date(member.mollie_customer_id, member_result)
+        if not canceled_date:
+            return
+
+        member_result["canceled_at"] = str(canceled_date)
+
+        # Update Member.member_end_date if needed
+        member_doc = frappe.get_doc("Member", member.name)
+        current_member_end_date = member_doc.get("member_end_date")
+        member_result["current_member_end_date"] = (
+            str(current_member_end_date) if current_member_end_date else None
+        )
+
+        if not current_member_end_date or str(current_member_end_date) != str(canceled_date):
+            member_result["needs_update"] = True
+            result["updates_needed"] += 1
+
+            if not dry_run:
+                frappe.db.set_value(
+                    "Member", member.name, "member_end_date", canceled_date, update_modified=False
+                )
+                frappe.db.commit()
+                member_result["updated"] = True
+                result["updates_applied"] += 1
+                self.logger.info(
+                    f"Updated member {member.name} member_end_date "
+                    f"from {current_member_end_date} to {canceled_date} "
+                    f"based on Mollie subscription cancellation"
+                )
+
+        # Attach sales invoices
+        sales_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={"member": member.name, "docstatus": 1},
+            fields=["name", "posting_date", "grand_total", "status"],
+            order_by="posting_date desc",
+            limit=5,
+        )
+        member_result["sales_invoices"] = [
+            {
+                "name": inv.name,
+                "date": str(inv.posting_date),
+                "amount": float(inv.grand_total),
+                "status": inv.status,
+            }
+            for inv in sales_invoices
+        ]
+        member_result["invoice_count"] = len(sales_invoices)
+
+        # Update Membership.cancellation_date if record exists
+        membership = frappe.get_all(
+            "Membership",
+            filters={"member": member.name, "docstatus": 1},
+            fields=["name", "cancellation_date"],
+            order_by="creation desc",
+            limit=1,
+        )
+
+        if membership:
+            current_cancellation_date = membership[0].get("cancellation_date")
+            member_result["current_cancellation_date"] = (
+                str(current_cancellation_date) if current_cancellation_date else None
+            )
+            member_result["membership"] = membership[0].name
+
+            if not current_cancellation_date or str(current_cancellation_date) != str(canceled_date):
+                if not dry_run:
+                    frappe.db.set_value(
+                        "Membership",
+                        membership[0].name,
+                        "cancellation_date",
+                        canceled_date,
+                        update_modified=False,
+                    )
+                    frappe.db.commit()
+                    self.logger.info(
+                        f"Updated membership {membership[0].name} cancellation_date "
+                        f"from {current_cancellation_date} to {canceled_date} "
+                        f"for member {member.name}"
+                    )
+        else:
+            member_result["membership_note"] = "No submitted membership found (member end date still updated)"
+
+    def _process_retrieved_payment(
+        self,
+        payment,
+        matcher,
+        bank_tx_creator,
+        invoice_checker,
+        seen_payment_ids,
+        start_date_str,
+        payment_status_filter,
+        consecutive_old_payments,
+        member_results,
+        result,
+    ):
+        """Process a single payment during bulk retrieval. Returns True to stop pagination."""
+        # Deduplicate
+        if payment.id in seen_payment_ids:
+            result["total_filtered_by_duplicate"] += 1
+            self.logger.warning(
+                f"Duplicate payment ID from Mollie API: {payment.id}. "
+                f"This indicates the API returned the same payment multiple times."
+            )
+            return False
+        seen_payment_ids.add(payment.id)
+
+        # Match to member
+        member_info = matcher.find_member_for_payment(payment)
+        if not member_info:
+            result["total_filtered_by_member"] += 1
+            return False
+
+        # Date filtering with early termination
+        if not (hasattr(payment, "created_at") and payment.created_at):
+            return False
+
+        payment_date_str = payment.created_at[:10]
+        if payment_date_str < start_date_str:
+            result["total_filtered_by_date"] += 1
+            consecutive_old_payments += 1
+            result["_consecutive_old"] = consecutive_old_payments
+            if consecutive_old_payments >= 50:
+                self.logger.info(
+                    f"Early termination: {consecutive_old_payments} consecutive "
+                    f"payments older than {start_date_str}. Stopping pagination."
+                )
+                result["early_termination"] = True
+                return True
+            return False
+
+        consecutive_old_payments = 0
+        result["_consecutive_old"] = consecutive_old_payments
+
+        # Status filter
+        if payment_status_filter and payment_status_filter != "all":
+            if payment.status != payment_status_filter:
+                return False
+
+        # Idempotency check
+        idempotency_check = bank_tx_creator.check_already_processed(payment.id, check_payment_entry=True)
+        is_processed = idempotency_check["already_processed"]
+
+        # Invoice matching for unprocessed paid payments
+        matching_invoice, processing_mode = self._check_invoice_for_retrieval(
+            payment, is_processed, member_info, invoice_checker
+        )
+
+        # Build payment info and accumulate
+        payment_info = self._build_retrieved_payment_info(
+            payment, is_processed, idempotency_check, matching_invoice, processing_mode
+        )
+
+        member_name = member_info["name"]
+        if member_name not in member_results:
+            member_results[member_name] = {
+                "member": member_name,
+                "full_name": member_info.get("full_name", member_name),
+                "customer_id": member_info.get("mollie_customer_id"),
+                "member_status": member_info.get("status"),
+                "payments": [],
+                "payment_count": 0,
+                "unprocessed_count": 0,
+                "error": None,
+            }
+
+        member_result = member_results[member_name]
+        member_result["payments"].append(payment_info)
+        member_result["payment_count"] += 1
+        result["total_payments"] += 1
+        result["total_payments_after_filtering"] += 1
+
+        if not is_processed:
+            member_result["unprocessed_count"] += 1
+            result["unprocessed_payments"] += 1
+
+        return False
+
+    def _check_invoice_for_retrieval(self, payment, is_processed, member_info, invoice_checker):
+        """Check for matching invoice during bulk payment retrieval."""
+        if payment.status == "paid" and not is_processed and member_info and payment.amount:
+            try:
+                matching_invoice = invoice_checker.check_invoice_match_for_payment(
+                    sdk_payment=payment, member_name=member_info["name"]
+                )
+                processing_mode = "bt_pe_reconcile" if matching_invoice else "bt_only"
+                return matching_invoice, processing_mode
+            except Exception as e:
+                self.logger.warning(f"Could not check for matching invoice: {e}")
+                return None, "bt_only"
+        return None, None
+
+    @staticmethod
+    def _build_retrieved_payment_info(
+        payment, is_processed, idempotency_check, matching_invoice, processing_mode
+    ):
+        """Build payment info dict for bulk retrieval results."""
+        return {
+            "payment_id": payment.id,
+            "status": payment.status,
+            "amount": (
+                f"{payment.amount['value']} {payment.amount['currency']}" if payment.amount else "Unknown"
+            ),
+            "description": getattr(payment, "description", ""),
+            "created_at": str(payment.created_at),
+            "paid_at": (
+                str(getattr(payment, "paid_at", None)) if getattr(payment, "paid_at", None) else None
+            ),
+            "is_processed": is_processed,
+            "payment_entry": idempotency_check.get("payment_entry") if is_processed else None,
+            "bank_transaction": idempotency_check.get("bank_transaction") if is_processed else None,
+            "matching_invoice": matching_invoice,
+            "processing_mode": processing_mode,
+        }
 
     def bulk_retrieve_all_member_payments(
         self, days_back: int = 30, max_payments: int = 5000, payment_status_filter: str = None
@@ -2663,132 +2782,25 @@ class MollieDebugService(StatelessService):
                     # Process each payment
                     for payment in batch_payments:
                         total_fetched += 1
-                        result["total_payments_found"] += 1  # Count raw API results
+                        result["total_payments_found"] += 1
 
-                        # Deduplicate: Skip if we've already seen this payment ID
-                        if payment.id in seen_payment_ids:
-                            result["total_filtered_by_duplicate"] += 1
-                            self.logger.warning(
-                                f"⚠️ Duplicate payment ID from Mollie API: {payment.id}. "
-                                f"This indicates the API returned the same payment multiple times."
-                            )
-                            continue
-                        seen_payment_ids.add(payment.id)
-
-                        # Use centralized matcher to find member
-                        member_info = matcher.find_member_for_payment(payment)
-
-                        # Skip if payment doesn't belong to any member
-                        if not member_info:
-                            result["total_filtered_by_member"] += 1
-                            continue
-
-                        # Parse payment date
-                        if hasattr(payment, "created_at") and payment.created_at:
-                            payment_date_str = payment.created_at[:10]  # YYYY-MM-DD
-
-                            # Skip if outside date range
-                            # OPTIMIZATION: Mollie returns payments newest-first.
-                            # Once we hit a payment older than start_date, all subsequent
-                            # payments will also be older. We can stop pagination early.
-                            if payment_date_str < start_date_str:
-                                result["total_filtered_by_date"] += 1
-                                consecutive_old_payments += 1
-                                # After 50 consecutive old payments, stop pagination
-                                # (allows for some date ordering variance in API response)
-                                if consecutive_old_payments >= 50:
-                                    self.logger.info(
-                                        f"Early termination: {consecutive_old_payments} consecutive "
-                                        f"payments older than {start_date_str}. Stopping pagination."
-                                    )
-                                    result["early_termination"] = True
-                                    has_next = False
-                                    break
-                                continue
-                            else:
-                                # Reset counter when we see an in-range payment
-                                consecutive_old_payments = 0
-
-                            # Filter by status if specified
-                            if payment_status_filter and payment_status_filter != "all":
-                                if payment.status != payment_status_filter:
-                                    continue
-
-                            # Check if already processed using centralized service
-                            idempotency_check = bank_tx_creator.check_already_processed(
-                                payment.id, check_payment_entry=True
-                            )
-
-                            is_processed = idempotency_check["already_processed"]
-                            payment_entry_exists = idempotency_check.get("payment_entry")
-                            bank_transaction_exists = idempotency_check.get("bank_transaction")
-
-                            # Check for matching unpaid dues invoice (for intelligent processing)
-                            matching_invoice = None
-                            processing_mode = None
-
-                            if (
-                                payment.status == "paid"
-                                and not is_processed
-                                and member_info
-                                and payment.amount
-                            ):
-                                try:
-                                    matching_invoice = invoice_checker.check_invoice_match_for_payment(
-                                        sdk_payment=payment, member_name=member_info["name"]
-                                    )
-                                    processing_mode = "bt_pe_reconcile" if matching_invoice else "bt_only"
-                                except Exception as e:
-                                    self.logger.warning(f"Could not check for matching invoice: {e}")
-                                    processing_mode = "bt_only"
-
-                            # Build payment info
-                            payment_info = {
-                                "payment_id": payment.id,
-                                "status": payment.status,
-                                "amount": (
-                                    f"{payment.amount['value']} {payment.amount['currency']}"
-                                    if payment.amount
-                                    else "Unknown"
-                                ),
-                                "description": getattr(payment, "description", ""),
-                                "created_at": str(payment.created_at),
-                                "paid_at": (
-                                    str(getattr(payment, "paid_at", None))
-                                    if getattr(payment, "paid_at", None)
-                                    else None
-                                ),
-                                "is_processed": is_processed,
-                                "payment_entry": payment_entry_exists if is_processed else None,
-                                "bank_transaction": bank_transaction_exists if is_processed else None,
-                                # Intelligent processing fields
-                                "matching_invoice": matching_invoice,
-                                "processing_mode": processing_mode,
-                            }
-
-                            # Get or create member result entry (keyed by member name)
-                            member_name = member_info["name"]
-                            if member_name not in member_results:
-                                member_results[member_name] = {
-                                    "member": member_name,
-                                    "full_name": member_info.get("full_name", member_name),
-                                    "customer_id": member_info.get("mollie_customer_id"),
-                                    "member_status": member_info.get("status"),
-                                    "payments": [],
-                                    "payment_count": 0,
-                                    "unprocessed_count": 0,
-                                    "error": None,
-                                }
-
-                            member_result = member_results[member_name]
-                            member_result["payments"].append(payment_info)
-                            member_result["payment_count"] += 1
-                            result["total_payments"] += 1
-                            result["total_payments_after_filtering"] += 1  # Count after deduplication
-
-                            if not is_processed:
-                                member_result["unprocessed_count"] += 1
-                                result["unprocessed_payments"] += 1
+                        stop = self._process_retrieved_payment(
+                            payment,
+                            matcher,
+                            bank_tx_creator,
+                            invoice_checker,
+                            seen_payment_ids,
+                            start_date_str,
+                            payment_status_filter,
+                            consecutive_old_payments,
+                            member_results,
+                            result,
+                        )
+                        # Update consecutive_old_payments from result dict
+                        consecutive_old_payments = result.get("_consecutive_old", consecutive_old_payments)
+                        if stop:
+                            has_next = False
+                            break
 
                     # Check pagination
                     has_next = len(batch_payments) == limit
@@ -2817,7 +2829,85 @@ class MollieDebugService(StatelessService):
             result["error"] = str(e)
             self.logger.error(f"Bulk payment retrieval error: {str(e)}")
 
+        result.pop("_consecutive_old", None)
         return result
+
+    @staticmethod
+    def _resolve_payment_mode(payment_modes, payment_id):
+        """Resolve processing mode and invoice name from payment_modes dict."""
+        payment_mode_info = payment_modes.get(payment_id, {})
+        matching_invoice = None
+        processing_mode = None
+        if isinstance(payment_mode_info, dict):
+            matching_invoice = payment_mode_info.get("matching_invoice")
+            processing_mode = payment_mode_info.get("mode")
+
+        invoice_name = None
+        if matching_invoice:
+            if isinstance(matching_invoice, dict):
+                invoice_name = matching_invoice.get("invoice_name")
+            else:
+                invoice_name = matching_invoice
+
+        return processing_mode, invoice_name
+
+    @staticmethod
+    def _route_to_orchestrator(orchestrator, payment_id, processing_mode, invoice_name):
+        """Route a payment to the appropriate orchestrator method."""
+        if processing_mode in ("bt_only_orphaned", "bt_only_anonymous"):
+            return orchestrator.process_orphaned_payment(payment_id=payment_id, allow_anonymous=True)
+        elif processing_mode == "bt_only":
+            return orchestrator.process_bt_only_payment(payment_id=payment_id)
+        else:
+            return orchestrator.process_payment(
+                payment_id=payment_id, invoice_name=invoice_name, create_missing_invoice=False
+            )
+
+    def _submit_processed_documents(self, processing_result, payment_id, payment_result):
+        """Submit bank transaction and payment entry if they exist and are in draft."""
+        try:
+            if processing_result.bank_transaction:
+                bt_doc = frappe.get_doc("Bank Transaction", processing_result.bank_transaction)
+                if bt_doc.docstatus == 0 and frappe.has_permission("Bank Transaction", "submit", bt_doc):
+                    bt_doc.submit()
+                    payment_result["bank_transaction_submitted"] = True
+
+            if processing_result.payment_entry:
+                pe_doc = frappe.get_doc("Payment Entry", processing_result.payment_entry)
+                if pe_doc.docstatus == 0 and frappe.has_permission("Payment Entry", "submit", pe_doc):
+                    pe_doc.submit()
+                    payment_result["payment_entry_submitted"] = True
+        except Exception as submit_error:
+            payment_result["submit_error"] = str(submit_error)
+            self.logger.error(f"Submission error for {payment_id}: {submit_error}")
+
+    def _process_single_bulk_payment(self, orchestrator, payment_id, payment_modes, docstatus):
+        """Process a single payment through the orchestrator and optionally submit."""
+        processing_mode, invoice_name = self._resolve_payment_mode(payment_modes, payment_id)
+        processing_result = self._route_to_orchestrator(
+            orchestrator, payment_id, processing_mode, invoice_name
+        )
+
+        payment_result = {
+            "payment_id": payment_id,
+            "status": processing_result.status,
+            "bank_transaction": processing_result.bank_transaction,
+            "payment_entry": processing_result.payment_entry,
+            "member": processing_result.member,
+            "sales_invoice": processing_result.sales_invoice,
+            "actions_taken": processing_result.actions_taken,
+            "reconciled": processing_result.reconciled,
+        }
+
+        if processing_result.error:
+            payment_result["error"] = processing_result.error
+        if processing_result.skipped_reason:
+            payment_result["skipped_reason"] = processing_result.skipped_reason
+
+        if processing_result.status == "success" and docstatus == 1:
+            self._submit_processed_documents(processing_result, payment_id, payment_result)
+
+        return payment_result
 
     def bulk_process_member_payments(self, payment_ids: list, docstatus: int = 0, payment_modes: dict = None):
         """
@@ -2920,88 +3010,15 @@ class MollieDebugService(StatelessService):
             orchestrator = get_payment_orchestrator()
 
             for payment_id in payment_ids:
-                # Extract pre-matched invoice if provided in payment_modes
-                payment_mode_info = payment_modes.get(payment_id, {})
-                # Handle case where payment_mode_info might be a boolean or other non-dict type
-                matching_invoice = None
-                processing_mode = None
-                if isinstance(payment_mode_info, dict):
-                    matching_invoice = payment_mode_info.get("matching_invoice")
-                    processing_mode = payment_mode_info.get("mode")
-
-                # Normalize invoice name (can be dict or string from frontend)
-                invoice_name = None
-                if matching_invoice:
-                    if isinstance(matching_invoice, dict):
-                        invoice_name = matching_invoice.get("invoice_name")
-                    else:
-                        invoice_name = matching_invoice
-
-                # Route based on processing mode
-                if processing_mode in ("bt_only_orphaned", "bt_only_anonymous"):
-                    # Orphaned/anonymous payment - create BT only, no member required
-                    # bt_only_orphaned: has Mollie customer ID, can create Customer
-                    # bt_only_anonymous: no customer ID, creates unlinked BT
-                    processing_result = orchestrator.process_orphaned_payment(
-                        payment_id=payment_id,
-                        allow_anonymous=True,
-                    )
-                elif processing_mode == "bt_only":
-                    # BT only mode - has member but no matching invoice
-                    # Creates Bank Transaction only, skips Payment Entry
-                    processing_result = orchestrator.process_bt_only_payment(
-                        payment_id=payment_id,
-                    )
-                else:
-                    # Standard processing (bt_pe_reconcile mode or unspecified)
-                    # Creates BT + PE + reconciliation
-                    processing_result = orchestrator.process_payment(
-                        payment_id=payment_id,
-                        invoice_name=invoice_name,
-                        create_missing_invoice=False,  # Discovery mode: don't create invoices
-                    )
-
-                # Convert orchestrator result to legacy format
-                payment_result = {
-                    "payment_id": payment_id,
-                    "status": processing_result.status,
-                    "bank_transaction": processing_result.bank_transaction,
-                    "payment_entry": processing_result.payment_entry,
-                    "member": processing_result.member,
-                    "sales_invoice": processing_result.sales_invoice,
-                    "actions_taken": processing_result.actions_taken,
-                    "reconciled": processing_result.reconciled,
-                }
-
-                if processing_result.error:
-                    payment_result["error"] = processing_result.error
-                if processing_result.skipped_reason:
-                    payment_result["skipped_reason"] = processing_result.skipped_reason
-
-                # Handle submission if requested (docstatus=1)
-                if processing_result.status == "success" and docstatus == 1:
-                    try:
-                        if processing_result.bank_transaction:
-                            bt_doc = frappe.get_doc("Bank Transaction", processing_result.bank_transaction)
-                            if bt_doc.docstatus == 0:
-                                if frappe.has_permission("Bank Transaction", "submit", bt_doc):
-                                    bt_doc.submit()
-                                    payment_result["bank_transaction_submitted"] = True
-
-                        if processing_result.payment_entry:
-                            pe_doc = frappe.get_doc("Payment Entry", processing_result.payment_entry)
-                            if pe_doc.docstatus == 0:
-                                if frappe.has_permission("Payment Entry", "submit", pe_doc):
-                                    pe_doc.submit()
-                                    payment_result["payment_entry_submitted"] = True
-                    except Exception as submit_error:
-                        payment_result["submit_error"] = str(submit_error)
-                        self.logger.error(f"Submission error for {payment_id}: {submit_error}")
+                payment_result = self._process_single_bulk_payment(
+                    orchestrator, payment_id, payment_modes, docstatus
+                )
 
                 # Update counters
-                if processing_result.status == "success":
+                status = payment_result["status"]
+                if status == "success":
                     result["processed"] += 1
-                elif processing_result.status in ["skipped", "already_processed"]:
+                elif status in ["skipped", "already_processed"]:
                     result["skipped"] += 1
                 else:
                     result["errors"] += 1

@@ -68,7 +68,7 @@
 |------|----:|------:|--:|--:|--:|--:|-------:|------:|----------------|
 | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` | **4549** | **75** | **0** | **2** | **3** | **12** | **39** | **45** | `_import_opening_balances` |
 | `api/chapter_dashboard_api.py` | **921** | **15** | 0 | 0 | 0 | 1 | 18 | 0 | `reprocess_mt940_import` (production only; debug in `chapter_dashboard_debug.py`) |
-| `services/mollie_debug_service.py` | 3071 | 32 | 0 | 2 | 3 | 13 | 33 | 0 | `bulk_retrieve_all_member_payments` |
+| `services/mollie_debug_service.py` | 3071 | 32 | 0 | 0 | 0 | **19** | ~~33~~ **20** | 0 | ~~`bulk_retrieve_all_member_payments`~~ `create_subscription` (was CC 33) |
 | `verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py` | **1980** | **56** | 0 | 0 | **1** | **8** | **23** | 1 | ~~`_update_member_fields`~~ `_finalize_import_results` |
 | `setup/__init__.py` | 2903 | 69 | 0 | 0 | 0 | 3 | 17 | 0 | `update_workspace_links` |
 | `utils/member_import_cleanup.py` | 2569 | 12 | 1 | 2 | 2 | 3 | **110** | 0 | `nuclear_cleanup_all_members` |
@@ -77,7 +77,7 @@
 | `vereinigingen_payments/utils/payment_gateways.py` | 2167 | 57 | 0 | 1 | 0 | 4 | ~~34~~ 6 | 0 | `mollie_subscription_webhook` (was CC 34) |
 | `api/member_management.py` | 2066 | 31 | 0 | 0 | ~~4~~ 0 | 6 | ~~30~~ 13 | 2 | `extract_transaction_data_improved` (was CC 30) |
 | `permissions.py` | 2005 | 34 | 0 | 0 | ~~1~~ 0 | 14 | ~~22~~ 20 | 16 | `has_volunteer_permission` (was CC 22) |
-| `mijnrood_sync/services/event_application_service.py` | 1987 | 46 | 0 | 0 | 1 | 8 | 21 | 1 | `_process_member_roles` |
+| `mijnrood_sync/services/event_application_service.py` | 1987 | 46 | 0 | 0 | **0** | **8** | ~~21~~ **16** | 1 | ~~`_process_member_roles`~~ `_sync_division_to_chapter` (was CC 21) |
 | `api/membership_application.py` | 1822 | 51 | 0 | 0 | ~~4~~ 0 | 1 | ~~29~~ 13 | 8 | `submit_application` (was CC 29) |
 | `templates/pages/donate.py` | 1793 | 26 | 0 | 0 | 0 | 4 | 17 | 16 | `get_context` |
 | `vereinigingen_payments/mollie/services/webhook_wrapper_service_unified.py` | 1754 | 22 | 0 | 0 | 1 | 8 | 26 | 0 | `_process_pending_refunds` |
@@ -136,7 +136,7 @@
 | 34 | E | `get_pending_applications` | API | `api/membership_application_review.py` |
 | 34 | E | `validate_row` (CSVDataValidator) | CSV util | `utils/csv/csv_data_validator.py` |
 | 33 | E | `start_full_rest_import` | **Refactored** (was 33, unchanged) | `e_boekhouden/utils/eboekhouden_rest_full_migration.py` |
-| 33 | E | `bulk_retrieve_all_member_payments` | Debug service | `services/mollie_debug_service.py` |
+| ~~33~~ 13 | ~~E~~ C | `bulk_retrieve_all_member_payments` | **Refactored** (was 33) | `services/mollie_debug_service.py` |
 | 33 | E | `get_data` (members_without_payment_info) | Report | `vereinigingen/report/members_without_payment_info/` |
 | 33 | E | `get_summary` (chapter_expense) | Report | `vereinigingen/report/chapter_expense_report/` |
 | 33 | E | `get_payment_processing_status` | Recovery util | `utils/payment_processing_recovery.py` |
@@ -144,7 +144,7 @@
 | 32 | E | `extract_sepa_data_enhanced` | MT940 util | `utils/mt940_import.py` |
 | 32 | E | `create_enhanced_bank_transaction_from_mt940` | MT940 util | `utils/mt940_import.py` |
 | 32 | E | `complete_partial_payments` | Recovery util | `utils/payment_processing_recovery.py` |
-| 31 | E | `create_scheduled_subscription` | Debug service | `services/mollie_debug_service.py` |
+| ~~31~~ 14 | ~~E~~ C | `create_scheduled_subscription` | **Refactored** (was 31) | `services/mollie_debug_service.py` |
 | 31 | E | `upload_expense_receipt` | Volunteer template | `templates/pages/volunteer/expenses.py` |
 | 31 | E | `get_processing_status` (Orchestrator) | Payment service | `vereinigingen_payments/services/mollie_payment_orchestrator.py` |
 | 31 | E | `_process_single_transaction` | Balance processor | `vereinigingen_payments/services/balance_transaction_processor.py` |
@@ -209,8 +209,8 @@
 | File | Max CC | Tests | Notes |
 |------|-------:|------:|-------|
 | ~~`permissions.py`~~ | ~~22~~ 20 | 16 | **DONE** — D-grade `has_volunteer_permission` (CC 22→20) already refactored |
-| `services/mollie_debug_service.py` | 33 | 0 | Admin debug tooling, low production risk |
-| `mijnrood_sync/services/event_application_service.py` | 21 | 1 | Already in service layer |
+| ~~`services/mollie_debug_service.py`~~ | ~~33~~ 20 | 0 | **DONE** — 5 E/D-grade functions decomposed (CC 33→13, 31→14, 27→11, 25→below C, 23→below C), 12 helpers extracted |
+| ~~`mijnrood_sync/services/event_application_service.py`~~ | ~~21~~ C | 1 | **DONE** — `_process_member_roles` (CC 21→below C), extracted `_handle_admin_role_change` + `_handle_division_contact_change` |
 | ~~`services/member/history/member_history_update_service.py`~~ | ~~35~~ 15 | 1 | **DONE** — 3 D/E-grade functions decomposed, 7 helpers extracted |
 | ~~`vereinigingen_payments/mollie/services/bulk_payment_checker.py`~~ | ~~40~~ 16 | 0 | **DONE** — 2 E-grade functions decomposed, 7 helpers extracted |
 
@@ -261,6 +261,8 @@
 | `permissions.py` | Tier 3: D-grade `has_volunteer_permission` (CC 22→20) already refactored in earlier pass | — | 2026-02-15 |
 | `services/member/history/member_history_update_service.py` | Tier 3: Decomposed 3 E-grade functions (`refresh_fee_change_history` CC 29→15, `_update_dues_payment_history` CC 23→B, `_update_invoice_payment_history` CC 34→B). Extracted 7 helpers: 3 shared (`_remove_stale_history_rows`, `_row_needs_update`, `_update_or_add_history_row`), 1 dues-specific (`_build_dues_payment_row`), 1 invoice-specific (`_process_single_invoice`), 2 fee-specific (`_process_fee_amendments`, `_process_fee_schedule`) | — | 2026-02-15 |
 | `vereinigingen_payments/mollie/services/bulk_payment_checker.py` | Tier 3: Decomposed 2 E-grade functions (`check_payments_for_customer` CC 40→15, `_check_via_balance_transactions` CC 39→16). Extracted 7 helpers: `_fetch_customer_with_rate_limit_retry`, `_check_for_matching_invoice`, `_build_payment_info`, `_filter_payment_by_date`, `_extract_payment_ids_from_transactions`, `_batch_check_already_processed`, `_classify_orphaned_payment` | — | 2026-02-15 |
+| `services/mollie_debug_service.py` | Tier 3: Decomposed 5 E/D-grade functions. `bulk_retrieve_all_member_payments` CC 33→13, `create_scheduled_subscription` CC 31→14, `bulk_process_member_payments` CC 27→11, `sync_membership_end_dates_from_mollie` CC 25→below C, `create_mandate` CC 23→below C. Extracted 12 helpers. | — | 2026-02-15 |
+| `mijnrood_sync/services/event_application_service.py` | Tier 3: `_process_member_roles` CC 21→below C. Extracted `_handle_admin_role_change` + `_handle_division_contact_change`. | — | 2026-02-15 |
 
 ---
 

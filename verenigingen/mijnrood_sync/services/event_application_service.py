@@ -1164,13 +1164,38 @@ class MijnRoodEventApplicationService(StatefulService):
         current_roles = self._parse_mijnrood_roles(mijnrood_data.get("roles"))
         old_roles = self._parse_mijnrood_roles(old_data.get("roles")) if old_data else set()
 
-        # Process ROLE_ADMIN
+        messages.extend(
+            self._handle_admin_role_change(member_name, current_roles, old_roles, role_config, event)
+        )
+
+        # 2. Process ROLE_DIVISION_CONTACT from managed_division_ids
+        new_division_ids = mijnrood_data.get("managed_division_ids")
+        old_division_ids = old_data.get("managed_division_ids") if old_data else None
+
+        messages.extend(
+            self._handle_division_contact_change(
+                member_name, new_division_ids, old_division_ids, role_config, event
+            )
+        )
+
+        return messages
+
+    def _handle_admin_role_change(
+        self,
+        member_name: str,
+        current_roles: set,
+        old_roles: set,
+        role_config: dict,
+        event=None,
+    ) -> list[str]:
+        """Handle ROLE_ADMIN addition or removal."""
+        messages = []
+
         if "ROLE_ADMIN" in current_roles and "ROLE_ADMIN" in role_config:
             config = role_config["ROLE_ADMIN"]
             msgs = self._apply_role_actions(member_name, config, event=event)
             messages.extend(msgs)
         elif "ROLE_ADMIN" in old_roles and "ROLE_ADMIN" not in current_roles:
-            # Role removed — end team membership if configured
             config = role_config.get("ROLE_ADMIN", {})
             if config.get("add_to_team") and config.get("default_team"):
                 team_msg = self._end_team_membership(member_name, config["default_team"], event=event)
@@ -1183,9 +1208,18 @@ class MijnRoodEventApplicationService(StatefulService):
                 event.name if event else "N/A",
             )
 
-        # 2. Process ROLE_DIVISION_CONTACT from managed_division_ids
-        new_division_ids = mijnrood_data.get("managed_division_ids")
-        old_division_ids = old_data.get("managed_division_ids") if old_data else None
+        return messages
+
+    def _handle_division_contact_change(
+        self,
+        member_name: str,
+        new_division_ids,
+        old_division_ids,
+        role_config: dict,
+        event=None,
+    ) -> list[str]:
+        """Handle ROLE_DIVISION_CONTACT addition or removal."""
+        messages = []
 
         if new_division_ids and "ROLE_DIVISION_CONTACT" in role_config:
             config = role_config["ROLE_DIVISION_CONTACT"]
@@ -1198,7 +1232,6 @@ class MijnRoodEventApplicationService(StatefulService):
         removed_divs = old_set - new_set
 
         if old_set and not new_set:
-            # Complete removal — was a contact, no longer
             messages.append(
                 _(
                     "ROLE_DIVISION_CONTACT removed from member {0} — "
@@ -1211,7 +1244,6 @@ class MijnRoodEventApplicationService(StatefulService):
                 event.name if event else "N/A",
             )
         elif removed_divs:
-            # Partial removal — some divisions dropped
             messages.append(
                 _(
                     "Member {0} no longer manages division(s) {1} — " "review board membership manually"
