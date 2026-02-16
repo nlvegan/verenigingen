@@ -9,6 +9,7 @@
  "label": "E-Boekhouden",
  "link_to": "E-Boekhouden",
  "link_type": "Workspace Sidebar",
+ "logo_url": "/assets/verenigingen/icons/desktop_icons/solid/e-boekhouden.svg",
  "name": "E-Boekhouden",
  "restrict_removal": 0,
  "roles": [],

@@ -9,6 +9,7 @@
  "label": "Verenigingen Payments",
  "link_to": "Verenigingen Payments",
  "link_type": "Workspace Sidebar",
+ "logo_url": "/assets/verenigingen/icons/desktop_icons/solid/verenigingen_payments.svg",
  "name": "Verenigingen Payments",
  "restrict_removal": 0,
  "roles": [],
