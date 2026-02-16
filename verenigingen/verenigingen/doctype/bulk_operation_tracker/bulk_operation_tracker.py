@@ -18,6 +18,11 @@ class BulkOperationTracker(Document):
 
     def validate(self):
         """Validate the document before saving."""
+        # Ensure numeric fields are initialized (may be None after insert)
+        self.processed_records = cint(self.processed_records)
+        self.successful_records = cint(self.successful_records)
+        self.failed_records = cint(self.failed_records)
+
         # Ensure total_batches is calculated correctly
         if self.total_records and self.batch_size:
             calculated_batches = (self.total_records + self.batch_size - 1) // self.batch_size

@@ -258,22 +258,9 @@ class TestBulkOperationTrackerFunctionality(EnhancedTestCase):
         self.assertEqual(tracker.total_batches, 4)
         self.assertEqual(tracker.status, "Queued")
 
-        # Initialize numeric fields that may be None after insert
-        # (secure_document_operation may leave them uninitialized)
+        # start_operation() sets status to Processing and records start time
         tracker.reload()
-        if tracker.successful_records is None:
-            tracker.successful_records = 0
-        if tracker.failed_records is None:
-            tracker.failed_records = 0
-        if tracker.processed_records is None:
-            tracker.processed_records = 0
-
-        # Start operation — set status and started_at directly
-        # (start_operation() uses secure_document_operation which can fail
-        # in CI due to None integer field comparisons)
-        tracker.status = "Processing"
-        tracker.started_at = frappe.utils.now()
-        tracker.save()
+        tracker.start_operation()
 
         self.assertEqual(tracker.status, "Processing")
         self.assertIsNotNone(tracker.started_at)
