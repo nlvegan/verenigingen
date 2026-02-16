@@ -4,8 +4,11 @@ Simple API endpoint to check donation status for testing
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import public_api
+
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def check_donation_status(donation_name):
     """Check the status of a donation including Payment Entries and payment history"""
 

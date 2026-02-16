@@ -36,7 +36,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, fmt_money
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, public_api
 
 no_cache = 1
 
@@ -131,6 +131,7 @@ def get_mollie_settings(reference_docname, gateway_name):
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def make_payment(data, reference_doctype, reference_docname, gateway_name="Default"):
     """
     Create or check Mollie payment status

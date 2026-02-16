@@ -29,6 +29,7 @@ from verenigingen.mijnrood_sync.field_mapping import (
     get_termination_type_map,
 )
 from verenigingen.services.infrastructure.base_service import StatefulService
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class MijnRoodEventApplicationService(StatefulService):
@@ -1907,6 +1908,7 @@ def get_event_application_service() -> MijnRoodEventApplicationService:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def batch_approve(event_names: str | list) -> dict:
     """Approve multiple sync events at once.
 
@@ -1941,6 +1943,7 @@ _TABLE_PRIORITY = {
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def batch_approve_and_apply(event_names: str | list) -> dict:
     """Approve and apply multiple Pending sync events in one background job.
 
@@ -1964,6 +1967,7 @@ def batch_approve_and_apply(event_names: str | list) -> dict:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def batch_apply(event_names: str | list) -> dict:
     """Enqueue batch application of approved sync events as a background job.
 

@@ -1195,6 +1195,7 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         )
 
         # 3. Create a chapter and add the volunteer as an active board member
+        self.factory.ensure_chapter_role("Board Member")
         chapter = self.create_test_chapter()
         chapter_doc = frappe.get_doc("Chapter", chapter.name)
         chapter_doc.append(

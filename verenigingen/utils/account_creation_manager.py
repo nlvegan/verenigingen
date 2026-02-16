@@ -1489,7 +1489,7 @@ def queue_account_creation_for_volunteer(
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def queue_bulk_account_creation_for_members(
-    member_names: str,
+    member_names: list,
     roles=None,
     role_profile=None,
     batch_size: int = 50,

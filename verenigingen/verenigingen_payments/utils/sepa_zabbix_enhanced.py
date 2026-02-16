@@ -21,7 +21,7 @@ from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.performance_dashboard import _performance_dashboard
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
 from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.verenigingen_payments.utils.sepa_memory_optimizer import SEPAMemoryMonitor
 from verenigingen.verenigingen_payments.utils.sepa_monitoring_dashboard import get_dashboard_instance
@@ -1086,6 +1086,7 @@ _zabbix_integration = SEPAZabbixIntegration()
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def get_sepa_zabbix_metrics() -> Dict[str, Any]:
     """
     Get SEPA metrics for Zabbix monitoring
@@ -1107,6 +1108,7 @@ def get_sepa_zabbix_metrics() -> Dict[str, Any]:
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def get_sepa_zabbix_discovery() -> Dict[str, Any]:
     """
     Get Zabbix low-level discovery data for SEPA
@@ -1165,6 +1167,7 @@ def test_sepa_zabbix_integration() -> Dict[str, Any]:
 
 # Compatibility wrapper for existing Zabbix integration
 @frappe.whitelist(allow_guest=True)
+@public_api
 def get_enhanced_metrics_for_zabbix() -> Dict[str, Any]:
     """
     Enhanced version of get_metrics_for_zabbix with SEPA-specific metrics

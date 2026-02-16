@@ -7,10 +7,12 @@ The old complex webhook handler has been archived due to broken donation creatio
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import public_api
 from verenigingen.verenigingen_payments.mollie.api.unified_payment_api import handle_payment_webhook
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def mollie_subscription_webhook():
     """
     LEGACY REDIRECT: Old subscription webhook endpoint
@@ -33,6 +35,7 @@ def mollie_subscription_webhook():
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def mollie_payment_webhook():
     """
     Webhook endpoint for one-time payments
@@ -84,6 +87,7 @@ def mollie_payment_webhook():
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def mollie_webhook():
     """Simplified Mollie webhook handler for existing donations"""
     frappe.logger().info("🔄 Main Mollie webhook redirecting to unified API")

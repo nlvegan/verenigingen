@@ -4,6 +4,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 class MijnRoodSyncSettings(Document):
     @frappe.whitelist()
@@ -422,6 +424,7 @@ class MijnRoodSyncSettings(Document):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_status_mapping_for_client():
     """Return status mapping for JS client rendering.
 

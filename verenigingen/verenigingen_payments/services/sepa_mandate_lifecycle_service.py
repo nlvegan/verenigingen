@@ -21,6 +21,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+
 # =============================================================================
 # Operational Metrics
 # =============================================================================
@@ -639,6 +641,7 @@ sepa_mandate_lifecycle_service = SEPAMandateLifecycleService()
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_mandate_lifecycle_metrics() -> Dict[str, Any]:
     """
     API endpoint to retrieve SEPA mandate lifecycle metrics.
@@ -659,6 +662,7 @@ def get_mandate_lifecycle_metrics() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reset_mandate_lifecycle_metrics() -> Dict[str, Any]:
     """
     API endpoint to reset SEPA mandate lifecycle metrics.

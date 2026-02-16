@@ -131,6 +131,7 @@ def payment_link_callback():
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
+@public_api
 def payment_page():
     """
     Serve a customer-facing payment page for a Ponto Payment Link.

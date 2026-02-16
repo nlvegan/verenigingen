@@ -11,7 +11,7 @@ from frappe.utils import getdate
 
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
@@ -1478,6 +1478,7 @@ def _create_webhook_processing_log(
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def mollie_webhook():
     """
     Simplified Mollie webhook handler for existing donations

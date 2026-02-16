@@ -9,6 +9,8 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 
+from verenigingen.utils.security.api_security_framework import public_api
+
 # Whitelist of doctypes allowed for public payment status queries
 # This prevents IDOR attacks by limiting what documents can be accessed
 ALLOWED_PAYMENT_DOCTYPES = {"Donation", "Member Application", "Sales Invoice"}
@@ -452,6 +454,7 @@ def get_next_steps(status, doctype, docname):
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api
 def refresh_payment_status(doctype, docname, payment_id):
     """
     API endpoint to refresh payment status.

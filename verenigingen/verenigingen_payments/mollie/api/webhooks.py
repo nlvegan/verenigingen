@@ -111,12 +111,14 @@ def webhook_health_check():
 
 # Backward compatibility endpoints
 @frappe.whitelist(allow_guest=True, methods=["POST"])
+@public_api
 def mollie_payment_webhook():
     """Backward compatibility - routes to main handler"""
     return handle_mollie_payment_webhook()
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
+@public_api
 def mollie_subscription_webhook():
     """Backward compatibility - routes to main handler"""
     return handle_mollie_payment_webhook()

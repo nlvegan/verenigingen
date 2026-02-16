@@ -5,8 +5,11 @@ Comprehensive audit of transaction processing code for ledger_id assignment issu
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def audit_transaction_processing():
     """Audit all transaction processing for ledger_id assignment issues"""
 

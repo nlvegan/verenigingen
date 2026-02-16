@@ -174,7 +174,8 @@ jobs:
         security_decorators = [
             '@critical_api', '@standard_api', '@high_security_api',
             '@development_only_api', '@public_api', '@utility_api',
-            '@development_only', '@require_role'
+            '@development_only', '@_development_only', '@require_role',
+            '@webhook_api'
         ]
 
         high_risk_patterns = ['payment', 'sepa', 'invoice', 'financial', 'settlement', 'batch', 'mandate', 'sync', 'audit']
@@ -204,21 +205,27 @@ jobs:
                 i = 0
                 while i < len(lines):
                     line = lines[i].strip()
-                    if '@frappe.whitelist' in line:
+                    # Only match actual decorator lines, not mentions in docstrings/comments
+                    if line.startswith('@frappe.whitelist'):
                         # Look for security decorator in surrounding lines
                         has_security = False
                         func_name = None
+                        is_class_method = False
 
-                        # Check 5 lines before and after
+                        # Check 5 lines before and 8 lines after
                         for j in range(max(0, i-5), min(len(lines), i+8)):
                             if any(d in lines[j] for d in security_decorators):
                                 has_security = True
                                 break
-                            func_match = re.search(r'def\s+(\w+)', lines[j])
+                            func_match = re.search(r'def\s+(\w+)\s*\(', lines[j])
                             if func_match and not func_name:
                                 func_name = func_match.group(1)
+                                # Skip class methods - protected by DocType permissions
+                                params = lines[j][func_match.end():]
+                                if params.strip().startswith('self') or params.strip().startswith('self,'):
+                                    is_class_method = True
 
-                        if not has_security and is_high_risk and func_name:
+                        if not has_security and is_high_risk and func_name and not is_class_method:
                             unprotected_high_risk.append((filepath, func_name))
                     i += 1
 
@@ -258,7 +265,8 @@ jobs:
         security_decorators = [
             '@critical_api', '@standard_api', '@high_security_api',
             '@development_only_api', '@public_api', '@utility_api',
-            '@development_only', '@require_role'
+            '@development_only', '@_development_only', '@require_role',
+            '@webhook_api'
         ]
 
         for root, dirs, files in os.walk('verenigingen'):
