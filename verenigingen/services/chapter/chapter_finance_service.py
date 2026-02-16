@@ -163,9 +163,7 @@ class ChapterFinanceService(StatelessService):
             if result.success:
                 # Link the created cost center to this chapter
                 chapter_doc.db_set("cost_center", cost_center_doc.name, update_modified=False)
-                self.logger.info(
-                    f"Created cost center {cost_center_doc.name} for chapter {chapter_doc.name}"
-                )
+                self.logger.info(f"Created cost center {cost_center_doc.name} for chapter {chapter_doc.name}")
             else:
                 # Insert failed — possibly a concurrent process created the CC.
                 # Use get_value (not db.exists) to guarantee we get the name string.
@@ -175,9 +173,7 @@ class ChapterFinanceService(StatelessService):
                     "name",
                 )
                 if concurrent_cc:
-                    chapter_doc.db_set(
-                        "cost_center", concurrent_cc, update_modified=False
-                    )
+                    chapter_doc.db_set("cost_center", concurrent_cc, update_modified=False)
                     self.logger.info(
                         f"[CHAPTER-CC-CREATE] Linked cost center {concurrent_cc} "
                         f"created concurrently for chapter {chapter_doc.name}"

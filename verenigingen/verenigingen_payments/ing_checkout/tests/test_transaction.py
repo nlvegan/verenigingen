@@ -7,8 +7,6 @@ Unit tests for ING Checkout Transaction DocType
 Tests status mapping, transaction creation, and helper functions.
 """
 
-from unittest.mock import MagicMock, patch
-
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
@@ -58,85 +56,67 @@ class TestStatusMap(FrappeTestCase):
 
 
 class TestGetOrCreateTransaction(FrappeTestCase):
-    """Test transaction creation and retrieval."""
+    """Test transaction creation and retrieval using real database operations."""
 
-    @patch("frappe.db.get_value")
-    @patch("frappe.new_doc")
-    def test_create_new_transaction(self, mock_new_doc, mock_get_value):
+    def _unique_txn_id(self, suffix=""):
+        """Generate a unique transaction ID for test isolation."""
+        return f"EX-TEST-{frappe.generate_hash(length=8)}{suffix}"
+
+    def test_create_new_transaction(self):
         """Test creating a new transaction."""
-        mock_get_value.return_value = None  # No existing transaction
-
-        mock_doc = MagicMock()
-        mock_doc.name = "ING-TXN-00001"
-        mock_new_doc.return_value = mock_doc
+        txn_id = self._unique_txn_id()
 
         result = get_or_create_transaction(
-            transaction_id="EX-1234-5678-9012",
+            transaction_id=txn_id,
             reference_doctype="Sales Invoice",
             reference_name="INV-001",
             amount=25.00,
             payment_method="iDEAL",
         )
 
-        mock_new_doc.assert_called_once_with("ING Checkout Transaction")
-        self.assertEqual(mock_doc.transaction_id, "EX-1234-5678-9012")
-        self.assertEqual(mock_doc.reference_doctype, "Sales Invoice")
-        self.assertEqual(mock_doc.reference_name, "INV-001")
-        self.assertEqual(mock_doc.amount, 25.00)
-        self.assertEqual(mock_doc.payment_method, "iDEAL")
-        self.assertEqual(mock_doc.status, "Pending")
-        mock_doc.insert.assert_called_once_with(ignore_permissions=True)
+        self.assertEqual(result.transaction_id, txn_id)
+        self.assertEqual(result.reference_doctype, "Sales Invoice")
+        self.assertEqual(result.reference_name, "INV-001")
+        self.assertEqual(flt(result.amount), 25.00)
+        self.assertEqual(result.payment_method, "iDEAL")
+        self.assertEqual(result.status, "Pending")
+        # Verify it was actually persisted
+        self.assertTrue(frappe.db.exists("ING Checkout Transaction", result.name))
 
-    @patch("frappe.db.get_value")
-    @patch("frappe.get_doc")
-    def test_get_existing_transaction(self, mock_get_doc, mock_get_value):
-        """Test retrieving existing transaction."""
-        mock_get_value.return_value = "ING-TXN-00001"
+    def test_get_existing_transaction(self):
+        """Test retrieving existing transaction instead of creating a duplicate."""
+        txn_id = self._unique_txn_id()
 
-        mock_doc = MagicMock()
-        mock_doc.name = "ING-TXN-00001"
-        mock_get_doc.return_value = mock_doc
-
-        result = get_or_create_transaction(
-            transaction_id="EX-EXISTING-1234",
+        # Create the transaction first
+        original = get_or_create_transaction(
+            transaction_id=txn_id,
+            amount=50.00,
         )
 
-        mock_get_doc.assert_called_once_with("ING Checkout Transaction", "ING-TXN-00001")
-        self.assertEqual(result, mock_doc)
-        # new_doc should not be called
-        self.assertEqual(result.name, "ING-TXN-00001")
+        # Call again with same transaction_id — should return existing
+        result = get_or_create_transaction(transaction_id=txn_id)
 
-    @patch("frappe.db.get_value")
-    @patch("frappe.new_doc")
-    def test_transaction_amount_is_float(self, mock_new_doc, mock_get_value):
+        self.assertEqual(result.name, original.name)
+        self.assertEqual(flt(result.amount), 50.00)
+
+    def test_transaction_amount_is_float(self):
         """Test that amount is properly converted to float."""
-        mock_get_value.return_value = None
+        txn_id = self._unique_txn_id()
 
-        mock_doc = MagicMock()
-        mock_new_doc.return_value = mock_doc
-
-        get_or_create_transaction(
-            transaction_id="EX-1234",
+        result = get_or_create_transaction(
+            transaction_id=txn_id,
             amount="100.50",  # String amount
         )
 
-        # Should convert to float
-        self.assertEqual(mock_doc.amount, flt("100.50"))
+        self.assertEqual(flt(result.amount), flt("100.50"))
 
-    @patch("frappe.db.get_value")
-    @patch("frappe.new_doc")
-    def test_default_payment_method(self, mock_new_doc, mock_get_value):
+    def test_default_payment_method(self):
         """Test default payment method is iDEAL."""
-        mock_get_value.return_value = None
+        txn_id = self._unique_txn_id()
 
-        mock_doc = MagicMock()
-        mock_new_doc.return_value = mock_doc
+        result = get_or_create_transaction(transaction_id=txn_id)
 
-        get_or_create_transaction(
-            transaction_id="EX-1234",
-        )
-
-        self.assertEqual(mock_doc.payment_method, "iDEAL")
+        self.assertEqual(result.payment_method, "iDEAL")
 
 
 class TestTransactionValidation(FrappeTestCase):
@@ -179,9 +159,3 @@ class TestUpdateFromWebhookStatusMapping(FrappeTestCase):
     def test_unknown_status_defaults(self):
         """Test unknown status code defaults to None (will become Pending)."""
         self.assertIsNone(STATUS_MAP.get(999))
-
-
-# Note: Integration tests for update_from_webhook, _create_payment_entry,
-# _handle_overpayment, and _send_payment_entry_failure_alert require
-# actual database context and are covered by integration tests.
-# The unit tests above verify the core logic and status mapping.

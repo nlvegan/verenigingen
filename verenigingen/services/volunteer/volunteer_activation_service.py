@@ -118,4 +118,7 @@ def activate_volunteer_record(member):
                         frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
                         # Non-critical - continue with volunteer activation
     except Exception as e:
-        safe_log_error("Volunteer activation error", f"Error activating volunteer record for member {member.name}: {str(e)}")
+        safe_log_error(
+            "Volunteer activation error",
+            f"Error activating volunteer record for member {member.name}: {str(e)}",
+        )

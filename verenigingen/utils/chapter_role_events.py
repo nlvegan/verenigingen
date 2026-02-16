@@ -23,7 +23,6 @@ from verenigingen.permissions import assign_chapter_board_role, get_user_chapter
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
 
-
 # REMOVED: on_chapter_board_member_after_insert, on_chapter_board_member_on_update,
 # on_chapter_board_member_on_trash. These child table doc_events never fire when
 # rows are managed via parent save. Role assignment and role profile sync are now

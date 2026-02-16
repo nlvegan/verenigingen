@@ -160,7 +160,9 @@ def handle_user_account_creation(event_name, event_data, **kwargs):
         member = frappe.get_doc("Member", member_name)
 
         # Use existing secure account creation system
-        from verenigingen.services.member.account.member_user_account_service import create_secure_user_account_for_member
+        from verenigingen.services.member.account.member_user_account_service import (
+            create_secure_user_account_for_member,
+        )
 
         user_creation_result = create_secure_user_account_for_member(member)
 

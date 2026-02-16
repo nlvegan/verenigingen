@@ -112,7 +112,9 @@ def approve_membership_application_background(
         membership_type = resolve_membership_type(member, membership_type)
 
         # Pre-check: Validate membership type has a valid dues schedule template
-        from verenigingen.services.member.approval.member_approval_service import validate_membership_type_for_approval
+        from verenigingen.services.member.approval.member_approval_service import (
+            validate_membership_type_for_approval,
+        )
 
         validate_membership_type_for_approval(membership_type, member, is_application_approval=True)
 
@@ -284,5 +286,3 @@ def get_approval_progress(member_name: str) -> OperationResult[Dict[str, Any]]:
             errors=[str(e)],
             context={"member_name": member_name, "operation": "get_approval_progress"},
         )
-
-

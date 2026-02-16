@@ -93,7 +93,9 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
             .on(Volunteer.member == Member.name)
             .left_join(User)
             .on(Member.user == User.name)
-            .select(Member.name.as_("member"), CBM.chapter_role, Member.user, User.enabled.as_("user_enabled"))
+            .select(
+                Member.name.as_("member"), CBM.chapter_role, Member.user, User.enabled.as_("user_enabled")
+            )
             .where(
                 (CBM.parent == entity_name)
                 & (CBM.is_active == 1)
