@@ -80,7 +80,8 @@ class TestBulkAccountCreationScale(EnhancedTestCase):
 
         self.assertTrue(result["success"], f"Bulk queue should succeed: {result}")
         self.assertEqual(result["data"]["requests_created"], 10)
-        self.assertEqual(result["data"]["batch_count"], 2)
+        # COR pattern queues only the first batch; total_batches is on the tracker
+        self.assertEqual(result["data"]["batch_count"], 1)
 
         tracker = frappe.get_doc("Bulk Operation Tracker", result["data"]["tracker_name"])
         self.assertEqual(tracker.total_records, 10)
@@ -119,10 +120,14 @@ class TestBulkAccountCreationScale(EnhancedTestCase):
                     batch_size=5,
                 )
 
-                expected_batches = (count + 4) // 5
                 self.assertTrue(result["success"], f"Edge case {count} should succeed: {result}")
                 self.assertEqual(result["data"]["requests_created"], count)
-                self.assertEqual(result["data"]["batch_count"], expected_batches)
+                # COR pattern queues only the first batch
+                self.assertEqual(result["data"]["batch_count"], 1)
+                # Verify total batches via tracker
+                tracker = frappe.get_doc("Bulk Operation Tracker", result["data"]["tracker_name"])
+                expected_batches = (count + 4) // 5
+                self.assertEqual(tracker.total_batches, expected_batches)
 
 
 class TestBulkAccountCreationErrorHandling(EnhancedTestCase):
@@ -179,7 +184,8 @@ class TestBulkAccountCreationErrorHandling(EnhancedTestCase):
         )
 
         self.assertTrue(result["success"], f"Queue should succeed: {result}")
-        self.assertEqual(result["data"]["batch_count"], 2)
+        # COR pattern queues only the first batch
+        self.assertEqual(result["data"]["batch_count"], 1)
 
         tracker_name = result["data"]["tracker_name"]
         request_names = result["data"]["request_names"]
@@ -453,7 +459,7 @@ class TestBulkAccountCreationSecurity(EnhancedTestCase):
             request = frappe.get_doc("Account Creation Request", request_name)
             self.assertIsNotNone(request.creation)
             self.assertIsNotNone(request.owner)
-            self.assertEqual(request.status, "Queued")
+            self.assertEqual(request.status, "Requested")
             self.assertIsNotNone(request.business_justification)
 
         tracker = frappe.get_doc("Bulk Operation Tracker", result["data"]["tracker_name"])
