@@ -317,6 +317,29 @@ def submit_donation(**kwargs):
         }
 
 
+def _save_donation_as_system_user(doc, operation, operation_context, description):
+    """Save or insert a donation/donor document using system user context.
+
+    PUBLIC DONATION FLOW: Guests lack roles in ESCALATION_ALLOWED_ROLES so
+    secure_document_operation(allow_system_user=True) fails for them.  This
+    helper switches to the configured system user via secure_user_context()
+    instead — the same pattern used for donor creation elsewhere in this file.
+
+    Args:
+        doc: Document to save/insert.
+        operation: "insert" or "save".
+        operation_context: Context key for get_system_user_for_operation().
+        description: Human-readable description for the audit trail.
+
+    Raises:
+        Exception: Re-raises after logging so callers can handle it.
+    """
+    system_user = get_system_user_for_operation(operation_context)
+    with secure_user_context(system_user, description):
+        getattr(doc, operation)()
+        frappe.db.commit()
+
+
 def get_or_create_donor(form_data):
     """Get existing donor or create new one"""
     # Check if donor exists by email
@@ -523,19 +546,16 @@ def create_donation_record(donor, form_data):
         donation_doc.anbi_agreement_number = form_data.anbi_agreement_number
         donation_doc.anbi_agreement_date = getdate(form_data.get("anbi_agreement_date", getdate()))
 
-    # Use secure operations for all environments
-    # For public donations, allow creation with system user fallback
-    result = secure_document_operation(
-        operation="insert",
-        doc=donation_doc,
-        justification=f"Create donation record for {donor.donor_name} amount €{form_data.amount} - public donation processing for {purpose_type} purpose",
-        required_permissions=[],  # Public donation creation - no specific permissions required
-        allow_system_user=True,  # Allow system user fallback for public donations
-    )
-
-    if not result.success:
+    try:
+        _save_donation_as_system_user(
+            donation_doc,
+            "insert",
+            "public_donation_creation",
+            f"Creating donation for public donation: {donor.donor_email} amount €{form_data.amount}",
+        )
+    except Exception as e:
         frappe.log_error(
-            message="Failed to create donation record: " + "; ".join(result.errors),
+            message=f"Failed to create donation record: {str(e)}",
             title="Donation Creation Security",
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
@@ -570,17 +590,16 @@ def process_payment_method(donation, form_data):
 
     # Update donation's mode_of_payment before processing
     donation.mode_of_payment = payment_method
-    save_result = secure_document_operation(
-        operation="save",
-        doc=donation,
-        justification=f"Update donation {donation.name} with {payment_method} payment method",
-        required_permissions=[],
-        allow_system_user=True,
-    )
-
-    if not save_result.success:
+    try:
+        _save_donation_as_system_user(
+            donation,
+            "save",
+            "public_donation_payment_update",
+            f"Update donation {donation.name} with {payment_method} payment method",
+        )
+    except Exception as e:
         frappe.log_error(
-            f"Failed to update donation payment method: {'; '.join(save_result.errors)}",
+            f"Failed to update donation payment method: {str(e)}",
             "Donation Payment Method Update Error",
         )
         return {
@@ -696,19 +715,17 @@ def _convert_payment_hook_response(result: dict) -> dict:
 
 def process_bank_transfer(donation, form_data):
     """Handle bank transfer payment"""
-    # Set payment method using secure operation
     donation.mode_of_payment = "Bank Transfer"
-    result = secure_document_operation(
-        operation="save",
-        doc=donation,
-        justification=f"Update donation {donation.name} with Bank Transfer payment method - payment processing setup",
-        required_permissions=[],  # Allow payment method updates for donation processing
-        allow_system_user=True,
-    )
-
-    if not result.success:
+    try:
+        _save_donation_as_system_user(
+            donation,
+            "save",
+            "public_donation_payment_update",
+            f"Update donation {donation.name} with Bank Transfer payment method",
+        )
+    except Exception as e:
         frappe.log_error(
-            f"Failed to update donation with payment method: {'; '.join(result.errors)}",
+            f"Failed to update donation with payment method: {str(e)}",
             "Donation Payment Method Update Error",
         )
         return {
@@ -747,19 +764,17 @@ def process_bank_transfer(donation, form_data):
 
 def process_sepa_direct_debit(donation, form_data):
     """Handle SEPA direct debit setup"""
-    # Set payment method using secure operation
     donation.mode_of_payment = "SEPA Direct Debit"
-    result = secure_document_operation(
-        operation="save",
-        doc=donation,
-        justification=f"Update donation {donation.name} with SEPA Direct Debit payment method - payment processing setup",
-        required_permissions=[],  # Allow payment method updates for donation processing
-        allow_system_user=True,
-    )
-
-    if not result.success:
+    try:
+        _save_donation_as_system_user(
+            donation,
+            "save",
+            "public_donation_payment_update",
+            f"Update donation {donation.name} with SEPA Direct Debit payment method",
+        )
+    except Exception as e:
         frappe.log_error(
-            f"Failed to update donation with payment method: {'; '.join(result.errors)}",
+            f"Failed to update donation with payment method: {str(e)}",
             "Donation Payment Method Update Error",
         )
         return {
@@ -784,19 +799,17 @@ def process_mollie_payment(donation, form_data):
             CompletePaymentService,
         )
 
-        # Set payment method using secure operation
         donation.mode_of_payment = "Mollie"
-        result = secure_document_operation(
-            operation="save",
-            doc=donation,
-            justification=f"Update donation {donation.name} with Mollie payment method - payment processing setup",
-            required_permissions=[],  # Allow payment method updates for donation processing
-            allow_system_user=True,
-        )
-
-        if not result.success:
+        try:
+            _save_donation_as_system_user(
+                donation,
+                "save",
+                "public_donation_payment_update",
+                f"Update donation {donation.name} with Mollie payment method",
+            )
+        except Exception as e:
             frappe.log_error(
-                f"Failed to update donation with payment method: {'; '.join(result.errors)}",
+                f"Failed to update donation with payment method: {str(e)}",
                 "Donation Payment Method Update Error",
             )
             return {
@@ -859,19 +872,17 @@ def process_mollie_payment(donation, form_data):
 
 def process_cash_payment(donation, form_data):
     """Handle cash payment"""
-    # Set payment method using secure operation
     donation.mode_of_payment = "Cash"
-    result = secure_document_operation(
-        operation="save",
-        doc=donation,
-        justification=f"Update donation {donation.name} with Cash payment method - payment processing setup",
-        required_permissions=[],  # Allow payment method updates for donation processing
-        allow_system_user=True,
-    )
-
-    if not result.success:
+    try:
+        _save_donation_as_system_user(
+            donation,
+            "save",
+            "public_donation_payment_update",
+            f"Update donation {donation.name} with Cash payment method",
+        )
+    except Exception as e:
         frappe.log_error(
-            f"Failed to update donation with payment method: {'; '.join(result.errors)}",
+            f"Failed to update donation with payment method: {str(e)}",
             "Donation Payment Method Update Error",
         )
         return {
