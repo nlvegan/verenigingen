@@ -419,7 +419,7 @@ class AccountCreationService(StatelessService):
                     "email": member.email,  # Required field
                     "full_name": member.full_name,  # Required field
                     "priority": priority,
-                    "justification": justification or "Account creation via AccountCreationService",
+                    "business_justification": justification or "Account creation via AccountCreationService",
                     "requested_roles": [{"role": role} for role in roles],
                     "role_profile": role_profile,
                     "create_employee_record": (
