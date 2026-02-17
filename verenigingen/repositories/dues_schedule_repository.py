@@ -49,7 +49,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 
 
 class ScheduleStatus(Enum):
@@ -648,6 +648,112 @@ class DuesScheduleRepository:
         except Exception as e:
             frappe.logger().error(f"Failed to update next_invoice_date for {schedule_name}: {str(e)}")
             return False
+
+    def update_schedule_rate(
+        self,
+        schedule_name: str,
+        new_rate: float,
+        reason: str,
+        mark_as_custom: bool = True,
+    ) -> CancellationResult:
+        """Update a dues schedule's rate with audit trail.
+
+        Centralises rate-only updates used by MijnRood sync, contribution
+        amendments, and membership type changes.  No-ops when the rate
+        already matches (idempotent).
+
+        Calling code controls the transaction boundary — this method does
+        not call ``frappe.db.commit()``.
+
+        Args:
+            schedule_name: Schedule document name
+            new_rate: New dues rate amount (must be non-negative)
+            reason: Reason for the change (appended to notes + custom_amount_reason)
+            mark_as_custom: Set uses_custom_amount=1 and record reason
+
+        Returns:
+            CancellationResult — method_used is "no_change_needed" when rates match
+        """
+        if not schedule_name:
+            return CancellationResult(
+                success=False,
+                schedule_name="",
+                message="No schedule name provided",
+                method_used="none",
+                errors=["No schedule name provided"],
+            )
+
+        new_rate = flt(new_rate)
+        if new_rate < 0:
+            return CancellationResult(
+                success=False,
+                schedule_name=schedule_name,
+                message=f"Invalid rate: {new_rate} (must be non-negative)",
+                method_used="none",
+                errors=["Negative dues rates are not allowed"],
+            )
+
+        try:
+            if not frappe.has_permission(self.doctype, "write", schedule_name):
+                return CancellationResult(
+                    success=False,
+                    schedule_name=schedule_name,
+                    message=f"Permission denied: user lacks write access to update schedule {schedule_name}",
+                    method_used="none",
+                    errors=["Permission denied"],
+                )
+
+            schedule = frappe.get_doc(self.doctype, schedule_name)
+            old_rate = flt(schedule.dues_rate)
+
+            if old_rate == new_rate:
+                return CancellationResult(
+                    success=True,
+                    schedule_name=schedule_name,
+                    message="Rate already matches",
+                    method_used="no_change_needed",
+                )
+
+            schedule.dues_rate = new_rate
+            if mark_as_custom:
+                schedule.uses_custom_amount = 1
+                # Append to preserve history from prior amendments
+                existing_reason = (schedule.custom_amount_reason or "").strip()
+                new_reason = f"{reason}: rate {old_rate} → {new_rate}"
+                schedule.custom_amount_reason = (
+                    f"{existing_reason}\n{new_reason}".strip() if existing_reason else new_reason
+                )
+
+            schedule.notes = (
+                f"{schedule.notes or ''}\n" f"[{today()}] Rate: {old_rate} → {new_rate}. {reason}"
+            ).strip()
+
+            schedule.save()
+
+            frappe.logger().info(
+                "Updated schedule %s rate: %s → %s (%s)",
+                schedule_name,
+                old_rate,
+                new_rate,
+                reason,
+            )
+
+            return CancellationResult(
+                success=True,
+                schedule_name=schedule_name,
+                message=f"Rate updated from {old_rate} to {new_rate}",
+                method_used="update",
+            )
+
+        except Exception as e:
+            frappe.logger().error("Failed to update schedule %s rate: %s", schedule_name, str(e))
+            return CancellationResult(
+                success=False,
+                schedule_name=schedule_name,
+                message=str(e),
+                method_used="none",
+                errors=[str(e)],
+            )
 
     def update_schedule_for_type_change(
         self,

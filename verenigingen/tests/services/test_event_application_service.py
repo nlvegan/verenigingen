@@ -1050,8 +1050,29 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         self.assertIsNone(result)
 
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
-    def test_skips_when_existing_active_membership_with_schedule(self, mock_frappe):
-        """Returns None when member has active Membership AND dues schedule."""
+    def test_calls_update_when_schedule_exists_and_rate_provided(self, mock_frappe):
+        """Calls _update_existing_dues_schedule when schedule exists and dues_rate in row_data."""
+        mock_frappe._ = frappe._
+        member_doc = MagicMock()
+        member_doc.status = "Active"
+        mock_frappe.get_doc.return_value = member_doc
+        mock_frappe.db.get_value.return_value = "MEMB-001"
+        mock_frappe.db.exists.return_value = "SCHED-001"
+
+        with patch.object(
+            self.service, "_update_existing_dues_schedule",
+            return_value="Dues schedule SCHED-001 updated: rate 10.0 → 12.5",
+        ) as mock_update:
+            result = self.service._ensure_membership_and_dues(
+                "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+            )
+
+        mock_update.assert_called_once_with("MEM-001", 12.50)
+        self.assertIn("SCHED-001", result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_skips_when_schedule_exists_but_no_rate_in_data(self, mock_frappe):
+        """Returns None when schedule exists but dues_rate not in row_data."""
         member_doc = MagicMock()
         member_doc.status = "Active"
         mock_frappe.get_doc.return_value = member_doc
@@ -1059,7 +1080,7 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         mock_frappe.db.exists.return_value = "SCHED-001"
 
         result = self.service._ensure_membership_and_dues(
-            "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+            "MEM-001", {"payment_period": "Per kwartaal"}
         )
         self.assertIsNone(result)
 
@@ -1227,6 +1248,99 @@ class TestBackfillDuesSchedule(EnhancedTestCase):
             result = self.service._backfill_dues_schedule(
                 member_doc, "MEMB-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
             )
+
+        self.assertIn("failed", result)
+        mock_frappe.log_error.assert_called_once()
+
+
+class TestUpdateExistingDuesSchedule(EnhancedTestCase):
+    """Tests for _update_existing_dues_schedule()."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def test_returns_none_when_no_schedule_found(self):
+        """Returns None when repository finds no active/paused schedule."""
+        from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
+
+        with patch.object(DuesScheduleRepository, "get_active_or_paused_schedule", return_value=None):
+            result = self.service._update_existing_dues_schedule("MEM-001", 15.0)
+
+        self.assertIsNone(result)
+
+    def test_returns_none_when_rate_unchanged(self):
+        """Returns None when repository reports no change needed."""
+        from verenigingen.repositories.dues_schedule_repository import (
+            CancellationResult,
+            DuesScheduleRepository,
+            ScheduleInfo,
+        )
+
+        mock_schedule = ScheduleInfo(name="SCHED-001", member="MEM-001", dues_rate=15.0)
+        no_change = CancellationResult(
+            success=True, schedule_name="SCHED-001",
+            message="Rate already matches", method_used="no_change_needed",
+        )
+
+        with patch.object(
+            DuesScheduleRepository, "get_active_or_paused_schedule", return_value=mock_schedule,
+        ), patch.object(
+            DuesScheduleRepository, "update_schedule_rate", return_value=no_change,
+        ):
+            result = self.service._update_existing_dues_schedule("MEM-001", 15.0)
+
+        self.assertIsNone(result)
+
+    def test_returns_message_when_rate_updated(self):
+        """Returns human-readable message on successful rate update."""
+        from verenigingen.repositories.dues_schedule_repository import (
+            CancellationResult,
+            DuesScheduleRepository,
+            ScheduleInfo,
+        )
+
+        mock_schedule = ScheduleInfo(name="SCHED-001", member="MEM-001", dues_rate=10.0)
+        updated = CancellationResult(
+            success=True, schedule_name="SCHED-001",
+            message="Rate updated from 10.0 to 15.0", method_used="update",
+        )
+
+        with patch.object(
+            DuesScheduleRepository, "get_active_or_paused_schedule", return_value=mock_schedule,
+        ), patch.object(
+            DuesScheduleRepository, "update_schedule_rate", return_value=updated,
+        ) as mock_update:
+            result = self.service._update_existing_dues_schedule("MEM-001", 15.0)
+
+        mock_update.assert_called_once_with(
+            schedule_name="SCHED-001", new_rate=15.0, reason="MijnRood sync",
+        )
+        self.assertIn("SCHED-001", result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_logs_and_returns_error_on_repo_failure(self, mock_frappe):
+        """Logs error and returns failure message when repository update fails."""
+        mock_frappe._ = frappe._
+        from verenigingen.repositories.dues_schedule_repository import (
+            CancellationResult,
+            DuesScheduleRepository,
+            ScheduleInfo,
+        )
+
+        mock_schedule = ScheduleInfo(name="SCHED-001", member="MEM-001", dues_rate=10.0)
+        failure = CancellationResult(
+            success=False, schedule_name="SCHED-001",
+            message="Permission denied", method_used="none",
+            errors=["Permission denied"],
+        )
+
+        with patch.object(
+            DuesScheduleRepository, "get_active_or_paused_schedule", return_value=mock_schedule,
+        ), patch.object(
+            DuesScheduleRepository, "update_schedule_rate", return_value=failure,
+        ):
+            result = self.service._update_existing_dues_schedule("MEM-001", 15.0)
 
         self.assertIn("failed", result)
         mock_frappe.log_error.assert_called_once()

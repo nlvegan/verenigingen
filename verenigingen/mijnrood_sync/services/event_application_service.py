@@ -393,6 +393,10 @@ class MijnRoodEventApplicationService(StatefulService):
                 {"member": member_name, "is_template": 0},
             )
             if has_schedule:
+                # Check if dues rate changed — update existing schedule if so
+                new_rate = row_data.get("dues_rate")
+                if new_rate is not None:
+                    return self._update_existing_dues_schedule(member_name, new_rate)
                 return None
             # Membership exists without a dues schedule — backfill it
             return self._backfill_dues_schedule(member_doc, existing_membership, row_data)
@@ -471,6 +475,42 @@ class MijnRoodEventApplicationService(StatefulService):
                 f"MijnRood Sync - Dues Schedule Backfill Failed: {member_doc.name}",
             )
             return _("Dues schedule backfill failed: {0}").format(str(e)[:200])
+
+    def _update_existing_dues_schedule(self, member_name: str, new_rate: float) -> Optional[str]:
+        """Update an existing dues schedule's rate if it differs from the incoming MijnRood rate.
+
+        Delegates to DuesScheduleRepository.update_schedule_rate() for the
+        actual update logic (idempotent — no-ops when rates match).
+
+        Returns:
+            Human-readable status message, or None if no update needed.
+        """
+        from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
+
+        repo = DuesScheduleRepository()
+        schedule = repo.get_active_or_paused_schedule(member_name)
+        if not schedule:
+            return None
+
+        result = repo.update_schedule_rate(
+            schedule_name=schedule.name,
+            new_rate=new_rate,
+            reason="MijnRood sync",
+        )
+
+        if not result.success:
+            self.logger.error("Dues schedule update failed for %s: %s", member_name, result.message)
+            frappe.log_error(
+                "; ".join(result.errors or [result.message]),
+                f"MijnRood Sync - Dues Schedule Update Failed: {member_name}",
+            )
+            return _("Dues schedule update failed: {0}").format(result.message[:200])
+
+        if result.method_used == "no_change_needed":
+            return None
+
+        self.logger.info("Updated dues schedule %s for member %s", schedule.name, member_name)
+        return _("Dues schedule {0} updated: {1}").format(schedule.name, result.message)
 
     def _ensure_user_account(self, member_name: str) -> Optional[str]:
         """Queue an Account Creation Request for a synced member if enabled.

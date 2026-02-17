@@ -314,5 +314,246 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         self.assertEqual(ScheduleStatus.COMPLETED.value, "Completed")
 
 
+class TestUpdateScheduleRate(EnhancedTestCase):
+    """Tests for DuesScheduleRepository.update_schedule_rate()."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = DuesScheduleRepository()
+        self.test_member = self.create_test_member(
+            first_name="Rate",
+            last_name="Update",
+            email="rate.update@example.com",
+            birth_date="1990-01-01",
+        )
+        # Resolve a real Membership Type to avoid LinkValidationError on save()
+        self._membership_type = frappe.db.get_value("Membership Type", {}, "name") or "Lid"
+        # Create a submitted Membership so schedule validate() passes
+        self._membership = self._create_active_membership(self.test_member.name)
+        # Deactivate any auto-created schedules from membership submission
+        # so our test schedule is the only active one (avoids duplicate-schedule validation)
+        self._deactivate_existing_schedules(self.test_member.name)
+
+    def _create_active_membership(self, member_name):
+        """Create a minimal submitted Membership to satisfy schedule validation."""
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": member_name,
+            "membership_type": self._membership_type,
+            "start_date": today(),
+            "status": "Active",
+        })
+        membership.flags.ignore_validate = True
+        membership.flags.ignore_links = True
+        membership.flags.ignore_mandatory = True
+        membership.insert(ignore_permissions=True)
+        membership.submit()
+        frappe.db.commit()
+        return membership
+
+    def _deactivate_existing_schedules(self, member_name):
+        """Cancel any existing schedules so test schedule creation won't hit duplicate validation."""
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "is_template": 0, "status": "Active"},
+            pluck="name",
+        )
+        for name in schedules:
+            frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
+        if schedules:
+            frappe.db.commit()
+
+    def _create_simple_schedule(self, member_name, amount=25.0, status="Active", **kwargs):
+        """Helper to create a simple dues schedule bypassing complex validations."""
+        schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": member_name,
+            "schedule_name": kwargs.get("schedule_name", f"Test Schedule {frappe.generate_hash(length=8)}"),
+            "dues_rate": amount,
+            "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
+            "membership_type": kwargs.get("membership_type", self._membership_type),
+            "currency": kwargs.get("currency", "EUR"),
+            "status": status,
+            "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1)) if status == "Active" else None,
+            "contribution_mode": kwargs.get("contribution_mode", "Tier"),
+            "docstatus": 0,
+            **{k: v for k, v in kwargs.items() if k not in [
+                "schedule_name", "billing_frequency", "next_invoice_date",
+                "contribution_mode", "membership_type", "currency", "docstatus",
+            ]}
+        })
+        schedule.flags.ignore_validate = True
+        schedule.flags.ignore_links = True
+        schedule.flags.ignore_mandatory = True
+        schedule.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return schedule
+
+    # ─── Happy path ─────────────────────────────────────────────────
+
+    def test_updates_rate_successfully(self):
+        """Rate is updated and result indicates success."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+
+        result = self.repo.update_schedule_rate(schedule.name, 30.0, "Annual increase")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.method_used, "update")
+        self.assertIn("25.0", result.message)
+        self.assertIn("30.0", result.message)
+
+        schedule.reload()
+        self.assertEqual(schedule.dues_rate, 30.0)
+
+    def test_sets_custom_amount_fields(self):
+        """uses_custom_amount and custom_amount_reason are set when mark_as_custom=True."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+
+        self.repo.update_schedule_rate(schedule.name, 30.0, "MijnRood sync")
+
+        schedule.reload()
+        self.assertEqual(schedule.uses_custom_amount, 1)
+        self.assertIn("MijnRood sync", schedule.custom_amount_reason)
+        self.assertIn("25.0", schedule.custom_amount_reason)
+        self.assertIn("30.0", schedule.custom_amount_reason)
+
+    def test_skips_custom_amount_when_disabled(self):
+        """uses_custom_amount is NOT set when mark_as_custom=False."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+
+        self.repo.update_schedule_rate(schedule.name, 30.0, "Type change", mark_as_custom=False)
+
+        schedule.reload()
+        self.assertEqual(schedule.dues_rate, 30.0)
+        self.assertFalse(schedule.uses_custom_amount)
+
+    def test_appends_to_notes(self):
+        """Notes field receives a timestamped entry."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+        frappe.db.set_value("Membership Dues Schedule", schedule.name, "notes", "Existing note")
+        frappe.db.commit()
+
+        self.repo.update_schedule_rate(schedule.name, 35.0, "Price adjustment")
+
+        schedule.reload()
+        self.assertIn("Existing note", schedule.notes)
+        self.assertIn(today(), schedule.notes)
+        self.assertIn("25.0", schedule.notes)
+        self.assertIn("35.0", schedule.notes)
+        self.assertIn("Price adjustment", schedule.notes)
+
+    def test_appends_custom_amount_reason_preserving_history(self):
+        """custom_amount_reason is appended, not replaced, on successive updates."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+        frappe.db.set_value("Membership Dues Schedule", schedule.name, {
+            "custom_amount_reason": "First amendment: rate 20.0 → 25.0",
+            "uses_custom_amount": 1,
+        })
+        frappe.db.commit()
+
+        self.repo.update_schedule_rate(schedule.name, 30.0, "Second amendment")
+
+        schedule.reload()
+        self.assertIn("First amendment", schedule.custom_amount_reason)
+        self.assertIn("Second amendment", schedule.custom_amount_reason)
+
+    def test_updates_paused_schedule(self):
+        """Paused schedules can be updated (not just Active ones)."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0, status="Paused")
+
+        result = self.repo.update_schedule_rate(schedule.name, 35.0, "Rate correction")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.method_used, "update")
+        schedule.reload()
+        self.assertEqual(schedule.dues_rate, 35.0)
+
+    def test_updates_to_zero_rate_rejected_when_minimum_set(self):
+        """Zero rate is rejected when membership type has a minimum amount."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=30.0)
+
+        result = self.repo.update_schedule_rate(schedule.name, 0.0, "Dues waived")
+
+        # Validation rejects rates below the membership type minimum_amount
+        self.assertFalse(result.success)
+        self.assertIn("minimum", result.message.lower())
+
+    # ─── Idempotency ────────────────────────────────────────────────
+
+    def test_idempotent_when_rate_matches(self):
+        """Returns no_change_needed when rate already equals new_rate."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+
+        result = self.repo.update_schedule_rate(schedule.name, 25.0, "No actual change")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.method_used, "no_change_needed")
+        self.assertIn("already matches", result.message)
+
+    def test_idempotent_does_not_modify_notes(self):
+        """Notes are NOT appended when rate is unchanged."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+        original_notes = schedule.notes or ""
+
+        self.repo.update_schedule_rate(schedule.name, 25.0, "Idempotent call")
+
+        schedule.reload()
+        self.assertEqual(schedule.notes or "", original_notes)
+
+    # ─── Input validation ───────────────────────────────────────────
+
+    def test_rejects_empty_schedule_name(self):
+        """Returns failure for empty schedule_name."""
+        result = self.repo.update_schedule_rate("", 25.0, "Test")
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.method_used, "none")
+
+    def test_rejects_none_schedule_name(self):
+        """Returns failure for None schedule_name."""
+        result = self.repo.update_schedule_rate(None, 25.0, "Test")
+
+        self.assertFalse(result.success)
+
+    def test_rejects_negative_rate(self):
+        """Returns failure for negative dues rate."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+
+        result = self.repo.update_schedule_rate(schedule.name, -10.0, "Bad rate")
+
+        self.assertFalse(result.success)
+        self.assertIn("non-negative", result.message)
+
+        # Verify rate was NOT changed
+        schedule.reload()
+        self.assertEqual(schedule.dues_rate, 25.0)
+
+    # ─── Permission enforcement ─────────────────────────────────────
+
+    def test_permission_denied_for_guest(self):
+        """Returns failure when user lacks write permission."""
+        schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
+
+        current_user = frappe.session.user
+        frappe.set_user("Guest")
+        try:
+            result = self.repo.update_schedule_rate(schedule.name, 30.0, "Should fail")
+
+            self.assertFalse(result.success)
+            self.assertIn("permission", result.message.lower())
+        finally:
+            frappe.set_user(current_user)
+
+    # ─── Error handling ─────────────────────────────────────────────
+
+    def test_nonexistent_schedule_returns_failure(self):
+        """Returns failure for a schedule_name that doesn't exist."""
+        result = self.repo.update_schedule_rate("NONEXISTENT-001", 25.0, "Ghost schedule")
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.method_used, "none")
+        self.assertTrue(len(result.errors) > 0)
+
+
 if __name__ == "__main__":
     unittest.main()
