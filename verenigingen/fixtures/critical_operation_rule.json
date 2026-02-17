@@ -43387,5 +43387,53 @@
     "batch_rate_limit_calls": 50,
     "batch_rate_limit_period_seconds": 3600,
     "apply_batch_limits_to": "Both"
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "get_status_mapping_for_client",
+    "operation_name": "get_status_mapping_for_client",
+    "operation_type": "reporting",
+    "description": "Retrieve MijnRood status mapping for client-side rendering",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Read-only status label lookup used by MijnRood Sync Event form for implications panel and diff display",
+    "required_roles": "Verenigingen Staff\nSystem Manager",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "mijnrood_sync_settings_get_status_mapping_for_client",
+    "operation_name": "mijnrood_sync_settings_get_status_mapping_for_client",
+    "operation_type": "reporting",
+    "description": "MijnRood Sync Settings controller endpoint for status mapping retrieval",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "DocType controller method returning status labels for MijnRood sync event forms",
+    "required_roles": "Verenigingen Staff\nSystem Manager",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_get_status_mapping_for_client",
+    "operation_name": "api_get_status_mapping_for_client",
+    "operation_type": "reporting",
+    "description": "API endpoint for MijnRood status mapping retrieval",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "External API access to MijnRood status mapping data",
+    "required_roles": "System Manager",
+    "rate_limit_calls": 30,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]

@@ -523,15 +523,9 @@ $(document).ready(function() {
     // Form submission
     form.on('submit', function(e) {
         e.preventDefault();
-        console.log('Fee adjustment form submitted');
-
         const newAmount = parseFloat(feeInput.val());
         const reason = $('#adjustment-reason').val();
         const effectiveDate = $('#effective-date').val();
-
-        console.log('New amount:', newAmount);
-        console.log('Reason:', reason);
-        console.log('Effective date:', effectiveDate);
 
         // Validate
         if (isNaN(newAmount) || newAmount < parseFloat(feeSlider.attr('min'))) {
@@ -564,8 +558,6 @@ $(document).ready(function() {
                 effective_date: effectiveDate
             },
             callback: function(r) {
-                console.log('Fee adjustment API response:', r);
-
                 const data = unwrapOperationResult(r.message);
                 if (data && data.success) {
                     const msg = data.message || '{{ _("Request submitted successfully") }}';
@@ -652,20 +644,15 @@ $(document).ready(function() {
 
     // Membership Type Change Functionality
     $('#change-membership-type-btn').on('click', function() {
-        console.log('Membership type change button clicked');
-
         // Get available membership types
         frappe.call({
             method: 'verenigingen.templates.pages.membership_adjustment.get_available_membership_types',
             args: {},
             callback: function(r) {
-                console.log('Membership types API response:', r);
                 const data = unwrapOperationResult(r.message);
                 if (data && data.membership_types) {
-                    console.log('Showing membership type dialog with types:', data.membership_types);
                     showMembershipTypeDialog(data.membership_types, data.current_type);
                 } else {
-                    console.error('No membership types in response:', r);
                     showMessage('{{ _("Unable to load membership types") }}', 'danger');
                 }
             },
@@ -677,8 +664,6 @@ $(document).ready(function() {
     });
 
     function showMembershipTypeDialog(membershipTypes, currentType) {
-        console.log('showMembershipTypeDialog called with:', membershipTypes, 'current:', currentType);
-
         // Build membership types HTML
         let typesHtml = '';
         membershipTypes.forEach(function(type) {
@@ -826,8 +811,6 @@ $(document).ready(function() {
     }
 
     function submitMembershipTypeChange(newType, reason, requestedAmount) {
-        console.log('submitMembershipTypeChange called with:', newType, reason, requestedAmount);
-
         const args = {
             new_membership_type: newType,
             reason: reason
@@ -846,10 +829,8 @@ $(document).ready(function() {
             method: 'verenigingen.templates.pages.membership_adjustment.submit_membership_type_change_request',
             args: args,
             callback: function(r) {
-                console.log('Membership type change response:', r);
                 const data = unwrapOperationResult(r.message);
                 if (data && (data.success !== false)) {
-                    console.log('Success response received');
                     const msg = data.message || '{{ _("Request submitted successfully") }}';
                     showMessage(msg, 'success');
 
@@ -858,7 +839,6 @@ $(document).ready(function() {
                         window.location.reload();
                     }, 2000);
                 } else {
-                    console.log('No success in response:', r);
                     const errorMsg = verenigingen.utils.getErrorMessage(r.message, '{{ _("An error occurred. Please try again.") }}');
                     showMessage(errorMsg, 'danger');
                 }

@@ -11,7 +11,7 @@
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 /* Calendar styling */
 .calendar-grid {
@@ -225,7 +225,7 @@
         </div>
         <div class="header-actions">
             <a href="/payment_dashboard" class="text-primary-600 hover:text-primary-700 font-medium">
-                <i class="fas fa-tachometer-alt mr-2"></i>{{ _("Full Dashboard") }}
+                <i class="fa fa-tachometer mr-2"></i>{{ _("Full Dashboard") }}
             </a>
         </div>
     </div>
@@ -245,7 +245,7 @@
                     </p>
                 </div>
                 <div class="p-3 bg-primary-50 rounded-full">
-                    <i class="fas fa-calendar-alt text-primary-600"></i>
+                    <i class="fa fa-calendar text-primary-600"></i>
                 </div>
             </div>
         </div>
@@ -263,7 +263,7 @@
                     </p>
                 </div>
                 <div class="p-3 bg-secondary-50 rounded-full">
-                    <i class="fas fa-euro-sign text-secondary-600"></i>
+                    <i class="fa fa-eur text-secondary-600"></i>
                 </div>
             </div>
         </div>
@@ -281,7 +281,7 @@
                     </p>
                 </div>
                 <div class="p-3 bg-accent-50 rounded-full">
-                    <i class="fas fa-clock text-accent-600"></i>
+                    <i class="fa fa-clock text-accent-600"></i>
                 </div>
             </div>
         </div>
@@ -293,7 +293,7 @@
                     <p class="text-2xl font-bold text-gray-800">{{ coverage_percentage }}%</p>
                 </div>
                 <div class="p-3 bg-green-50 rounded-full">
-                    <i class="fas fa-shield-alt text-green-600"></i>
+                    <i class="fa fa-shield text-green-600"></i>
                 </div>
             </div>
         </div>
@@ -348,15 +348,15 @@
                 <!-- Action Buttons -->
                 <div class="flex flex-wrap gap-3">
                     <a href="/membership_adjustment" class="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200">
-                        <i class="fas fa-edit mr-2"></i>
+                        <i class="fa fa-edit mr-2"></i>
                         {{ _("Adjust Dues Rate") }}
                     </a>
                     <a href="/payment_dashboard" class="inline-flex items-center px-4 py-2 bg-secondary-600 text-white rounded-lg hover:bg-secondary-700 transition-colors duration-200">
-                        <i class="fas fa-credit-card mr-2"></i>
+                        <i class="fa fa-credit-card mr-2"></i>
                         {{ _("Payment Dashboard") }}
                     </a>
                     <button id="export-schedule" class="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200">
-                        <i class="fas fa-download mr-2"></i>
+                        <i class="fa fa-download mr-2"></i>
                         {{ _("Export Schedule") }}
                     </button>
                 </div>
@@ -369,13 +369,13 @@
                     <h3 class="text-lg font-semibold text-gray-800">{{ _("Payment Calendar") }}</h3>
                     <div class="flex items-center space-x-2">
                         <button id="prev-month" class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-                            <i class="fas fa-chevron-left"></i>
+                            <i class="fa fa-chevron-left"></i>
                         </button>
                         <span id="current-month" class="font-medium text-gray-800 min-w-[120px] text-center">
                             {{ calendar_month }} {{ calendar_year }}
                         </span>
                         <button id="next-month" class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
-                            <i class="fas fa-chevron-right"></i>
+                            <i class="fa fa-chevron-right"></i>
                         </button>
                     </div>
                 </div>
@@ -452,19 +452,19 @@
                 <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Quick Actions") }}</h4>
                 <div class="space-y-3">
                     <a href="/membership_adjustment" class="quick-action touch-friendly flex items-center p-3 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition-colors duration-200">
-                        <i class="fas fa-edit mr-3"></i>
+                        <i class="fa fa-edit mr-3"></i>
                         <span>{{ _("Adjust My Fee") }}</span>
                     </a>
                     <a href="/payment_dashboard" class="quick-action touch-friendly flex items-center p-3 bg-secondary-50 text-secondary-700 rounded-lg hover:bg-secondary-100 transition-colors duration-200">
-                        <i class="fas fa-credit-card mr-3"></i>
+                        <i class="fa fa-credit-card mr-3"></i>
                         <span>{{ _("Payment Methods") }}</span>
                     </a>
                     <a href="/payment_dashboard" class="quick-action touch-friendly flex items-center p-3 bg-accent-50 text-accent-700 rounded-lg hover:bg-accent-100 transition-colors duration-200">
-                        <i class="fas fa-university mr-3"></i>
+                        <i class="fa fa-university mr-3"></i>
                         <span>{{ _("Bank Details") }}</span>
                     </a>
                     <button id="view-history" class="quick-action touch-friendly flex items-center p-3 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors duration-200 w-full">
-                        <i class="fas fa-history mr-3"></i>
+                        <i class="fa fa-history mr-3"></i>
                         <span>{{ _("Payment History") }}</span>
                     </button>
                 </div>
@@ -489,9 +489,9 @@
                         <span class="text-sm text-gray-500">{{ _("Auto-Renewal") }}</span>
                         <span class="text-sm font-medium text-gray-800">
                             {% if current_schedule.auto_renewal %}
-                                <i class="fas fa-check text-green-600"></i> {{ _("Enabled") }}
+                                <i class="fa fa-check text-green-600"></i> {{ _("Enabled") }}
                             {% else %}
-                                <i class="fas fa-times text-red-600"></i> {{ _("Disabled") }}
+                                <i class="fa fa-times text-red-600"></i> {{ _("Disabled") }}
                             {% endif %}
                         </span>
                     </div>
@@ -499,9 +499,9 @@
                         <span class="text-sm text-gray-500">{{ _("Notification") }}</span>
                         <span class="text-sm font-medium text-gray-800">
                             {% if current_schedule.email_notifications %}
-                                <i class="fas fa-check text-green-600"></i> {{ _("Enabled") }}
+                                <i class="fa fa-check text-green-600"></i> {{ _("Enabled") }}
                             {% else %}
-                                <i class="fas fa-times text-red-600"></i> {{ _("Disabled") }}
+                                <i class="fa fa-times text-red-600"></i> {{ _("Disabled") }}
                             {% endif %}
                         </span>
                     </div>
@@ -515,11 +515,11 @@
                 <p class="text-sm text-gray-600 mb-4">{{ _("Questions about your dues schedule or payment options?") }}</p>
                 <div class="space-y-3">
                     <a href="mailto:{{ member_contact_email }}" class="flex items-center p-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors duration-200">
-                        <i class="fas fa-envelope mr-3"></i>
+                        <i class="fa fa-envelope mr-3"></i>
                         <span>{{ _("Contact Support") }}</span>
                     </a>
                     <a href="/help/dues-schedule" class="flex items-center p-3 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors duration-200">
-                        <i class="fas fa-question-circle mr-3"></i>
+                        <i class="fa fa-question-circle mr-3"></i>
                         <span>{{ _("Help Center") }}</span>
                     </a>
                 </div>
@@ -535,7 +535,7 @@
             <div class="flex justify-between items-center mb-4">
                 <h5 class="text-lg font-semibold text-gray-800">{{ _("Payment Details") }}</h5>
                 <button id="close-modal" class="text-gray-500 hover:text-gray-700">
-                    <i class="fas fa-times"></i>
+                    <i class="fa fa-times"></i>
                 </button>
             </div>
             <div id="modal-content">

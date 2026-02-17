@@ -1210,6 +1210,7 @@ async function loadMollieStatus() {
 function updateMollieDisplay(data) {
     const container = document.getElementById('mollie-subscriptions-container');
     const badge = document.getElementById('mollie-status-badge');
+    const topBadge = document.getElementById('mollie-top-badge');
     const card = document.getElementById('mollie-card');
 
     if (!data || data.status === 'no_subscription' || !data.subscriptions || data.subscriptions.length === 0) {

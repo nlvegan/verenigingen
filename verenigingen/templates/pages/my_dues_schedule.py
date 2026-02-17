@@ -40,7 +40,7 @@ def get_context(context):
     payment_timeline = get_payment_timeline(member)
 
     # Get coverage information
-    coverage_info = get_coverage_info(current_schedule)
+    coverage_info = get_coverage_info(member, current_schedule)
 
     # Get calendar data
     calendar_data = get_calendar_data()
@@ -127,7 +127,7 @@ def get_payment_data(member):
                 "date": str(invoice.due_date),
                 "amount": flt(invoice.grand_total, 2),
                 "status": status,
-                "description": f"Invoice {invoice.name}",
+                "description": _("Invoice {0}").format(invoice.name),
                 "invoice_link": f"/app/sales-invoice/{invoice.name}",
             }
         )
@@ -163,7 +163,7 @@ def get_payment_timeline(member):
                 "due_date": payment.posting_date,
                 "amount": flt(payment.paid_amount, 2),
                 "status": "Paid",
-                "description": f"Payment {payment.name}",
+                "description": _("Payment {0}").format(payment.name),
                 "invoice_link": f"/app/payment-entry/{payment.name}",
             }
         )
@@ -188,7 +188,7 @@ def get_payment_timeline(member):
                 "due_date": invoice.due_date,
                 "amount": flt(invoice.outstanding_amount, 2),
                 "status": "Due",
-                "description": f"Invoice {invoice.name}",
+                "description": _("Invoice {0}").format(invoice.name),
                 "invoice_link": f"/app/sales-invoice/{invoice.name}",
             }
         )
@@ -199,15 +199,47 @@ def get_payment_timeline(member):
     return timeline[:10]  # Return most recent 10 items
 
 
-def get_coverage_info(current_schedule):
-    """Calculate coverage information"""
+def get_coverage_info(member, current_schedule):
+    """Calculate coverage based on paid invoices in the current calendar year"""
 
-    if not current_schedule:
-        return {"percentage": 0, "covered_months": 0, "total_months": 0}
+    if not current_schedule or not member:
+        return {"percentage": 0, "covered_months": 0, "total_months": 12}
 
-    # For now, return sample data
-    # In production, this would calculate actual coverage based on payments
-    return {"percentage": 75, "covered_months": 9, "total_months": 12}
+    customer = frappe.db.get_value("Member", member, "customer")
+    if not customer:
+        return {"percentage": 0, "covered_months": 0, "total_months": 12}
+
+    now = datetime.now()
+    year_start = f"{now.year}-01-01"
+    year_end = f"{now.year}-12-31"
+
+    # Count invoices in current year that are fully paid (outstanding_amount == 0)
+    paid_count = frappe.db.count(
+        "Sales Invoice",
+        filters={
+            "customer": customer,
+            "docstatus": 1,
+            "outstanding_amount": 0,
+            "posting_date": ["between", [year_start, year_end]],
+        },
+    )
+
+    # Determine expected invoices based on billing frequency
+    billing_frequency = current_schedule.get("billing_frequency", "Monthly")
+    frequency_map = {
+        "Monthly": 12,
+        "Quarterly": 4,
+        "Half-Yearly": 2,
+        "Yearly": 1,
+    }
+    total_expected = frequency_map.get(billing_frequency, 12)
+
+    # Months covered = paid invoices * months per invoice
+    months_per_invoice = 12 // total_expected
+    covered_months = min(int(paid_count) * months_per_invoice, 12)
+    percentage = round((covered_months / 12) * 100)
+
+    return {"percentage": percentage, "covered_months": covered_months, "total_months": 12}
 
 
 def get_calendar_data():

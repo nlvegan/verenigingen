@@ -27,19 +27,21 @@
 .btn-submit:focus,
 .btn-portal:active,
 .btn-submit:active {
-  outline: none;
+  outline-color: transparent;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25);
 }
 
-/* Card Styles */
-.card {
+/* Card Styles - scoped to portal contexts to avoid global overrides */
+.volunteer-portal .card,
+.expense-portal .card {
   border: none;
   border-radius: 10px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   transition: box-shadow 0.3s ease;
 }
 
-.card:hover {
+.volunteer-portal .card:hover,
+.expense-portal .card:hover {
   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
 }
 

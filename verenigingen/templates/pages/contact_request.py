@@ -48,20 +48,20 @@ def get_context(context):
 
     # Get request types for dropdown
     context.request_types = [
-        "General Inquiry",
-        "Membership Question",
-        "Donation Information",
-        "Volunteer Opportunity",
-        "Event Information",
-        "Complaint",
-        "Compliment",
-        "Technical Support",
-        "Other",
+        _("General Inquiry"),
+        _("Membership Question"),
+        _("Donation Information"),
+        _("Volunteer Opportunity"),
+        _("Event Information"),
+        _("Complaint"),
+        _("Compliment"),
+        _("Technical Support"),
+        _("Other"),
     ]
 
-    context.urgency_levels = ["Low", "Normal", "High", "Urgent"]
+    context.urgency_levels = [_("Low"), _("Normal"), _("High"), _("Urgent")]
 
-    context.contact_methods = ["Email", "Phone", "Either"]
+    context.contact_methods = [_("Email"), _("Phone"), _("Either")]
 
     return context
 

@@ -21,6 +21,7 @@
                     </div>
                     <div class="panel-body">
                         <div class="address-display">
+                            {# address_display is pre-escaped by format_address_for_country() using html.escape() #}
                             {{ address_display|safe }}
                         </div>
 

@@ -219,11 +219,13 @@ class SafeMemberOptimizer:
                 values = [link["value"] for link in links]
 
                 # Frappe-native approach: Use get_list with filters (DocType already validated)
+                # ignore_permissions=True: this is an internal data integrity check,
+                # not a user-facing query — must see all records to validate links correctly
                 existing_records = frappe.get_list(
                     doctype,
                     filters={"name": ["in", values]},
                     fields=["name"],
-                    ignore_permissions=False,  # Maintain proper permissions
+                    ignore_permissions=True,
                     pluck="name",
                 )
                 existing_names = set(existing_records)

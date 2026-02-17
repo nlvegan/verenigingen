@@ -10,7 +10,7 @@
 <div class="p-4 rounded-lg mb-6" style="background-color: var(--brand-error-light); border: 1px solid var(--brand-error); color: var(--brand-error);">
     <div class="flex items-center">
         <i class="fa fa-exclamation-triangle mr-3"></i>
-        <span>{{ error_message }}</span>
+        <span>{{ error_message|e }}</span>
     </div>
 </div>
 {% endif %}

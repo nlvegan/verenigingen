@@ -308,7 +308,7 @@
                     <i class="fa fa-users"></i> {{ _("View Team Members") }}
                 </a>
                 {% else %}
-                <span class="action-button disabled" title="{{ _('Only team members can view member lists') }}">
+                <span class="action-button disabled" role="button" aria-disabled="true" title="{{ _('Only team members can view member lists') }}">
                     <i class="fa fa-users"></i> {{ _("View Team Members") }}
                 </span>
                 {% endif %}

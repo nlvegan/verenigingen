@@ -412,10 +412,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Create new alert
         const alert = document.createElement('div');
         alert.className = `alert alert-${type === 'success' ? 'success' : 'danger'}`;
-        alert.innerHTML = `
-            <h4>${title}</h4>
-            <p>${message}</p>
-        `;
+        const h4 = document.createElement('h4');
+        h4.textContent = title;
+        const p = document.createElement('p');
+        p.textContent = message;
+        alert.appendChild(h4);
+        alert.appendChild(p);
 
         // Insert at top of page
         const container = document.querySelector('.contact-request-page');
