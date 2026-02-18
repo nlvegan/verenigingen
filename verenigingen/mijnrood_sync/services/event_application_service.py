@@ -1698,11 +1698,11 @@ class MijnRoodEventApplicationService(StatefulService):
         division_id: int,
         event=None,
     ) -> Optional[str]:
-        """End a member's active chapter board membership when their division contact role is revoked.
+        """Remove a member's active chapter board membership when their division contact role is revoked.
 
-        Sets is_active to 0 and to_date to today.
-        Saving the Chapter triggers BoardManager.handle_board_member_changes(),
-        which recalculates the user's role profile and removes Frappe roles.
+        Uses BoardManager.bulk_remove_board_members() which deletes the child table
+        row entirely (volunteer assignment history is preserved on the Volunteer record).
+        The save triggers BoardManager.handle_board_member_changes() for role cleanup.
 
         Args:
             member_name: Vereinigingen Member name
@@ -1722,41 +1722,60 @@ class MijnRoodEventApplicationService(StatefulService):
 
         volunteer_name = get_volunteer_for_member(member_name)
         if not volunteer_name:
-            return None  # No volunteer record — nothing to deactivate
+            return None  # No volunteer record — nothing to remove
 
-        # Find active board membership
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
-        target_row = None
-        for bm in chapter_doc.board_members or []:
-            if bm.volunteer == volunteer_name and bm.is_active:
-                target_row = bm
-                break
 
-        if not target_row:
+        # Find active board membership(s) for this volunteer
+        target_rows = [
+            bm for bm in (chapter_doc.board_members or []) if bm.volunteer == volunteer_name and bm.is_active
+        ]
+
+        if not target_rows:
             return None  # Not on this chapter's board
 
         try:
-            target_row.is_active = 0
-            target_row.to_date = today()
-            suffix = "Ended via MijnRood sync — division contact revoked (event {0})".format(
+            reason = "MijnRood sync — division contact revoked (event {0})".format(
                 event.name if event else "N/A"
             )
-            target_row.notes = f"{target_row.notes}\n{suffix}" if target_row.notes else suffix
+            removal_data = [
+                {
+                    "volunteer": bm.volunteer,
+                    "chapter_role": bm.chapter_role,
+                    "from_date": str(bm.from_date),
+                    "end_date": str(today()),
+                    "reason": reason,
+                }
+                for bm in target_rows
+            ]
 
-            # Security: System-initiated board removal from authoritative MijnRood division contact revocation
-            chapter_doc.save(ignore_permissions=True)
-
-            self.logger.info(
-                "Ended board membership for volunteer %s in chapter %s (member %s, event %s)",
-                volunteer_name,
-                chapter_name,
-                member_name,
-                event.name if event else "N/A",
+            result = (
+                chapter_doc.board_manager.bulk_remove_board_members(  # ast-skip: dynamic manager property
+                    removal_data
+                )
             )
-            return _("Removed from chapter '{0}' board").format(chapter_name)
+
+            if result.get("success"):
+                self.logger.info(
+                    "Removed board membership for volunteer %s in chapter %s (member %s, event %s)",
+                    volunteer_name,
+                    chapter_name,
+                    member_name,
+                    event.name if event else "N/A",
+                )
+                return _("Removed from chapter '{0}' board").format(chapter_name)
+            else:
+                error_msg = result.get("error") or "; ".join(result.get("errors", []))
+                self.logger.error(
+                    "BoardManager.bulk_remove_board_members failed for %s in %s: %s",
+                    volunteer_name,
+                    chapter_name,
+                    error_msg,
+                )
+                return _("Chapter board removal failed: {0}").format(str(error_msg)[:200])
         except Exception as e:
             self.logger.error(
-                "Failed to end board membership for %s in chapter %s: %s",
+                "Failed to remove board membership for %s in chapter %s: %s",
                 member_name,
                 chapter_name,
                 e,
