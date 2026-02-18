@@ -762,9 +762,10 @@
                                     {% endif %}
                                     {% set description_template = frappe.db.get_single_value("Verenigingen Payments Settings", "mollie_subscription_description_template") or "Contribution payment for member MEMBER_ID" %}
                                     {% set member_id = member_doc.member_id if member_doc else member %}
+                                    {% set member_full_name = member_doc.full_name if member_doc else "" %}
                                     <div>
                                         <span class="font-medium text-gray-700">{{ _("Reference:") }}</span>
-                                        <p class="font-mono text-gray-900">{{ description_template.replace("MEMBER_ID", member_id) }}</p>
+                                        <p class="font-mono text-gray-900">{{ description_template.replace("MEMBER_NAME", member_full_name).replace("MEMBER_ID", member_id) }}</p>
                                     </div>
                                 </div>
                             </div>

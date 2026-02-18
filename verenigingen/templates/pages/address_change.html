@@ -1,4 +1,4 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("Update Address") }}{% endblock %}
 
@@ -101,6 +101,8 @@
 {% endblock %}
 
 {% block page_content %}
+{% include "templates/includes/portal_no_member_error.html" %}
+{% if not no_member_record %}
 <div class="container">
     <div class="row">
         <div class="col-md-12">
@@ -276,6 +278,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block script %}

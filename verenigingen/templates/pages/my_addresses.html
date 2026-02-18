@@ -1,8 +1,10 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("My Addresses") }}{% endblock %}
 
 {% block content %}
+{% include "templates/includes/portal_no_member_error.html" %}
+{% if not no_member_record %}
 <div class="container">
     <div class="row">
         <div class="col-md-8 col-md-offset-2">
@@ -84,4 +86,5 @@
     margin: 5px;
 }
 </style>
+{% endif %}
 {% endblock %}

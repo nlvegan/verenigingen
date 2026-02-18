@@ -25,6 +25,7 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
 
     context.no_cache = 1
     context.title = _("My Teams")
+    context.show_sidebar = False
 
     # Get volunteer record
     volunteer = frappe.db.get_value("Volunteer", {"member": member})

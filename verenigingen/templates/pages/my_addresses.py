@@ -1,20 +1,15 @@
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_portal_utils import setup_portal_context
 
 
 def get_context(context):
     """Get context for my addresses portal page"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
-
-    # Get member record using standardized utility
-    member_name = get_current_user_member_name()
+    member_name = setup_portal_context(context, "My Addresses")
     if not member_name:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+        return context
 
     # Get member document (may need ignore_permissions for portal users)
     try:

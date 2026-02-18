@@ -1,4 +1,4 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("My Teams") }}{% endblock %}
 
@@ -254,14 +254,14 @@
 
     {% if not volunteer %}
     <div class="no-volunteer">
-        <div class="icon">🤝</div>
+        <div class="icon"><i class="fa fa-handshake-o"></i></div>
         <h3>{{ _("Not a Volunteer Yet") }}</h3>
         <p>{{ _("You need to be a registered volunteer to join teams. Apply to become a volunteer to start collaborating with teams.") }}</p>
         <a href="/volunteer/apply" class="btn">{{ _("Become a Volunteer") }}</a>
     </div>
     {% elif not teams %}
     <div class="no-teams">
-        <div class="icon">👥</div>
+        <div class="icon"><i class="fa fa-users"></i></div>
         <h3>{{ _("No Team Memberships") }}</h3>
         <p>{{ _("You are not currently a member of any teams. Contact your organization administrator to join teams.") }}</p>
         <a href="/contact_request" class="btn">{{ _("Contact Support") }}</a>
@@ -282,7 +282,7 @@
                 {% endif %}
 
                 <div class="roles-section">
-                    <h4><span class="icon">🏷️</span>{{ _("Your Roles") }}</h4>
+                    <h4><span class="icon"><i class="fa fa-tag"></i></span>{{ _("Your Roles") }}</h4>
                     {% for role in team.roles %}
                     <div class="role-item">
                         <div class="role-details">

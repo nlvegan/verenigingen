@@ -1,9 +1,8 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("Personal Details") }}{% endblock %}
 
-{% block head_include %}
-<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% block style %}
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
 <style>
@@ -301,6 +300,47 @@
     margin-bottom: 0.5rem;
 }
 
+/* Tab navigation */
+.tab-nav {
+    display: flex;
+    border-bottom: 2px solid #e9ecef;
+    margin-bottom: 2rem;
+    gap: 0;
+}
+
+.tab-btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #6c757d;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.2s ease, border-color 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tab-btn:hover {
+    color: var(--brand-primary);
+}
+
+.tab-btn.active {
+    color: var(--brand-primary);
+    border-bottom-color: var(--brand-primary);
+}
+
+.tab-panel {
+    display: none;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
 @media (max-width: 768px) {
     .personal-details-form {
         padding: 1rem;
@@ -325,20 +365,22 @@
         width: 100%;
         margin-bottom: 0.5rem;
     }
+
+    .tab-btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
 }
 </style>
 {% endblock %}
 
 {% block page_content %}
+{% include "templates/includes/portal_no_member_error.html" %}
+{% if not no_member_record %}
 <div class="personal-details-wrapper">
     <div class="personal-details-form">
         <h2>{{ _("Personal Details") }}</h2>
-        <p class="text-muted">{{ _("Manage your personal information and preferences") }}</p>
-
-        <div class="privacy-note">
-            <h6>{{ _("Privacy & Data Protection") }}</h6>
-            <p>{{ _("Your personal information is protected according to GDPR regulations. You can update, view, or request deletion of your data at any time. Changes to your name may require verification.") }}</p>
-        </div>
+        <p class="text-muted">{{ _("Manage your personal information, contact details, and address") }}</p>
 
         {% if success_messages %}
         <div class="alert alert-success">
@@ -351,298 +393,368 @@
         </div>
         {% endif %}
 
-        <form method="post" action="/api/method/verenigingen.templates.pages.personal_details.update_personal_details" id="personal-details-form" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div id="address-success-message" class="alert alert-success" style="display: none;">
+            <h6>{{ _("Address Updated!") }}</h6>
+            <p id="address-success-text"></p>
+        </div>
 
-            <!-- Basic Information Section -->
-            <div class="form-section">
-                <h3><span class="icon">👤</span>{{ _("Basic Information") }}</h3>
+        <!-- Tab Navigation -->
+        <div class="tab-nav">
+            <button class="tab-btn {% if active_tab != 'contact' %}active{% endif %}" data-tab="personal">
+                <i class="fa fa-user"></i> {{ _("Personal Details") }}
+            </button>
+            <button class="tab-btn {% if active_tab == 'contact' %}active{% endif %}" data-tab="contact">
+                <i class="fa fa-map-marker"></i> {{ _("Contact & Address") }}
+            </button>
+        </div>
 
-                <div class="form-row">
-                    <div class="form-group half">
-                        <label for="first_name" class="form-label">{{ _("Preferred Name") }} <span class="required">*</span></label>
-                        <input type="text"
-                               class="form-control"
-                               id="first_name"
-                               name="first_name"
-                               value="{{ member.first_name or '' }}"
-                               required>
-                        <div class="help-text">{{ _("Your preferred first name or calling name") }}</div>
-                    </div>
+        <!-- Tab 1: Personal Details -->
+        <div class="tab-panel {% if active_tab != 'contact' %}active{% endif %}" id="tab-personal">
+            <form method="post" action="/api/method/verenigingen.templates.pages.personal_details.update_personal_details" id="personal-details-form" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-                    <div class="form-group half">
-                        <label for="middle_name" class="form-label">{{ _("Middle Name(s)") }}</label>
-                        <input type="text"
-                               class="form-control"
-                               id="middle_name"
-                               name="middle_name"
-                               value="{{ member.middle_name or '' }}">
-                        <div class="help-text">{{ _("Additional middle names") }}</div>
-                    </div>
-                </div>
+                <!-- Basic Information -->
+                <div class="form-section">
+                    <h3><span class="icon"><i class="fa fa-user"></i></span>{{ _("Basic Information") }}</h3>
 
-                <div class="form-row">
-                    <div class="form-group half">
-                        <label for="tussenvoegsel" class="form-label">{{ _("Tussenvoegsel") }}</label>
-                        <input type="text"
-                               class="form-control"
-                               id="tussenvoegsel"
-                               name="tussenvoegsel"
-                               value="{{ member.tussenvoegsel or '' }}">
-                        <div class="help-text">{{ _("Dutch name particles/prefixes (van, de, van der, etc.)") }}</div>
-                    </div>
-
-                    <div class="form-group half">
-                        <label for="last_name" class="form-label">{{ _("Last Name") }} <span class="required">*</span></label>
-                        <input type="text"
-                               class="form-control"
-                               id="last_name"
-                               name="last_name"
-                               value="{{ member.last_name or '' }}"
-                               required>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="birth_date" class="form-label">{{ _("Date of Birth") }}</label>
-                    <input type="date"
-                           class="form-control"
-                           id="birth_date"
-                           name="birth_date"
-                           value="{{ member.birth_date or '' }}">
-                    <div class="help-text">{{ _("Optional - helps us provide age-appropriate services") }}</div>
-                </div>
-            </div>
-
-            <!-- Pronouns Section -->
-            <div class="form-section">
-                <h3><span class="icon">🏷️</span>{{ _("Pronouns & Identity") }}</h3>
-
-                <div class="form-group">
-                    <label class="form-label">{{ _("Preferred Pronouns") }}</label>
-                    <div class="pronouns-options">
-                        <div class="pronoun-option">
-                            <input type="radio"
-                                   id="pronouns_she"
-                                   name="pronouns"
-                                   value="She/her"
-                                   {% if member.pronouns == "She/her" %}checked{% endif %}>
-                            <label for="pronouns_she">{{ _("She/her") }}</label>
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="first_name" class="form-label">{{ _("Preferred Name") }} <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="first_name" name="first_name"
+                                   value="{{ member.first_name or '' }}" required>
+                            <div class="help-text">{{ _("Your preferred first name or calling name") }}</div>
                         </div>
-                        <div class="pronoun-option">
-                            <input type="radio"
-                                   id="pronouns_he"
-                                   name="pronouns"
-                                   value="He/him"
-                                   {% if member.pronouns == "He/him" %}checked{% endif %}>
-                            <label for="pronouns_he">{{ _("He/him") }}</label>
-                        </div>
-                        <div class="pronoun-option">
-                            <input type="radio"
-                                   id="pronouns_they"
-                                   name="pronouns"
-                                   value="They/them"
-                                   {% if member.pronouns == "They/them" %}checked{% endif %}>
-                            <label for="pronouns_they">{{ _("They/them") }}</label>
-                        </div>
-                        <div class="pronoun-option">
-                            <input type="radio"
-                                   id="pronouns_custom"
-                                   name="pronouns"
-                                   value="custom"
-                                   {% if member.pronouns and member.pronouns not in ["She/her", "He/him", "They/them"] %}checked{% endif %}>
-                            <label for="pronouns_custom">{{ _("Other") }}</label>
+                        <div class="form-group half">
+                            <label for="middle_name" class="form-label">{{ _("Middle Name(s)") }}</label>
+                            <input type="text" class="form-control" id="middle_name" name="middle_name"
+                                   value="{{ member.middle_name or '' }}">
                         </div>
                     </div>
 
-                    <div class="custom-pronoun-group" id="custom-pronoun-group" style="display: none;">
-                        <label for="custom_pronouns" class="form-label">{{ _("Please specify your pronouns") }}</label>
-                        <input type="text"
-                               class="form-control"
-                               id="custom_pronouns"
-                               name="custom_pronouns"
-                               placeholder="{{ _('e.g., Ze/zir, Name only, etc.') }}"
-                               value="{% if member.pronouns and member.pronouns not in ['She/her', 'He/him', 'They/them'] %}{{ member.pronouns }}{% endif %}">
-                        <div class="help-text">{{ _("Enter your preferred pronouns or indicate if you prefer your name to be used") }}</div>
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="tussenvoegsel" class="form-label">{{ _("Tussenvoegsel") }}</label>
+                            <input type="text" class="form-control" id="tussenvoegsel" name="tussenvoegsel"
+                                   value="{{ member.tussenvoegsel or '' }}">
+                            <div class="help-text">{{ _("Dutch name particles (van, de, van der, etc.)") }}</div>
+                        </div>
+                        <div class="form-group half">
+                            <label for="last_name" class="form-label">{{ _("Last Name") }} <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="last_name" name="last_name"
+                                   value="{{ member.last_name or '' }}" required>
+                        </div>
                     </div>
 
-                    <div class="help-text">{{ _("Help us address you respectfully in communications and events") }}</div>
-                </div>
-            </div>
-
-            <!-- Contact Information Section -->
-            <div class="form-section">
-                <h3><span class="icon">📞</span>{{ _("Contact Information") }}</h3>
-
-                <div class="alert alert-info">
-                    <strong>{{ _("Note:") }}</strong> {{ _("Your email address is your account login and cannot be changed here. Contact support if you need to change your email address.") }}
-                </div>
-
-                <div class="form-group">
-                    <label for="email_display" class="form-label">{{ _("Email Address") }}</label>
-                    <input type="email"
-                           class="form-control"
-                           id="email_display"
-                           value="{{ member.email or '' }}"
-                           disabled>
-                    <div class="help-text">{{ _("Primary contact email and account login") }}</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="contact_number" class="form-label">{{ _("Contact Number") }}</label>
-                    <input type="tel"
-                           class="form-control"
-                           id="contact_number"
-                           name="contact_number"
-                           value="{{ member.contact_number or '' }}"
-                           placeholder="{{ _('e.g., +31 6 12345678') }}">
-                    <div class="help-text">{{ _("Mobile or landline number for important communications") }}</div>
-                </div>
-            </div>
-
-            <!-- Profile Image Section -->
-            <div class="form-section">
-                <h3><span class="icon">📷</span>{{ _("Profile Image") }}</h3>
-
-                <div class="image-upload-section">
-                    {% if member.image %}
-                    <div class="current-image-container">
-                        <img src="{{ member.image }}" alt="{{ _('Current profile image') }}" class="current-image">
-                        <p>{{ _("Current profile image") }}</p>
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="birth_date" class="form-label">{{ _("Date of Birth") }}</label>
+                            <input type="date" class="form-control" id="birth_date" name="birth_date"
+                                   value="{{ member.birth_date or '' }}">
+                            <div class="help-text">{{ _("Optional - helps us provide age-appropriate services") }}</div>
+                        </div>
+                        <div class="form-group half">
+                            <label for="contact_number" class="form-label">{{ _("Phone Number") }}</label>
+                            <input type="tel" class="form-control" id="contact_number" name="contact_number"
+                                   value="{{ member.contact_number or '' }}">
+                        </div>
                     </div>
-                    {% endif %}
+                </div>
 
-                    <label for="image" class="image-upload-label">
+                <!-- Pronouns -->
+                <div class="form-section">
+                    <h3><span class="icon"><i class="fa fa-tag"></i></span>{{ _("Pronouns & Identity") }}</h3>
+                    <div class="form-group">
+                        <label class="form-label">{{ _("Preferred Pronouns") }}</label>
+                        <div class="pronouns-options">
+                            {% for value, label in [("She/her", "She/her"), ("He/him", "He/him"), ("They/them", "They/them")] %}
+                            <div class="pronoun-option">
+                                <input type="radio" id="pronouns_{{ value|lower|replace('/', '_') }}" name="pronouns" value="{{ value }}"
+                                       {% if member.pronouns == value %}checked{% endif %}>
+                                <label for="pronouns_{{ value|lower|replace('/', '_') }}">{{ _(label) }}</label>
+                            </div>
+                            {% endfor %}
+                            <div class="pronoun-option">
+                                <input type="radio" id="pronouns_custom" name="pronouns" value="custom"
+                                       {% if member.pronouns and member.pronouns not in ["She/her", "He/him", "They/them"] %}checked{% endif %}>
+                                <label for="pronouns_custom">{{ _("Other") }}</label>
+                            </div>
+                        </div>
+                        <div class="custom-pronoun-group" id="custom-pronoun-group" style="display: none;">
+                            <label for="custom_pronouns" class="form-label">{{ _("Please specify your pronouns") }}</label>
+                            <input type="text" class="form-control" id="custom_pronouns" name="custom_pronouns"
+                                   placeholder="{{ _('e.g., Ze/zir, Name only, etc.') }}"
+                                   value="{% if member.pronouns and member.pronouns not in ['She/her', 'He/him', 'They/them'] %}{{ member.pronouns }}{% endif %}">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Profile Image -->
+                <div class="form-section">
+                    <h3><span class="icon"><i class="fa fa-camera"></i></span>{{ _("Profile Image") }}</h3>
+                    <div class="image-upload-section">
                         {% if member.image %}
-                        {{ _("Change Profile Image") }}
-                        {% else %}
-                        {{ _("Upload Profile Image") }}
+                        <div class="current-image-container">
+                            <img src="{{ member.image }}" alt="{{ _('Current profile image') }}" class="current-image">
+                            <p>{{ _("Current profile image") }}</p>
+                        </div>
                         {% endif %}
-                    </label>
-                    <input type="file"
-                           class="image-upload-input"
-                           id="image"
-                           name="image"
-                           accept="image/*">
-
-                    <div class="help-text">{{ _("Upload a clear photo of yourself (optional). Max 5MB, JPG/PNG format.") }}</div>
-
-                    {% if member.image %}
-                    <div style="margin-top: 1rem;">
-                        <label>
-                            <input type="checkbox" name="remove_image" value="1">
-                            {{ _("Remove current profile image") }}
+                        <label for="image" class="image-upload-label">
+                            {{ _("Change Profile Image") if member.image else _("Upload Profile Image") }}
                         </label>
+                        <input type="file" class="image-upload-input" id="image" name="image" accept="image/*">
+                        <div class="help-text">{{ _("Optional. Max 5MB, JPG/PNG format.") }}</div>
+                        {% if member.image %}
+                        <div style="margin-top: 1rem;">
+                            <label><input type="checkbox" name="remove_image" value="1"> {{ _("Remove current profile image") }}</label>
+                        </div>
+                        {% endif %}
                     </div>
-                    {% endif %}
                 </div>
-            </div>
 
-            <!-- Privacy Preferences Section -->
-            <div class="form-section">
-                <h3><span class="icon">🔒</span>{{ _("Privacy Preferences") }}</h3>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox"
-                               name="allow_directory_listing"
-                               value="1"
+                <!-- Privacy -->
+                <div class="form-section">
+                    <h3><span class="icon"><i class="fa fa-lock"></i></span>{{ _("Privacy Preferences") }}</h3>
+                    <div class="form-group">
+                        <label><input type="checkbox" name="allow_directory_listing" value="1"
                                {% if member.get("allow_directory_listing") %}checked{% endif %}>
-                        {{ _("Include me in the member directory") }}
-                    </label>
-                    <div class="help-text">{{ _("Allow other members to find your contact information in the member directory") }}</div>
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox"
-                               name="allow_photo_usage"
-                               value="1"
+                            {{ _("Include me in the member directory") }}</label>
+                        <div class="help-text">{{ _("Allow other members to find your contact information") }}</div>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" name="allow_photo_usage" value="1"
                                {% if member.get("allow_photo_usage") %}checked{% endif %}>
-                        {{ _("Allow use of my photos in publications") }}
-                    </label>
-                    <div class="help-text">{{ _("Permission to use photos taken at events in newsletters, website, and social media") }}</div>
+                            {{ _("Allow use of my photos in publications") }}</label>
+                        <div class="help-text">{{ _("Permission to use event photos in newsletters, website, social media") }}</div>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <a href="/member_portal" class="btn btn-secondary">{{ _("Cancel") }}</a>
+                    <button type="submit" class="btn btn-primary">{{ _("Save Changes") }}</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Tab 2: Contact & Address -->
+        <div class="tab-panel {% if active_tab == 'contact' %}active{% endif %}" id="tab-contact">
+            <!-- Contact Info -->
+            <div class="form-section">
+                <h3><span class="icon"><i class="fa fa-phone"></i></span>{{ _("Contact Information") }}</h3>
+                <div class="alert alert-info">
+                    <strong>{{ _("Note:") }}</strong> {{ _("Your email address is your account login and cannot be changed here.") }}
+                </div>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label class="form-label">{{ _("Email Address") }}</label>
+                        <input type="email" class="form-control" value="{{ member.email or '' }}" disabled>
+                    </div>
+                    <div class="form-group half">
+                        <label class="form-label">{{ _("Phone Number") }}</label>
+                        <input type="tel" class="form-control" value="{{ member.contact_number or '' }}" disabled>
+                        <div class="help-text">{{ _("Editable on the Personal Details tab") }}</div>
+                    </div>
                 </div>
             </div>
 
-            <div class="action-buttons">
-                <a href="/member_portal" class="btn btn-secondary">{{ _("Cancel") }}</a>
-                <button type="submit" class="btn btn-primary">{{ _("Save Changes") }}</button>
+            <!-- Address Form -->
+            <div class="form-section">
+                <h3><span class="icon"><i class="fa fa-map-marker"></i></span>{{ _("Mailing Address") }}</h3>
+
+                {% if current_address %}
+                <div class="current-info" style="margin-bottom: 1.5rem;">
+                    <h5 style="margin-bottom: 0.5rem;">{{ _("Current Address") }}</h5>
+                    <address id="current-address-display">
+                        {% if current_address.address_line1 %}{{ current_address.address_line1 }}<br>{% endif %}
+                        {% if current_address.address_line2 %}{{ current_address.address_line2 }}<br>{% endif %}
+                        {% if current_address.pincode %}{{ current_address.pincode }} {% endif %}{{ current_address.city or '' }}{% if current_address.state %}, {{ current_address.state }}{% endif %}<br>
+                        {% if current_address.country %}{{ current_address.country }}{% endif %}
+                    </address>
+                </div>
+                {% endif %}
+
+                <form id="address-form">
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label for="address_line1" class="form-label">{{ _("Street Address") }} <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="address_line1" name="address_line1"
+                                   value="{{ address_data.address_line1 }}" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label for="address_line2" class="form-label">{{ _("Address Line 2") }}</label>
+                            <input type="text" class="form-control" id="address_line2" name="address_line2"
+                                   value="{{ address_data.address_line2 }}" placeholder="{{ _('Apartment, suite, etc.') }}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="pincode" class="form-label">{{ _("Postal Code") }}</label>
+                            <input type="text" class="form-control" id="pincode" name="pincode"
+                                   value="{{ address_data.pincode }}">
+                        </div>
+                        <div class="form-group half">
+                            <label for="city" class="form-label">{{ _("City") }} <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="city" name="city"
+                                   value="{{ address_data.city }}" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="state" class="form-label">{{ _("State/Province") }}</label>
+                            <input type="text" class="form-control" id="state" name="state"
+                                   value="{{ address_data.state }}">
+                        </div>
+                        <div class="form-group half">
+                            <label for="country" class="form-label">{{ _("Country") }} <span class="required">*</span></label>
+                            <select class="form-control" id="country" name="country" required>
+                                <option value="">{{ _("Select Country") }}</option>
+                                {% for country in countries %}
+                                <option value="{{ country.name }}" {% if address_data.country == country.name %}selected{% endif %}>{{ country.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="addr_phone" class="form-label">{{ _("Address Phone") }}</label>
+                            <input type="tel" class="form-control" id="addr_phone" name="phone"
+                                   value="{{ address_data.phone }}">
+                        </div>
+                        <div class="form-group half">
+                            <label for="addr_email" class="form-label">{{ _("Address Email") }}</label>
+                            <input type="email" class="form-control" id="addr_email" name="email_id"
+                                   value="{{ address_data.email_id }}">
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <a href="/member_portal" class="btn btn-secondary">{{ _("Cancel") }}</a>
+                        <button type="submit" class="btn btn-primary" id="address-submit-btn">{{ _("Save Address") }}</button>
+                    </div>
+                </form>
             </div>
-        </form>
+        </div>
     </div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const pronounRadios = document.querySelectorAll('input[name="pronouns"]');
-    const customGroup = document.getElementById('custom-pronoun-group');
-    const customInput = document.getElementById('custom_pronouns');
-
-    // Show/hide custom pronoun input
-    function toggleCustomPronouns() {
-        const isCustom = document.getElementById('pronouns_custom').checked;
-        customGroup.style.display = isCustom ? 'block' : 'none';
-
-        if (isCustom) {
-            customInput.required = true;
-            customInput.focus();
-        } else {
-            customInput.required = false;
-        }
-    }
-
-    pronounRadios.forEach(radio => {
-        radio.addEventListener('change', toggleCustomPronouns);
+    // --- Tab switching ---
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+            document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+            btn.classList.add('active');
+            document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        });
     });
 
-    // Initial state
+    // --- Personal details form ---
+    var pronounRadios = document.querySelectorAll('input[name="pronouns"]');
+    var customGroup = document.getElementById('custom-pronoun-group');
+    var customInput = document.getElementById('custom_pronouns');
+
+    function toggleCustomPronouns() {
+        var isCustom = document.getElementById('pronouns_custom').checked;
+        customGroup.style.display = isCustom ? 'block' : 'none';
+        customInput.required = isCustom;
+    }
+    pronounRadios.forEach(function(r) { r.addEventListener('change', toggleCustomPronouns); });
     toggleCustomPronouns();
 
-    // Form validation
-    document.getElementById('personal-details-form').addEventListener('submit', function(e) {
-        const firstName = document.getElementById('first_name').value.trim();
-        const lastName = document.getElementById('last_name').value.trim();
+    var personalForm = document.getElementById('personal-details-form');
+    if (personalForm) {
+        personalForm.addEventListener('submit', function(e) {
+            var fn = document.getElementById('first_name').value.trim();
+            var ln = document.getElementById('last_name').value.trim();
+            if (!fn || !ln) { e.preventDefault(); frappe.msgprint(__("Please enter both first name and last name")); return false; }
+            if (document.getElementById('pronouns_custom').checked && !customInput.value.trim()) {
+                e.preventDefault(); frappe.msgprint(__("Please specify your preferred pronouns")); customInput.focus(); return false;
+            }
+        });
+    }
 
-        if (!firstName || !lastName) {
+    // Image upload validation
+    var imageInput = document.getElementById('image');
+    if (imageInput) {
+        imageInput.addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (file) {
+                if (file.size > 5 * 1024 * 1024) { frappe.msgprint(__("File size must be less than 5MB")); e.target.value = ''; return; }
+                if (!file.type.startsWith('image/')) { frappe.msgprint(__("Please select a valid image file")); e.target.value = ''; return; }
+            }
+        });
+    }
+
+    // --- Address helpers ---
+    function _updateAddressDisplay(data) {
+        var el = document.getElementById('current-address-display');
+        if (!el) return;
+        var parts = [];
+        if (data.address_line1) parts.push(data.address_line1);
+        if (data.address_line2) parts.push(data.address_line2);
+        var cityLine = '';
+        if (data.pincode) cityLine += data.pincode + ' ';
+        cityLine += data.city || '';
+        if (data.state) cityLine += ', ' + data.state;
+        if (cityLine) parts.push(cityLine);
+        if (data.country) parts.push(data.country);
+        el.innerHTML = parts.map(function(p) { return frappe.utils.escape_html(p); }).join('<br>');
+    }
+
+    // --- Address form (AJAX) ---
+    var addressForm = document.getElementById('address-form');
+    if (addressForm) {
+        var currentAddr = {{ address_data_json }};
+
+        addressForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            alert('{{ _("Please enter both first name and last name") }}');
-            return false;
-        }
-
-        // Validate custom pronouns if selected
-        const customSelected = document.getElementById('pronouns_custom').checked;
-        const customValue = customInput.value.trim();
-
-        if (customSelected && !customValue) {
-            e.preventDefault();
-            alert('{{ _("Please specify your preferred pronouns") }}');
-            customInput.focus();
-            return false;
-        }
-
-        return true;
-    });
-
-    // Image upload preview
-    document.getElementById('image').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (file) {
-            // Validate file size (5MB)
-            if (file.size > 5 * 1024 * 1024) {
-                alert('{{ _("File size must be less than 5MB") }}');
-                e.target.value = '';
+            var data = {
+                address_line1: document.getElementById('address_line1').value.trim(),
+                address_line2: document.getElementById('address_line2').value.trim(),
+                city: document.getElementById('city').value.trim(),
+                state: document.getElementById('state').value.trim(),
+                country: document.getElementById('country').value.trim(),
+                pincode: document.getElementById('pincode').value.trim(),
+                phone: document.getElementById('addr_phone').value.trim(),
+                email_id: document.getElementById('addr_email').value.trim()
+            };
+            if (!data.address_line1 || !data.city || !data.country) {
+                frappe.msgprint(__("Please fill in street address, city, and country."));
                 return;
             }
+            var changed = false;
+            for (var k in data) { if (data[k] !== currentAddr[k]) { changed = true; break; } }
+            if (!changed) { frappe.msgprint(__("No changes detected.")); return; }
 
-            // Validate file type
-            if (!file.type.startsWith('image/')) {
-                alert('{{ _("Please select a valid image file") }}');
-                e.target.value = '';
-                return;
-            }
-        }
-    });
+            var btn = document.getElementById('address-submit-btn');
+            btn.disabled = true; btn.textContent = __("Saving...");
+
+            frappe.call({
+                method: 'verenigingen.templates.pages.address_change.update_member_address',
+                args: { address_data: data },
+                callback: function(r) {
+                    btn.disabled = false; btn.textContent = __("Save Address");
+                    if (r.message && r.message.success === true) {
+                        var msg = document.getElementById('address-success-message');
+                        document.getElementById('address-success-text').textContent = r.message.message || __("Address saved.");
+                        msg.style.display = 'block';
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                        // Update current address reference and display
+                        currentAddr = Object.assign({}, data);
+                        _updateAddressDisplay(data);
+                    } else {
+                        frappe.msgprint(r.message && r.message.message ? r.message.message : __("An error occurred."));
+                    }
+                },
+                error: function() {
+                    btn.disabled = false; btn.textContent = __("Save Address");
+                    frappe.msgprint(__("An error occurred while saving your address."));
+                }
+            });
+        });
+    }
 });
 </script>
+{% endif %}
 {% endblock %}

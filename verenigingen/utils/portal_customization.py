@@ -371,6 +371,8 @@ def add_brand_body_classes(context):
     if frappe.session.user != "Guest":
         # Check if user has member role
         roles = frappe.get_roles(frappe.session.user)
+        # Expose roles to Jinja templates (used by portal sidebar navigation)
+        context["user_roles"] = roles
         if "Verenigingen Member" in roles:
             portal_classes.append("member-portal")
         if "Verenigingen Volunteer" in roles:

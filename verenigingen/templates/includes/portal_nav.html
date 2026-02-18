@@ -1,0 +1,118 @@
+{#
+  Compact portal navigation strip - appears at the top of every portal page.
+  Roles come from context.user_roles (set by update_website_context hook).
+  Theme-aware: uses --brand-* CSS variables from brand_colors.css.
+#}
+
+{% set roles = user_roles or [] %}
+{% set is_member    = "Verenigingen Member" in roles %}
+{% set is_volunteer = "Verenigingen Volunteer" in roles %}
+{% set is_board     = "Verenigingen Chapter Board Member" in roles %}
+
+{% if is_member or is_volunteer or is_board %}
+<nav class="pnav" aria-label="Portal">
+  <div class="pnav-inner">
+
+    {% if is_member %}
+    <a href="/member_portal"      class="pnav-item"><i class="fa fa-home"></i><span>{{ _("Home") }}</span></a>
+    <a href="/personal_details"   class="pnav-item"><i class="fa fa-user"></i><span>{{ _("Profile") }}</span></a>
+    <a href="/payment_dashboard"  class="pnav-item"><i class="fa fa-credit-card"></i><span>{{ _("Payments") }}</span></a>
+    <a href="/my_dues_schedule"   class="pnav-item"><i class="fa fa-calendar"></i><span>{{ _("Dues") }}</span></a>
+    <a href="/chapter_dashboard"  class="pnav-item"><i class="fa fa-institution"></i><span>{{ _("Chapter") }}</span></a>
+    {% endif %}
+
+    {% if is_volunteer %}
+    <a href="/volunteer/dashboard" class="pnav-item"><i class="fa fa-heart"></i><span>{{ _("Volunteer") }}</span></a>
+    {% endif %}
+
+    <a href="/board/document_browser" class="pnav-item"><i class="fa fa-book"></i><span>{{ _("Docs") }}</span></a>
+
+    {% if is_board %}
+    <a href="/board/document_upload" class="pnav-item"><i class="fa fa-upload"></i><span>{{ _("Upload") }}</span></a>
+    {% endif %}
+
+    <a href="/contact_request" class="pnav-item pnav-end"><i class="fa fa-envelope"></i><span>{{ _("Contact") }}</span></a>
+
+  </div>
+</nav>
+{% endif %}
+
+<style>
+.pnav {
+  margin: 0 0 20px;
+  border-bottom: 2px solid var(--brand-primary-100, #f1f5f9);
+  background: var(--brand-background, #fff);
+}
+.pnav-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 0;
+}
+.pnav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--brand-text, #64748b);
+  text-decoration: none;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.pnav-item:hover {
+  background: var(--brand-primary-50, #f1f5f9);
+  color: var(--brand-primary-700, #1e293b);
+  text-decoration: none;
+}
+.pnav-item.active {
+  background: var(--brand-primary-100, #e0f2fe);
+  color: var(--brand-primary, #2490ef);
+  font-weight: 600;
+}
+.pnav-item .fa {
+  font-size: 14px;
+  width: 16px;
+  text-align: center;
+}
+.pnav-item.active .fa {
+  color: var(--brand-primary, #2490ef);
+}
+.pnav-end {
+  margin-left: auto;
+}
+@media (max-width: 768px) {
+  .pnav-inner {
+    gap: 0;
+    padding: 4px 0;
+  }
+  .pnav-item {
+    padding: 8px 10px;
+    font-size: 12px;
+    gap: 4px;
+  }
+  .pnav-item span {
+    display: none;
+  }
+  .pnav-item .fa {
+    font-size: 16px;
+  }
+  .pnav-end {
+    margin-left: 0;
+  }
+}
+</style>
+
+<script>
+frappe.ready(function () {
+  var path = window.location.pathname.replace(/\/$/, '');
+  $('.pnav-item').each(function () {
+    var href = $(this).attr('href').replace(/\/$/, '');
+    if (path === href || (href !== '/member_portal' && path.indexOf(href) === 0)) {
+      $(this).addClass('active');
+    }
+  });
+});
+</script>

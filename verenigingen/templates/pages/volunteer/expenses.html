@@ -1,4 +1,4 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("Volunteer Expenses") }}{% endblock %}
 
@@ -100,7 +100,7 @@ input:focus, select:focus, textarea:focus {
 
         <!-- DEBUG: Show what data we actually have -->
         <div class="bg-yellow-100 p-4 mb-4 text-xs" style="font-family: monospace; display: none;">
-            <strong>🔍 DEBUG INFO:</strong><br>
+            <strong><i class="fa fa-search"></i> DEBUG INFO:</strong><br>
             Recent expenses count: {{ recent_expenses|length if recent_expenses else 'None' }}<br>
             Expense stats: {{ expense_stats }}<br>
             {% if volunteer %}

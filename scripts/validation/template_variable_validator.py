@@ -4,6 +4,7 @@ Modernized Template Variable Validator
 Enhanced critical issue detection for Jinja template variables with sophisticated context matching
 """
 
+import os
 import ast
 import re
 import json
@@ -56,6 +57,7 @@ class TemplateContext:
     blocks: Set[str] = field(default_factory=set)
     macros: Set[str] = field(default_factory=set)
     is_base_template: bool = False
+    is_include_template: bool = False
 
 class ModernTemplateValidator:
     """Modernized template variable validator with enhanced detection"""
@@ -207,7 +209,8 @@ class ModernTemplateValidator:
             template_type=self.detect_template_type(template_file),
             variables_used=set(),
             filters_used=set(),
-            includes=set()
+            includes=set(),
+            is_include_template='includes' in template_file.parts
         )
         
         # Extract extends
@@ -295,7 +298,13 @@ class ModernTemplateValidator:
         for pattern in fallback_patterns:
             fallback_matches = re.findall(pattern, content)
             variables_with_fallbacks.update(fallback_matches)
-        
+
+        # Track variables guarded by {% if variable %} checks.
+        # These handle their own absence gracefully — the guarded block
+        # simply doesn't render when the variable is missing/falsy.
+        if_guard_pattern = r'\{\%\s*if\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*%\}'
+        self._template_if_guards = set(re.findall(if_guard_pattern, content))
+
         # Main variable extraction patterns
         patterns = [
             # {{ variable }}
@@ -437,24 +446,42 @@ class ModernTemplateValidator:
         
         return variables
     
-    def validate_critical_variables(self, context: TemplateContext, 
-                                   provided_vars: Set[str], 
-                                   variables_with_fallbacks: Set[str] = None) -> List[TemplateIssue]:
+    def validate_critical_variables(self, context: TemplateContext,
+                                   provided_vars: Set[str],
+                                   variables_with_fallbacks: Set[str] = None,
+                                   if_guarded_vars: Set[str] = None) -> List[TemplateIssue]:
         """Check for critical missing variables based on template type"""
         issues = []
         if variables_with_fallbacks is None:
             variables_with_fallbacks = set()
-        
+        if if_guarded_vars is None:
+            if_guarded_vars = set()
+
+        # Include templates (in templates/includes/) receive context from parent
+        # pages that {% include %} them. They cannot provide their own context,
+        # so missing-variable checks would always be false positives.
+        if context.is_include_template:
+            if self.verbose:
+                print(f"   ℹ️  Skipping critical var check for include template: {context.template_path.name}")
+            return issues
+
         if context.template_type == 'portal':
             missing_critical = self.critical_portal_vars - provided_vars
             for var in missing_critical:
                 if var in context.variables_used:
-                    # CRITICAL FIX: Skip if variable has fallback value
+                    # Skip if variable has fallback value
                     if var in variables_with_fallbacks:
                         if self.verbose:
                             print(f"   ✅ Critical portal variable '{var}' has fallback, skipping")
                         continue
-                        
+
+                    # Skip if variable is guarded by {% if variable %} — the
+                    # template handles its absence gracefully
+                    if var in if_guarded_vars:
+                        if self.verbose:
+                            print(f"   ✅ Critical portal variable '{var}' is if-guarded, skipping")
+                        continue
+
                     issues.append(TemplateIssue(
                         severity=Severity.CRITICAL,
                         category=IssueCategory.MISSING_VARIABLE,
@@ -466,17 +493,23 @@ class ModernTemplateValidator:
                         suggestion=f"Add 'context[\"{var}\"] = ...' in get_context()",
                         confidence=0.95
                     ))
-        
+
         elif context.template_type == 'email':
             missing_critical = self.critical_email_vars - provided_vars
             for var in missing_critical:
                 if var in context.variables_used:
-                    # CRITICAL FIX: Skip if variable has fallback value
+                    # Skip if variable has fallback value
                     if var in variables_with_fallbacks:
                         if self.verbose:
                             print(f"   ✅ Critical email variable '{var}' has fallback, skipping")
                         continue
-                        
+
+                    # Skip if variable is if-guarded
+                    if var in if_guarded_vars:
+                        if self.verbose:
+                            print(f"   ✅ Critical email variable '{var}' is if-guarded, skipping")
+                        continue
+
                     issues.append(TemplateIssue(
                         severity=Severity.HIGH,
                         category=IssueCategory.MISSING_VARIABLE,
@@ -488,7 +521,7 @@ class ModernTemplateValidator:
                         suggestion=f"Ensure '{var}' is set in email context",
                         confidence=0.9
                     ))
-        
+
         return issues
     
     def check_null_reference_risks(self, template_path: Path) -> List[TemplateIssue]:
@@ -824,55 +857,64 @@ class ModernTemplateValidator:
                 print(f"❌ Error validating template {template_path}: {e}")
             return issues
         
-        # Get fallback information from template extraction
+        # Get fallback and if-guard information from template extraction
         variables_with_fallbacks = getattr(self, '_template_fallbacks', set())
-        
+        if_guarded_vars = getattr(self, '_template_if_guards', set())
+
         # Find matching Python context provider
         py_file = self.match_template_to_context(template_path)
         provided_vars = set()
-        
-        if py_file:
+
+        # Include templates receive context from parent pages — skip
+        # missing variable analysis since they have no own context provider
+        if not context.is_include_template and py_file:
             self.stats['python_files_analyzed'] += 1
             py_context = self.extract_python_context(py_file)
             provided_vars = py_context.get('variables', set())
-            
+
             # Check for missing variables - only report critical ones to reduce noise
             missing_vars = context.variables_used - provided_vars - self.builtin_vars
-            
+
             # Filter to only critical/high-impact missing variables
             critical_missing = []
             for var in missing_vars:
                 # Skip template keywords but keep important short variables
                 if var in self.template_keywords:
                     continue
-                    
+
                 # Skip very short vars unless they're important
                 if len(var) <= 2 and var not in self.important_short_vars:
                     continue
-                
-                # CRITICAL FIX: Skip variables that have fallback values
+
+                # Skip variables that have fallback values
                 if var in variables_with_fallbacks:
                     if self.verbose:
                         print(f"   ✅ Variable '{var}' has fallback, skipping validation")
                     continue
-                
+
+                # Skip variables guarded by {% if variable %} checks
+                if var in if_guarded_vars:
+                    if self.verbose:
+                        print(f"   ✅ Variable '{var}' is if-guarded, skipping validation")
+                    continue
+
                 # Determine if variable is critical based on patterns and context
                 is_critical = (
-                    var in self.critical_portal_vars or 
+                    var in self.critical_portal_vars or
                     var in self.critical_email_vars or
                     var.endswith(('_email', '_url', '_link', '_name', '_date', '_time')) or
                     var.startswith(('has_', 'is_', 'can_', 'show_')) or
                     any(keyword in var for keyword in ['support', 'payment', 'member', 'user', 'csrf'])
                 )
-                
+
                 if is_critical:
                     critical_missing.append(var)
-            
+
             for var in critical_missing:
                 # Try to find similar variable names
                 similar = difflib.get_close_matches(var, provided_vars, n=2, cutoff=0.7)
                 suggestion = f"Did you mean: {', '.join(similar)}?" if similar else None
-                
+
                 issues.append(TemplateIssue(
                     severity=Severity.HIGH if var in self.critical_portal_vars else Severity.MEDIUM,
                     category=IssueCategory.MISSING_VARIABLE,
@@ -884,9 +926,11 @@ class ModernTemplateValidator:
                     suggestion=suggestion,
                     confidence=0.8
                 ))
-        
-        # Check critical variables (updated to account for fallbacks)
-        issues.extend(self.validate_critical_variables(context, provided_vars, variables_with_fallbacks))
+
+        # Check critical variables (accounts for fallbacks, if-guards, and include templates)
+        issues.extend(self.validate_critical_variables(
+            context, provided_vars, variables_with_fallbacks, if_guarded_vars
+        ))
         
         # Check security issues with context awareness
         issues.extend(self.check_security_issues(template_path))
@@ -1049,7 +1093,7 @@ def main():
     """Main entry point with modern validation"""
     import sys
     
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
+    app_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     
     # Parse arguments
     verbose = '--verbose' in sys.argv

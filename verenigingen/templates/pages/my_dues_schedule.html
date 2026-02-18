@@ -1,4 +1,4 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("My Dues Schedule") }}{% endblock %}
 
@@ -216,6 +216,8 @@
 {% endblock %}
 
 {% block page_content %}
+{% include "templates/includes/portal_no_member_error.html" %}
+{% if not no_member_record %}
 <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8" id="main-content">
     <!-- Header -->
     <div class="mb-8 header-section flex justify-between items-center">
@@ -547,6 +549,7 @@
 
 <!-- Success/Error Messages -->
 <div id="message-container" style="position: fixed; top: 20px; right: 20px; z-index: 1000;"></div>
+{% endif %}
 {% endblock %}
 
 {% block script %}
@@ -686,24 +689,12 @@ $(document).ready(function() {
         }
     });
 
-    // Export schedule
+    // Export schedule - uses Frappe response download mechanism
     $('#export-schedule').on('click', function() {
-        frappe.call({
-            method: 'verenigingen.templates.pages.my_dues_schedule.export_schedule',
-            callback: function(r) {
-                if (r.message) {
-                    // Download the exported file
-                    const link = document.createElement('a');
-                    link.href = r.message.url;
-                    link.download = r.message.filename;
-                    link.click();
-
-                    showMessage(__("Schedule exported successfully"), 'success');
-                } else {
-                    showMessage(__("Failed to export schedule"), 'danger');
-                }
-            }
-        });
+        window.open(
+            '/api/method/verenigingen.templates.pages.my_dues_schedule.export_schedule',
+            '_blank'
+        );
     });
 
     // View payment history

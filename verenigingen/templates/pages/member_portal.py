@@ -24,7 +24,7 @@ def get_context(context):
         frappe.throw(_("Please login to access the member portal"), frappe.PermissionError)
 
     context.no_cache = 1
-    context.show_sidebar = True
+    context.show_sidebar = False
     context.title = _("Member Portal")
 
     # Get organization logo from Brand Settings
@@ -275,75 +275,34 @@ def get_quick_actions(member, membership, volunteer):
     except Exception as e:
         frappe.log_error(f"Error getting national chapter: {str(e)}")
 
-    # Chapter board member dashboard access - show first for board members
-    if volunteer:
-        try:
-            # Check if this volunteer is a board member of any chapter
-            board_chapters = frappe.db.sql(
-                """
-                SELECT DISTINCT cbm.parent as chapter_name
-                FROM `tabChapter Board Member` cbm
-                WHERE cbm.volunteer = %(volunteer)s
-                AND cbm.is_active = 1
-                ORDER BY cbm.parent
-                LIMIT 1
-            """,
-                {"volunteer": volunteer.name},
-                as_dict=True,
+    # Chapter dashboard - show for any member who belongs to a chapter
+    try:
+        from vereiningen.utils.member_utils import get_member_chapters
+
+        member_chapters = get_member_chapters(member.name)
+        if member_chapters:
+            chapter_name = member_chapters[0]
+            actions.append(
+                {
+                    "title": _("Chapter Dashboard"),
+                    "route": f"/chapter_dashboard?chapter={chapter_name}",
+                    "class": "btn-primary",
+                    "icon": "fa-institution",
+                }
             )
+    except Exception as e:
+        frappe.log_error(f"Error checking chapter membership: {str(e)}")
 
-            if board_chapters:
-                chapter_name = board_chapters[0].chapter_name
-                actions.append(
-                    {
-                        "title": _("View your chapter"),
-                        "route": f"/chapter_dashboard?chapter={chapter_name}",
-                        "class": "btn-primary",
-                        "icon": "fa-dashboard",
-                    }
-                )
-        except Exception as e:
-            frappe.log_error(f"Error checking board membership: {str(e)}")
-
-    # Payment-related actions
-    if not membership:
-        actions.append(
-            {
-                "title": _("Update Payment Details"),
-                "route": "/payment_dashboard",
-                "class": "btn-primary",
-                "icon": "fa-id-card",
-            }
-        )
-    elif membership.status != "Active":
-        actions.append(
-            {
-                "title": _("Update Payment Details"),
-                "route": "/payment_dashboard",
-                "class": "btn-primary",
-                "icon": "fa-refresh",
-            }
-        )
-
-    # Bank details setup
-    if not member.iban:
-        actions.append(
-            {
-                "title": _("Set Up Bank Details"),
-                "route": "/payment_dashboard",
-                "class": "btn-primary",
-                "icon": "fa-university",
-            }
-        )
-    elif member.payment_method != "SEPA Direct Debit":
-        actions.append(
-            {
-                "title": _("Enable Auto-Pay"),
-                "route": "/payment_dashboard",
-                "class": "btn-secondary",
-                "icon": "fa-magic",
-            }
-        )
+    # Payment dashboard - always visible
+    needs_attention = not membership or (membership and membership.status != "Active") or not member.iban
+    actions.append(
+        {
+            "title": _("Payment Dashboard"),
+            "route": "/payment_dashboard",
+            "class": "btn-primary" if needs_attention else "btn-secondary",
+            "icon": "fa-credit-card",
+        }
+    )
 
     # Address updates
     address_incomplete = False
@@ -423,6 +382,27 @@ def get_quick_actions(member, membership, volunteer):
             )
     except Exception:
         pass  # Ignore if field doesn't exist
+
+    # Document browser - always available
+    actions.append(
+        {
+            "title": _("Documents"),
+            "route": "/board/document_browser",
+            "class": "btn-secondary",
+            "icon": "fa-book",
+        }
+    )
+
+    # Volunteer dashboard - show if member is a volunteer
+    if volunteer:
+        actions.append(
+            {
+                "title": _("Volunteer Dashboard"),
+                "route": "/volunteer/dashboard",
+                "class": "btn-secondary",
+                "icon": "fa-heart",
+            }
+        )
 
     # Contact request action - always available
     actions.append(

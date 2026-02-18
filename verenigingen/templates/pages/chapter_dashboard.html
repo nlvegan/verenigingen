@@ -68,7 +68,7 @@
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 class="text-3xl font-bold m-0 flex items-center gap-2">
-                        <span class="text-4xl">🏛️</span>
+                        <span class="text-4xl"><i class="fa fa-institution"></i></span>
                         <span>{{ (selected_chapter.upper() if selected_chapter else 'CHAPTER')|e }} CHAPTER</span>
                     </h1>
                     <div class="mt-2">
@@ -91,7 +91,7 @@
         <!-- Key Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-5xl mb-3">👥</div>
+                <div class="text-5xl mb-3"><i class="fa fa-users"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.active if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Active Members</p>
@@ -102,7 +102,7 @@
             </div>
 
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-warning-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-5xl mb-3">⏳</div>
+                <div class="text-5xl mb-3"><i class="fa fa-hourglass-half"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">{{ dashboard_data.key_metrics.members.pending if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.members else 0 }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Pending Applications</p>
@@ -116,7 +116,7 @@
             </div>
 
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-5xl mb-3">💰</div>
+                <div class="text-5xl mb-3"><i class="fa fa-money"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.pending_amount) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Pending Expenses</p>
@@ -125,7 +125,7 @@
             </div>
 
             <div class="bg-white rounded-xl p-6 flex flex-col items-center text-center shadow-sm border-t-4 border-success-500 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 cursor-pointer">
-                <div class="text-5xl mb-3">✅</div>
+                <div class="text-5xl mb-3"><i class="fa fa-check-circle"></i></div>
                 <div>
                     <h3 class="text-3xl font-bold m-0 text-gray-700">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) if dashboard_data and dashboard_data.key_metrics and dashboard_data.key_metrics.expenses else "0" }}</h3>
                     <p class="mt-1 text-gray-600 font-medium mb-0">Approved Expenses</p>
@@ -140,7 +140,7 @@
                 <!-- Member Management Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow duration-300">
                     <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-primary-50 border-primary-200">
-                        <h3 class="flex items-center m-0 text-lg font-semibold text-primary-600">👥 Members</h3>
+                        <h3 class="flex items-center m-0 text-lg font-semibold text-primary-600"><i class="fa fa-users"></i> Members</h3>
                         <div class="flex gap-2">
                             <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm" onclick="viewAllMembers()">
                                 <i class="fa fa-list mr-1"></i> View All
@@ -194,7 +194,7 @@
                 {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.total_pending > 0 %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-danger-500">
                     <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                        <h3 class="m-0 text-lg font-semibold text-gray-800">⚠️ Requires Your Attention</h3>
+                        <h3 class="m-0 text-lg font-semibold text-gray-800"><i class="fa fa-exclamation-triangle"></i> Requires Your Attention</h3>
                         <div class="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
                             {{ dashboard_data.pending_actions.total_pending if dashboard_data and dashboard_data.pending_actions else 0 }} items
                         </div>
@@ -203,7 +203,7 @@
                         <!-- Pending Member Applications -->
                         {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications %}
                             <div class="mb-6 last:mb-0">
-                                <h4 class="text-lg font-semibold text-gray-800 mb-4">🆕 New Member Applications ({{ dashboard_data.pending_actions.membership_applications|length if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications else 0 }})</h4>
+                                <h4 class="text-lg font-semibold text-gray-800 mb-4"><i class="fa fa-plus-circle"></i> New Member Applications ({{ dashboard_data.pending_actions.membership_applications|length if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.membership_applications else 0 }})</h4>
                                 <ul class="list-none p-0 m-0 space-y-3">
                                     {% for app in dashboard_data.pending_actions.membership_applications %}
                                         <li class="py-4 px-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3 {{ 'bg-danger-50 border-l-4 border-danger-500' if app.is_overdue else 'bg-gray-50' }}">
@@ -233,7 +233,7 @@
                         <!-- Placeholder for expense approvals -->
                         {% if dashboard_data and dashboard_data.pending_actions and dashboard_data.pending_actions.expense_approvals %}
                             <div class="pending-section">
-                                <h4>💰 Expense Approvals ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
+                                <h4><i class="fa fa-money"></i> Expense Approvals ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
                                 <!-- Will be implemented when expense system is integrated -->
                             </div>
                         {% endif %}
@@ -245,7 +245,7 @@
                 <!-- Board Information Section -->
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                     <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-secondary-50 border-secondary-200">
-                        <h3 class="m-0 text-lg font-semibold text-secondary-600">👨‍💼 Board Members</h3>
+                        <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-user-circle"></i> Board Members</h3>
                         {% if user_board_role and user_board_role.permissions.can_manage_board %}
                             <div class="flex gap-2">
                                 <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="manageBoardMembers()">
@@ -287,7 +287,7 @@
             {% if user_board_role and user_board_role.permissions.can_view_finances %}
             <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
                 <div class="px-6 py-4 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-accent-50 border-accent-200">
-                    <h3 class="m-0 text-lg font-semibold text-accent-600">💰 Chapter Finances</h3>
+                    <h3 class="m-0 text-lg font-semibold text-accent-600"><i class="fa fa-money"></i> Chapter Finances</h3>
                     <div class="flex gap-2">
                         <button class="inline-flex items-center justify-center px-3 py-1.5 text-sm rounded-lg font-medium bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm" onclick="viewFinancialReports()">
                             <i class="fa fa-chart-bar mr-1"></i> Reports
@@ -371,7 +371,7 @@
             {% if user_board_role and user_board_role.permissions.can_view_finances and dashboard_data.dues_payment_status %}
             <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
                 <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
-                    <h3 class="m-0 text-lg font-semibold text-secondary-600">💳 Dues Payment Status</h3>
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-credit-card"></i> Dues Payment Status</h3>
                 </div>
                         <div class="p-6">
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -449,7 +449,7 @@
             {% if dashboard_data.recent_activity %}
             <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
                 <div class="px-6 py-4 border-b bg-secondary-50 border-secondary-200">
-                    <h3 class="m-0 text-lg font-semibold text-secondary-600">📋 Recent Activity</h3>
+                    <h3 class="m-0 text-lg font-semibold text-secondary-600"><i class="fa fa-clipboard"></i> Recent Activity</h3>
                 </div>
                 <div class="p-6">
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -480,7 +480,7 @@
                 {% if dashboard_data.board_documents and dashboard_data.board_documents.total_count > 0 %}
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                     <div class="px-6 py-4 border-b bg-primary-50 border-primary-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                        <h3 class="m-0 text-lg font-semibold text-primary-600">📄Chapter Documents</h3>
+                        <h3 class="m-0 text-lg font-semibold text-primary-600"><i class="fa fa-file-text-o"></i>Chapter Documents</h3>
                         <div class="bg-primary-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
                             {{ dashboard_data.board_documents.total_count }} documents
                         </div>
@@ -496,12 +496,12 @@
                                             <h4 class="m-0 text-base font-semibold text-gray-800 flex items-center gap-2">
                                                 <i class="fa fa-folder text-warning-600"></i>
                                                 {% if dashboard_data.board_documents.category_icons %}
-                                                    {{ dashboard_data.board_documents.category_icons.get(doc_type, '📎') }}
+                                                    {{ dashboard_data.board_documents.category_icons.get(doc_type, '<i class="fa fa-paperclip"></i>') }}
                                                 {% else %}
-                                                    {% if doc_type == "Policy" %}📋
-                                                    {% elif doc_type == "Meeting Minutes" %}📝
-                                                    {% elif doc_type == "Financial Report" %}💰
-                                                    {% else %}📎{% endif %}
+                                                    {% if doc_type == "Policy" %}<i class="fa fa-clipboard"></i>
+                                                    {% elif doc_type == "Meeting Minutes" %}<i class="fa fa-pencil-square-o"></i>
+                                                    {% elif doc_type == "Financial Report" %}<i class="fa fa-money"></i>
+                                                    {% else %}<i class="fa fa-paperclip"></i>{% endif %}
                                                 {% endif %}
                                                 {{ doc_type }}
                                                 {% set doc_count = namespace(total=0) %}

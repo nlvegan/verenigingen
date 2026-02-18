@@ -156,18 +156,7 @@ class PontoPaymentLink(Document):
         # Replace MEMBER_NAME placeholder
         member_name = ""
         if self.member:
-            member_doc = frappe.db.get_value(
-                "Member",
-                self.member,
-                ["first_name", "tussenvoegsel", "last_name"],
-                as_dict=True,
-            )
-            if member_doc:
-                parts = [member_doc.first_name]
-                if member_doc.tussenvoegsel:
-                    parts.append(member_doc.tussenvoegsel)
-                parts.append(member_doc.last_name)
-                member_name = " ".join(filter(None, parts))
+            member_name = frappe.db.get_value("Member", self.member, "full_name") or ""
         result = result.replace("MEMBER_NAME", member_name)
 
         # Replace coverage date placeholders from Sales Invoice

@@ -7,9 +7,9 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import (
     get_active_membership_for_member,
-    get_current_user_member_name,
     get_member_customer,
     get_volunteer_for_member,
 )
@@ -18,18 +18,9 @@ from verenigingen.utils.member_utils import (
 def get_context(context):
     """Get context for member portal landing page"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the member portal"), frappe.PermissionError)
-
-    context.no_cache = 1
-    context.show_sidebar = True
-    context.title = _("Member Portal")
-
-    # Get member record
-    member = get_current_user_member_name()
+    member = setup_portal_context(context, "Member Portal")
     if not member:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+        return context
 
     context.member = frappe.get_doc("Member", member)
 

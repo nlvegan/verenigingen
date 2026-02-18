@@ -30,7 +30,7 @@ def get_context(context):
         frappe.throw(_("Please login to browse documents"), frappe.PermissionError)
 
     context.no_cache = 1
-    context.show_sidebar = True
+    context.show_sidebar = False
     context.title = _("Browse Documents")
 
     # Get browsable documents from service

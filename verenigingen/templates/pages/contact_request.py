@@ -18,7 +18,7 @@ def get_context(context):
         frappe.throw(_("Please login to access this page"), frappe.PermissionError)
 
     context.no_cache = 1
-    context.show_sidebar = True
+    context.show_sidebar = False
     context.title = _("Contact Request")
 
     # Get member record using standardized utility

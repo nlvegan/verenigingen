@@ -4,6 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils import validate_email_address
 
+from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
@@ -12,17 +13,9 @@ from verenigingen.utils.security.api_security_framework import OperationType, st
 def get_context(context):
     """Get context for address change portal page"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
-
-    # Get member record by email OR user field
-
-    # Get member using standardized utility
-    member_name = get_current_user_member_name()
-
+    member_name = setup_portal_context(context, "Update Address")
     if not member_name:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+        return context
 
     # Get member document (may need ignore_permissions for portal users)
     # Security: Verify member belongs to current user before using ignore_permissions
@@ -122,7 +115,6 @@ def get_context(context):
     context.countries = frappe.get_all("Country", fields=["name"], order_by="name")
 
     # Portal navigation
-    context.show_sidebar = True
     context.portal_links = [
         {"title": _("Dashboard"), "route": "/member_portal"},
         {"title": _("Update Address"), "route": "/address_change"},

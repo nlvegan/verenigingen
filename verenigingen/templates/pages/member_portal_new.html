@@ -1,4 +1,4 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("Member Portal") }}{% endblock %}
 
@@ -7,6 +7,8 @@
 {% endblock %}
 
 {% block page_content %}
+{% include "templates/includes/portal_no_member_error.html" %}
+{% if not no_member_record %}
 <div class="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 py-8">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
@@ -73,7 +75,7 @@
         <div class="form-card hover:shadow-lg transition-shadow duration-300 mb-8">
             <div class="form-header">
                 <h3 class="flex items-center">
-                    <span class="text-2xl mr-3">💳</span>{{ _("Contribution & Payment Status") }}
+                    <span class="text-2xl mr-3"><i class="fa fa-credit-card"></i></span>{{ _("Contribution & Payment Status") }}
                 </h3>
             </div>
             <div class="form-body">
@@ -137,7 +139,7 @@
             <div class="form-card hover:shadow-lg transition-shadow duration-300">
                 <div class="form-header">
                     <h3 class="flex items-center">
-                        <span class="text-2xl mr-3">👤</span>{{ _("Account Management") }}
+                        <span class="text-2xl mr-3"><i class="fa fa-user"></i></span>{{ _("Account Management") }}
                     </h3>
                 </div>
                 <div class="form-body">
@@ -209,7 +211,7 @@
             <div class="form-card hover:shadow-lg transition-shadow duration-300">
                 <div class="form-header">
                     <h3 class="flex items-center">
-                        <span class="text-2xl mr-3">🎫</span>{{ _("Membership Services") }}
+                        <span class="text-2xl mr-3"><i class="fa fa-ticket"></i></span>{{ _("Membership Services") }}
                     </h3>
                 </div>
                 <div class="form-body">
@@ -271,7 +273,7 @@
             <div class="form-card hover:shadow-lg transition-shadow duration-300">
                 <div class="form-header">
                     <h3 class="flex items-center">
-                        <span class="text-2xl mr-3">❤️</span>{{ _("Volunteer Services") }}
+                        <span class="text-2xl mr-3"><i class="fa fa-heart"></i></span>{{ _("Volunteer Services") }}
                     </h3>
                 </div>
                 <div class="form-body">
@@ -323,7 +325,7 @@
             <div class="form-card hover:shadow-lg transition-shadow duration-300">
                 <div class="form-header">
                     <h3 class="flex items-center">
-                        <span class="text-2xl mr-3">🎉</span>{{ _("Events & Community") }}
+                        <span class="text-2xl mr-3"><i class="fa fa-star"></i></span>{{ _("Events & Community") }}
                     </h3>
                 </div>
                 <div class="form-body">
@@ -468,4 +470,5 @@
     animation: slideUp 0.8s ease-out;
 }
 </style>
+{% endif %}
 {% endblock %}

@@ -29,7 +29,7 @@ def get_context(context):
         frappe.throw(_("Please login to access the document upload portal"), frappe.PermissionError)
 
     context.no_cache = 1
-    context.show_sidebar = True
+    context.show_sidebar = False
     context.title = _("Upload Documents")
 
     # Get upload context from service

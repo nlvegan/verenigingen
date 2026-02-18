@@ -32,12 +32,12 @@ def get_context(context):
     # Handle both dict and object context
     if hasattr(context, "no_cache"):
         context.no_cache = 1
-        context.show_sidebar = True
+        context.show_sidebar = False
         context.title = _("Chapter Dashboard")
     else:
         # For direct dictionary access (debugging/testing)
         context["no_cache"] = 1
-        context["show_sidebar"] = True
+        context["show_sidebar"] = False
         context["title"] = _("Chapter Dashboard")
 
     # Get user's board chapters

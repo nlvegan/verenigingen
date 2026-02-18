@@ -1,4 +1,4 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("Adjust Membership Fee") }}{% endblock %}
 
@@ -81,6 +81,8 @@
 {% endblock %}
 
 {% block page_content %}
+{% include "templates/includes/portal_no_member_error.html" %}
+{% if not no_member_record %}
 <div class="max-w-6xl mx-auto p-8">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div class="lg:col-span-2">
@@ -338,6 +340,7 @@
 
 <!-- Success/Error Messages -->
 <div id="message-container" style="position: fixed; top: 20px; right: 20px; z-index: 1000;"></div>
+{% endif %}
 {% endblock %}
 
 {% block script %}

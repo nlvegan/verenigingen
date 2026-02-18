@@ -12,7 +12,7 @@ from verenigingen.utils.secure_operations import secure_document_operation
 
 
 @frappe.whitelist()
-def set_member_home_page(user_email=None, home_page="/member_portal"):
+def set_member_home_page(user_email: str | None = None, home_page: str = "/member_portal"):
     """
     Set the home page for a member user
     This updates the User doctype's home_page field
@@ -384,3 +384,34 @@ def enhance_outstanding_invoices_with_coverage(outstanding_invoices, billing_fre
         enhanced_invoices.append(enhanced_invoice)
 
     return enhanced_invoices
+
+
+def setup_portal_context(context, page_title):
+    """Standard portal page context setup with graceful member lookup.
+
+    Sets: context.no_cache, context.show_sidebar, context.title
+    Returns: member_name (str) or None if no member found.
+    When None, context.no_member_record/error_title/error_message are set.
+    """
+    from verenigingen.utils.error_handling import validate_user_logged_in
+    from verenigingen.utils.member_utils import get_current_user_member_name
+
+    validate_user_logged_in()
+    context.no_cache = 1
+    context.show_sidebar = False
+    context.title = _(page_title)
+
+    member = get_current_user_member_name()
+    if not member:
+        context.no_member_record = True
+        context.error_title = _("Member Record Not Found")
+        context.error_message = _("No member record found for your account. Please contact support.")
+        try:
+            context.support_email = frappe.db.get_single_value("Verenigingen Settings", "support_email")
+        except Exception:
+            frappe.log_error("Failed to fetch support_email from Verenigingen Settings")
+            context.support_email = None
+        return None
+
+    context.no_member_record = False
+    return member

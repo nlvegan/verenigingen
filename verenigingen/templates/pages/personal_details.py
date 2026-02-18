@@ -3,38 +3,85 @@ Personal Details Management Page
 Allows members to view and update their personal information including pronouns
 """
 
+import json
 import re
 
 import frappe
 from frappe import _
 from frappe.utils import cint, today
 
-from verenigingen.utils.member_utils import get_current_user_member_doc, get_current_user_member_name
+from verenigingen.utils.member_portal_utils import setup_portal_context
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def get_context(context):
-    """Get context for personal details page"""
+    """Get context for personal details page (includes address tab data)"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    member_name = setup_portal_context(context, "Personal Details")
+    if not member_name:
+        return context
 
-    context.no_cache = 1
-    context.show_sidebar = True
-    context.title = _("Personal Details")
-
-    # Get member record using standardized utility
-    member = get_current_user_member_name()
-
-    context.member = frappe.get_doc("Member", member)
+    context.member = frappe.get_doc("Member", member_name)
 
     # Check for success messages from form submission
     success_messages = frappe.session.get("personal_details_success")
     if success_messages:
         context.success_messages = success_messages
-        # Clear messages after displaying
         del frappe.session["personal_details_success"]
+
+    # --- Address tab data ---
+    current_address = None
+    if context.member.primary_address:
+        # Verify ownership via Dynamic Link before loading address
+        address_links = frappe.get_all(
+            "Dynamic Link",
+            filters={
+                "parent": context.member.primary_address,
+                "link_doctype": "Member",
+                "link_name": member_name,
+                "parenttype": "Address",
+            },
+        )
+        if address_links:
+            try:
+                current_address = frappe.get_doc("Address", context.member.primary_address)
+            except (frappe.DoesNotExistError, frappe.PermissionError):
+                current_address = None
+
+    context.current_address = current_address
+
+    if current_address:
+        context.address_data = {
+            "address_line1": current_address.address_line1 or "",
+            "address_line2": current_address.address_line2 or "",
+            "city": current_address.city or "",
+            "state": current_address.state or "",
+            "country": current_address.country or "",
+            "pincode": current_address.pincode or "",
+            "phone": current_address.phone or "",
+            "email_id": current_address.email_id or "",
+        }
+    else:
+        context.address_data = {
+            "address_line1": "",
+            "address_line2": "",
+            "city": "",
+            "state": "",
+            "country": "Netherlands",
+            "pincode": "",
+            "phone": "",
+            "email_id": "",
+        }
+
+    # JSON-serialized for safe use in JavaScript
+    context.address_data_json = json.dumps(context.address_data)
+
+    context.countries = frappe.get_all("Country", fields=["name"], order_by="name")
+
+    # Which tab to show (after address update redirect)
+    active_tab = frappe.form_dict.get("tab", "personal")
+    context.active_tab = active_tab if active_tab in ("personal", "contact") else "personal"
 
     return context
 

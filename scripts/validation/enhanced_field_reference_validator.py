@@ -10,6 +10,7 @@ This validator provides field reference validation with:
 - Manager pattern recognition
 """
 
+import os
 import ast
 import json
 import re
@@ -886,7 +887,7 @@ def main():
     """Main function with enhanced false positive reduction"""
     import sys
     
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
+    app_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     
     pre_commit = '--pre-commit' in sys.argv
     verbose = '--verbose' in sys.argv

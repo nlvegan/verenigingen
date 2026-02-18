@@ -1,13 +1,14 @@
 import calendar
+import csv
+import io
 import json
-import os
-import tempfile
 from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
 from frappe.utils import add_months, flt, format_date, getdate, today
 
+from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name_required
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.validation_utilities import DateRangeValidator
@@ -16,12 +17,9 @@ from verenigingen.utils.validation_utilities import DateRangeValidator
 def get_context(context):
     """Get context for the dues schedule page"""
 
-    # Check if user is logged in
-    if frappe.session.user == "Guest":
-        frappe.throw(_("You need to be logged in to view this page"), frappe.PermissionError)
-
-    # Get current user's member record
-    member = get_current_user_member_name_required()
+    member = setup_portal_context(context, "My Dues Schedule")
+    if not member:
+        return context
 
     # Get current dues schedule
     current_schedule = get_current_dues_schedule(member)
@@ -283,7 +281,7 @@ def get_next_payment(member):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def export_schedule():
-    """Export dues schedule as CSV"""
+    """Export dues schedule as CSV via Frappe response download."""
 
     # Check if user is logged in
     if frappe.session.user == "Guest":
@@ -295,20 +293,18 @@ def export_schedule():
     # Get payment data
     payment_data = get_payment_data(member)
 
-    # Create CSV content
-    csv_content = "Date,Amount,Status,Description\n"
+    # Build CSV content with proper quoting via csv module
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([_("Date"), _("Amount"), _("Status"), _("Description")])
     for payment in payment_data:
-        csv_content += f"{payment['date']},{payment['amount']},{payment['status']},{payment['description']}\n"
+        writer.writerow([payment["date"], payment["amount"], payment["status"], payment["description"]])
+    csv_content = output.getvalue()
 
-    # Create file
-    filename = f"dues_schedule_{member}_{today().replace('-', '')}.csv"
-    file_path = os.path.join(tempfile.gettempdir(), filename)
-
-    with open(file_path, "w") as f:
-        f.write(csv_content)
-
-    # Return file info
-    return {"filename": filename, "url": f"/files/{filename}"}
+    # Serve file via Frappe response mechanism
+    frappe.response["filename"] = f"dues_schedule_{member}_{today().replace('-', '')}.csv"
+    frappe.response["filecontent"] = csv_content
+    frappe.response["type"] = "download"
 
 
 @frappe.whitelist()

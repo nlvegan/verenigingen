@@ -1,173 +1,140 @@
-{% macro render_sidebar_item(item) %}
-<li class="{{ 'sidebar-group' if item.group_title else 'sidebar-item' }} {{ 'has-submenu' if item.submenu else '' }}">
-	{%- if item.group_title -%}
+{#
+  Portal sidebar navigation - rendered on every page via base_portal.html.
+  Roles come from context.user_roles (set by update_website_context hook).
+#}
 
-	<h6>{{ _(item.group_title) }}</h6>
-	{{ render_sidebar_items(item.group_items) }}
+{% set roles = user_roles or [] %}
 
-	{%- else -%}
+<nav class="portal-nav" aria-label="Portal Navigation">
 
-	{% if item.type != 'input' %}
-	{%- set item_route = item.route[1:] if item.route[0] == '/' else item.route -%}
-	<a href="{{ item.route }}" class="{{ 'active' if pathname == item_route else '' }} main-menu-link"
-		{% if item.target %}target="{{ item.target }}" {% endif %}>
-		{{ _(item.title) or _(item.label) }}
-	</a>
+  {# -- Member section -- #}
+  {% if "Verenigingen Member" in roles %}
+  <div class="portal-nav-group">
+    <h6 class="portal-nav-heading">{{ _("Membership") }}</h6>
+    <ul class="portal-nav-list">
+      <li><a href="/member_portal"      class="portal-nav-link"><i class="fa fa-home fa-fw"></i>{{ _("Dashboard") }}</a></li>
+      <li><a href="/personal_details"   class="portal-nav-link"><i class="fa fa-user fa-fw"></i>{{ _("Personal Details") }}</a></li>
+      <li><a href="/payment_dashboard"  class="portal-nav-link"><i class="fa fa-credit-card fa-fw"></i>{{ _("Payments") }}</a></li>
+      <li><a href="/my_dues_schedule"   class="portal-nav-link"><i class="fa fa-calendar fa-fw"></i>{{ _("Dues Schedule") }}</a></li>
+      <li><a href="/my_addresses"       class="portal-nav-link"><i class="fa fa-map-marker fa-fw"></i>{{ _("Addresses") }}</a></li>
+      <li><a href="/my_teams"           class="portal-nav-link"><i class="fa fa-users fa-fw"></i>{{ _("My Teams") }}</a></li>
+      <li><a href="/chapter_dashboard"  class="portal-nav-link"><i class="fa fa-institution fa-fw"></i>{{ _("Chapter") }}</a></li>
+    </ul>
+  </div>
+  {% endif %}
 
-	{%- if item.submenu -%}
-	<ul class="submenu-items list-unstyled">
-		{% for submenu_item in item.submenu %}
-		<li class="submenu-item">
-			<i class="{{ submenu_item.icon }}"></i>
-			<span class="submenu-title">{{ _(submenu_item.title) }}</span>
-		</li>
-		{% endfor %}
-	</ul>
-	{%- endif -%}
+  {# -- Volunteer section -- #}
+  {% if "Verenigingen Volunteer" in roles %}
+  <div class="portal-nav-group">
+    <h6 class="portal-nav-heading">{{ _("Volunteering") }}</h6>
+    <ul class="portal-nav-list">
+      <li><a href="/volunteer/dashboard" class="portal-nav-link"><i class="fa fa-heart fa-fw"></i>{{ _("Volunteer Dashboard") }}</a></li>
+      <li><a href="/volunteer/expenses"  class="portal-nav-link"><i class="fa fa-money fa-fw"></i>{{ _("Expenses") }}</a></li>
+      <li><a href="/volunteer/skills"    class="portal-nav-link"><i class="fa fa-star fa-fw"></i>{{ _("Skills") }}</a></li>
+    </ul>
+  </div>
+  {% endif %}
 
-	{% else %}
-	<form action='{{ item.route }}' class="mr-4">
-		<input name='q' class='form-control' type='text' style="outline: none"
-			placeholder="{{ _(item.title) or _(item.label) }}">
-	</form>
-	{% endif %}
+  {# -- Board section -- #}
+  {% if "Verenigingen Chapter Board Member" in roles %}
+  <div class="portal-nav-group">
+    <h6 class="portal-nav-heading">{{ _("Board") }}</h6>
+    <ul class="portal-nav-list">
+      <li><a href="/board/document_upload"  class="portal-nav-link"><i class="fa fa-upload fa-fw"></i>{{ _("Upload Documents") }}</a></li>
+      <li><a href="/board/document_browser" class="portal-nav-link"><i class="fa fa-book fa-fw"></i>{{ _("Browse Documents") }}</a></li>
+    </ul>
+  </div>
+  {# -- Documents for non-board members -- #}
+  {% elif "Verenigingen Member" in roles %}
+  <div class="portal-nav-group">
+    <h6 class="portal-nav-heading">{{ _("Documents") }}</h6>
+    <ul class="portal-nav-list">
+      <li><a href="/board/document_browser" class="portal-nav-link"><i class="fa fa-book fa-fw"></i>{{ _("Browse Documents") }}</a></li>
+    </ul>
+  </div>
+  {% endif %}
 
-	{%- endif -%}
-</li>
-{% endmacro %}
+  {# -- General -- #}
+  <div class="portal-nav-group">
+    <h6 class="portal-nav-heading">{{ _("Help") }}</h6>
+    <ul class="portal-nav-list">
+      <li><a href="/contact_request" class="portal-nav-link"><i class="fa fa-envelope fa-fw"></i>{{ _("Contact Support") }}</a></li>
+      <li><a href="/me"              class="portal-nav-link"><i class="fa fa-cog fa-fw"></i>{{ _("My Account") }}</a></li>
+    </ul>
+  </div>
 
-{% macro render_sidebar_items(items) %}
-{%- if items | len > 0 -%}
-<ul class="list-unstyled">
-	{% for item in items -%}
-	{{ render_sidebar_item(item) }}
-	{%- endfor %}
-</ul>
-{%- endif -%}
-{% endmacro %}
-
-{% macro my_account() %}
-{% if frappe.user != 'Guest' %}
-<ul class="list-unstyled">
-	<li class="sidebar-item">
-		<a href="/me">{{ _("My Account") }}</a>
-	</li>
-</ul>
-{% endif %}
-{% endmacro %}
-
-<div class="web-sidebar web-sidebar-enhanced">
-	{% if sidebar_title %}
-	<li class="title">
-		{{ _(sidebar_title) }}
-	</li>
-	{% endif %}
-	<div class="sidebar-items">
-		{{ render_sidebar_items(sidebar_items) }}
-		{{ my_account() }}
-	</div>
-</div>
+</nav>
 
 <style>
-/* Enhanced sidebar styling */
-.web-sidebar-enhanced {
-	padding: 20px 0;
+.portal-nav {
+  padding: 12px 0;
 }
-
-.web-sidebar-enhanced .sidebar-item {
-	margin-bottom: 8px;
+.portal-nav-group {
+  margin-bottom: 20px;
 }
-
-.web-sidebar-enhanced .sidebar-item.has-submenu {
-	margin-bottom: 20px;
+.portal-nav-heading {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #8d99a6;
+  padding: 0 14px 6px;
+  margin: 0;
 }
-
-.web-sidebar-enhanced .main-menu-link {
-	display: block;
-	padding: 8px 12px;
-	color: #333;
-	font-weight: 500;
-	text-decoration: none;
-	border-radius: 4px;
-	transition: background-color 0.2s ease;
+.portal-nav-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
-
-.web-sidebar-enhanced .main-menu-link:hover,
-.web-sidebar-enhanced .main-menu-link.active {
-	background-color: #f8f9fa;
-	color: #2c3e50;
-	text-decoration: none;
+.portal-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #36414c;
+  text-decoration: none;
+  border-radius: 6px;
+  margin: 1px 6px;
+  transition: background .15s, color .15s;
 }
-
-.web-sidebar-enhanced .submenu-items {
-	margin-top: 5px;
-	margin-left: 15px;
-	border-left: 2px solid #e9ecef;
-	padding-left: 10px;
+.portal-nav-link:hover {
+  background: #f4f5f6;
+  color: #1b1f22;
+  text-decoration: none;
 }
-
-.web-sidebar-enhanced .submenu-item {
-	display: flex;
-	align-items: center;
-	padding: 4px 0;
-	margin-bottom: 3px;
-	font-size: 12px;
-	color: #6c757d;
+.portal-nav-link.active {
+  background: var(--primary-light, #e8f0fe);
+  color: var(--primary, #2490ef);
+  font-weight: 600;
 }
-
-.web-sidebar-enhanced .submenu-item i {
-	margin-right: 8px;
-	min-width: 14px;
-	font-size: 11px;
-	color: #adb5bd;
+.portal-nav-link .fa {
+  font-size: 14px;
+  color: #8d99a6;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
 }
-
-.web-sidebar-enhanced .submenu-title {
-	line-height: 1.3;
+.portal-nav-link.active .fa {
+  color: var(--primary, #2490ef);
 }
-
-.web-sidebar-enhanced .submenu-item:hover {
-	color: #495057;
-}
-
-.web-sidebar-enhanced .submenu-item:hover i {
-	color: #6c757d;
-}
-
-/* Mobile responsive */
 @media (max-width: 768px) {
-	.web-sidebar-enhanced .submenu-items {
-		margin-left: 10px;
-		padding-left: 8px;
-	}
-
-	.web-sidebar-enhanced .submenu-item {
-		font-size: 11px;
-	}
+  .portal-nav-link {
+    padding: 9px 14px;
+    font-size: 14px;
+  }
 }
 </style>
 
 <script>
-	frappe.ready(function () {
-		$('.sidebar-item a.main-menu-link').each(function (index) {
-			const active_class = 'active'
-			const non_active_class = ''
-			let page_href = window.location.href;
-			if (page_href.indexOf('#') !== -1) {
-				page_href = page_href.slice(0, page_href.indexOf('#'));
-			}
-			if (this.href.trim() == page_href) {
-				$(this).removeClass(non_active_class).addClass(active_class);
-			} else {
-				$(this).removeClass(active_class).addClass(non_active_class);
-			}
-		});
-
-		// scroll the active sidebar item into view
-		let active_sidebar_item = $('.sidebar-item a.active');
-		if (active_sidebar_item.length > 0) {
-			active_sidebar_item.get(0)
-				.scrollIntoView({behavior: "auto", block: "center", inline: "nearest"});
-		}
-	});
+frappe.ready(function () {
+  var path = window.location.pathname.replace(/\/$/, '');
+  $('.portal-nav-link').each(function () {
+    var href = $(this).attr('href').replace(/\/$/, '');
+    if (path === href || (href !== '/member_portal' && path.indexOf(href) === 0)) {
+      $(this).addClass('active');
+    }
+  });
+});
 </script>

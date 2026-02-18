@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import flt, getdate, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
+from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
@@ -18,20 +19,11 @@ DEFAULT_STANDARD_FEE = 15.0
 def get_context(context):
     """Get context for membership fee adjustment page"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
-
-    context.no_cache = 1
-    context.show_sidebar = True
-    context.title = _("Adjust Membership Fee")
-
-    # Get member record using standardized utility with validation
     from verenigingen.utils.validation_utilities import validate_document_exists
 
-    member = get_current_user_member_name()
+    member = setup_portal_context(context, "Adjust Membership Fee")
     if not member:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+        return context
 
     # Validate member exists
     validate_document_exists("Member", member)

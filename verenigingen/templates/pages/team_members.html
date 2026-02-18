@@ -263,7 +263,7 @@
     </div>
     {% else %}
     <div class="empty-state">
-        <div class="icon">👥</div>
+        <div class="icon"><i class="fa fa-users"></i></div>
         <h3>{{ _("No Teams Available") }}</h3>
         <p>{{ _("You don't have access to any teams yet.") }}</p>
     </div>
@@ -281,7 +281,7 @@
     </a>
 
     <div class="team-info">
-        <h3><span class="icon">📋</span>{{ _("Team Information") }}</h3>
+        <h3><span class="icon"><i class="fa fa-clipboard"></i></span>{{ _("Team Information") }}</h3>
 
         {% if team.description %}
         <p><strong>{{ _("Description") }}:</strong> {{ team.description }}</p>
@@ -361,7 +361,7 @@
     </div>
     {% else %}
     <div class="empty-state">
-        <div class="icon">👥</div>
+        <div class="icon"><i class="fa fa-users"></i></div>
         <h3>{{ _("No Team Members") }}</h3>
         <p>{{ _("This team currently has no active members.") }}</p>
     </div>

@@ -2,15 +2,18 @@
 
 {% block head_include %}
 {{ super() }}
-<style>
-.portal-container {
-    min-height: 400px;
-}
-</style>
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% endblock %}
 
-{# body_class now set dynamically via update_website_context hook #}
+{# Disable Frappe sidebar - we use an in-page nav strip instead #}
 
-{% block sidebar %}
-{% include "templates/includes/web_sidebar_enhanced.html" %}
+{% block page_container %}
+<main class="container">
+    {# Portal navigation strip #}
+    {% include "templates/includes/portal_nav.html" %}
+
+    <div class="page_content">
+        {%- block page_content -%}{%- endblock -%}
+    </div>
+</main>
 {% endblock %}

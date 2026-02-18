@@ -21,6 +21,7 @@ Key Features:
 - Error handling and logging
 """
 
+import os
 import json
 import time
 from pathlib import Path
@@ -732,7 +733,7 @@ def main():
     """Test the DocType loader"""
     import sys
     
-    bench_path = "/home/frappe/frappe-bench"
+    bench_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
     if len(sys.argv) > 1:
         bench_path = sys.argv[1]
     
