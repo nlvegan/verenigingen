@@ -277,7 +277,7 @@ def get_quick_actions(member, membership, volunteer):
 
     # Chapter dashboard - show for any member who belongs to a chapter
     try:
-        from vereiningen.utils.member_utils import get_member_chapters
+        from verenigingen.utils.member_utils import get_member_chapters
 
         member_chapters = get_member_chapters(member.name)
         if member_chapters:
