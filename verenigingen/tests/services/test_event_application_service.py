@@ -18,6 +18,11 @@ Tests cover:
 - _ensure_user_account_for_volunteer: user exists, already queued, happy path, queue failure, exception
 - _ensure_employee_for_profile: no profile, no Employee role, Employee exists, profile missing,
   no member, no company, happy path, DuplicateEntryError race, unexpected exception
+- _end_chapter_board_membership: unresolvable division, no volunteer, not on board,
+  happy path (BoardManager delegation), BoardManager failure, exception handling
+- _handle_division_contact_change: no removals, single removal, all removed,
+  partial failure continues, None results skipped
+- _notify_board_membership_change: correct notification key, realtime event, failure resilience
 """
 
 import json
@@ -2236,3 +2241,336 @@ class TestEnsureEmployeeForProfile(EnhancedTestCase):
         _ensure_employee_for_profile("jan@example.com", "Verenigingen Staff")
 
         mock_logger.error.assert_called_once()
+
+
+class TestEndChapterBoardMembership(EnhancedTestCase):
+    """Tests for _end_chapter_board_membership().
+
+    Regression tests for board member removal on division contact revocation.
+    The method should delete the board member row (not just deactivate it)
+    by delegating to BoardManager.bulk_remove_board_members().
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value=None)
+    def test_unresolvable_division_returns_error(self, _mock_resolve):
+        """When division_id doesn't resolve to a Chapter, return error message."""
+        result = self.service._end_chapter_board_membership("MEM-001", 999)
+
+        self.assertIsNotNone(result)
+        self.assertIn("999", result)
+        self.assertIn("does not match", result)
+
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value=None,
+    )
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    def test_no_volunteer_returns_none(self, _mock_resolve, _mock_get_vol):
+        """When member has no Volunteer record, return None (nothing to remove)."""
+        result = self.service._end_chapter_board_membership("MEM-001", 11)
+
+        self.assertIsNone(result)
+
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_not_on_board_returns_none(self, mock_frappe, _mock_resolve, _mock_get_vol):
+        """When volunteer has no active board membership, return None."""
+        mock_frappe._ = frappe._
+        mock_chapter = MagicMock()
+        mock_chapter.board_members = []  # No board members at all
+        mock_frappe.get_doc.return_value = mock_chapter
+
+        result = self.service._end_chapter_board_membership("MEM-001", 11)
+
+        self.assertIsNone(result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.today", return_value="2026-02-18")
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_happy_path_delegates_to_board_manager(
+        self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
+    ):
+        """Happy path: finds active board member, delegates removal to BoardManager."""
+        mock_frappe._ = frappe._
+        mock_bm = MagicMock()
+        mock_bm.volunteer = "VOL-001"
+        mock_bm.is_active = 1
+        mock_bm.chapter_role = "Voorzitter"
+        mock_bm.from_date = "2026-01-01"
+
+        mock_chapter = MagicMock()
+        mock_chapter.board_members = [mock_bm]
+        mock_chapter.board_manager.bulk_remove_board_members.return_value = {
+            "success": True,
+            "processed": 1,
+        }
+        mock_frappe.get_doc.return_value = mock_chapter
+
+        event = MagicMock()
+        event.name = "MR-SYNC-2026-05523"
+
+        result = self.service._end_chapter_board_membership("MEM-001", 11, event=event)
+
+        self.assertIn("Removed from chapter", result)
+        self.assertIn("Eindhoven", result)
+        mock_chapter.board_manager.bulk_remove_board_members.assert_called_once()
+        call_args = mock_chapter.board_manager.bulk_remove_board_members.call_args[0][0]
+        self.assertEqual(len(call_args), 1)
+        self.assertEqual(call_args[0]["volunteer"], "VOL-001")
+        self.assertEqual(call_args[0]["chapter_role"], "Voorzitter")
+        self.assertEqual(call_args[0]["end_date"], "2026-02-18")
+        self.assertIn("MR-SYNC-2026-05523", call_args[0]["reason"])
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.today", return_value="2026-02-18")
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_board_manager_failure_returns_error(
+        self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
+    ):
+        """When BoardManager returns failure, return error message."""
+        mock_frappe._ = frappe._
+        mock_bm = MagicMock()
+        mock_bm.volunteer = "VOL-001"
+        mock_bm.is_active = 1
+        mock_bm.chapter_role = "Secretaris"
+        mock_bm.from_date = "2026-01-01"
+
+        mock_chapter = MagicMock()
+        mock_chapter.board_members = [mock_bm]
+        mock_chapter.board_manager.bulk_remove_board_members.return_value = {
+            "success": False,
+            "error": "Save failed",
+        }
+        mock_frappe.get_doc.return_value = mock_chapter
+
+        result = self.service._end_chapter_board_membership("MEM-001", 11)
+
+        self.assertIn("board removal failed", result)
+        self.assertIn("Save failed", result)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.today", return_value="2026-02-18")
+    @patch(
+        "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
+        return_value="VOL-001",
+    )
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_exception_returns_error_and_logs(
+        self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
+    ):
+        """When an exception occurs, return error message and log."""
+        mock_frappe._ = frappe._
+        mock_frappe.get_traceback.return_value = "traceback"
+        mock_bm = MagicMock()
+        mock_bm.volunteer = "VOL-001"
+        mock_bm.is_active = 1
+        mock_bm.chapter_role = "Penningmeester"
+        mock_bm.from_date = "2026-01-01"
+
+        mock_chapter = MagicMock()
+        mock_chapter.board_members = [mock_bm]
+        mock_chapter.board_manager.bulk_remove_board_members.side_effect = Exception("DB lock timeout")
+        mock_frappe.get_doc.return_value = mock_chapter
+
+        result = self.service._end_chapter_board_membership("MEM-001", 11)
+
+        self.assertIn("board removal failed", result)
+        self.assertIn("DB lock timeout", result)
+        mock_frappe.log_error.assert_called_once()
+
+
+class TestHandleDivisionContactChange(EnhancedTestCase):
+    """Tests for _handle_division_contact_change().
+
+    Regression tests for the division contact removal flow — verifies that
+    removed divisions trigger board member deletion and notification.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_no_removals_no_action(self, mock_frappe):
+        """When no divisions were removed, no board removal or notification occurs."""
+        mock_frappe._ = frappe._
+        role_config = {}
+
+        result = self.service._handle_division_contact_change(
+            member_name="MEM-001",
+            new_division_ids=[10, 11],
+            old_division_ids=[10, 11],
+            role_config=role_config,
+        )
+
+        self.assertEqual(result, [])
+
+    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
+    @patch.object(
+        MijnRoodEventApplicationService,
+        "_end_chapter_board_membership",
+        return_value="Removed from chapter 'Eindhoven' board",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_removed_division_triggers_board_removal(
+        self, mock_frappe, mock_end_board, mock_notify
+    ):
+        """When a division is removed, _end_chapter_board_membership is called."""
+        mock_frappe._ = frappe._
+        event = MagicMock()
+        role_config = {}
+
+        result = self.service._handle_division_contact_change(
+            member_name="MEM-001",
+            new_division_ids=[10],
+            old_division_ids=[10, 11],
+            role_config=role_config,
+            event=event,
+        )
+
+        mock_end_board.assert_called_once_with("MEM-001", 11, event=event)
+        self.assertIn("Removed from chapter 'Eindhoven' board", result)
+        mock_notify.assert_called_once_with("MEM-001", {11}, event)
+
+    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
+    @patch.object(
+        MijnRoodEventApplicationService,
+        "_end_chapter_board_membership",
+        return_value="Removed from chapter 'Eindhoven' board",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_all_divisions_removed(self, mock_frappe, mock_end_board, mock_notify):
+        """When all divisions are removed, all get processed."""
+        mock_frappe._ = frappe._
+        role_config = {}
+
+        result = self.service._handle_division_contact_change(
+            member_name="MEM-001",
+            new_division_ids=[],
+            old_division_ids=[10, 11],
+            role_config=role_config,
+        )
+
+        self.assertEqual(mock_end_board.call_count, 2)
+        mock_notify.assert_called_once()
+
+    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
+    @patch.object(
+        MijnRoodEventApplicationService,
+        "_end_chapter_board_membership",
+        side_effect=Exception("Unexpected error"),
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_partial_failure_continues(self, mock_frappe, mock_end_board, mock_notify):
+        """When one division removal fails, others still process and notification fires."""
+        mock_frappe._ = frappe._
+        role_config = {}
+
+        result = self.service._handle_division_contact_change(
+            member_name="MEM-001",
+            new_division_ids=[],
+            old_division_ids=[10, 11],
+            role_config=role_config,
+        )
+
+        # Both were attempted
+        self.assertEqual(mock_end_board.call_count, 2)
+        # Error messages captured
+        self.assertEqual(len(result), 2)
+        self.assertTrue(all("Failed to end board membership" in msg for msg in result))
+        # Notification still sent
+        mock_notify.assert_called_once()
+
+    @patch.object(MijnRoodEventApplicationService, "_end_chapter_board_membership", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_none_result_not_appended(self, mock_frappe, mock_notify, mock_end_board):
+        """When _end_chapter_board_membership returns None (not on board), no message added."""
+        mock_frappe._ = frappe._
+        role_config = {}
+
+        result = self.service._handle_division_contact_change(
+            member_name="MEM-001",
+            new_division_ids=[10],
+            old_division_ids=[10, 11],
+            role_config=role_config,
+        )
+
+        self.assertEqual(result, [])
+        mock_notify.assert_called_once()
+
+
+class TestNotifyBoardMembershipChange(EnhancedTestCase):
+    """Tests for _notify_board_membership_change().
+
+    Verifies notification uses the Email Configuration system
+    via notify_administrators with the chapter_board_removed key.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch("verenigingen.utils.notification_helpers.notify_administrators")
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_sends_notification_with_correct_key(self, mock_frappe, _mock_resolve, mock_notify):
+        """Notification uses chapter_board_removed key and Chapter category."""
+        mock_frappe._ = frappe._
+        mock_frappe.session.user = "admin@example.com"
+        event = MagicMock()
+        event.name = "MR-SYNC-2026-05523"
+
+        self.service._notify_board_membership_change("MEM-001", {11}, event)
+
+        mock_notify.assert_called_once()
+        call_kwargs = mock_notify.call_args[1]
+        self.assertEqual(call_kwargs["notification_key"], "chapter_board_removed")
+        self.assertEqual(call_kwargs["category"], "Chapter")
+        self.assertEqual(call_kwargs["document_type"], "MijnRood Sync Event")
+        self.assertEqual(call_kwargs["document_name"], "MR-SYNC-2026-05523")
+        self.assertIn("MEM-001", call_kwargs["subject"])
+
+    @patch("verenigingen.utils.notification_helpers.notify_administrators")
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_also_sends_realtime(self, mock_frappe, _mock_resolve, _mock_notify):
+        """Also publishes a realtime event for the current session."""
+        mock_frappe._ = frappe._
+        mock_frappe.session.user = "admin@example.com"
+        event = MagicMock()
+        event.name = "SYNC-001"
+
+        self.service._notify_board_membership_change("MEM-001", {11}, event)
+
+        mock_frappe.publish_realtime.assert_called_once()
+        call_kwargs = mock_frappe.publish_realtime.call_args
+        self.assertEqual(call_kwargs[0][0], "board_membership_ended")
+
+    @patch("verenigingen.utils.notification_helpers.notify_administrators")
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_notification_failure_does_not_raise(self, mock_frappe, _mock_resolve, mock_notify):
+        """If notify_administrators raises, the error is logged but not re-raised."""
+        mock_frappe._ = frappe._
+        mock_frappe.session.user = "admin@example.com"
+        mock_notify.side_effect = Exception("Email config broken")
+
+        # Should not raise
+        self.service._notify_board_membership_change("MEM-001", {11})
