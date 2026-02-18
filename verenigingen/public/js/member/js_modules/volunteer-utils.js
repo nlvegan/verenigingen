@@ -217,18 +217,6 @@ function create_volunteer_from_member(frm) {
 				default: 0
 			},
 			{
-				fieldtype: 'MultiSelect',
-				fieldname: 'roles',
-				label: __('Additional Roles'),
-				options: [
-					'Verenigingen Volunteer',
-					'Volunteer Team Member',
-					'Volunteer Team Leader'
-				],
-				depends_on: 'eval:doc.activate_volunteer',
-				description: __('Roles to assign (Verenigingen Volunteer is always included)')
-			},
-			{
 				fieldtype: 'HTML',
 				fieldname: 'activation_note',
 				options: `<div class="alert alert-info" style="margin-top: 10px;">
@@ -245,18 +233,9 @@ function create_volunteer_from_member(frm) {
 				create_user_account: values.activate_volunteer ? 1 : 0
 			};
 
-			// Add roles if activation is enabled (always include Verenigingen Volunteer)
+			// Add default volunteer role if activation is enabled
 			if (values.activate_volunteer) {
-				let roles = ['Verenigingen Volunteer'];
-				if (values.roles && values.roles.length > 0) {
-					// Add additional selected roles, avoiding duplicates
-					values.roles.forEach(role => {
-						if (!roles.includes(role)) {
-							roles.push(role);
-						}
-					});
-				}
-				args.roles = roles;
+				args.roles = ['Verenigingen Volunteer'];
 			}
 
 			frappe.call({
@@ -286,10 +265,8 @@ function create_volunteer_from_member(frm) {
 
 						d.hide();
 
-						// Refresh the form to show volunteer info
-						setTimeout(() => {
-							frm.refresh();
-						}, 1000);
+						// Reload from DB to show volunteer_record field
+						frm.reload_doc();
 					} else {
 						frappe.msgprint({
 							title: __('Error'),

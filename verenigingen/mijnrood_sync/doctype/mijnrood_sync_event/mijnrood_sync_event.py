@@ -71,70 +71,87 @@ class MijnRoodSyncEvent(Document):
 
     @frappe.whitelist()
     def get_member_comparison_data(self):
-        """Return current Frappe member field values for comparison with MijnRood data.
+        """Return current Frappe member field values for comparison with MijnRood data."""
+        return _get_member_comparison_data(self.name)
 
-        Keyed by MijnRood column name so the client can directly compare
-        against the new_data JSON stored on the event.
 
-        Returns:
-            dict keyed by MijnRood column name → current Frappe value
-        """
-        if not self.linked_member:
-            return {}
+@frappe.whitelist()
+def get_member_comparison_data(event_name: str) -> dict:
+    """Return current Frappe member field values for comparison with MijnRood data.
 
-        member = frappe.get_doc("Member", self.linked_member)
+    Standalone whitelisted function to avoid run_doc_method issues when called
+    from async JS callbacks where the document may not be in the client locals cache.
 
-        from verenigingen.mijnrood_sync.field_mapping import (
-            MIJNROOD_TO_MEMBER_FIELD_MAP,
-            get_status_labels,
-        )
+    Keyed by MijnRood column name so the client can directly compare
+    against the new_data JSON stored on the event.
 
-        # Reverse map: Frappe field → MijnRood column(s)
-        frappe_to_mijnrood = {}
-        for mr_col, frappe_field in MIJNROOD_TO_MEMBER_FIELD_MAP.items():
-            frappe_to_mijnrood.setdefault(frappe_field, []).append(mr_col)
+    Args:
+        event_name: Name of the MijnRood Sync Event document.
 
-        result = {}
+    Returns:
+        dict keyed by MijnRood column name → current Frappe value
+    """
+    return _get_member_comparison_data(event_name)
 
-        # Direct member fields
-        for frappe_field, mr_cols in frappe_to_mijnrood.items():
-            value = member.get(frappe_field) if member.get(frappe_field) else ""
-            for mr_col in mr_cols:
-                result[mr_col] = str(value) if value else ""
 
-        # Membership status: Frappe stores string ("Active", "Suspended", etc.)
-        # while MijnRood uses numeric IDs resolved to STATUS_ID_LABELS format.
-        # Return both: raw Frappe status + display value matching the MijnRood
-        # label format so the JS comparison table can show and match correctly.
-        if member.get("status"):
-            frappe_status = str(member.status)
-            # Build reverse lookup: match Frappe status to MijnRood label
-            # e.g. "Active" matches "Active (lid)", "Suspended" matches "Suspended (geschorst)"
-            matched_label = frappe_status
-            for _sid, label in get_status_labels().items():
-                if label.lower().startswith(frappe_status.lower()):
-                    matched_label = label
-                    break
-            result["current_membership_status_id"] = matched_label
+def _get_member_comparison_data(event_name: str) -> dict:
+    """Shared implementation for member comparison data retrieval."""
+    event = frappe.get_doc("MijnRood Sync Event", event_name)
 
-        # Address fields from linked Address document
-        if member.get("primary_address"):
-            try:
-                address = frappe.get_doc("Address", member.primary_address)
-                result["address"] = str(address.address_line1 or "")
-                result["city"] = str(address.city or "")
-                result["post_code"] = str(address.pincode or "")
-                result["country"] = str(address.country or "")
-            except frappe.DoesNotExistError:
-                pass
+    if not event.linked_member:
+        return {}
 
-        # Division: look up the member's current active chapter via Chapter Member child table
-        active_chapter = frappe.db.get_value(
-            "Chapter Member",
-            {"member": self.linked_member, "status": "Active"},
-            "parent",
-        )
-        if active_chapter:
-            result["division_id"] = str(active_chapter)
+    member = frappe.get_doc("Member", event.linked_member)
 
-        return result
+    from verenigingen.mijnrood_sync.field_mapping import (
+        MIJNROOD_TO_MEMBER_FIELD_MAP,
+        get_status_labels,
+    )
+
+    # Reverse map: Frappe field → MijnRood column(s)
+    frappe_to_mijnrood = {}
+    for mr_col, frappe_field in MIJNROOD_TO_MEMBER_FIELD_MAP.items():
+        frappe_to_mijnrood.setdefault(frappe_field, []).append(mr_col)
+
+    result = {}
+
+    # Direct member fields
+    for frappe_field, mr_cols in frappe_to_mijnrood.items():
+        value = member.get(frappe_field) if member.get(frappe_field) else ""
+        for mr_col in mr_cols:
+            result[mr_col] = str(value) if value else ""
+
+    # Membership status: Frappe stores string ("Active", "Suspended", etc.)
+    # while MijnRood uses numeric IDs resolved to STATUS_ID_LABELS format.
+    # Return both: raw Frappe status + display value matching the MijnRood
+    # label format so the JS comparison table can show and match correctly.
+    if member.get("status"):
+        frappe_status = str(member.status)
+        matched_label = frappe_status
+        for _sid, label in get_status_labels().items():
+            if label.lower().startswith(frappe_status.lower()):
+                matched_label = label
+                break
+        result["current_membership_status_id"] = matched_label
+
+    # Address fields from linked Address document
+    if member.get("primary_address"):
+        try:
+            address = frappe.get_doc("Address", member.primary_address)
+            result["address"] = str(address.address_line1 or "")
+            result["city"] = str(address.city or "")
+            result["post_code"] = str(address.pincode or "")
+            result["country"] = str(address.country or "")
+        except frappe.DoesNotExistError:
+            pass
+
+    # Division: look up the member's current active chapter via Chapter Member child table
+    active_chapter = frappe.db.get_value(
+        "Chapter Member",
+        {"member": event.linked_member, "status": "Active"},
+        "parent",
+    )
+    if active_chapter:
+        result["division_id"] = str(active_chapter)
+
+    return result

@@ -546,8 +546,8 @@ function render_change_details(frm) {
             wrapper.$wrapper.html(html);
 
             frappe.call({
-                method: "get_member_comparison_data",
-                doc: frm.doc,
+                method: "vereiningen.mijnrood_sync.doctype.mijnrood_sync_event.mijnrood_sync_event.get_member_comparison_data",
+                args: { event_name: frm.doc.name },
                 callback: function (r) {
                     if (r.message) {
                         var comparison_html = render_comparison_table(changed_fields, r.message);
