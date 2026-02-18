@@ -167,7 +167,7 @@
   },
   {
    "default": "0",
-   "description": "Future use: automatically apply non-destructive changes without review",
+   "description": "Not yet implemented. Planned: automatically apply non-destructive changes (address, phone, email updates) without manual review.",
    "fieldname": "auto_apply_safe_changes",
    "fieldtype": "Check",
    "label": "Auto-apply Safe Changes"
