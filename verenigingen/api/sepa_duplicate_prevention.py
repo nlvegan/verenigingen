@@ -937,10 +937,10 @@ def _set_cached_result(idempotency_key: str, result: Dict, ttl: int = None) -> N
                 oldest_keys = sorted(_operation_cache.keys(), key=lambda k: _operation_cache[k][1])[
                     : _MAX_CACHE_ENTRIES // 10
                 ]
-            for key in oldest_keys:
-                del _operation_cache[key]
+                for key in oldest_keys:
+                    del _operation_cache[key]
 
-    _operation_cache[idempotency_key] = (result, time.time(), ttl)
+        _operation_cache[idempotency_key] = (result, time.time(), ttl)
 
 
 @standard_api(operation_type=OperationType.FINANCIAL)

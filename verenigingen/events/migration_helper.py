@@ -60,7 +60,16 @@ def ensure_payment_history_current():
 
 @frappe.whitelist()
 def test_event_system():
-    """Test function to verify the event system is working"""
+    """Test function to verify the event system is working.
+
+    Restricted to System Manager in developer mode only — fires fake events
+    that target non-existent documents.
+    """
+    if not frappe.conf.get("developer_mode"):
+        frappe.throw("test_event_system is only available in developer mode")
+
+    frappe.only_for(["System Manager"])
+
     try:
         # Create a test invoice submission event
         test_event_data = {

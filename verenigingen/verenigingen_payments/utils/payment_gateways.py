@@ -629,7 +629,7 @@ class MollieGateway(PaymentGateway):
             log_mollie_error(
                 "Subscription Status Retrieval",
                 e,
-                {"member": member.name if hasattr(member, "name") else "Unknown"},
+                {"customer_id": customer_id, "subscription_id": subscription_id},
             )
             return create_error_response(f"Error retrieving subscription status: {str(e)}")
 
@@ -782,7 +782,7 @@ class SEPAGateway(PaymentGateway):
                     "account_holder_name": form_data.get("donor_name", donor.donor_name),
                     "mandate_type": "RCUR" if donation.status == "Recurring" else "OOFF",
                     "status": "Active",
-                    "mandate_reference": "MAND-{donation.name}",
+                    "mandate_reference": f"MAND-{donation.name}",
                     "signature_date": getdate(),
                     "reference_doctype": "Donation",
                     "reference_name": donation.name,

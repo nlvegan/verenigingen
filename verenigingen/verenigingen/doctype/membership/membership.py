@@ -1271,7 +1271,7 @@ def revert_to_standard_amount(membership_name: str, reason: str = None):
 
     if not template.suggested_amount:
         frappe.throw(
-            f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+            f"Dues schedule template for membership type '{membership.membership_type}' must have a suggested_amount configured"
         )
     standard_amount = template.suggested_amount
 

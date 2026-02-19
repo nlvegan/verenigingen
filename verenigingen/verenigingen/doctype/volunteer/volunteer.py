@@ -1067,6 +1067,12 @@ def get_volunteers_with_filters(category=None, skill=None, min_level=None, max_r
     Returns:
         List of volunteers matching the filters
     """
+    # Validate numeric inputs (whitelisted endpoints receive strings from web)
+    try:
+        max_results = min(int(max_results), 200)
+    except (ValueError, TypeError):
+        max_results = 50
+
     conditions = ["v.status = 'Active'"]
     params = {"max_results": max_results}
 
@@ -1081,36 +1087,37 @@ def get_volunteers_with_filters(category=None, skill=None, min_level=None, max_r
             conditions.append("vs.skill_category = %(category)s")
             params["category"] = category
         if min_level:
+            try:
+                params["min_level"] = int(min_level)
+            except (ValueError, TypeError):
+                params["min_level"] = 1
             conditions.append("CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) >= %(min_level)s")
-            params["min_level"] = min_level
 
     # Build skills summary field based on whether we're joining skills table
+    # Note: skills_field and join_clause are internal strings, not user input
     if join_clause:
-        skills_field = """GROUP_CONCAT(DISTINCT CONCAT(vs.volunteer_skill, ' (', vs.proficiency_level, ')')
-            ORDER BY vs.skill_category, vs.volunteer_skill SEPARATOR ', ') as skills_summary"""
+        skills_field = (
+            "GROUP_CONCAT(DISTINCT CONCAT(vs.volunteer_skill, ' (', vs.proficiency_level, ')')"
+            " ORDER BY vs.skill_category, vs.volunteer_skill SEPARATOR ', ') as skills_summary"
+        )
     else:
         skills_field = "NULL as skills_summary"
 
-    volunteers = frappe.db.sql(
-        """
-        SELECT DISTINCT
-            v.name,
-            v.volunteer_name,
-            v.status,
-            v.email,
-            {skills_field}
-        FROM `tabVolunteer` v
-        {join_clause}
-        WHERE {conditions}
-        GROUP BY v.name
-        ORDER BY v.volunteer_name
-        LIMIT %(max_results)s
-    """.format(
-            skills_field=skills_field, join_clause=join_clause, conditions=" AND ".join(conditions)
-        ),
-        params,
-        as_dict=True,
+    where_clause = " AND ".join(conditions)
+
+    # Query uses .format() only for structural parts (internal strings);
+    # all user values go through %(...)s parameterization
+    query = (
+        "SELECT DISTINCT v.name, v.volunteer_name, v.status, v.email, "
+        + skills_field
+        + " FROM `tabVolunteer` v "
+        + join_clause
+        + " WHERE "
+        + where_clause
+        + " GROUP BY v.name ORDER BY v.volunteer_name LIMIT %(max_results)s"
     )
+
+    volunteers = frappe.db.sql(query, params, as_dict=True)
 
     return volunteers
 
