@@ -645,25 +645,29 @@ def get_user_chapter_access(**kwargs):
         }
 
     # Get chapters where user has board access with membership permissions
+    # Single query replaces N+1 pattern (was: 1 + N volunteers + M board positions)
     user_chapters = []
-    volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
-
-    for volunteer_record in volunteer_records:
+    volunteer_names = frappe.get_all("Volunteer", filters={"member": user_member}, pluck="name")
+    if volunteer_names:
         board_positions = frappe.get_all(
             "Chapter Board Member",
-            filters={"volunteer": volunteer_record.name, "is_active": 1},
+            filters={"volunteer": ["in", volunteer_names], "is_active": 1},
             fields=["parent", "chapter_role"],
         )
-
-        for position in board_positions:
-            # Check if the role has membership permissions
-            try:
-                role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                if role_doc.permissions_level in ["Admin", "Membership"]:
-                    if position.parent not in user_chapters:
-                        user_chapters.append(position.parent)
-            except Exception:
-                continue
+        if board_positions:
+            role_names = list({p.chapter_role for p in board_positions})
+            role_levels = {
+                r.name: r.permissions_level
+                for r in frappe.get_all(
+                    "Chapter Role",
+                    filters={"name": ["in", role_names]},
+                    fields=["name", "permissions_level"],
+                )
+            }
+            for position in board_positions:
+                level = role_levels.get(position.chapter_role)
+                if level in ("Admin", "Membership") and position.parent not in user_chapters:
+                    user_chapters.append(position.parent)
 
     # Check national chapter access
     national_access = False

@@ -19,6 +19,7 @@ from verenigingen.utils.validation_utilities import DateRangeValidator
 
 class Membership(Document):
     def validate(self) -> None:
+        self._membership_type_doc = None  # Reset per-validate cache
         self.validate_dates()
         self.validate_membership_type()
         self.validate_existing_memberships()
@@ -26,6 +27,12 @@ class Membership(Document):
         self.set_renewal_date()  # Calculate renewal date based on start date and membership type
         self.set_grace_period_expiry()  # Set default grace period expiry if needed
         self.set_status()
+
+    def _get_membership_type_doc(self):
+        """Get cached Membership Type doc for current validate cycle (avoids 4 redundant DB fetches)."""
+        if self._membership_type_doc is None and self.membership_type:
+            self._membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
+        return self._membership_type_doc
 
     def on_submit(self) -> None:
         """Create or update dues schedule when membership is submitted"""
@@ -384,9 +391,7 @@ class Membership(Document):
                 frappe.throw(_("Renewal date cannot be before start date"))
 
         # Check if minimum period enforcement is enabled for this membership type
-        membership_type = (
-            frappe.get_doc("Membership Type", self.membership_type) if self.membership_type else None
-        )
+        membership_type = self._get_membership_type_doc()
         enforce_minimum = membership_type.get("enforce_minimum_period", True) if membership_type else True
 
         # If cancellation date is set and minimum period is enforced, check if it's at least 1 year after start date
@@ -412,7 +417,7 @@ class Membership(Document):
     def set_renewal_date(self):
         """Calculate renewal date based on membership type and start date"""
         if self.membership_type and self.start_date:
-            membership_type = frappe.get_doc("Membership Type", self.membership_type)
+            membership_type = self._get_membership_type_doc()
 
             # Get duration from membership type (billing_period is optional)
             billing_period = getattr(membership_type, "billing_period", None) or "Annual"
@@ -426,10 +431,9 @@ class Membership(Document):
                 # Ensure minimum 1-year membership period if enabled
                 if months and months < 12 and enforce_minimum:
                     months = 12
-                    # Only show message once per session and if renewal date is not already set
+                    # Only show message once per session
                     message_key = f"renewal_message_{self.name or 'new'}"
-                    self.renewal_date = None
-                    if not frappe.flags.get(message_key) and not self.renewal_date:
+                    if not frappe.flags.get(message_key):
                         frappe.msgprint(
                             _(
                                 "Note: Membership type has a period less than 1 year. Due to the mandatory minimum period, the renewal date is set to 1 year from start date."
@@ -456,7 +460,7 @@ class Membership(Document):
                         # Even for daily, enforce 1 year minimum
                         self.renewal_date = add_to_date(self.start_date, months=12)
                         message_key = f"daily_minimum_message_{self.name or 'new'}"
-                        if not frappe.flags.get(message_key) and not self.renewal_date:
+                        if not frappe.flags.get(message_key):
                             frappe.msgprint(
                                 _("Note: Daily membership type has minimum 1-year period enforced."),
                                 indicator="yellow",
@@ -511,8 +515,8 @@ class Membership(Document):
 
         # Check if minimum period enforcement is enabled for this membership type
         if self.membership_type:
-            membership_type = frappe.get_doc("Membership Type", self.membership_type)
-            enforce_minimum = membership_type.get("enforce_minimum_period", True)
+            membership_type = self._get_membership_type_doc()
+            enforce_minimum = membership_type.get("enforce_minimum_period", True) if membership_type else True
             if not enforce_minimum:
                 # Don't set commitment_end_date if minimum period is not enforced
                 return
@@ -538,7 +542,7 @@ class Membership(Document):
     def validate_membership_type(self):
         # Check if membership type exists and is active
         if self.membership_type:
-            membership_type = frappe.get_doc("Membership Type", self.membership_type)
+            membership_type = self._get_membership_type_doc()
 
             if not membership_type.is_active:
                 frappe.throw(_("Membership Type {0} is inactive").format(self.membership_type))

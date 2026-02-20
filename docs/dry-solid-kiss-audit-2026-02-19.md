@@ -9,8 +9,8 @@
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 9 | 10 |
-| High | 37 | 13 | 24 |
-| Medium | 55+ | 5 | 50+ |
+| High | 37 | 15 | 22 |
+| Medium | 55+ | 7 | 48+ |
 | Low | 30+ | 0 | 30+ |
 
 **Additional fix not in original audit:** Reversed decorator order across 27 files (102 endpoints) — `@frappe.whitelist()` must be outermost or HTTP calls fail with "Method Not Allowed".
@@ -117,8 +117,8 @@
 
 | # | File | Issue | Agent |
 |---|------|-------|-------|
-| H24 | `membership_application_review.py:626-683` | N+1 query in `get_user_chapter_access` — 18+ queries per page load | API |
-| H25 | `membership.py:380-500` | `Membership Type` fetched 4 times per validate cycle | DocTypes |
+| H24 | `membership_application_review.py:626-683` | N+1 query in `get_user_chapter_access` — 18+ queries per page load | API | **FIXED** — replaced N+1 with 3 flat queries |
+| H25 | `membership.py:380-500` | `Membership Type` fetched 4 times per validate cycle | DocTypes | **FIXED** — cached in `_get_membership_type_doc()` per validate cycle |
 | H26 | `mollie_payment_orchestrator.py` | `get_mollie_bank_account_config()` called 4 times without caching | Payments |
 | H27 | `sepa_admin_reporting.py:188-228` | Correlated subquery anti-pattern: 3,000 subqueries for 1,000 mandates | Payments |
 
@@ -154,14 +154,14 @@
 | M4 | DRY | `mollie_debug_service` — result dict boilerplate x17 | Across all API methods |
 | M5 | DRY | `mollie_debug_service` — limit sanitization x6 | Same logic, inconsistent caps |
 | M6 | DRY | `mollie_debug_service` — optional attr serialization x25 | `getattr(obj, attr, None)` pattern |
-| M7 | DRY | `_get_or_create_generic_customer/supplier` identical | `eboekhouden_rest_full_migration.py:908-1081` |
+| M7 | DRY | `_get_or_create_generic_customer/supplier` identical | `eboekhouden_rest_full_migration.py:908-1081` — **FIXED** (→ `_get_or_create_generic_party`) |
 | M8 | DRY | Pagination loops x4 in `eboekhouden_api.py` | Same while-loop structure |
 | M9 | SRP | `termination_integration.py` mixes 9 domains | 1,422 LOC with 9 concerns |
 | M10 | SRP | `membership.py:76-238` `create_or_update_dues_schedule` | 163 lines, 5+ responsibilities |
 | M11 | SRP | `membership_dues_schedule.py:44-66` validate() inconsistency | 12 validators, inconsistent template guards |
 | M12 | KISS | `application_helpers.py:240-309` excessive debug logging | 7 debug log calls per JSON parse, PII risk |
 | M13 | KISS | Deprecated `approve_membership_application` uses `warnings.warn` | Never surfaces in HTTP context |
-| M14 | KISS | `membership.py:412-500` `set_renewal_date` | 68 lines, 4 nesting levels, self-defeating `self.renewal_date = None` |
+| M14 | KISS | `membership.py:412-500` `set_renewal_date` | 68 lines, 4 nesting levels, self-defeating `self.renewal_date = None` — **FIXED** |
 | M15 | KISS | `lifecycle.py:32-36` patches run on every migrate | Should be in `patches.txt` |
 | M16 | KISS | `scheduler.py:122-126` 6-field cron expression | Possibly unsupported by Frappe |
 | M17 | OCP | `document_portal_service.py` org-type `if/elif` chain x3 | Adding org type requires 3 edits |
@@ -218,6 +218,10 @@ The audit agents consistently noted these strong patterns:
 - ~~Extract `determine_payment_status` utility (H5)~~ **DONE** — fixed bug in payment_history_service (missing `outstanding_amount` check)
 - ~~Extract `batch_fetch_with_chunking` utility (H6)~~ **DONE** — 3 implementations → 1 shared function
 - ~~Consolidate batch workers (H14)~~ **DONE** — 2 near-identical workers → 1 parameterized function
+- ~~Cache Membership Type in validate cycle (H25)~~ **DONE** — `_get_membership_type_doc()` eliminates 3 redundant DB fetches
+- ~~Fix N+1 query in `get_user_chapter_access` (H24)~~ **DONE** — 3 flat queries replace nested loops
+- ~~Consolidate `_get_or_create_generic_customer/supplier` (M7)~~ **DONE** — single `_get_or_create_generic_party`
+- ~~Fix self-defeating `self.renewal_date = None` (M14)~~ **DONE** — dead conditions removed
 - Extract shared event emitter base (H7, H8) — DEFERRED (copy-paste bug found, needs design)
 - Consolidate deadlock retry logic (H4) — DEFERRED (7 implementations with different semantics)
 - Extract hardcoded role constants (H17) — DEFERRED (138+ instances across 40+ files)
@@ -326,3 +330,14 @@ The audit agents consistently noted these strong patterns:
 - H16: `_ensure_*` error boilerplate — methods vary too much (different log levels, some use `frappe.log_error`, complex branching); decorator would reduce clarity for ~40 LOC savings
 - H9: ISO datetime parsing — 45 occurrences across 21 files, needs separate focused session
 - H11: Invoice creation — only 63% identical with significant financial logic differences
+
+### Phase 4 (batch 3): Performance + DRY + KISS (2026-02-20)
+
+**Impact:** ~-50 net LOC, 4 redundant DB calls eliminated per Membership validate, N+1 query eliminated
+
+| Item | What was done |
+|------|--------------|
+| H25 | `_get_membership_type_doc()` cache method added to Membership; 4 `frappe.get_doc("Membership Type", ...)` calls → 1 per validate cycle |
+| H24 | N+1 query in `get_user_chapter_access()` replaced with 3 flat queries (volunteers → board members → roles); eliminates 18+ DB calls per page load |
+| M7 | `_get_or_create_generic_customer/supplier` consolidated into single `_get_or_create_generic_party(party_type, ...)` with thin wrappers |
+| M14 | Self-defeating `self.renewal_date = None` removed; dead `not self.renewal_date` condition simplified in 2 places |
