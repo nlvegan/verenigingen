@@ -2,14 +2,14 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
-**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete; batches 7-10)
+**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete; batches 7-12)
 
 ## Executive Summary
 
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 27 | 10 |
+| High | 37 | 30 | 7 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -91,10 +91,10 @@
 | H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | **FIXED** — extracted `determine_payment_status()`, fixed bug (missing `outstanding_amount <= 0` check) |
 | H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | **FIXED** — extracted `batch_fetch_with_chunking()` to `utils/__init__.py` |
 | H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | **FIXED** (Phase 1) — extracted `emit_event()` to `events/event_emitter.py`; 4 simple emitters now delegate (~-80 LOC); `invoice_events` and `expense_events` have conditional logic and stay as-is |
-| H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | DEFERRED — inconsistent flag names need design decision |
+| H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | **FIXED** — removed 5 dead bulk-flag guards (`bulk_member_approval` + `bulk_team_operations` never set); live flags (`bulk_member_operations`, `bulk_chapter_operations`) already handled by `emit_event()` helper |
 | H9 | ISO datetime parsing pattern in 61 files (119 occurrences) | Across payments layer | ~120 | Payments | **FALSE POSITIVE** — audit overcounted (164 `.strftime` formatting, 100+ correct `getdate()`, 78 test-only `fromisoformat`); only 12 genuine `parser.parse()` in 10 production files, all following same try/fallback pattern; not worth extracting |
 | H10 | `type_names` dict defined 5 times in same file | `eboekhouden_rest_full_migration.py` | ~25 | e-Boekhouden | **FIXED** — extracted to `MUTATION_TYPE_SINGULAR` / `MUTATION_TYPE_PLURAL` constants |
-| H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden | PARTIAL — fixed missing error handling on Purchase Invoice `submit()` (bug); full DRY refactor deferred (62% overlap, 38% genuine differences, marginal net savings) |
+| H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden | **CLOSED** — bug fixed (Purchase Invoice `submit()` error handling); DRY refactor investigated and rejected: 59% identical / 41% genuine differences (party types, account fields, credit note conversion, save placement), config-dict abstraction adds complexity for marginal -104 LOC |
 | H12 | Notes-field append pattern repeated 18 times | `termination_integration.py`, `application_helpers.py` | ~100 | Utils | **FIXED** — extracted `append_to_text_field()` utility, 18 patterns replaced |
 | H13 | `_safe_int` duplicated in both MijnRood services | `event_application_service.py`, `polling_service.py` | ~8 | MijnRood | **FIXED** — extracted to `mijnrood_sync/utils.py` |
 | H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | **FIXED** — consolidated into `_batch_event_worker()` with `approve_first` parameter |
@@ -130,7 +130,7 @@
 | H29 | `membership_dues_schedule.py:287-299` | `validate_template_fields` is a no-op, never called | DocTypes | **FIXED** — deleted ~13 LOC |
 | H30 | `member_history_update_service.py` | 3 deprecated methods returning hardcoded values, still called | Services/Member | **FIXED** — deleted methods, wrappers in member.py, dead tests (~200 LOC) |
 | H31 | `payment_history_queue.py` | 461-line orphaned queue system, never called from hooks or scheduler | Hooks/Events | **FIXED** — deleted file + DocType + fixtures (~630 LOC) |
-| H32 | `analytics_engine.py:1132-1395` | 15+ placeholder methods returning fabricated data | Utils | PARTIAL — fixed bug: `_generate_audit_recommendations()` called but never defined (would crash); remaining placeholders deferred (dashboard dependency) |
+| H32 | `analytics_engine.py:1132-1395` | 15+ placeholder methods returning fabricated data | Utils | **FIXED** — deleted 10 dead placeholder methods (~110 LOC): 3 hotspot stubs, 2 optimization stubs, 3 fake compliance stubs, `_check_process_audit_coverage`, `_generate_audit_recommendations`; inlined hardcoded returns at call sites; simplified `_check_audit_trail_gaps` |
 | H33 | `background_jobs.py:856` | `queue_expense_event_processing_handler` dead `on_update_after_submit` branch | Hooks/Events | **FIXED** — dead branch removed |
 
 ### Inconsistency
@@ -442,3 +442,13 @@ The audit agents consistently noted these strong patterns:
 | Item | What was done |
 |------|--------------|
 | H2 | `CustomerHandlingService.create_customer_for_member` now delegates to `application_payments.create_customer_for_member` for the actual Customer+Contact creation. Service keeps its value-add: duplicate detection (in-memory + DB), similar-name warnings, operation metrics, `Optional[str]` return type wrapping, and error recovery. Previously the service created Customer without Contact — breaking ERPNext's `fetch_from` mechanism for email/phone on Customer. |
+
+### Batch 12: Dead guard removal + dead placeholder cleanup — H8, H11, H32 (2026-02-20)
+
+**Impact:** ~125 LOC removed (dead guards + dead placeholder methods)
+
+| Item | What was done |
+|------|--------------|
+| H8 | Removed 5 dead bulk-flag guard blocks from `approval_events.py` (2 checks on `bulk_member_approval`) and `team_events.py` (3 checks on `bulk_team_operations`). Both flags were checked but never set anywhere in the codebase — pure dead code. Also removed unused `from frappe import _` import. |
+| H11 | **CLOSED** after investigation: 59% identical / 41% genuine differences between `_create_sales_invoice` and `_create_purchase_invoice`. Party types, account fields, credit note conversion logic, and save placement all differ for valid reasons. Config-dict abstraction would add complexity for marginal -104 LOC. Bug fix (Purchase Invoice `submit()` error handling) was already shipped in a prior batch. |
+| H32 | Deleted 10 dead placeholder methods from `analytics_engine.py` (~110 LOC): `_calculate_hotspot_severity`, `_identify_critical_hotspots`, `_prioritize_hotspot_remediation`, `_estimate_optimization_impact`, `_create_implementation_roadmap`, `_generate_audit_recommendations`, `_check_data_retention_gaps`, `_check_security_compliance_gaps`, `_check_financial_compliance_gaps`, `_check_process_audit_coverage`. Inlined hardcoded returns at 3 call sites. Simplified `_check_audit_trail_gaps` from 22 lines to 9. Removed 3 fake "compliant" compliance entries that were padding the overall score. |

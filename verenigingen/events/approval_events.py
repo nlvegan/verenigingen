@@ -9,7 +9,6 @@ of non-critical operations, keeping the main approval transaction lightweight.
 """
 
 import frappe
-from frappe import _
 
 
 def emit_member_approval_initiated(member_name, approval_data):
@@ -24,13 +23,6 @@ def emit_member_approval_initiated(member_name, approval_data):
         approval_data: Dict containing approval parameters
     """
     if not member_name:
-        return
-
-    # Skip event emission during bulk processing
-    if getattr(frappe.flags, "bulk_member_approval", False):
-        frappe.logger("events").info(
-            f"Skipping approval event emission during bulk processing - member: {member_name}"
-        )
         return
 
     event_data = {
@@ -63,10 +55,6 @@ def emit_member_approval_completed(member_name, completion_data):
     This triggers final background operations like notifications.
     """
     if not member_name:
-        return
-
-    # Skip event emission during bulk processing
-    if getattr(frappe.flags, "bulk_member_approval", False):
         return
 
     event_data = {
