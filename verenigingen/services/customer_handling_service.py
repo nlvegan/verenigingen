@@ -12,7 +12,6 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.services.infrastructure.service_config import get_service_config
-from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -130,37 +129,13 @@ class CustomerHandlingService(StatefulService):
                         + _("\nCreating a new customer for this member.")
                     )
 
-            # Create new customer document
-            customer = frappe.new_doc("Customer")
-            customer.customer_name = member_doc.full_name
-            customer.customer_type = "Individual"
-            customer.member = member_doc.name  # Link customer back to member
+            # Delegate to canonical implementation which creates Customer + Contact
+            # (Contact is required by ERPNext for email/phone via fetch_from)
+            from verenigingen.utils.application_payments import create_customer_for_member as _create_customer
 
-            if member_doc.email:
-                customer.email_id = member_doc.email
-            if hasattr(member_doc, "contact_number") and member_doc.contact_number:
-                customer.mobile_no = member_doc.contact_number
+            customer = _create_customer(member_doc)
 
-            customer.flags.ignore_mandatory = True
-
-            # Suppress messages during customer creation if requested
-            if suppress_messages:
-                customer.flags.ignore_messages = True
-
-            # Secure customer creation with explicit permission validation
-            customer_result = secure_document_operation(
-                operation="insert",
-                doc=customer,
-                justification=f"Automated customer creation for member {member_doc.name}",
-                required_permissions=["Customer:create"],
-            )
-
-            if not customer_result.success:
-                error_msg = _("Failed to create customer: {0}").format("; ".join(customer_result.errors))
-                self._end_operation(operation_name, start_time, success=False)
-                frappe.throw(error_msg)
-
-            self.logger.info(f"✅ Created customer {customer.name} for member {member_doc.name}")
+            self.logger.info(f"Created customer {customer.name} for member {member_doc.name}")
             self._end_operation(operation_name, start_time, success=True)
             return customer.name
 

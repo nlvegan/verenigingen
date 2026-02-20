@@ -9,7 +9,7 @@
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 26 | 11 |
+| High | 37 | 27 | 10 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -85,7 +85,7 @@
 | # | Pattern | Files | LOC Savings | Agent | Status |
 |---|---------|-------|-------------|-------|--------|
 | H1 | 3 member ID implementations | `core/member_id_service.py`, `identification/member_id_service.py`, `member_id_manager.py` | ~161 | Cross-cutting | PARTIAL — `generate_application_id()` duplicate consolidated; architecture is actually clean layered delegation (not competing) |
-| H2 | `create_customer_for_member` diverges (one creates Contact, other doesn't) | `application_payments.py`, `customer_handling_service.py` | ~110 | Cross-cutting | |
+| H2 | `create_customer_for_member` diverges (one creates Contact, other doesn't) | `application_payments.py`, `customer_handling_service.py` | ~110 | Cross-cutting | **FIXED** — `CustomerHandlingService` now delegates to `application_payments.create_customer_for_member` for Customer+Contact creation; service keeps its duplicate detection, similar-name warnings, and metrics |
 | H3 | `get_member_for_customer` duplicated | `member_utils.py:542`, `financial_utils.py:172` | ~20 | Cross-cutting | **FIXED** — `financial_utils` delegates to `member_utils` |
 | H4 | Deadlock retry logic in 7 places (not 3) | `account_creation_manager.py` (2x), `retry_utilities.py` (2x), `invoice_generator.py`, `payment_entry_handler.py`, `bank_transaction_creator.py` | ~60 | Utils | PARTIAL — deleted duplicate `retry_on_deadlock` decorator from `account_creation_manager.py` (-57 LOC), replaced 2 callers with `execute_with_deadlock_retry()` from `retry_utilities.py`. Remaining 3 inline implementations (invoice, payment_entry, bank_tx) have legitimately different failure modes (return OperationResult vs return None vs raise). |
 | H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | **FIXED** — extracted `determine_payment_status()`, fixed bug (missing `outstanding_amount <= 0` check) |
@@ -208,7 +208,7 @@ The audit agents consistently noted these strong patterns:
 - ~~Remove monkey-patching of PaymentEntry (C13)~~ **KEEP** — necessary for ERPNext float precision bug
 - ~~Consolidate 3 member ID implementations to 1 (H1)~~ **PARTIAL** — duplicate `generate_application_id()` consolidated; architecture is clean layered delegation
 - ~~Consolidate 6 SEPA mandate services to 2 (H23)~~ **DONE** — deleted 2 dead services (-2,447 LOC); remaining 4 are well-organized
-- Fix `create_customer_for_member` divergence (H2) — DEFERRED (needs design decision on Contact creation)
+- ~~Fix `create_customer_for_member` divergence (H2)~~ **DONE** — service delegates to canonical implementation
 
 ### Phase 4: DRY Consolidation — CONTINUED (2026-02-20, batches 6-10)
 - ~~Dedupe `_safe_int` in MijnRood services (H13)~~ **DONE**
@@ -434,3 +434,11 @@ The audit agents consistently noted these strong patterns:
 |------|--------------|
 | H4 | Deleted duplicate `retry_on_deadlock` decorator (57 LOC) from `account_creation_manager.py`. Replaced 2 inline callers with `execute_with_deadlock_retry()` from `retry_utilities.py`. The centralized version has better backoff (jitter, max_delay cap) and proper `is_deadlock_error()` detection. Remaining 3 inline implementations (invoice_generator, payment_entry_handler, bank_transaction_creator) have legitimately different failure modes and cannot be consolidated. |
 | H16 | Extracted `_ensure_account_group()` + `_name_filter()` shared helpers in `account_organization_service.py`. 6 near-identical methods (vorderingen, financial_accounts, overlopende_activa, schulden, tax_payable, tax_receivable) now delegate to the helper (~-105 LOC). MijnRood `_ensure_*` methods confirmed too varied for consolidation. |
+
+### Batch 11: Customer creation consolidation — H2 (2026-02-20)
+
+**Impact:** -25 net LOC + data consistency fix (Contact creation was missing)
+
+| Item | What was done |
+|------|--------------|
+| H2 | `CustomerHandlingService.create_customer_for_member` now delegates to `application_payments.create_customer_for_member` for the actual Customer+Contact creation. Service keeps its value-add: duplicate detection (in-memory + DB), similar-name warnings, operation metrics, `Optional[str]` return type wrapping, and error recovery. Previously the service created Customer without Contact — breaking ERPNext's `fetch_from` mechanism for email/phone on Customer. |
