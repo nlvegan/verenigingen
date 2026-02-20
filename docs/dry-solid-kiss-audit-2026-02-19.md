@@ -10,7 +10,7 @@
 |----------|-------|-------|-----------|
 | Critical | 19 | 9 | 10 |
 | High | 37 | 13 | 24 |
-| Medium | 55+ | 2 | 53+ |
+| Medium | 55+ | 5 | 50+ |
 | Low | 30+ | 0 | 30+ |
 
 **Additional fix not in original audit:** Reversed decorator order across 27 files (102 endpoints) — `@frappe.whitelist()` must be outermost or HTTP calls fail with "Method Not Allowed".
@@ -90,7 +90,7 @@
 | H4 | Deadlock retry logic in 7 places (not 3) | `account_creation_manager.py` (2x), `retry_utilities.py` (2x), `invoice_generator.py`, `payment_entry_handler.py`, `bank_transaction_creator.py` | ~60 | Utils | DEFERRED — implementations differ (raise vs return, some rollback) |
 | H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | **FIXED** — extracted `determine_payment_status()`, fixed bug (missing `outstanding_amount <= 0` check) |
 | H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | **FIXED** — extracted `batch_fetch_with_chunking()` to `utils/__init__.py` |
-| H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | DEFERRED — copy-paste bug found in `chapter_events.py`, needs careful refactor |
+| H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | PARTIAL — copy-paste bug in `chapter_events.py` **FIXED**; full refactor deferred |
 | H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | DEFERRED — inconsistent flag names need design decision |
 | H9 | ISO datetime parsing pattern in 8 files | Across payments layer | ~40 | Payments | |
 | H10 | `type_names` dict defined 5 times in same file | `eboekhouden_rest_full_migration.py` | ~25 | e-Boekhouden | **FIXED** — extracted to `MUTATION_TYPE_SINGULAR` / `MUTATION_TYPE_PLURAL` constants |
@@ -148,9 +148,9 @@
 
 | # | Category | File/Pattern | Description |
 |---|----------|--------------|-------------|
-| M1 | DRY | `_send_*_notification` x4 identical | `member_subscribers.py:279-408` |
-| M2 | DRY | `chapter_subscribers` — 3 identical role profile functions | Lines 363-393 |
-| M3 | DRY | `expense_events.py` — volunteer lookup x4 | Same file, 4 identical patterns |
+| M1 | DRY | `_send_*_notification` x4 identical | `member_subscribers.py:279-408` — **FIXED** (→ `_send_member_status_notification`) |
+| M2 | DRY | `chapter_subscribers` — 3 identical role profile functions | Lines 363-393 — **FIXED** (→ `_sync_board_role_profile`) |
+| M3 | DRY | `expense_events.py` — volunteer lookup x4 | Same file, 4 identical patterns — **FIXED** (→ `_resolve_volunteer_and_member`) |
 | M4 | DRY | `mollie_debug_service` — result dict boilerplate x17 | Across all API methods |
 | M5 | DRY | `mollie_debug_service` — limit sanitization x6 | Same logic, inconsistent caps |
 | M6 | DRY | `mollie_debug_service` — optional attr serialization x25 | `getattr(obj, attr, None)` pattern |

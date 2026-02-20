@@ -9,6 +9,21 @@ import frappe
 from frappe import _
 
 
+def _resolve_volunteer_and_member(employee_id):
+    """Look up volunteer and member for an employee.
+
+    Returns:
+        tuple: (volunteer_name or None, member_name or None)
+    """
+    if not employee_id:
+        return None, None
+    volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": employee_id}, "name")
+    if not volunteer_name:
+        return None, None
+    member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+    return volunteer_name, member
+
+
 def emit_expense_claim_updated(doc, method=None):
     """
     Emit event when an expense claim is updated (any status change).
@@ -22,17 +37,7 @@ def emit_expense_claim_updated(doc, method=None):
     if doc.docstatus not in [0, 1]:
         return
 
-    # Check if this is a volunteer expense by looking at employee link
-    volunteer = None
-    member = None
-
-    if doc.employee:
-        # Check if employee is linked to a volunteer
-        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": doc.employee}, "name")
-        if volunteer_name:
-            volunteer = volunteer_name
-            # Get member from volunteer
-            member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+    volunteer, member = _resolve_volunteer_and_member(doc.employee)
 
     if not member or not volunteer:
         return  # Only process volunteer expenses
@@ -105,17 +110,7 @@ def emit_expense_claim_approved(doc, method=None):
 def _emit_expense_approval_event(doc, action):
     """Helper to emit expense approval events"""
 
-    # Check if this is a volunteer expense by looking at employee link
-    volunteer = None
-    member = None
-
-    if doc.employee:
-        # Check if employee is linked to a volunteer (using correct field name)
-        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": doc.employee}, "name")
-        if volunteer_name:
-            volunteer = volunteer_name
-            # Get member from volunteer
-            member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+    volunteer, member = _resolve_volunteer_and_member(doc.employee)
 
     event_data = {
         "expense_claim": doc.name,
@@ -152,14 +147,7 @@ def emit_expense_claim_cancelled(doc, method=None):
     if doc.doctype != "Expense Claim" or doc.docstatus != 2:
         return
 
-    # Check volunteer link
-    volunteer = None
-    member = None
-    if doc.employee:
-        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": doc.employee}, "name")
-        if volunteer_name:
-            volunteer = volunteer_name
-            member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+    volunteer, member = _resolve_volunteer_and_member(doc.employee)
 
     event_data = {
         "expense_claim": doc.name,
@@ -203,16 +191,7 @@ def emit_expense_payment_made(doc, method=None):
             # Get expense claim details
             expense_doc = frappe.get_doc("Expense Claim", expense_claim)
 
-            # Check volunteer link
-            volunteer = None
-            member = None
-            if expense_doc.employee:
-                volunteer_name = frappe.db.get_value(
-                    "Volunteer", {"employee_id": expense_doc.employee}, "name"
-                )
-                if volunteer_name:
-                    volunteer = volunteer_name
-                    member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+            volunteer, member = _resolve_volunteer_and_member(expense_doc.employee)
 
             event_data = {
                 "payment_entry": doc.name,

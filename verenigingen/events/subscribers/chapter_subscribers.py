@@ -39,13 +39,8 @@ def handle_board_role_assignments(event_name, event_data, is_bulk_import=False, 
 
         chapter = frappe.get_doc("Chapter", chapter_name)
 
-        # Handle different board change actions
-        if action == "added":
-            _assign_board_role_profile(chapter, volunteer, role)
-        elif action == "removed":
-            _remove_board_role_profile(chapter, volunteer, old_role)
-        elif action == "role_changed":
-            _update_board_role_profile(chapter, volunteer, old_role, role)
+        # All board changes (add, remove, role change) require role profile recalculation
+        _sync_board_role_profile(volunteer)
 
         frappe.logger("events").info(f"Processed board role assignment for {volunteer} in {chapter_name}")
 
@@ -360,30 +355,8 @@ def handle_website_updates(event_name, event_data, is_bulk_import=False, **kwarg
 # Helper functions for specific operations
 
 
-def _assign_board_role_profile(chapter, volunteer, role):
-    """Recalculate role profile when board member is added"""
-    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-    volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-    if volunteer_doc.member:
-        member_doc = frappe.get_doc("Member", volunteer_doc.member)
-        if member_doc.user:
-            auto_sync_on_role_change(member_doc.user)
-
-
-def _remove_board_role_profile(chapter, volunteer, old_role):
-    """Recalculate role profile when board member is removed"""
-    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
-
-    volunteer_doc = frappe.get_doc("Volunteer", volunteer)
-    if volunteer_doc.member:
-        member_doc = frappe.get_doc("Member", volunteer_doc.member)
-        if member_doc.user:
-            auto_sync_on_role_change(member_doc.user)
-
-
-def _update_board_role_profile(chapter, volunteer, old_role, new_role):
-    """Recalculate role profile when board member role changes"""
+def _sync_board_role_profile(volunteer):
+    """Recalculate role profile for a volunteer's user after any board change."""
     from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
     volunteer_doc = frappe.get_doc("Volunteer", volunteer)
@@ -606,7 +579,7 @@ def _update_chapter_permissions(chapter_name):
                     member_doc = frappe.get_doc("Member", volunteer_doc.member)
                     if member_doc.user:
                         # Re-assign role profiles based on new chapter configuration
-                        _assign_board_role_profile(chapter, board_member.volunteer, board_member.chapter_role)
+                        _sync_board_role_profile(board_member.volunteer)
 
         frappe.logger("events").info(f"Updated chapter permissions for {chapter_name}")
 

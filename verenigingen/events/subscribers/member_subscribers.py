@@ -51,7 +51,7 @@ def handle_status_change_notifications(event_name, event_data, is_bulk_import=Fa
 
         # Send approval notification for application status changes
         if status_type == "application" and new_status == "Approved":
-            _send_approval_notification(member)
+            _send_member_status_notification(member, "approval")
 
         # Send status change notification for lifecycle changes
         elif status_type == "lifecycle":
@@ -158,11 +158,11 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
 
         # Send lifecycle-specific notifications
         if new_status == "Suspended":
-            _send_suspension_notification(member)
+            _send_member_status_notification(member, "suspension")
         elif new_status == "Terminated":
-            _send_termination_notification(member)
+            _send_member_status_notification(member, "termination")
         elif new_status == "Active" and old_status in ["Suspended", "Inactive"]:
-            _send_reactivation_notification(member)
+            _send_member_status_notification(member, "reactivation")
 
         frappe.logger("events").info(
             f"Sent lifecycle notification for {member_name}: {old_status} -> {new_status}"
@@ -276,30 +276,31 @@ def handle_cache_invalidation(event_name, event_data, is_bulk_import=False, **kw
 # Helper functions for specific notification types
 
 
-def _send_approval_notification(member):
-    """Send approval notification email to new member"""
+def _send_member_status_notification(member, notification_type):
+    """Send a member status notification (approval, suspension, termination, reactivation)."""
     if not member.email:
         return
 
     try:
-        # MIGRATED: Use unified EmailService instead of direct template calls
         from verenigingen.services.communication.compatibility import send_member_notification
 
         result = send_member_notification(
             member_name=member.name,
-            notification_type="approval",
+            notification_type=notification_type,
             context={"member_name": member.full_name, "membership_number": member.name},
         )
 
         if result.success:
-            frappe.logger("events").info(f"Approval notification sent successfully to {member.email}")
+            frappe.logger("events").info(
+                f"{notification_type.capitalize()} notification sent to {member.email}"
+            )
         else:
             frappe.logger("events").warning(
-                f"Failed to send approval notification: {'; '.join(result.errors)}"
+                f"Failed to send {notification_type} notification: {'; '.join(result.errors)}"
             )
 
     except Exception as e:
-        frappe.logger("events").error(f"Failed to send approval notification: {str(e)}")
+        frappe.logger("events").error(f"Failed to send {notification_type} notification: {str(e)}")
 
 
 def _send_lifecycle_notification(member, old_status, new_status):
@@ -328,84 +329,6 @@ def _send_lifecycle_notification(member, old_status, new_status):
         reference_name=member.name,
         notification_key="member_status_change",
     )
-
-
-def _send_suspension_notification(member):
-    """Send suspension notification"""
-    if not member.email:
-        return
-
-    try:
-        # MIGRATED: Use unified EmailService instead of direct template calls
-        from verenigingen.services.communication.compatibility import send_member_notification
-
-        result = send_member_notification(
-            member_name=member.name,
-            notification_type="suspension",
-            context={"member_name": member.full_name, "membership_number": member.name},
-        )
-
-        if result.success:
-            frappe.logger("events").info(f"Suspension notification sent successfully to {member.email}")
-        else:
-            frappe.logger("events").warning(
-                f"Failed to send suspension notification: {'; '.join(result.errors)}"
-            )
-
-    except Exception as e:
-        frappe.logger("events").error(f"Failed to send suspension notification: {str(e)}")
-
-
-def _send_termination_notification(member):
-    """Send termination notification"""
-    if not member.email:
-        return
-
-    try:
-        # MIGRATED: Use unified EmailService instead of direct template calls
-        from verenigingen.services.communication.compatibility import send_member_notification
-
-        result = send_member_notification(
-            member_name=member.name,
-            notification_type="termination",
-            context={"member_name": member.full_name, "membership_number": member.name},
-        )
-
-        if result.success:
-            frappe.logger("events").info(f"Termination notification sent successfully to {member.email}")
-        else:
-            frappe.logger("events").warning(
-                f"Failed to send termination notification: {'; '.join(result.errors)}"
-            )
-
-    except Exception as e:
-        frappe.logger("events").error(f"Failed to send termination notification: {str(e)}")
-
-
-def _send_reactivation_notification(member):
-    """Send reactivation notification"""
-    if not member.email:
-        return
-
-    try:
-        # MIGRATED: Use unified EmailService instead of direct template calls
-        from verenigingen.services.communication.compatibility import send_member_notification
-
-        result = send_member_notification(
-            member_name=member.name,
-            notification_type="reactivation",
-            context={"member_name": member.full_name, "membership_number": member.name},
-        )
-
-        if result.success:
-            frappe.logger("events").info(f"Reactivation notification sent successfully to {member.email}")
-        else:
-            frappe.logger("events").warning(
-                f"Failed to send reactivation notification: {'; '.join(result.errors)}"
-            )
-
-    except Exception as e:
-        frappe.logger("events").error(f"Failed to send reactivation notification: {str(e)}")
 
 
 def _add_member_to_chapter_with_retry(chapter_doc, member_name, chapter_name):

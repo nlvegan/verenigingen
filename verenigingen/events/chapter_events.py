@@ -126,7 +126,7 @@ def _emit_chapter_event(event_name, event_data):
     # CRITICAL: Pass bulk import flag as job parameter to handle cross-process coordination
     # Process-local frappe.flags don't propagate to background worker processes
     is_bulk_import = getattr(frappe.flags, "in_bulk_import", False) or getattr(
-        frappe.flags, "bulk_member_operations", False
+        frappe.flags, "bulk_chapter_operations", False
     )
 
     for subscriber in subscribers:
