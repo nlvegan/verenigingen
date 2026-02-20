@@ -2,7 +2,7 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
-**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete)
+**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete; batches 7-10)
 
 ## Executive Summary
 
@@ -207,10 +207,10 @@ The audit agents consistently noted these strong patterns:
 - ~~Upgrade silent PE redirect to error logging (C11)~~ **DONE** — `frappe.log_error()` replaces silent warning
 - ~~Remove monkey-patching of PaymentEntry (C13)~~ **KEEP** — necessary for ERPNext float precision bug
 - ~~Consolidate 3 member ID implementations to 1 (H1)~~ **PARTIAL** — duplicate `generate_application_id()` consolidated; architecture is clean layered delegation
-- Consolidate 6 SEPA mandate services to 2 (H23) — DEFERRED (complex domain, needs separate session)
+- ~~Consolidate 6 SEPA mandate services to 2 (H23)~~ **DONE** — deleted 2 dead services (-2,447 LOC); remaining 4 are well-organized
 - Fix `create_customer_for_member` divergence (H2) — DEFERRED (needs design decision on Contact creation)
 
-### Phase 4: DRY Consolidation — CONTINUED (2026-02-20, -92 -120 net LOC)
+### Phase 4: DRY Consolidation — CONTINUED (2026-02-20, batches 6-10)
 - ~~Dedupe `_safe_int` in MijnRood services (H13)~~ **DONE**
 - ~~Dedupe `get_member_for_customer` (H3)~~ **DONE**
 - ~~Extract `append_to_text_field` utility (H12)~~ **DONE** — 18 patterns replaced
@@ -223,7 +223,9 @@ The audit agents consistently noted these strong patterns:
 - ~~Fix N+1 query in `get_user_chapter_access` (H24)~~ **DONE** — 3 flat queries replace nested loops
 - ~~Consolidate `_get_or_create_generic_customer/supplier` (M7)~~ **DONE** — single `_get_or_create_generic_party`
 - ~~Fix self-defeating `self.renewal_date = None` (M14)~~ **DONE** — dead conditions removed
-- Extract shared event emitter base (H7, H8) — DEFERRED (copy-paste bug found, needs design)
+- ~~Extract shared event emitter base (H7)~~ **DONE** — `emit_event()` in `events/event_emitter.py`
+- ~~Delete duplicate deadlock retry decorator (H4)~~ **DONE** — replaced with `execute_with_deadlock_retry()`
+- ~~Extract `_ensure_account_group` helper (H16)~~ **DONE** — 6 methods → 1 parametrized helper
 - Consolidate deadlock retry logic (H4) — DEFERRED (7 implementations with different semantics)
 - Extract hardcoded role constants (H17) — DEFERRED (138+ instances across 40+ files)
 - Extract `_ensure_*` error decorator (H16) — DEFERRED (methods vary too much; ~40 LOC savings not worth clarity loss)
