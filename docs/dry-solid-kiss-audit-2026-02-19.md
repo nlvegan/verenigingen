@@ -8,8 +8,8 @@
 
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
-| Critical | 19 | 14 | 5 |
-| High | 37 | 19 | 18 |
+| Critical | 19 | 15 | 4 |
+| High | 37 | 20 | 17 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -67,7 +67,7 @@
 |---|---------|-------------|-------|
 | C15 | `membership_application.py:829` + `membership_application_review.py:523` | Duplicate `reject_membership_application` — different signatures, different logic, different return types | API | PARTIAL — legacy version marked DEPRECATED with warning log; canonical is `membership_application_review` |
 | C16 | `mollie_debug_service.py:1492-1834` | `create_subscription` / `create_scheduled_subscription` near-duplicate — financial logic | Top-level Services |
-| C17 | `eboekhouden_rest_full_migration.py:1377-1814` | `_import_opening_balances` / `_import_opening_balances_from_data` — 250 lines near-identical | e-Boekhouden |
+| C17 | `eboekhouden_rest_full_migration.py:1377-1814` | `_import_opening_balances` / `_import_opening_balances_from_data` — 250 lines near-identical | e-Boekhouden | **FIXED** — extracted `_build_opening_balance_je()` shared helper (~120 LOC saved) |
 
 ### GOD OBJECTS
 
@@ -138,7 +138,7 @@
 | # | Pattern | Issue | Agent |
 |---|---------|-------|-------|
 | H34 | 3 competing singleton patterns | `global` keyword (10 files) vs new-instance-per-call (14 files) vs `__new__` (1 file) | Services/Member |
-| H35 | Competing approval orchestrators | `member_lifecycle_service` vs `member_approval_service` vs `membership_application_review` API | Services/Member |
+| H35 | Competing approval orchestrators | `member_lifecycle_service` vs `member_approval_service` vs `membership_application_review` API | Services/Member | **PARTIAL** — `background_approval_api` marked deprecated; only `membership_application_review` is canonical (frontend-called) |
 | H36 | `application_helpers.py` has inconsistent tier labels | `get_membership_type_fee_info` vs `get_membership_type_details` use different multipliers and names | Utils |
 | H37 | `membership_application_review.py:769-810` | Commented-out security filter — chapter permission check collects data then ignores it (`pass`) | API | **FIXED** `f2d9f5ea` — dead code removed; `Verenigingen Staff` added to bypass roles in `chapter_security.py` (`4a7e1a25`) |
 
@@ -395,3 +395,12 @@ The audit agents consistently noted these strong patterns:
 - H9: ISO datetime parsing — 119 occurrences across 61 files; existing `date_parser.py` + `timezone_utils.py` underused; needs separate session
 - H34: Singleton inconsistency — 118 service files with 3 competing patterns (~405 LOC boilerplate); needs `@singleton` decorator + mass migration
 - M4/M6: Part of Phase 5 `mollie_debug_service.py` god object decomposition (C18)
+
+### Batch 7: DRY extraction + Deprecation marking (2026-02-20)
+
+**Impact:** ~-120 net LOC
+
+| Item | What was done |
+|------|--------------|
+| C17 | Extracted `_build_opening_balance_je()` shared helper from `_import_opening_balances` and `_import_opening_balances_from_data` — parameterized differences: `amount_field` ("amount" vs "balance"), `je_title`, `je_user_remark`, `track_skip_reasons` |
+| H35 | Marked `background_approval_api.approve_membership_application_background()` as deprecated — never adopted in production; canonical path is `membership_application_review.approve_membership_application()` |

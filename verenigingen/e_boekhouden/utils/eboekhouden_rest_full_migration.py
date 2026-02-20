@@ -1358,6 +1358,152 @@ def _add_opening_balance_balancing_entry(je, total_debit, total_credit, company,
     debug_info.append(f"Added balancing entry: {temp_diff_account} = {balance_diff}")
 
 
+def _build_opening_balance_je(
+    mutations_data,
+    company,
+    cost_center,
+    debug_info,
+    amount_field="amount",
+    je_title="eBoekhouden Opening Balances",
+    je_user_remark="Opening balances imported from eBoekhouden",
+    track_skip_reasons=False,
+):
+    """Build a Journal Entry from opening balance mutation data.
+
+    Shared core logic used by both _import_opening_balances (API fetch path)
+    and _import_opening_balances_from_data (pre-filtered path).
+
+    Returns dict with keys:
+        - "je", "processed_accounts", "skipped_accounts" on success
+        - "success", "message" on early return (no valid entries)
+    """
+    # Determine opening balance date from mutations
+    opening_date = None
+    for mutation in mutations_data:
+        if isinstance(mutation, dict) and mutation.get("date"):
+            opening_date = getdate(mutation.get("date"))
+            break
+
+    if not opening_date:
+        opening_date = getdate("2018-01-01")
+        debug_info.append(f"WARNING: No date found in mutations, using fallback date: {opening_date}")
+    else:
+        debug_info.append(f"Using opening balance date from mutations: {opening_date}")
+
+    # Ensure fiscal year exists
+    try:
+        from .invoice_helpers import ensure_fiscal_year_exists
+
+        fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
+        debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
+    except Exception as fy_error:
+        debug_info.append(f"WARNING: Could not ensure fiscal year for {opening_date}: {str(fy_error)}")
+
+    # Create Journal Entry
+    je = frappe.new_doc("Journal Entry")
+    je.company = company
+    je.posting_date = opening_date
+    je.voucher_type = "Opening Entry"
+    je.title = je_title
+    je.user_remark = je_user_remark
+    je.eboekhouden_mutation_nr = "OPENING_BALANCE"
+
+    total_debit = 0
+    total_credit = 0
+    processed_accounts = set()
+    skipped_accounts = {"stock": [], "pnl": [], "errors": []}
+
+    for mutation in mutations_data:
+        if isinstance(mutation, list):
+            debug_info.append(f"WARNING: Mutation is a list, not dict: {mutation}")
+            continue
+
+        ledger_id = mutation.get("ledgerId")
+        amount = frappe.utils.flt(mutation.get(amount_field, 0), 2)
+        description = mutation.get("description", "Opening Balance")
+
+        debug_info.append(
+            f"Processing opening balance: ID={mutation.get('id')}, Ledger={ledger_id}, Amount={amount}"
+        )
+
+        if amount == 0:
+            debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
+            continue
+
+        account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
+        if not account:
+            debug_info.append(f"Failed to resolve or create mapping for ledger {ledger_id}, skipping")
+            continue
+
+        if account in processed_accounts:
+            debug_info.append(f"Account {account} already processed, skipping duplicate")
+            continue
+        processed_accounts.add(account)
+
+        classification = _classify_opening_balance_account(account, company, debug_info)
+        if classification["skip"]:
+            if track_skip_reasons:
+                reason = classification["skip_reason"]
+                if reason == "pnl":
+                    skipped_accounts["pnl"].append({"account": account, "type": classification["root_type"]})
+                elif reason == "stock":
+                    skipped_accounts["stock"].append({"account": account, "balance": amount})
+                elif reason == "party_error":
+                    skipped_accounts["errors"].append(
+                        {
+                            "account": account,
+                            "error": f"Failed to create party for {classification['account_type']} account",
+                        }
+                    )
+            continue
+
+        debit_amount, credit_amount = _calculate_opening_balance_debit_credit(
+            amount, classification["root_type"]
+        )
+
+        entry_line = {
+            "account": account,
+            "debit_in_account_currency": debit_amount,
+            "credit_in_account_currency": credit_amount,
+            "cost_center": cost_center,
+            "user_remark": f"Opening balance: {description}" if track_skip_reasons else description,
+        }
+
+        if classification["party_type"] and classification["party"]:
+            entry_line["party_type"] = classification["party_type"]
+            entry_line["party"] = classification["party"]
+
+        je.append("accounts", entry_line)
+        total_debit += debit_amount
+        total_credit += credit_amount
+
+        debug_info.append(
+            f"Added opening balance entry: {account}, Debit: {debit_amount}, Credit: {credit_amount}"
+        )
+
+    _add_opening_balance_balancing_entry(je, total_debit, total_credit, company, cost_center, debug_info)
+
+    if not je.accounts:
+        debug_info.append("No valid opening balance entries found after filtering")
+        if track_skip_reasons:
+            debug_info.append(
+                f"Summary: {len(skipped_accounts['pnl'])} P&L accounts skipped, "
+                f"{len(skipped_accounts['stock'])} stock accounts skipped, "
+                f"{len(skipped_accounts['errors'])} error accounts"
+            )
+        return {
+            "success": True,
+            "message": "No valid opening balance entries found",
+            "journal_entry": None,
+        }
+
+    return {
+        "je": je,
+        "processed_accounts": processed_accounts,
+        "skipped_accounts": skipped_accounts,
+    }
+
+
 def _import_opening_balances(company, cost_center, debug_info, dry_run=False, force=False):
     """Import opening balances from eBoekhouden using REST API"""
     try:
@@ -1431,133 +1577,25 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False, fo
         if not mutations_data:
             return {"success": True, "message": "No opening balances found", "journal_entry": None}
 
-        # Determine opening balance date from mutations
-        # Opening balances should all have the same date - use the first one
-        opening_date = None
-        for mutation in mutations_data:
-            if isinstance(mutation, dict) and mutation.get("date"):
-                opening_date = getdate(mutation.get("date"))
-                break
+        # Build JE using shared helper (API path uses "amount" field, tracks skip reasons)
+        result = _build_opening_balance_je(
+            mutations_data,
+            company,
+            cost_center,
+            debug_info,
+            amount_field="amount",
+            track_skip_reasons=True,
+        )
+        if "success" in result:
+            return result  # Early return (no valid entries)
 
-        # Fallback to 2018-01-01 if no date found in mutations
-        if not opening_date:
-            opening_date = getdate("2018-01-01")
-            debug_info.append(f"WARNING: No date found in mutations, using fallback date: {opening_date}")
-        else:
-            debug_info.append(f"Using opening balance date from mutations: {opening_date}")
-
-        # Ensure fiscal year exists for opening balance date
-        try:
-            from .invoice_helpers import ensure_fiscal_year_exists
-
-            fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
-            debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
-        except Exception as fy_error:
-            debug_info.append(f"WARNING: Could not ensure fiscal year for {opening_date}: {str(fy_error)}")
-            # Continue anyway - the submission will fail if fiscal year is truly missing
-
-        # Create a single journal entry for all opening balances
-        je = frappe.new_doc("Journal Entry")
-        je.company = company
-        je.posting_date = opening_date
-        je.voucher_type = "Opening Entry"
-        je.title = "eBoekhouden Opening Balances"
-        je.user_remark = "Opening balances imported from eBoekhouden"
-        je.eboekhouden_mutation_nr = "OPENING_BALANCE"  # Mark as opening balance import
-
-        total_debit = 0
-        total_credit = 0
-        processed_accounts = set()
-        skipped_accounts = {"stock": [], "pnl": [], "errors": []}
-
-        for mutation in mutations_data:
-            if isinstance(mutation, list):
-                debug_info.append(f"WARNING: Mutation is a list, not dict: {mutation}")
-                continue
-
-            ledger_id = mutation.get("ledgerId")
-            amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-            description = mutation.get("description", "Opening Balance")
-
-            debug_info.append(
-                f"Processing opening balance: ID={mutation.get('id')}, Ledger={ledger_id}, Amount={amount}"
-            )
-
-            if amount == 0:
-                debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
-                continue
-
-            account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
-            if not account:
-                debug_info.append(f"Failed to resolve or create mapping for ledger {ledger_id}, skipping")
-                continue
-
-            if account in processed_accounts:
-                debug_info.append(f"Account {account} already processed, skipping duplicate")
-                continue
-            processed_accounts.add(account)
-
-            classification = _classify_opening_balance_account(account, company, debug_info)
-            if classification["skip"]:
-                reason = classification["skip_reason"]
-                if reason == "pnl":
-                    skipped_accounts["pnl"].append({"account": account, "type": classification["root_type"]})
-                elif reason == "stock":
-                    skipped_accounts["stock"].append({"account": account, "balance": amount})
-                elif reason == "party_error":
-                    skipped_accounts["errors"].append(
-                        {
-                            "account": account,
-                            "error": f"Failed to create party for {classification['account_type']} account",
-                        }
-                    )
-                continue
-
-            debit_amount, credit_amount = _calculate_opening_balance_debit_credit(
-                amount, classification["root_type"]
-            )
-
-            entry_line = {
-                "account": account,
-                "debit_in_account_currency": debit_amount,
-                "credit_in_account_currency": credit_amount,
-                "cost_center": cost_center,
-                "user_remark": f"Opening balance: {description}",
-            }
-
-            if classification["party_type"] and classification["party"]:
-                entry_line["party_type"] = classification["party_type"]
-                entry_line["party"] = classification["party"]
-
-            je.append("accounts", entry_line)
-            total_debit += debit_amount
-            total_credit += credit_amount
-
-            debug_info.append(
-                f"Added opening balance entry: {account}, Debit: {debit_amount}, Credit: {credit_amount}"
-            )
-
-        _add_opening_balance_balancing_entry(je, total_debit, total_credit, company, cost_center, debug_info)
-
-        # Check if we have any valid entries to process
-        if not je.accounts:
-            debug_info.append("No valid opening balance entries found after filtering P&L and Stock accounts")
-            debug_info.append(
-                f"Summary: {len(skipped_accounts['pnl'])} P&L accounts skipped, "
-                f"{len(skipped_accounts['stock'])} stock accounts skipped, "
-                f"{len(skipped_accounts['errors'])} error accounts"
-            )
-            return {
-                "success": True,
-                "message": "No valid opening balance entries found (all accounts were P&L or Stock)",
-                "journal_entry": None,
-            }
+        je = result["je"]
+        processed_accounts = result["processed_accounts"]
+        skipped_accounts = result["skipped_accounts"]
 
         # Save and submit journal entry (unless dry run)
         if dry_run:
             debug_info.append("DRY RUN: Would create opening balance journal entry")
-            debug_info.append(f"Total debit: {total_debit}")
-            debug_info.append(f"Total credit: {total_credit}")
             debug_info.append(f"Number of accounts: {len(je.accounts)}")
             return {
                 "success": True,
@@ -1637,9 +1675,9 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False, fo
 
 
 def _import_opening_balances_from_data(mutations_data, company, cost_center, debug_info, dry_run=False):
-    """
-    Import opening balances from provided data (used by stock account handler)
-    This function processes pre-filtered mutation data for opening balances
+    """Import opening balances from provided data (used by stock account handler).
+
+    Delegates to _build_opening_balance_je() for shared processing logic.
     """
     try:
         # Check if opening balances have already been imported
@@ -1653,7 +1691,6 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
         )
 
         if existing_opening_balance:
-            # Opening balances already imported
             return {
                 "success": True,
                 "message": "Opening balances already imported",
@@ -1663,108 +1700,21 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
         if not mutations_data:
             return {"success": True, "message": "No opening balances found", "journal_entry": None}
 
-        # Determine opening balance date from mutations
-        # Opening balances should all have the same date - use the first one
-        opening_date = None
-        for mutation in mutations_data:
-            if isinstance(mutation, dict) and mutation.get("date"):
-                opening_date = getdate(mutation.get("date"))
-                break
+        # Build JE using shared helper (stock-filtered path uses "balance" field)
+        result = _build_opening_balance_je(
+            mutations_data,
+            company,
+            cost_center,
+            debug_info,
+            amount_field="balance",
+            je_title="eBoekhouden Opening Balances (Stock Filtered)",
+            je_user_remark="Opening balances imported from eBoekhouden with stock account filtering",
+        )
+        if "success" in result:
+            return result  # Early return (no valid entries)
 
-        # Fallback to 2018-01-01 if no date found in mutations
-        if not opening_date:
-            opening_date = getdate("2018-01-01")
-            debug_info.append(f"WARNING: No date found in mutations, using fallback date: {opening_date}")
-        else:
-            debug_info.append(f"Using opening balance date from mutations: {opening_date}")
-
-        # Ensure fiscal year exists for opening balance date
-        try:
-            from .invoice_helpers import ensure_fiscal_year_exists
-
-            fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
-            debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
-        except Exception as fy_error:
-            debug_info.append(f"WARNING: Could not ensure fiscal year for {opening_date}: {str(fy_error)}")
-            # Continue anyway - the submission will fail if fiscal year is truly missing
-
-        # Create a single journal entry for all opening balances
-        je = frappe.new_doc("Journal Entry")
-        je.company = company
-        je.posting_date = opening_date
-        je.voucher_type = "Opening Entry"
-        je.title = "eBoekhouden Opening Balances (Stock Filtered)"
-        je.user_remark = "Opening balances imported from eBoekhouden with stock account filtering"
-        je.eboekhouden_mutation_nr = "OPENING_BALANCE"  # Mark as opening balance import
-
-        total_debit = 0
-        total_credit = 0
-        processed_accounts = set()
-
-        for mutation in mutations_data:
-            if isinstance(mutation, list):
-                debug_info.append(f"WARNING: Mutation is a list, not dict: {mutation}")
-                continue
-
-            ledger_id = mutation.get("ledgerId")
-            amount = frappe.utils.flt(mutation.get("balance", 0), 2)  # Use balance for opening balances
-            description = mutation.get("description", "Opening Balance")
-
-            debug_info.append(
-                f"Processing opening balance: ID={mutation.get('id')}, Ledger={ledger_id}, Amount={amount}"
-            )
-
-            if amount == 0:
-                debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
-                continue
-
-            account = get_erpnext_account_from_ledger_id(ledger_id, company, debug_info, auto_create=True)
-            if not account:
-                debug_info.append(f"Failed to resolve or create mapping for ledger {ledger_id}, skipping")
-                continue
-
-            if account in processed_accounts:
-                debug_info.append(f"Account {account} already processed, skipping duplicate")
-                continue
-            processed_accounts.add(account)
-
-            classification = _classify_opening_balance_account(account, company, debug_info)
-            if classification["skip"]:
-                continue
-
-            debit_amount, credit_amount = _calculate_opening_balance_debit_credit(
-                amount, classification["root_type"]
-            )
-
-            entry_line = {
-                "account": account,
-                "debit_in_account_currency": debit_amount,
-                "credit_in_account_currency": credit_amount,
-                "cost_center": cost_center,
-                "user_remark": description,
-            }
-
-            if classification["party_type"] and classification["party"]:
-                entry_line["party_type"] = classification["party_type"]
-                entry_line["party"] = classification["party"]
-
-            je.append("accounts", entry_line)
-            total_debit += debit_amount
-            total_credit += credit_amount
-
-            debug_info.append(
-                f"Added opening balance line: {account} = Debit: {debit_amount}, Credit: {credit_amount}"
-            )
-
-        if not je.accounts:
-            debug_info.append("No valid opening balance entries found after filtering")
-            return {
-                "success": True,
-                "message": "No valid opening balance entries found",
-                "journal_entry": None,
-            }
-
-        _add_opening_balance_balancing_entry(je, total_debit, total_credit, company, cost_center, debug_info)
+        je = result["je"]
+        processed_accounts = result["processed_accounts"]
 
         if dry_run:
             debug_info.append("Dry run mode - not saving journal entry")
@@ -1775,7 +1725,6 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                 "accounts_processed": len(processed_accounts),
             }
 
-        # Save and submit the journal entry
         try:
             je.save()
             je.submit()

@@ -37,6 +37,10 @@ def approve_membership_application_background(
     """
     Approve a membership application using background processing for heavy operations.
 
+    .. deprecated::
+        Never adopted in production. The canonical approval path is
+        ``approve_membership_application()`` in ``api/membership_application_review.py``.
+
     This lightweight version handles critical operations synchronously and queues
     heavy operations in background jobs to prevent timestamp conflicts.
 
