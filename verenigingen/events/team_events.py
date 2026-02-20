@@ -106,27 +106,16 @@ def emit_team_leadership_changed(team_name, leadership_data):
 
 
 def _emit_team_event(event_name, event_data):
-    """
-    Internal function to emit team events with background job handling.
+    """Internal function to emit team events with background job handling."""
+    from verenigingen.events.event_emitter import emit_event
 
-    Uses the same pattern as approval_events.py and member_events.py for consistency.
-    """
-
-    team_name = event_data.get("team")
-
-    # Get subscribers for this event
-    subscribers = _get_team_event_subscribers(event_name)
-
-    for subscriber in subscribers:
-        frappe.enqueue(
-            method=subscriber,
-            queue="short",  # Team events are typically quick operations
-            job_name=f"team_{event_name}_{team_name}",
-            dedupe=True,  # Prevent duplicate events for same team
-            timeout=300,
-            delay=1,  # Small delay to ensure team save is committed
-            **{"event_name": event_name, "event_data": event_data},
-        )
+    emit_event(
+        event_name,
+        event_data,
+        _get_team_event_subscribers(event_name),
+        entity_key="team",
+        job_prefix="team",
+    )
 
 
 def _get_team_event_subscribers(event_name):

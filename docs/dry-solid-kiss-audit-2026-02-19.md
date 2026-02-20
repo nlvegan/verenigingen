@@ -9,7 +9,7 @@
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 22 | 15 |
+| High | 37 | 24 | 13 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -17,7 +17,7 @@
 
 **Top 5 systemic issues (cross-cutting):**
 1. ~~\~5,600 LOC of test/debug scripts committed as production API endpoints (32+ files)~~ **MITIGATED** — 14 test/debug files restricted to `@development_only_api`
-2. 6 parallel SEPA mandate services (~4,141 LOC) doing the same thing
+2. ~~6 parallel SEPA mandate services (~4,141 LOC) doing the same thing~~ **REDUCED** to 4 well-organized services (-2,447 LOC)
 3. 3 competing member ID implementations across 3 directories
 4. Inconsistent return types: `OperationResult` vs plain dicts split across ~180 files
 5. ~120 LOC of identical singleton boilerplate repeated in 20+ services
@@ -90,7 +90,7 @@
 | H4 | Deadlock retry logic in 7 places (not 3) | `account_creation_manager.py` (2x), `retry_utilities.py` (2x), `invoice_generator.py`, `payment_entry_handler.py`, `bank_transaction_creator.py` | ~60 | Utils | DEFERRED — implementations differ (raise vs return, some rollback) |
 | H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | **FIXED** — extracted `determine_payment_status()`, fixed bug (missing `outstanding_amount <= 0` check) |
 | H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | **FIXED** — extracted `batch_fetch_with_chunking()` to `utils/__init__.py` |
-| H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | PARTIAL — copy-paste bug in `chapter_events.py` **FIXED**; full refactor deferred |
+| H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | **FIXED** (Phase 1) — extracted `emit_event()` to `events/event_emitter.py`; 4 simple emitters now delegate (~-80 LOC); `invoice_events` and `expense_events` have conditional logic and stay as-is |
 | H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | DEFERRED — inconsistent flag names need design decision |
 | H9 | ISO datetime parsing pattern in 61 files (119 occurrences) | Across payments layer | ~120 | Payments | **FALSE POSITIVE** — audit overcounted (164 `.strftime` formatting, 100+ correct `getdate()`, 78 test-only `fromisoformat`); only 12 genuine `parser.parse()` in 10 production files, all following same try/fallback pattern; not worth extracting |
 | H10 | `type_names` dict defined 5 times in same file | `eboekhouden_rest_full_migration.py` | ~25 | e-Boekhouden | **FIXED** — extracted to `MUTATION_TYPE_SINGULAR` / `MUTATION_TYPE_PLURAL` constants |
@@ -130,7 +130,7 @@
 | H29 | `membership_dues_schedule.py:287-299` | `validate_template_fields` is a no-op, never called | DocTypes | **FIXED** — deleted ~13 LOC |
 | H30 | `member_history_update_service.py` | 3 deprecated methods returning hardcoded values, still called | Services/Member | **FIXED** — deleted methods, wrappers in member.py, dead tests (~200 LOC) |
 | H31 | `payment_history_queue.py` | 461-line orphaned queue system, never called from hooks or scheduler | Hooks/Events | **FIXED** — deleted file + DocType + fixtures (~630 LOC) |
-| H32 | `analytics_engine.py:1132-1395` | 15+ placeholder methods returning fabricated data | Utils | DEFERRED — dashboard depends on it; needs fake-data replacement |
+| H32 | `analytics_engine.py:1132-1395` | 15+ placeholder methods returning fabricated data | Utils | PARTIAL — fixed bug: `_generate_audit_recommendations()` called but never defined (would crash); remaining placeholders deferred (dashboard dependency) |
 | H33 | `background_jobs.py:856` | `queue_expense_event_processing_handler` dead `on_update_after_submit` branch | Hooks/Events | **FIXED** — dead branch removed |
 
 ### Inconsistency
@@ -139,7 +139,7 @@
 |---|---------|-------|-------|
 | H34 | 3 competing singleton patterns | `global` keyword (10 files) vs new-instance-per-call (14 files) vs `__new__` (1 file) | Services/Member |
 | H35 | Competing approval orchestrators | `member_lifecycle_service` vs `member_approval_service` vs `membership_application_review` API | Services/Member | **PARTIAL** — `background_approval_api` marked deprecated; only `membership_application_review` is canonical (frontend-called) |
-| H36 | `application_helpers.py` has inconsistent tier labels | `get_membership_type_fee_info` vs `get_membership_type_details` use different multipliers and names | Utils |
+| H36 | `application_helpers.py` has inconsistent tier labels | `get_membership_type_fee_info` vs `get_membership_type_details` use different multipliers and names | Utils | **FALSE POSITIVE** — intentional backward-compatible design: `fee_info` returns legacy tier names/multipliers for existing consumers; `details` returns canonical field names. Both are correct for their contexts. |
 | H37 | `membership_application_review.py:769-810` | Commented-out security filter — chapter permission check collects data then ignores it (`pass`) | API | **FIXED** `f2d9f5ea` — dead code removed; `Verenigingen Staff` added to bypass roles in `chapter_security.py` (`4a7e1a25`) |
 
 ---
@@ -413,3 +413,13 @@ The audit agents consistently noted these strong patterns:
 |------|--------------|
 | H23 | Deleted dead `SEPAMandateRepository` (357 LOC) — only caller was benchmarking tool, superseded by `SEPAMandateManager`. Deleted dead `SEPAMandateLifecycleManager` (1,214 LOC) — 2 production callers were no-ops (new instance + `invalidate_cache()` on empty per-instance dict). Removed no-op calls from `sepa_mandate_lifecycle_service.py` and `sepa_mandate_usage.py`. Deleted associated test files (876 LOC). Remaining 4 SEPA services are well-organized with clear responsibilities. |
 | H9 | Closed as **FALSE POSITIVE** — audit counted 119 occurrences but investigation found: 164 `.strftime()` (formatting, not parsing), 100+ `getdate()` (correct Frappe usage), 78 `fromisoformat()` in test files only. Only 12 genuine `parser.parse()` calls in 10 production files, all following identical try/fallback pattern. Not worth a utility extraction. |
+
+### Batch 9: Event emitter DRY + analytics bug fix + H36 closure (2026-02-20)
+
+**Impact:** ~-80 net LOC + 1 bug fix
+
+| Item | What was done |
+|------|--------------|
+| H7 | Extracted shared `emit_event()` helper to `events/event_emitter.py`. Refactored `member_events.py`, `chapter_events.py`, `approval_events.py`, `team_events.py` to delegate — each `_emit_*_event()` is now ~6 lines instead of ~20. `invoice_events` and `expense_events` have subscriber-specific conditional logic and stay as-is. |
+| H32 | Fixed bug: `_generate_audit_recommendations()` was called at line 1275 but never defined — would crash at runtime. Added stub method returning empty list. Remaining placeholder methods deferred (dashboard dependency). |
+| H36 | Closed as **FALSE POSITIVE** — intentional backward-compatible design: `get_membership_type_fee_info()` returns legacy tier names/multipliers for existing consumers; `get_membership_type_details()` returns canonical field names. Both are correct for their respective contexts. |

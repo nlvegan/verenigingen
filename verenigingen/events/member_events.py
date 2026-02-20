@@ -80,34 +80,17 @@ def emit_member_lifecycle_changed(member_name, lifecycle_data):
 
 
 def _emit_member_event(event_name, event_data):
-    """
-    Internal function to emit member events with background job handling.
+    """Internal function to emit member events with background job handling."""
+    from verenigingen.events.event_emitter import emit_event
 
-    Uses the same pattern as approval_events.py for consistency.
-    """
-
-    member_name = event_data.get("member")
-
-    # Get subscribers for this event
-    subscribers = _get_member_event_subscribers(event_name)
-
-    # CRITICAL: Pass bulk import flag as job parameter to handle cross-process coordination
-    # Process-local frappe.flags don't propagate to background worker processes
-    is_bulk_import = getattr(frappe.flags, "in_bulk_import", False) or getattr(
-        frappe.flags, "bulk_member_operations", False
+    emit_event(
+        event_name,
+        event_data,
+        _get_member_event_subscribers(event_name),
+        entity_key="member",
+        job_prefix="member",
+        bulk_flag="bulk_member_operations",
     )
-
-    for subscriber in subscribers:
-        frappe.enqueue(
-            method=subscriber,
-            queue="short",  # Member events are typically quick operations
-            job_name=f"member_{event_name}_{member_name}",
-            dedupe=True,  # Prevent duplicate events for same member
-            timeout=300,
-            delay=1,  # Skip checks in subscribers handle bulk imports
-            is_bulk_import=is_bulk_import,  # Pass bulk mode to worker process
-            **{"event_name": event_name, "event_data": event_data},
-        )
 
 
 def _get_member_event_subscribers(event_name):

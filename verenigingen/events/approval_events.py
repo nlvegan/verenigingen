@@ -88,32 +88,17 @@ def emit_member_approval_completed(member_name, completion_data):
 
 
 def _emit_approval_event(event_name, event_data):
-    """
-    Internal function to emit approval events with member-specific job handling.
+    """Internal function to emit approval events with member-specific job handling."""
+    from verenigingen.events.event_emitter import emit_event
 
-    Uses the same pattern as invoice_events.py to prevent concurrent updates
-    to the same member by using member-specific job names with deduplication.
-    """
-    # Get all registered subscribers for this event
-    subscribers = _get_approval_event_subscribers(event_name)
-
-    member_name = event_data.get("member")
-
-    for subscriber in subscribers:
-        # Use member-specific job name to serialize updates per member
-        # This prevents multiple background jobs from conflicting on the same member
-        frappe.enqueue(
-            method=subscriber,
-            queue="short",
-            job_name=f"approval_{event_name}_{member_name}",
-            dedupe=True,  # Prevents multiple jobs for same member+event
-            timeout=300,  # 5 minutes timeout
-            delay=2,  # Allow main transaction to commit first
-            **{  # Separate method arguments from enqueue parameters
-                "event_name": event_name,
-                "event_data": event_data,
-            },
-        )
+    emit_event(
+        event_name,
+        event_data,
+        _get_approval_event_subscribers(event_name),
+        entity_key="member",
+        job_prefix="approval",
+        delay=2,  # Allow main transaction to commit first
+    )
 
 
 def _get_approval_event_subscribers(event_name):

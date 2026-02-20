@@ -1278,6 +1278,13 @@ class AnalyticsEngine:
         except Exception as e:
             return {"status": "error", "score": 0, "error": str(e)}
 
+    def _generate_audit_recommendations(self, audit_coverage: Dict) -> list:
+        """Generate audit trail recommendations based on coverage gaps.
+
+        Stub: returns empty list. Real implementation pending.
+        """
+        return []
+
     def _check_data_retention_gaps(self) -> Dict[str, Any]:
         """Check data retention compliance"""
         # Simplified data retention check
