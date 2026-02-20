@@ -6,8 +6,8 @@ import frappe
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
-@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_test():
     """Run the basic chapter member test"""
     import unittest

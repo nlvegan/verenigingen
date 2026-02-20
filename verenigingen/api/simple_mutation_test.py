@@ -8,8 +8,8 @@ import frappe
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
-@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_mutation_1363_date():
     """Check what date mutation 1363 has"""
     try:
@@ -45,8 +45,8 @@ def test_mutation_1363_date():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
-@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_early_mutations_in_api():
     """Test if early mutations (17-100) are returned by the API"""
     try:
@@ -79,8 +79,8 @@ def test_early_mutations_in_api():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
-@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_opening_balances_exist():
     """Test if type 0 (opening balances) mutations exist in the API"""
     try:
@@ -117,8 +117,8 @@ def test_opening_balances_exist():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
-@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_iterator_all_mutations():
     """Test how many mutations the iterator fetches by default"""
     try:
@@ -152,8 +152,8 @@ def test_iterator_all_mutations():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
-@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_api_mutation_order():
     """Check what mutation IDs the API returns and in what order"""
     try:

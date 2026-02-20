@@ -21,10 +21,15 @@ def get_user_manageable_chapters(user=None):
 
     user_roles = frappe.get_roles(user)
 
-    # System administrators can manage all chapters
+    # System administrators and staff can manage all chapters
     if any(
         role in user_roles
-        for role in ["System Manager", "Verenigingen Administrator", "Verenigingen National Board Member"]
+        for role in [
+            "System Manager",
+            "Verenigingen Administrator",
+            "Verenigingen Staff",
+            "Verenigingen National Board Member",
+        ]
     ):
         return "all"
 
