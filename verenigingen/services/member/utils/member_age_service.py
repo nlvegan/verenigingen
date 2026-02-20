@@ -47,7 +47,7 @@ def calculate_member_age(birth_date):
             e,
             "MemberAgeService",
             "Calculate member age",
-            {"member": getattr(member_doc, "name", "Unknown")},
+            {"birth_date": str(birth_date) if birth_date else "None"},
             raise_error=False,
         )
         return None

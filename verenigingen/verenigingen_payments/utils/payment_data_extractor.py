@@ -24,6 +24,7 @@ Usage:
 
 import re
 from datetime import date
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional, Union
 
@@ -228,8 +229,6 @@ class PaymentDataExtractor:
             ...     )
             ...     total += amount
         """
-        from decimal import Decimal
-
         amount = self.extract_amount(payment_object, source_type, allow_zero, max_amount)
         return Decimal(str(amount))
 
