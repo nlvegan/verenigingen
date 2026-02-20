@@ -2,14 +2,14 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
-**Last updated:** 2026-02-20 (Phases 1-2 complete + decorator order fix + Phase 6 dead code removal)
+**Last updated:** 2026-02-20 (Phases 1-2, 4 (partial), 6 complete)
 
 ## Executive Summary
 
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 9 | 10 |
-| High | 37 | 5 | 32 |
+| High | 37 | 10 | 27 |
 | Medium | 55+ | 0 | 55+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -82,25 +82,25 @@
 
 ### DRY Violations
 
-| # | Pattern | Files | LOC Savings | Agent |
-|---|---------|-------|-------------|-------|
-| H1 | 3 member ID implementations | `core/member_id_service.py`, `identification/member_id_service.py`, `member_id_manager.py` | ~161 | Cross-cutting |
-| H2 | `create_customer_for_member` diverges (one creates Contact, other doesn't) | `application_payments.py`, `customer_handling_service.py` | ~110 | Cross-cutting |
-| H3 | `get_member_for_customer` duplicated | `member_utils.py:542`, `financial_utils.py:172` | ~20 | Cross-cutting |
-| H4 | Deadlock retry logic in 3 places | `account_creation_manager.py` (2x), `retry_utilities.py` | ~60 | Utils |
-| H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member |
-| H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes |
-| H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events |
-| H8 | Bulk-mode guard logic copied 15+ times with inconsistent flag names | All event files | ~60 | Hooks/Events |
-| H9 | ISO datetime parsing pattern in 8 files | Across payments layer | ~40 | Payments |
-| H10 | `type_names` dict defined 5 times in same file | `eboekhouden_rest_full_migration.py` | ~25 | e-Boekhouden |
-| H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden |
-| H12 | Notes-field append pattern repeated 16 times | `termination_integration.py`, `application_helpers.py` | ~30 | Utils |
-| H13 | `_safe_int` duplicated in both MijnRood services | `event_application_service.py`, `polling_service.py` | ~8 | MijnRood |
-| H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood |
-| H15 | JSON unpack guard repeated 6 times | `event_application_service.py` | ~30 | MijnRood |
-| H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood |
-| H17 | Hardcoded role lists in 8+ locations across 6 files | API + DocType + service layers | ~40 | API + DocTypes |
+| # | Pattern | Files | LOC Savings | Agent | Status |
+|---|---------|-------|-------------|-------|--------|
+| H1 | 3 member ID implementations | `core/member_id_service.py`, `identification/member_id_service.py`, `member_id_manager.py` | ~161 | Cross-cutting | |
+| H2 | `create_customer_for_member` diverges (one creates Contact, other doesn't) | `application_payments.py`, `customer_handling_service.py` | ~110 | Cross-cutting | |
+| H3 | `get_member_for_customer` duplicated | `member_utils.py:542`, `financial_utils.py:172` | ~20 | Cross-cutting | **FIXED** — `financial_utils` delegates to `member_utils` |
+| H4 | Deadlock retry logic in 7 places (not 3) | `account_creation_manager.py` (2x), `retry_utilities.py` (2x), `invoice_generator.py`, `payment_entry_handler.py`, `bank_transaction_creator.py` | ~60 | Utils | DEFERRED — implementations differ (raise vs return, some rollback) |
+| H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | |
+| H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | |
+| H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | DEFERRED — copy-paste bug found in `chapter_events.py`, needs careful refactor |
+| H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | DEFERRED — inconsistent flag names need design decision |
+| H9 | ISO datetime parsing pattern in 8 files | Across payments layer | ~40 | Payments | |
+| H10 | `type_names` dict defined 5 times in same file | `eboekhouden_rest_full_migration.py` | ~25 | e-Boekhouden | **FIXED** — extracted to `MUTATION_TYPE_SINGULAR` / `MUTATION_TYPE_PLURAL` constants |
+| H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden | |
+| H12 | Notes-field append pattern repeated 18 times | `termination_integration.py`, `application_helpers.py` | ~100 | Utils | **FIXED** — extracted `append_to_text_field()` utility, 18 patterns replaced |
+| H13 | `_safe_int` duplicated in both MijnRood services | `event_application_service.py`, `polling_service.py` | ~8 | MijnRood | **FIXED** — extracted to `mijnrood_sync/utils.py` |
+| H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | |
+| H15 | JSON unpack guard repeated 9 times | `event_application_service.py` | ~30 | MijnRood | **FIXED** — extracted `safe_json_load()` to `mijnrood_sync/utils.py` |
+| H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | |
+| H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | DEFERRED — massive scope (138+ instances), needs Roles constants file |
 
 ### SRP Violations
 
@@ -209,10 +209,15 @@ The audit agents consistently noted these strong patterns:
 - Consolidate 3 member ID implementations to 1 (H1)
 - Fix `create_customer_for_member` divergence (H2)
 
-### Phase 4: DRY Consolidation (1-2 weeks)
-- Extract shared event emitter base (H7, H8)
-- Consolidate deadlock retry logic (H4)
-- Extract hardcoded role constants (H17)
+### Phase 4: DRY Consolidation — PARTIAL (2026-02-20, -92 net LOC)
+- ~~Dedupe `_safe_int` in MijnRood services (H13)~~ **DONE**
+- ~~Dedupe `get_member_for_customer` (H3)~~ **DONE**
+- ~~Extract `append_to_text_field` utility (H12)~~ **DONE** — 18 patterns replaced
+- ~~Extract `safe_json_load` utility (H15)~~ **DONE** — 9 patterns replaced
+- ~~Extract `type_names` constants (H10)~~ **DONE** — 5 inline dicts → 2 module constants
+- Extract shared event emitter base (H7, H8) — DEFERRED (copy-paste bug found, needs design)
+- Consolidate deadlock retry logic (H4) — DEFERRED (7 implementations with different semantics)
+- Extract hardcoded role constants (H17) — DEFERRED (138+ instances across 40+ files)
 - Consolidate payment status determination (H5)
 - Add `@singleton` decorator to base service (Pattern 9)
 - Standardize return types (H34, Pattern 4)
@@ -276,3 +281,24 @@ The audit agents consistently noted these strong patterns:
 | H33 | Dead `on_update_after_submit` branch from background_jobs.py | ~6 |
 
 **Deferred:** H32 (`analytics_engine.py` placeholder methods) — dashboard depends on it; needs stub replacement, not deletion.
+
+### Phase 4 (partial): DRY Consolidation (2026-02-20)
+
+**Impact:** -92 net LOC across 7 files + 1 new utility file
+
+| Item | What was done |
+|------|--------------|
+| H3 | `financial_utils.get_member_for_customer` now delegates to `member_utils` canonical version |
+| H10 | 5 inline `type_names` dicts → 2 module-level constants (`MUTATION_TYPE_SINGULAR`, `MUTATION_TYPE_PLURAL`) |
+| H12 | `append_to_text_field()` utility extracted, 18 copy-paste patterns replaced across `termination_integration.py` + `application_helpers.py` |
+| H13 | `_safe_int` extracted to `mijnrood_sync/utils.py`, removed from both MijnRood service classes |
+| H15 | `safe_json_load()` extracted to `mijnrood_sync/utils.py`, 9 inline guard patterns replaced |
+
+**New utility files:**
+- `verenigingen/mijnrood_sync/utils.py` — `safe_int()`, `safe_json_load()`
+- `verenigingen/utils/__init__.py` — `append_to_text_field()` (alongside existing `safe_child_table_update`)
+
+**Deferred items (explored, too complex for safe batch):**
+- H4: Deadlock retry — 7 implementations (not 3), each with different error handling semantics
+- H7/H8: Event emitter — copy-paste bug found in `chapter_events.py` (checks `bulk_member_operations` instead of `bulk_chapter_operations`)
+- H17: Hardcoded roles — 138+ instances across 40+ files, needs architectural decision on Roles constants

@@ -586,10 +586,9 @@ def _append_chapter_notes(member, selected_chapter, label="Selected Chapter"):
         except Exception:
             chapter_display = selected_chapter
 
-        existing_notes = member.notes or ""
-        if existing_notes:
-            existing_notes += "\n\n"
-        member.notes = existing_notes + f"{label}: {chapter_display}"
+        from verenigingen.utils import append_to_text_field
+
+        append_to_text_field(member, "notes", f"{label}: {chapter_display}")
     except Exception as e:
         frappe.log_error(
             f"Error storing chapter information: {str(e)}",
@@ -753,11 +752,10 @@ def update_member_from_reapplication(member_name, data, application_id, address=
     _append_chapter_notes(member, data.get("selected_chapter"), label="Selected Chapter (Reapplication)")
 
     # Add reapplication timestamp note
+    from verenigingen.utils import append_to_text_field
+
     reapp_note = f"Reapplication submitted: {now_datetime()}"
-    if member.notes:
-        member.notes += f"\n{reapp_note}"
-    else:
-        member.notes = reapp_note
+    append_to_text_field(member, "notes", reapp_note, separator="\n")
 
     # Suppress customer creation messages during reapplication processing
     member._suppress_customer_messages = True

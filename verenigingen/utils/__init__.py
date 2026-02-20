@@ -6,7 +6,7 @@ from frappe import _
 from frappe.utils import flt
 
 from verenigingen.utils.history_manager_utils import safe_child_table_update  # noqa: F401
-from verenigingen.utils.security.api_security_framework import (
+from verenigingen.utils.security.api_security_framework import (  # noqa: F401
     OperationType,
     development_only_api,
     high_security_api,
@@ -15,6 +15,18 @@ from verenigingen.utils.security.api_security_framework import (
 utils_dir = str(Path(__file__).parent)
 if utils_dir not in sys.path:
     sys.path.append(utils_dir)
+
+
+def append_to_text_field(doc, field_name: str, text: str, separator: str = "\n\n"):
+    """Append text to a document's text field, handling None/empty values.
+
+    Safely handles missing fields (no-op if field doesn't exist on doc).
+    Usage: ``append_to_text_field(member, "notes", termination_note)``
+    """
+    if not hasattr(doc, field_name):
+        return
+    current = getattr(doc, field_name, None) or ""
+    setattr(doc, field_name, f"{current}{separator}{text}" if current else text)
 
 
 # Jinja methods

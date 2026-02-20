@@ -2,6 +2,7 @@
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -160,10 +161,7 @@ def cancel_sepa_mandate_safe(mandate_id, reason=None, cancellation_date=None):
         if reason:
             cancellation_note += f" - Reason: {reason}"
 
-        if mandate.notes:
-            mandate.notes += f"\n\n{cancellation_note}"
-        else:
-            mandate.notes = cancellation_note
+        append_to_text_field(mandate, "notes", cancellation_note)
 
         # Save the mandate
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
@@ -237,10 +235,7 @@ def update_invoice_safe(invoice_name, termination_note):
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
         # Add to invoice remarks (standard ERPNext field)
-        if invoice.remarks:
-            invoice.remarks += f"\n\n{termination_note}"
-        else:
-            invoice.remarks = termination_note
+        append_to_text_field(invoice, "remarks", termination_note)
 
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         # Note: preserve ignore_validate_update_after_submit for business requirement
@@ -300,10 +295,7 @@ def cancel_outstanding_invoices_safe(customer_name, termination_reason=None):
                 # Add cancellation reason to remarks
                 if termination_reason:
                     cancellation_note = f"Cancelled due to membership termination: {termination_reason}"
-                    if invoice.remarks:
-                        invoice.remarks += f"\n\n{cancellation_note}"
-                    else:
-                        invoice.remarks = cancellation_note
+                    append_to_text_field(invoice, "remarks", cancellation_note)
 
                 if invoice_data.docstatus == 1:
                     # Submitted invoice - cancel it
@@ -458,10 +450,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         if termination_request:
             termination_note += f" - Request: {termination_request}"
 
-        if member.notes:
-            member.notes += f"\n\n{termination_note}"
-        else:
-            member.notes = termination_note
+        append_to_text_field(member, "notes", termination_note)
 
         # CRITICAL: Set flag to prevent status being overridden by Membership hooks
         # When Membership.cancel() triggers member.save(), this flag prevents the status
@@ -490,10 +479,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
 
                 # Only add note if not already present
                 if termination_note not in (member.notes or ""):
-                    if member.notes:
-                        member.notes += f"\n\n{termination_note}"
-                    else:
-                        member.notes = termination_note
+                    append_to_text_field(member, "notes", termination_note)
 
                 retry_result = secure_document_operation(
                     operation="save",
@@ -560,11 +546,7 @@ def end_board_positions_safe(member_name, end_date, reason):
                             board_member.to_date = end_date
 
                             # Add reason to notes if field exists
-                            if hasattr(board_member, "notes"):
-                                if board_member.notes:
-                                    board_member.notes += f"\n\nEnded: {reason}"
-                                else:
-                                    board_member.notes = f"Ended: {reason}"
+                            append_to_text_field(board_member, "notes", f"Ended: {reason}")
 
                             positions_ended += 1
                             frappe.logger().info(
@@ -854,10 +836,7 @@ def deactivate_user_account_safe(member_name, termination_type, reason, suspend_
 
         # Add termination note to user bio/about
         termination_note = f"Account {action_taken} on {today()} - {reason}"
-        if hasattr(user_doc, "bio") and user_doc.bio:
-            user_doc.bio += f"\n\n{termination_note}"
-        elif hasattr(user_doc, "bio"):
-            user_doc.bio = termination_note
+        append_to_text_field(user_doc, "bio", termination_note)
 
         # Clear user roles except basic ones for audit trail
         if should_disable and hasattr(user_doc, "roles"):
@@ -903,10 +882,7 @@ def reactivate_user_account_safe(member_name, reason):
 
         # Add reactivation note
         reactivation_note = f"Account reactivated on {today()} - {reason}"
-        if hasattr(user_doc, "bio") and user_doc.bio:
-            user_doc.bio += f"\n\n{reactivation_note}"
-        elif hasattr(user_doc, "bio"):
-            user_doc.bio = reactivation_note
+        append_to_text_field(user_doc, "bio", reactivation_note)
 
         try:
             user_doc.save()
@@ -954,10 +930,7 @@ def suspend_member_safe(
 
         # Add suspension note (include original status for unsuspension reference)
         suspension_note = f"Member suspended on {suspension_date} - Reason: {suspension_reason}\n(Pre-suspension status: {original_status})"
-        if member.notes:
-            member.notes += f"\n\n{suspension_note}"
-        else:
-            member.notes = suspension_note
+        append_to_text_field(member, "notes", suspension_note)
 
         try:
             member.save()
@@ -965,10 +938,7 @@ def suspend_member_safe(
             # Reload member and retry save once
             member.reload()
             member.status = "Suspended"
-            if member.notes:
-                member.notes += f"\n\n{suspension_note}"
-            else:
-                member.notes = suspension_note
+            append_to_text_field(member, "notes", suspension_note)
             member.save()
         except frappe.PermissionError as pe:
             results["success"] = False
@@ -997,10 +967,7 @@ def suspend_member_safe(
 
                 # Add suspension note to user
                 user_suspension_note = f"Account suspended on {suspension_date} - {suspension_reason}"
-                if hasattr(user_doc, "bio") and user_doc.bio:
-                    user_doc.bio += f"\n\n{user_suspension_note}"
-                elif hasattr(user_doc, "bio"):
-                    user_doc.bio = user_suspension_note
+                append_to_text_field(user_doc, "bio", user_suspension_note)
 
                 try:
                     user_doc.save()
@@ -1066,10 +1033,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
 
         # Add unsuspension note
         unsuspension_note = f"Member unsuspended on {today()} - Reason: {unsuspension_reason}"
-        if member.notes:
-            member.notes += f"\n\n{unsuspension_note}"
-        else:
-            member.notes = unsuspension_note
+        append_to_text_field(member, "notes", unsuspension_note)
 
         try:
             member.save()
@@ -1077,10 +1041,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
             # Reload member and retry save once
             member.reload()
             member.status = restore_status
-            if member.notes:
-                member.notes += f"\n\n{unsuspension_note}"
-            else:
-                member.notes = unsuspension_note
+            append_to_text_field(member, "notes", unsuspension_note)
             member.save()
         except frappe.PermissionError as pe:
             results["success"] = False
@@ -1111,10 +1072,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
 
                 # Add unsuspension note
                 user_unsuspension_note = f"Account unsuspended on {today()} - {unsuspension_reason}"
-                if hasattr(user_doc, "bio") and user_doc.bio:
-                    user_doc.bio += f"\n\n{user_unsuspension_note}"
-                elif hasattr(user_doc, "bio"):
-                    user_doc.bio = user_unsuspension_note
+                append_to_text_field(user_doc, "bio", user_unsuspension_note)
 
                 try:
                     user_doc.save()
@@ -1343,11 +1301,7 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                 termination_note = (
                     f"Employee record updated on {termination_date} due to member termination - {reason}"
                 )
-                if hasattr(employee_doc, "remarks"):
-                    if employee_doc.remarks:
-                        employee_doc.remarks += f"\n\n{termination_note}"
-                    else:
-                        employee_doc.remarks = termination_note
+                append_to_text_field(employee_doc, "remarks", termination_note)
 
                 try:
                     employee_doc.save()

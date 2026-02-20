@@ -170,29 +170,14 @@ def get_recent_invoices(
 
 
 def get_member_for_customer(customer_name: str) -> Optional[str]:
+    """Get member name for a given customer (reverse lookup).
+
+    Delegates to member_utils.get_member_for_customer — kept here for
+    backward-compatible imports from financial_utils.
     """
-    Get member name for a given customer (reverse lookup).
+    from verenigingen.utils.member_utils import get_member_for_customer as _canonical
 
-    Args:
-        customer_name: Customer document name
-
-    Returns:
-        Member name if found, None otherwise
-
-    Performance:
-        Uses indexed customer field for optimal performance.
-        Critical for payment processing and event handling.
-    """
-    if not customer_name:
-        return None
-
-    try:
-        member_name = frappe.db.get_value("Member", {"customer": customer_name}, "name")
-        return member_name
-
-    except Exception as e:
-        frappe.logger().error(f"Error looking up member for customer {customer_name}: {str(e)}")
-        return None
+    return _canonical(customer_name)
 
 
 def get_customer_for_member(member_name: str) -> Optional[str]:

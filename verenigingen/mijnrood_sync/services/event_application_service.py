@@ -28,6 +28,7 @@ from verenigingen.mijnrood_sync.field_mapping import (
     get_terminated_status_ids,
     get_termination_type_map,
 )
+from verenigingen.mijnrood_sync.utils import safe_int, safe_json_load
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -205,7 +206,7 @@ class MijnRoodEventApplicationService(StatefulService):
         messages = []
 
         # Chapter assignment from division_id
-        division_id = self._safe_int(row_data.get("chapter"))
+        division_id = safe_int(row_data.get("chapter"))
         if division_id and event:
             chapter_msg = self._assign_chapter_from_division(member_name, division_id, event)
             if chapter_msg:
@@ -671,7 +672,7 @@ class MijnRoodEventApplicationService(StatefulService):
         if not division_change:
             return None
 
-        new_division_id = self._safe_int(division_change.get("new"))
+        new_division_id = safe_int(division_change.get("new"))
         if new_division_id is None:
             return None
 
@@ -685,7 +686,7 @@ class MijnRoodEventApplicationService(StatefulService):
 
     def _apply_new_member(self, event) -> dict:
         """Create a new Member from MijnRood admin_member data."""
-        new_data = json.loads(event.new_data) if event.new_data else {}
+        new_data = safe_json_load(event.new_data)
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
@@ -817,7 +818,7 @@ class MijnRoodEventApplicationService(StatefulService):
 
     def _apply_new_division(self, event) -> dict:
         """Create or update a Chapter from MijnRood admin_division data."""
-        new_data = json.loads(event.new_data) if event.new_data else {}
+        new_data = safe_json_load(event.new_data)
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
@@ -829,7 +830,7 @@ class MijnRoodEventApplicationService(StatefulService):
         Creates a Member document with application_status=Pending so it
         enters the normal membership application review workflow.
         """
-        new_data = json.loads(event.new_data) if event.new_data else {}
+        new_data = safe_json_load(event.new_data)
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
@@ -862,7 +863,7 @@ class MijnRoodEventApplicationService(StatefulService):
         frappe.db.commit()
 
         # Assign to preferred chapter
-        preferred_div_id = self._safe_int(new_data.get("preferred_division_id"))
+        preferred_div_id = safe_int(new_data.get("preferred_division_id"))
         if preferred_div_id:
             self._assign_chapter_from_division(member.name, preferred_div_id, event)
 
@@ -892,9 +893,9 @@ class MijnRoodEventApplicationService(StatefulService):
         user accounts, etc.) managed by the termination workflow.
         """
 
-        new_data = json.loads(event.new_data) if event.new_data else {}
-        old_data = json.loads(event.old_data) if event.old_data else {}
-        changed_fields = json.loads(event.changed_fields) if event.changed_fields else []
+        new_data = safe_json_load(event.new_data)
+        old_data = safe_json_load(event.old_data)
+        changed_fields = safe_json_load(event.changed_fields, default=[])
 
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
@@ -956,7 +957,7 @@ class MijnRoodEventApplicationService(StatefulService):
 
     def _apply_changed_division(self, event) -> dict:
         """Update Chapter from changed MijnRood admin_division data."""
-        new_data = json.loads(event.new_data) if event.new_data else {}
+        new_data = safe_json_load(event.new_data)
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
@@ -968,8 +969,8 @@ class MijnRoodEventApplicationService(StatefulService):
         Finds the linked Member (application) and updates fields that changed.
         Handles preferred_division_id changes as chapter reassignment.
         """
-        new_data = json.loads(event.new_data) if event.new_data else {}
-        changed_fields = json.loads(event.changed_fields) if event.changed_fields else []
+        new_data = safe_json_load(event.new_data)
+        changed_fields = safe_json_load(event.changed_fields, default=[])
 
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
@@ -1065,8 +1066,8 @@ class MijnRoodEventApplicationService(StatefulService):
         if not status_change:
             return None
 
-        old_status_id = self._safe_int(status_change.get("old"))
-        new_status_id = self._safe_int(status_change.get("new"))
+        old_status_id = safe_int(status_change.get("old"))
+        new_status_id = safe_int(status_change.get("new"))
 
         # Only handle transitions FROM active TO terminated
         if new_status_id not in get_terminated_status_ids():
@@ -2001,7 +2002,7 @@ class MijnRoodEventApplicationService(StatefulService):
                 row_data[member_field] = value
 
         # Convert status ID to membership type — prefer explicit mapping, fall back to status string
-        status_id = self._safe_int(mijnrood_data.get("current_membership_status_id"))
+        status_id = safe_int(mijnrood_data.get("current_membership_status_id"))
         if status_id:
             from verenigingen.mijnrood_sync.field_mapping import (
                 get_verenigingen_membership_type_for_status_id,
@@ -2023,13 +2024,13 @@ class MijnRoodEventApplicationService(StatefulService):
                     )
 
         # Convert contribution amount from cents to euros
-        cents = self._safe_int(mijnrood_data.get("contribution_per_period_in_cents"))
+        cents = safe_int(mijnrood_data.get("contribution_per_period_in_cents"))
         if cents:
             row_data["dues_rate"] = cents / 100.0
 
         # Convert contribution period integer to Dutch string for template resolution
         # MijnRood: 0=Monthly, 1=Quarterly, 2=Annually (see Member.php constants)
-        period_int = self._safe_int(mijnrood_data.get("contribution_period"))
+        period_int = safe_int(mijnrood_data.get("contribution_period"))
         period_map = {0: "Maandelijks", 1: "Per kwartaal", 2: "Jaarlijks"}
         if period_int is not None:
             if period_int in period_map:
@@ -2042,16 +2043,6 @@ class MijnRoodEventApplicationService(StatefulService):
                 )
 
         return row_data
-
-    @staticmethod
-    def _safe_int(value: Any) -> Optional[int]:
-        """Safely convert a value to int, returning None on failure."""
-        if value is None or value == "":
-            return None
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return None
 
     @staticmethod
     def _extract_email(value: Any) -> Optional[str]:

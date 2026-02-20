@@ -19,6 +19,36 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
 )
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
+# eBoekhouden mutation type labels (singular form — for individual transaction display)
+MUTATION_TYPE_SINGULAR = {
+    0: "Opening Balance",
+    1: "Sales Invoice",
+    2: "Purchase Invoice",
+    3: "Customer Payment",
+    4: "Supplier Payment",
+    5: "Money Received",
+    6: "Money Paid",
+    7: "Memorial Booking",
+    8: "Bank Import",
+    9: "Manual Entry",
+    10: "Stock Mutation",
+}
+
+# eBoekhouden mutation type labels (plural form — for batch summaries/logs)
+MUTATION_TYPE_PLURAL = {
+    0: "Opening Balances",
+    1: "Purchase Invoices",
+    2: "Sales Invoices",
+    3: "Customer Payments",
+    4: "Supplier Payments",
+    5: "Money Received",
+    6: "Money Paid",
+    7: "Memorial Bookings",
+    8: "Bank Import",
+    9: "Manual Entry",
+    10: "Stock Mutations",
+}
+
 
 def ensure_account_type_is_correct(account_name, expected_type, debug_info=None, auto_fix=False):
     """
@@ -3128,16 +3158,7 @@ def _create_import_log_entry(mutation, company, debug_info):
     rows = mutation.get("rows", [])
 
     # Build detailed log content
-    type_names = {
-        1: "Sales Invoice",
-        2: "Purchase Invoice",
-        3: "Customer Payment",
-        4: "Supplier Payment",
-        5: "Money Received",
-        6: "Money Paid",
-        7: "Memorial Booking",
-    }
-    type_name = type_names.get(mutation_type, f"Type {mutation_type}")
+    type_name = MUTATION_TYPE_SINGULAR.get(mutation_type, f"Type {mutation_type}")
 
     log_content = f"""ZERO-AMOUNT EBOEKHOUDEN TRANSACTION IMPORTED
 
@@ -3551,16 +3572,7 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
         je.name = f"EBH-{clean_invoice}"
         je.title = get_journal_entry_title(mutation, mutation_type)
     else:
-        type_names = {
-            0: "Opening Balance",
-            5: "Money Received",
-            6: "Money Paid",
-            7: "Memorial Booking",
-            8: "Bank Import",
-            9: "Manual Entry",
-            10: "Stock Mutation",
-        }
-        type_name = type_names.get(mutation_type, f"Type {mutation_type}")
+        type_name = MUTATION_TYPE_SINGULAR.get(mutation_type, f"Type {mutation_type}")
         je.name = f"EBH-{type_name}-{mutation_id}"
         je.title = get_journal_entry_title(mutation, mutation_type)
 
@@ -3918,20 +3930,7 @@ def start_full_rest_import(migration_name, mutation_types=None):
                 progress = 10 + (i * progress_step)  # Start at 10%, increment dynamically
 
                 # Get descriptive type name
-                type_names = {
-                    0: "Opening Balances",
-                    1: "Purchase Invoices",
-                    2: "Sales Invoices",
-                    3: "Customer Payments",
-                    4: "Supplier Payments",
-                    5: "Money Received",
-                    6: "Money Paid",
-                    7: "Memorial Bookings",
-                    8: "Bank Import",
-                    9: "Manual Entry",
-                    10: "Stock Mutations",
-                }
-                type_name = type_names.get(mutation_type, f"Type {mutation_type}")
+                type_name = MUTATION_TYPE_PLURAL.get(mutation_type, f"Type {mutation_type}")
 
                 migration_doc.db_set("current_operation", f"Processing {type_name} (type {mutation_type})...")
                 migration_doc.db_set("progress_percentage", int(progress))
@@ -4015,20 +4014,7 @@ def start_full_rest_import(migration_name, mutation_types=None):
                     errors.extend(batch_result.get("errors", []))
                 else:
                     # Create summary log even when no mutations found
-                    type_names = {
-                        0: "Opening Balances",
-                        1: "Purchase Invoices",
-                        2: "Sales Invoices",
-                        3: "Customer Payments",
-                        4: "Supplier Payments",
-                        5: "Money Received",
-                        6: "Money Paid",
-                        7: "Memorial Bookings",
-                        8: "Bank Import",
-                        9: "Manual Entry",
-                        10: "Stock Mutations",
-                    }
-                    type_name = type_names.get(mutation_type, f"Type {mutation_type}")
+                    type_name = MUTATION_TYPE_PLURAL.get(mutation_type, f"Type {mutation_type}")
 
                     debug_info = [f"No {type_name.lower()} mutations found in the specified date range"]
                     frappe.log_error(
@@ -4402,18 +4388,8 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
     processed_with_legacy = 0
 
     # Get descriptive mutation type name
-    mutation_type_names = {
-        0: "Opening Balances",
-        1: "Purchase Invoices",
-        2: "Sales Invoices",
-        3: "Customer Payments",
-        4: "Supplier Payments",
-        5: "Money Received",
-        6: "Money Paid",
-        7: "Memorial Bookings",
-    }
     type_name = (
-        mutation_type_names.get(mutation_type, f"Type {mutation_type}") if mutation_type else "Mixed Types"
+        MUTATION_TYPE_PLURAL.get(mutation_type, f"Type {mutation_type}") if mutation_type else "Mixed Types"
     )
 
     debug_info.append(

@@ -24,6 +24,7 @@ from verenigingen.mijnrood_sync.field_mapping import (
     TABLE_PRIMARY_KEY,
     get_status_labels,
 )
+from verenigingen.mijnrood_sync.utils import safe_int
 from verenigingen.services.infrastructure.base_service import StatefulService
 
 # Maps MijnRood field names to triage-friendly category tags
@@ -531,8 +532,8 @@ class MijnRoodPollingService(StatefulService):
                 # Resolve display values for special fields
                 if key == "current_membership_status_id":
                     labels = get_status_labels()
-                    entry["old_display"] = labels.get(self._safe_int(old_val), str(old_val))
-                    entry["new_display"] = labels.get(self._safe_int(new_val), str(new_val))
+                    entry["old_display"] = labels.get(safe_int(old_val), str(old_val))
+                    entry["new_display"] = labels.get(safe_int(new_val), str(new_val))
                 elif key in ("division_id", "preferred_division_id"):
                     entry["old_display"] = self._resolve_division_name(old_val) or str(old_val)
                     entry["new_display"] = self._resolve_division_name(new_val) or str(new_val)
@@ -541,22 +542,12 @@ class MijnRoodPollingService(StatefulService):
 
         return changed
 
-    @staticmethod
-    def _safe_int(value) -> int | None:
-        """Convert a value to int, returning None on failure."""
-        if value is None or value == "":
-            return None
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return None
-
     def _resolve_division_name(self, division_id) -> str | None:
         """Resolve a MijnRood division_id to a human-readable chapter name.
 
         Looks up the admin_division sync state to find the division's name field.
         """
-        div_id = self._safe_int(division_id)
+        div_id = safe_int(division_id)
         if div_id is None:
             return None
 
@@ -621,7 +612,7 @@ class MijnRoodPollingService(StatefulService):
                 details.append(chapter or f"div#{div_id}")
             status_id = new_data.get("current_membership_status_id")
             if status_id is not None:
-                label = get_status_labels().get(self._safe_int(status_id), str(status_id))
+                label = get_status_labels().get(safe_int(status_id), str(status_id))
                 details.append(label)
         elif table == "admin_division":
             if new_data.get("city"):
