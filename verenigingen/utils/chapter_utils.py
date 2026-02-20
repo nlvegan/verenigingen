@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_member
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -72,7 +73,7 @@ def get_user_accessible_chapters(
 
     try:
         # Check for admin roles - these users see all chapters
-        admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+        admin_roles = Roles.ADMIN_ROLES
         user_roles = frappe.get_roles(user_email)
 
         if any(role in user_roles for role in admin_roles):

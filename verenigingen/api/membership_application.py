@@ -35,6 +35,7 @@ from verenigingen.utils.application_payments import (
     process_application_payment,
 )
 from verenigingen.utils.config_manager import ConfigManager
+from verenigingen.utils.constants import Roles
 
 # Import enhanced utilities
 from verenigingen.utils.error_handling import PermissionError, ValidationError, handle_api_error, log_error
@@ -777,7 +778,7 @@ def _create_pending_chapter_membership_safe(member, suggested_chapter):
 @high_security_api()  # Member application approval
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
-@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Staff"])
+@require_roles(list(Roles.ADMIN_ROLES))
 def approve_membership_application(member_name, notes=None) -> OperationResult[Dict[str, Any]]:
     """
     DEPRECATED: Use verenigingen.api.membership_application_review.approve_membership_application instead.

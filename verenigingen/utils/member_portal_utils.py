@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -248,7 +249,7 @@ def get_user_appropriate_home_page():
         return "/member_portal"  # Could be a volunteer-specific portal later
 
     # System users get the app
-    system_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+    system_roles = Roles.ADMIN_ROLES
     if any(role in user_roles for role in system_roles):
         return "/app"
 

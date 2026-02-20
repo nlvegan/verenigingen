@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint
 
+from verenigingen.utils.constants import Roles
+
 
 class EventContactCampaign(Document):
     def validate(self):
@@ -451,9 +453,7 @@ def get_permission_query_conditions(user=None):
     user_roles = frappe.get_roles(user)
 
     # Admins and staff see all campaigns
-    if any(
-        role in user_roles for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-    ):
+    if any(role in user_roles for role in Roles.ADMIN_ROLES):
         return ""
 
     conditions = []
@@ -510,9 +510,7 @@ def has_permission(doc, ptype="read", user=None):
     user_roles = frappe.get_roles(user)
 
     # Admins and staff have full access
-    if any(
-        role in user_roles for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-    ):
+    if any(role in user_roles for role in Roles.ADMIN_ROLES):
         return True
 
     # Get user's volunteer record

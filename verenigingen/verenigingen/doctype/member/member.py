@@ -63,6 +63,7 @@ from verenigingen.utils.address_matching.dutch_address_normalizer import (
     AddressFingerprintCollisionHandler,
     DutchAddressNormalizer,
 )
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_service import update_member_full_name, validate_member_name_fields
 from verenigingen.utils.dutch_name_utils import (
     format_dutch_full_name,
@@ -252,7 +253,7 @@ class Member(
         user_roles = frappe.get_roles(user)
 
         # Admin roles always have full access
-        admin_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+        admin_roles = Roles.ADMIN_ROLES
         if any(role in user_roles for role in admin_roles):
             return True
 

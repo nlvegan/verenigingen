@@ -15,6 +15,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -198,7 +199,7 @@ class ExpenseHistoryBatchProcessor:
             notify_administrators(
                 subject=subject,
                 message=message,
-                default_roles=["System Manager", "Verenigingen Administrator"],
+                default_roles=list(Roles.ADMIN_PAIR),
                 notification_type="Alert",
                 document_type="Volunteer Expense",
             )

@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.sepa_mandate_identity_service import (
@@ -175,7 +176,7 @@ def has_permission(doc, user=None, ptype=None):
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]],
+            "role": ["in", list(Roles.ADMIN_ROLES)],
         },
         "name",
     ):
@@ -205,7 +206,7 @@ def get_permission_query_conditions(user=None):
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]],
+            "role": ["in", list(Roles.ADMIN_ROLES)],
         },
         "name",
     ):

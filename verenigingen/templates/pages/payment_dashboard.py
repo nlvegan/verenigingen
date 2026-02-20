@@ -4,6 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name, get_member_customer
 
 
@@ -182,7 +183,7 @@ def get_context(context):
         "Has Role",
         {
             "parent": frappe.session.user,
-            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]],
+            "role": ["in", list(Roles.ADMIN_ROLES)],
         },
     )
 

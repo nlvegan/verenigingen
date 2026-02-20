@@ -8,6 +8,7 @@ separated from core business logic and API endpoints.
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.validation.api_validators import require_roles
@@ -16,7 +17,7 @@ from verenigingen.utils.validation.api_validators import require_roles
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)  # Fixed: ADMIN not ADMINISTRATIVE
 @handle_api_error
-@require_roles(["System Manager", "Verenigingen Administrator"])
+@require_roles(list(Roles.ADMIN_PAIR))
 def fix_all_missing_assignment_history():
     """Fix missing assignment history for all teams - admin utility function"""
 
@@ -77,7 +78,7 @@ def fix_all_missing_assignment_history():
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 @handle_api_error
-@require_roles(["System Manager", "Verenigingen Administrator"])
+@require_roles(list(Roles.ADMIN_PAIR))
 def fix_missing_assignment_history(team_name=None, volunteer_name=None):
     """Fix missing team assignment history for existing assignments"""
 
@@ -132,7 +133,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.UTILITY)
 @handle_api_error
-@require_roles(["System Manager", "Verenigingen Administrator"])
+@require_roles(list(Roles.ADMIN_PAIR))
 def debug_team_assignments():
     """Debug team assignments and volunteers - diagnostic utility"""
 
@@ -194,7 +195,7 @@ def debug_team_assignments():
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.UTILITY)
 @handle_api_error
-@require_roles(["System Manager", "Verenigingen Administrator"])
+@require_roles(list(Roles.ADMIN_PAIR))
 def validate_team_data_integrity():
     """Validate team data integrity - comprehensive diagnostic tool"""
 

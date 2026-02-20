@@ -29,12 +29,14 @@ from typing import Any, Dict, List
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 @frappe.whitelist(allow_guest=False)
 def apply_optimizations():
     """Apply all performance optimizations to the database"""
 
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can apply performance optimizations"))
 
     print("🚀 APPLYING PERFORMANCE OPTIMIZATIONS")
@@ -130,7 +132,7 @@ def check_optimization_status():
 def analyze_query_performance():
     """Analyze current query performance and identify bottlenecks"""
 
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can run performance analysis"))
 
     print("🔬 QUERY PERFORMANCE ANALYSIS")

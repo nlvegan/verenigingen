@@ -50,6 +50,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -227,7 +228,7 @@ class DuesScheduleValidationService(StatelessService):
             if float(schedule_doc.dues_rate) > maximum_dues:
                 # Allow with warning for administrators
                 user_roles = frappe.get_roles(frappe.session.user)
-                admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+                admin_roles = Roles.ADMIN_ROLES
 
                 if any(role in user_roles for role in admin_roles):
                     frappe.msgprint(

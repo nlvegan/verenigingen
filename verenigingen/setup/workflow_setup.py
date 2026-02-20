@@ -1,5 +1,6 @@
 import frappe
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -472,7 +473,7 @@ def validate_prerequisites():
             issues.append(f"Missing DocType: {doctype}")
 
     # Check required roles exist - use correct role names
-    required_roles = ["System Manager", "Verenigingen Administrator"]
+    required_roles = list(Roles.ADMIN_PAIR)
     for role in required_roles:
         if not frappe.db.exists("Role", role):
             issues.append(f"Missing Role: {role}")

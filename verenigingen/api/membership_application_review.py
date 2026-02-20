@@ -16,6 +16,7 @@ from verenigingen.services.member.approval.member_approval_service import (
     validate_membership_type_for_approval,
 )
 from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.safe_error_logging import safe_log_error
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
@@ -630,7 +631,7 @@ def get_user_chapter_access(**kwargs):
     user = frappe.session.user
 
     # Admin roles see all chapters
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
+    admin_roles = Roles.ADMIN_ROLES
     if any(role in frappe.get_roles(user) for role in admin_roles):
         return {"restrict_to_chapters": False, "chapters": [], "is_admin": True}
 

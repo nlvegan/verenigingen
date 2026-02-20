@@ -6,6 +6,8 @@ Allows administrators to manage brand colors and theming
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def get_context(context):
     """Get context for brand management page"""
@@ -15,7 +17,7 @@ def get_context(context):
         frappe.throw(_("Please login to access this page"), frappe.PermissionError)
 
     # Check admin permissions
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
+    admin_roles = Roles.ADMIN_PAIR
     user_roles = frappe.get_roles()
     if not any(role in user_roles for role in admin_roles):
         frappe.throw(_("You need administrator privileges to access this page"), frappe.PermissionError)
@@ -47,6 +49,6 @@ def has_website_permission(doc, ptype, user, verbose=False):
         return False
 
     # Check admin roles
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
+    admin_roles = Roles.ADMIN_PAIR
     user_roles = frappe.get_roles(user)
     return any(role in user_roles for role in admin_roles)

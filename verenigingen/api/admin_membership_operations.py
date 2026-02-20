@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import critical_api, standard_api
 
 
@@ -109,7 +110,7 @@ def migrate_active_application_status():
     """Migrate members with 'Active' application_status to 'Approved'"""
     try:
         # Check if user has permission
-        if not any(role in frappe.get_roles() for role in ["System Manager", "Verenigingen Administrator"]):
+        if not any(role in frappe.get_roles() for role in Roles.ADMIN_PAIR):
             frappe.throw(_("Only System Managers and Verenigingen Administrators can run this migration"))
 
         # Find all members with 'Active' application_status
@@ -150,10 +151,7 @@ def migrate_active_application_status():
 def get_application_stats():
     """Get statistics for membership applications"""
     # Check permissions
-    if not any(
-        role in frappe.get_roles()
-        for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-    ):
+    if not any(role in frappe.get_roles() for role in Roles.ADMIN_ROLES):
         frappe.throw(_("Insufficient permissions"))
 
     stats = {}

@@ -17,6 +17,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 
 
@@ -113,7 +114,7 @@ def clear_all_deleted_documents() -> OperationResult[Dict[str, Any]]:
     """
     try:
         # Security check - System Manager only
-        if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+        if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
             return OperationResult.fail(
                 _("Only System Managers can clear deleted documents"),
                 errors=["Permission denied"],
@@ -187,7 +188,7 @@ def clear_deleted_documents_older_than_days(days=90) -> OperationResult[Dict[str
     """
     try:
         # Security check - System Manager only
-        if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+        if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
             return OperationResult.fail(
                 _("Only System Managers can clear deleted documents"),
                 errors=["Permission denied"],
@@ -281,7 +282,7 @@ def clear_deleted_documents_by_doctype(doctype, older_than_days=None) -> Operati
     """
     try:
         # Security check - System Manager only
-        if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+        if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
             return OperationResult.fail(
                 _("Only System Managers can clear deleted documents"),
                 errors=["Permission denied"],
@@ -387,7 +388,7 @@ def permanently_delete_doctype_documents(doctype, document_names) -> OperationRe
     """
     try:
         # Security check - System Manager only
-        if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+        if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
             return OperationResult.fail(
                 _("Only System Managers can permanently delete documents"),
                 errors=["Permission denied"],

@@ -42,6 +42,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -190,7 +191,7 @@ class MemberFeeValidationService(StatelessService):
 
         # Check user permissions for fee override
         user_roles = frappe.get_roles(frappe.session.user)
-        authorized_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
+        authorized_roles = Roles.ADMIN_ROLES
 
         if not any(role in user_roles for role in authorized_roles):
             frappe.throw(

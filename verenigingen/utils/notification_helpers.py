@@ -43,6 +43,8 @@ from typing import Optional
 
 import frappe
 
+from verenigingen.utils.constants import Roles
+
 
 def _get_email_config_service():
     """Get EmailConfigurationService if available.
@@ -192,7 +194,7 @@ def get_notification_recipients(setting_field, default_roles=None):
         )
     """
     if default_roles is None:
-        default_roles = ["System Manager", "Verenigingen Administrator"]
+        default_roles = list(Roles.ADMIN_PAIR)
 
     try:
         settings = frappe.get_single("Verenigingen Settings")
@@ -501,7 +503,7 @@ def notify_administrators(
     if not recipients:
         recipients = get_notification_recipients(
             setting_field or "admin_notification_emails",
-            default_roles or ["System Manager", "Verenigingen Administrator"],
+            default_roles or list(Roles.ADMIN_PAIR),
         )
 
     return create_system_notification(

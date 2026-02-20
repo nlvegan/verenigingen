@@ -5,6 +5,8 @@ Role Cleanup Utilities - Fix identified role issues
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 @frappe.whitelist()
 def remove_redundant_admin_roles():
@@ -147,7 +149,7 @@ def create_role_hierarchy_documentation():
 
     role_hierarchy = {
         "admin_tier": {
-            "roles": ["System Manager"],
+            "roles": [Roles.SYSTEM_MANAGER],
             "description": "Full system access - no other admin roles needed",
             "permissions": "Complete access to all doctypes and system functions",
         },

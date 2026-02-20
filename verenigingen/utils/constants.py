@@ -24,6 +24,7 @@ class Roles:
 
     # Role groups for common permission checks
     ADMIN_ROLES: Set[str] = {SYSTEM_MANAGER, VERENIGINGEN_ADMIN, VERENIGINGEN_STAFF}
+    ADMIN_PAIR: Set[str] = {SYSTEM_MANAGER, VERENIGINGEN_ADMIN}
 
     VOLUNTEER_ADMIN_ROLES: Set[str] = {
         SYSTEM_MANAGER,

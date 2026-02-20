@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.operation_result import OperationResult
@@ -333,7 +334,7 @@ def _can_suspend_member_fallback(member_name):
     user = frappe.session.user
 
     # System managers and Association managers always can
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
+    admin_roles = Roles.ADMIN_PAIR
     user_roles = frappe.get_roles(user)
     if any(role in user_roles for role in admin_roles):
         return True

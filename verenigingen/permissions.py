@@ -1095,7 +1095,7 @@ def can_view_financial_info(doctype, name=None, user=None):
         user = frappe.session.user
 
     # System managers and Verenigingen managers can always view
-    if "System Manager" in frappe.get_roles(user) or "Verenigingen Staff" in frappe.get_roles(user):
+    if Roles.SYSTEM_MANAGER in frappe.get_roles(user) or Roles.VERENIGINGEN_STAFF in frappe.get_roles(user):
         return True
 
     # Get the member for this user
@@ -1152,7 +1152,7 @@ def check_member_payment_access(member_name, user=None):
         user = frappe.session.user
 
     # Admins can access all
-    if "System Manager" in frappe.get_roles(user) or "Verenigingen Staff" in frappe.get_roles(user):
+    if Roles.SYSTEM_MANAGER in frappe.get_roles(user) or Roles.VERENIGINGEN_STAFF in frappe.get_roles(user):
         return True
 
     # Allow members to view their own payment info

@@ -1,6 +1,8 @@
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.constants import Roles
+
 # ===== Your existing functions from paste.txt go here =====
 
 
@@ -308,7 +310,7 @@ def process_overdue_termination_requests():
                 subject=f"Overdue Termination Requests - {len(overdue_requests)} items",
                 message=notification_content,
                 setting_field="termination_notification_emails",
-                default_roles=["System Manager", "Verenigingen Administrator"],
+                default_roles=list(Roles.ADMIN_PAIR),
                 notification_type="Alert",
                 document_type="Membership Termination Request",
                 notification_key="termination_overdue",
@@ -574,7 +576,7 @@ def audit_termination_compliance():
                     subject="Termination Compliance Issues Detected",
                     message=notification_content,
                     setting_field="termination_notification_emails",
-                    default_roles=["System Manager", "Verenigingen Administrator"],
+                    default_roles=list(Roles.ADMIN_PAIR),
                     notification_type="Alert",
                     document_type="Membership Termination Request",
                     notification_key="termination_overdue",

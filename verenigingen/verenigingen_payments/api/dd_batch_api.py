@@ -54,8 +54,10 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
-# Import security and error handling
 from verenigingen.services.communication.email_service import get_email_service
+
+# Import security and error handling
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
     PermissionError,
     ValidationError,
@@ -592,7 +594,7 @@ def escalate_conflicts(batch_id, conflicts):
     # Send notification to administrators
     admin_users = frappe.get_all(
         "Has Role",
-        filters={"role": ["in", ["System Manager", "Verenigingen Administrator"]]},
+        filters={"role": ["in", list(Roles.ADMIN_PAIR)]},
         fields=["parent as user"],
     )
 

@@ -7,6 +7,8 @@ This module provides utilities to ensure smooth transition and backwards compati
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def ensure_payment_history_current():
     """
@@ -68,7 +70,7 @@ def test_event_system():
     if not frappe.conf.get("developer_mode"):
         frappe.throw("test_event_system is only available in developer mode")
 
-    frappe.only_for(["System Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER])
 
     try:
         # Create a test invoice submission event

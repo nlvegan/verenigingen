@@ -8,6 +8,7 @@ that are linked to Member records via the payment_history child table.
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -20,7 +21,7 @@ def delete_test_invoices():
 
     Returns dict with deletion statistics
     """
-    frappe.only_for("System Manager")  # Restrict to System Managers only
+    frappe.only_for(Roles.SYSTEM_MANAGER)  # Restrict to System Managers only
 
     # Find all test invoices
     test_invoices = frappe.db.sql(

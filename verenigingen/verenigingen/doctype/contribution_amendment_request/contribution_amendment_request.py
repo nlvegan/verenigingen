@@ -5,6 +5,7 @@ from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -378,7 +379,7 @@ class ContributionAmendmentRequest(Document):
             email_service = get_email_service()
 
             # Get administrator emails
-            admin_roles = ["System Manager", "Verenigingen Administrator"]
+            admin_roles = Roles.ADMIN_PAIR
             admin_emails = frappe.get_all(
                 "Has Role",
                 filters={"role": ["in", admin_roles], "parenttype": "User"},

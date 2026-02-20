@@ -25,6 +25,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_member_chapters
 
 if TYPE_CHECKING:
@@ -110,17 +111,17 @@ class DuesSchedulePermissionService(StatelessService):
         except Exception:
             pass
 
-        admin_users = ["System Manager"]
+        admin_users = [Roles.SYSTEM_MANAGER]
         if creation_user:
             admin_users.append(creation_user)
         else:
             admin_users.append("Administrator")  # Fallback
 
-        if user in admin_users or "System Manager" in frappe.get_roles(user):
+        if user in admin_users or Roles.SYSTEM_MANAGER in frappe.get_roles(user):
             return PermissionResult(True, "System Manager access", "admin")
 
         # Check if user has Verenigingen Administrator role
-        if "Verenigingen Administrator" in frappe.get_roles(user):
+        if Roles.VERENIGINGEN_ADMIN in frappe.get_roles(user):
             return PermissionResult(True, "Verenigingen Administrator access", "admin")
 
         # Template editing is restricted to Verenigingen Administrator only
@@ -163,7 +164,7 @@ class DuesSchedulePermissionService(StatelessService):
             return member_edit_result
 
         # Check if user has Verenigingen Staff role
-        if "Verenigingen Staff" in frappe.get_roles(user):
+        if Roles.VERENIGINGEN_STAFF in frappe.get_roles(user):
             return PermissionResult(True, "Verenigingen Staff access", "staff")
 
         # Check if user is a chapter board member with finance permissions
@@ -312,12 +313,12 @@ class DuesSchedulePermissionService(StatelessService):
         )
 
         # System Manager always has access
-        if "System Manager" in frappe.get_roles(user):
+        if Roles.SYSTEM_MANAGER in frappe.get_roles(user):
             return True
 
         # Verenigingen Administrator and Manager have full access
         user_roles = frappe.get_roles(user)
-        if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]):
+        if any(role in user_roles for role in [Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF]):
             return True
 
         # Templates are visible to all authenticated users (for viewing available options)
@@ -380,10 +381,10 @@ class DuesSchedulePermissionService(StatelessService):
 
         # System Manager and admin roles get full access
         user_roles = frappe.get_roles(user)
-        if "System Manager" in user_roles:
+        if Roles.SYSTEM_MANAGER in user_roles:
             return ""  # No restrictions
 
-        if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]):
+        if any(role in user_roles for role in [Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF]):
             return ""  # No restrictions
 
         # Chapter Board Members can access dues schedules for members in their chapters
