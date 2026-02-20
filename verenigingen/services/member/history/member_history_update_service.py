@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 import frappe
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils import determine_payment_status
 from verenigingen.utils.error_codes import log_operation_error
 from verenigingen.utils.operation_result import OperationResult
 
@@ -576,29 +577,6 @@ class MemberHistoryUpdateService(StatelessService):
         return removed_count + updated_count + added_count
 
     @staticmethod
-    def _determine_payment_status(invoice, paid_amount: float) -> str:
-        """Determine payment status string from invoice data and paid amount.
-
-        Args:
-            invoice: Invoice dict with docstatus, status, outstanding_amount, grand_total
-            paid_amount: Total amount paid against this invoice
-
-        Returns:
-            Payment status string: Draft, Paid, Overdue, Cancelled, Partially Paid, or Unpaid
-        """
-        if invoice.docstatus == 0:
-            return "Draft"
-        if invoice.status == "Paid" or invoice.outstanding_amount <= 0:
-            return "Paid"
-        if invoice.status == "Overdue":
-            return "Overdue"
-        if invoice.status == "Cancelled":
-            return "Cancelled"
-        if paid_amount > 0 and paid_amount < invoice.grand_total:
-            return "Partially Paid"
-        return "Unpaid"
-
-    @staticmethod
     def _resolve_payment_entry(payment_refs, payment_entries_data):
         """Resolve the most recent payment entry from prefetched reference data.
 
@@ -673,7 +651,7 @@ class MemberHistoryUpdateService(StatelessService):
         payment_entry, payment_date, payment_method, reconciled = self._resolve_payment_entry(
             payment_refs, payment_cache.payment_entries_data
         )
-        payment_status = self._determine_payment_status(invoice, paid_amount)
+        payment_status = determine_payment_status(invoice, paid_amount)
         expected_row = self._build_invoice_history_row(
             invoice, payment_entry, payment_date, payment_method, paid_amount, reconciled, payment_status
         )
@@ -744,42 +722,6 @@ class MemberHistoryUpdateService(StatelessService):
                 continue
 
         return removed_count + updated_count + added_count
-
-    def _batch_fetch_with_chunking(
-        self,
-        doctype: str,
-        name_list: List[str],
-        fields: List[str],
-        filters: Optional[Dict[str, Any]] = None,
-        chunk_size: int = 500,
-    ) -> List[Dict[str, Any]]:
-        """
-        Fetch records in batches to avoid SQL IN() clause limits.
-
-        Args:
-            doctype: DocType to query
-            name_list: List of names to fetch
-            fields: Fields to retrieve
-            filters: Additional filters (will be merged with name IN clause)
-            chunk_size: Maximum items per batch (default: 500)
-
-        Returns:
-            list: List of fetched records
-        """
-        if not name_list:
-            return []
-
-        results = []
-        base_filters = filters or {}
-
-        for i in range(0, len(name_list), chunk_size):
-            chunk = name_list[i : i + chunk_size]
-            chunk_filters = {**base_filters, "name": ["in", chunk]}
-
-            chunk_results = frappe.get_all(doctype, filters=chunk_filters, fields=fields)
-            results.extend(chunk_results)
-
-        return results
 
     @staticmethod
     def _process_fee_amendments(member_doc, applied_amendments, existing_entries_by_amendment):

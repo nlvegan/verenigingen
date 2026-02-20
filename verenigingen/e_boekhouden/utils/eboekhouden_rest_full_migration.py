@@ -1120,7 +1120,7 @@ def analyze_import_failures():
         errors = frappe.db.sql(
             """
             SELECT error FROM `tabError Log`
-            WHERE creation > '2025-08-05 06:00:00'
+            WHERE creation > DATE_SUB(NOW(), INTERVAL 90 DAY)
             AND error LIKE '%Books have been closed%'
             LIMIT 3
         """,

@@ -492,7 +492,7 @@ class MemberLifecycleService(StatelessService):
                     member.review_date = now_datetime()
                     # Restore rejection_reason from flags if available
                     if hasattr(member.flags, "rejection_reason"):
-                        member.rejection_reason = member.flags.rejection_reason
+                        member.review_notes = member.flags.rejection_reason
                     # Preserve flags after reload
                     member.flags.ignore_status_validation = True
 

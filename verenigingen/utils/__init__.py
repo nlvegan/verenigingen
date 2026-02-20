@@ -17,6 +17,66 @@ if utils_dir not in sys.path:
     sys.path.append(utils_dir)
 
 
+def determine_payment_status(invoice, paid_amount: float = 0.0) -> str:
+    """Determine payment status string from invoice data and paid amount.
+
+    Args:
+        invoice: Invoice dict/object with docstatus, status, outstanding_amount, grand_total
+        paid_amount: Total amount paid against this invoice
+
+    Returns:
+        Payment status string: Draft, Paid, Overdue, Cancelled, Partially Paid, or Unpaid
+    """
+    if invoice.docstatus == 0:
+        return "Draft"
+    if invoice.status == "Paid" or invoice.outstanding_amount <= 0:
+        return "Paid"
+    if invoice.status == "Overdue":
+        return "Overdue"
+    if invoice.status == "Cancelled":
+        return "Cancelled"
+    if paid_amount > 0 and paid_amount < invoice.grand_total:
+        return "Partially Paid"
+    return "Unpaid"
+
+
+def batch_fetch_with_chunking(
+    doctype: str,
+    name_list,
+    fields,
+    filters=None,
+    chunk_size: int = 500,
+):
+    """Fetch records in batches to avoid SQL IN() clause limits.
+
+    MySQL/MariaDB typically supports ~1000 items in IN() clauses.
+    We use 500 as a safe default.
+
+    Args:
+        doctype: DocType to query
+        name_list: List of names to fetch
+        fields: Fields to retrieve
+        filters: Additional filters (merged with name IN clause)
+        chunk_size: Maximum items per batch (default: 500)
+
+    Returns:
+        List of fetched records
+    """
+    if not name_list:
+        return []
+
+    results = []
+    base_filters = filters or {}
+
+    for i in range(0, len(name_list), chunk_size):
+        chunk = name_list[i : i + chunk_size]
+        chunk_filters = {**base_filters, "name": ["in", chunk]}
+        chunk_results = frappe.get_all(doctype, filters=chunk_filters, fields=fields)
+        results.extend(chunk_results)
+
+    return results
+
+
 def append_to_text_field(doc, field_name: str, text: str, separator: str = "\n\n"):
     """Append text to a document's text field, handling None/empty values.
 

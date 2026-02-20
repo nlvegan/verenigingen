@@ -28,9 +28,7 @@ Extracted from payment_mixin.py:
     - _build_payment_history_entry() (lines 940-996, 56 LOC)
     - _atomic_payment_history_refresh() (embedded logic)
     - _cleanup_broken_history_entries() (embedded logic)
-    - _batch_fetch_with_chunking() (lines 17-47, 30 LOC)
-
-Total: ~450 LOC of payment history logic now in service layer.
+Total: ~420 LOC of payment history logic now in service layer.
 
 Architecture:
     - StatelessService for consistent logging and error handling
@@ -48,6 +46,7 @@ from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.payment.payment_coverage_service import get_payment_coverage_service
+from verenigingen.utils import batch_fetch_with_chunking, determine_payment_status
 from verenigingen.utils.operation_result import OperationResult
 
 if TYPE_CHECKING:
@@ -314,54 +313,15 @@ class PaymentHistoryService(StatelessService):
 
         # Fetch all payment entries with chunking
         if all_payment_entry_names:
-            all_payment_entries = self._batch_fetch_with_chunking(
+            all_payment_entries = batch_fetch_with_chunking(
                 doctype="Payment Entry",
                 name_list=list(all_payment_entry_names),
                 fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
                 filters={"docstatus": ["!=", 2]},
-                chunk_size=500,
             )
             cache.payments_by_name = {pe.name: pe for pe in all_payment_entries}
 
         return cache
-
-    def _batch_fetch_with_chunking(
-        self,
-        doctype: str,
-        name_list: List[str],
-        fields: List[str],
-        filters: Optional[Dict[str, Any]] = None,
-        chunk_size: int = 500,
-    ) -> List[Any]:
-        """
-        Fetch records in batches to avoid SQL IN() clause limits.
-
-        MySQL/MariaDB typically support ~1000 items in IN() clauses.
-        We use 500 as a safe default.
-
-        Args:
-            doctype: DocType to query
-            name_list: List of names to fetch
-            fields: Fields to retrieve
-            filters: Additional filters (merged with name IN clause)
-            chunk_size: Maximum items per batch (default: 500)
-
-        Returns:
-            List of fetched records
-        """
-        if not name_list:
-            return []
-
-        results = []
-        base_filters = filters or {}
-
-        for i in range(0, len(name_list), chunk_size):
-            chunk = name_list[i : i + chunk_size]
-            chunk_filters = {**base_filters, "name": ["in", chunk]}
-            chunk_results = frappe.get_all(doctype, filters=chunk_filters, fields=fields)
-            results.extend(chunk_results)
-
-        return results
 
     def _get_default_mandate(self, member_doc: "Document") -> Optional[Any]:
         """
@@ -440,17 +400,8 @@ class PaymentHistoryService(StatelessService):
                 payment_method = most_recent.mode_of_payment
                 reconciled = 1
 
-        # Determine payment status
-        if invoice.docstatus == 0:
-            payment_status = "Draft"
-        elif invoice.status == "Paid":
-            payment_status = "Paid"
-        elif invoice.status == "Overdue":
-            payment_status = "Overdue"
-        elif invoice.status == "Cancelled":
-            payment_status = "Cancelled"
-        elif paid_amount > 0 and paid_amount < invoice.grand_total:
-            payment_status = "Partially Paid"
+        # Determine payment status (shared utility also checks outstanding_amount <= 0)
+        payment_status = determine_payment_status(invoice, paid_amount)
 
         # Get mandate info
         has_mandate = 0

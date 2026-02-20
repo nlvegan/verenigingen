@@ -15,36 +15,10 @@ class PaymentMixin:
     """Mixin for payment-related functionality"""
 
     def _batch_fetch_with_chunking(self, doctype, name_list, fields, filters=None, chunk_size=500):
-        """
-        Fetch records in batches to avoid SQL IN() clause limits.
+        """Fetch records in batches — delegates to shared utility."""
+        from verenigingen.utils import batch_fetch_with_chunking
 
-        MySQL/MariaDB typically support ~1000 items in IN() clauses.
-        We use 500 as a safe default.
-
-        Args:
-            doctype: DocType to query
-            name_list: List of names to fetch
-            fields: Fields to retrieve
-            filters: Additional filters (will be merged with name IN clause)
-            chunk_size: Maximum items per batch (default: 500)
-
-        Returns:
-            List of fetched records
-        """
-        if not name_list:
-            return []
-
-        results = []
-        base_filters = filters or {}
-
-        for i in range(0, len(name_list), chunk_size):
-            chunk = name_list[i : i + chunk_size]
-            chunk_filters = {**base_filters, "name": ["in", chunk]}
-
-            chunk_results = frappe.get_all(doctype, filters=chunk_filters, fields=fields)
-            results.extend(chunk_results)
-
-        return results
+        return batch_fetch_with_chunking(doctype, name_list, fields, filters, chunk_size)
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)

@@ -2,15 +2,15 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
-**Last updated:** 2026-02-20 (Phases 1-2, 4 (partial), 6 complete)
+**Last updated:** 2026-02-20 (Phases 1-2, 4 (continued), 6 complete)
 
 ## Executive Summary
 
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 9 | 10 |
-| High | 37 | 10 | 27 |
-| Medium | 55+ | 0 | 55+ |
+| High | 37 | 13 | 24 |
+| Medium | 55+ | 2 | 53+ |
 | Low | 30+ | 0 | 30+ |
 
 **Additional fix not in original audit:** Reversed decorator order across 27 files (102 endpoints) — `@frappe.whitelist()` must be outermost or HTTP calls fail with "Method Not Allowed".
@@ -88,8 +88,8 @@
 | H2 | `create_customer_for_member` diverges (one creates Contact, other doesn't) | `application_payments.py`, `customer_handling_service.py` | ~110 | Cross-cutting | |
 | H3 | `get_member_for_customer` duplicated | `member_utils.py:542`, `financial_utils.py:172` | ~20 | Cross-cutting | **FIXED** — `financial_utils` delegates to `member_utils` |
 | H4 | Deadlock retry logic in 7 places (not 3) | `account_creation_manager.py` (2x), `retry_utilities.py` (2x), `invoice_generator.py`, `payment_entry_handler.py`, `bank_transaction_creator.py` | ~60 | Utils | DEFERRED — implementations differ (raise vs return, some rollback) |
-| H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | |
-| H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | |
+| H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | **FIXED** — extracted `determine_payment_status()`, fixed bug (missing `outstanding_amount <= 0` check) |
+| H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | **FIXED** — extracted `batch_fetch_with_chunking()` to `utils/__init__.py` |
 | H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | DEFERRED — copy-paste bug found in `chapter_events.py`, needs careful refactor |
 | H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | DEFERRED — inconsistent flag names need design decision |
 | H9 | ISO datetime parsing pattern in 8 files | Across payments layer | ~40 | Payments | |
@@ -97,9 +97,9 @@
 | H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden | |
 | H12 | Notes-field append pattern repeated 18 times | `termination_integration.py`, `application_helpers.py` | ~100 | Utils | **FIXED** — extracted `append_to_text_field()` utility, 18 patterns replaced |
 | H13 | `_safe_int` duplicated in both MijnRood services | `event_application_service.py`, `polling_service.py` | ~8 | MijnRood | **FIXED** — extracted to `mijnrood_sync/utils.py` |
-| H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | |
+| H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | **FIXED** — consolidated into `_batch_event_worker()` with `approve_first` parameter |
 | H15 | JSON unpack guard repeated 9 times | `event_application_service.py` | ~30 | MijnRood | **FIXED** — extracted `safe_json_load()` to `mijnrood_sync/utils.py` |
-| H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | |
+| H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | DEFERRED — methods vary too much (different log levels, branching); decorator would reduce clarity |
 | H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | DEFERRED — massive scope (138+ instances), needs Roles constants file |
 
 ### SRP Violations
@@ -166,8 +166,8 @@
 | M16 | KISS | `scheduler.py:122-126` 6-field cron expression | Possibly unsupported by Frappe |
 | M17 | OCP | `document_portal_service.py` org-type `if/elif` chain x3 | Adding org type requires 3 edits |
 | M18 | OCP | `event_application_service.py` string-based dispatch | `getattr(self, f"_apply_{action}_{table_key}")` |
-| M19 | Bug | `lifecycle_service.py:495` retry path sets `member.rejection_reason` (field doesn't exist) | Should be `review_notes` |
-| M20 | Bug | `eboekhouden_rest_full_migration.py:1090` hardcoded timestamp in production query | Returns zero results after date passes |
+| M19 | Bug | `lifecycle_service.py:495` retry path sets `member.rejection_reason` (field doesn't exist) | Should be `review_notes` — **FIXED** |
+| M20 | Bug | `eboekhouden_rest_full_migration.py:1123` hardcoded timestamp in production query | Returns zero results after date passes — **FIXED** (→ 90-day lookback) |
 
 ---
 
@@ -209,16 +209,19 @@ The audit agents consistently noted these strong patterns:
 - Consolidate 3 member ID implementations to 1 (H1)
 - Fix `create_customer_for_member` divergence (H2)
 
-### Phase 4: DRY Consolidation — PARTIAL (2026-02-20, -92 net LOC)
+### Phase 4: DRY Consolidation — CONTINUED (2026-02-20, -92 -120 net LOC)
 - ~~Dedupe `_safe_int` in MijnRood services (H13)~~ **DONE**
 - ~~Dedupe `get_member_for_customer` (H3)~~ **DONE**
 - ~~Extract `append_to_text_field` utility (H12)~~ **DONE** — 18 patterns replaced
 - ~~Extract `safe_json_load` utility (H15)~~ **DONE** — 9 patterns replaced
 - ~~Extract `type_names` constants (H10)~~ **DONE** — 5 inline dicts → 2 module constants
+- ~~Extract `determine_payment_status` utility (H5)~~ **DONE** — fixed bug in payment_history_service (missing `outstanding_amount` check)
+- ~~Extract `batch_fetch_with_chunking` utility (H6)~~ **DONE** — 3 implementations → 1 shared function
+- ~~Consolidate batch workers (H14)~~ **DONE** — 2 near-identical workers → 1 parameterized function
 - Extract shared event emitter base (H7, H8) — DEFERRED (copy-paste bug found, needs design)
 - Consolidate deadlock retry logic (H4) — DEFERRED (7 implementations with different semantics)
 - Extract hardcoded role constants (H17) — DEFERRED (138+ instances across 40+ files)
-- Consolidate payment status determination (H5)
+- Extract `_ensure_*` error decorator (H16) — DEFERRED (methods vary too much; ~40 LOC savings not worth clarity loss)
 - Add `@singleton` decorator to base service (Pattern 9)
 - Standardize return types (H34, Pattern 4)
 
@@ -302,3 +305,24 @@ The audit agents consistently noted these strong patterns:
 - H4: Deadlock retry — 7 implementations (not 3), each with different error handling semantics
 - H7/H8: Event emitter — copy-paste bug found in `chapter_events.py` (checks `bulk_member_operations` instead of `bulk_chapter_operations`)
 - H17: Hardcoded roles — 138+ instances across 40+ files, needs architectural decision on Roles constants
+
+### Phase 4 (continued): DRY Consolidation + Bug Fixes (2026-02-20)
+
+**Impact:** ~-120 net LOC across 8 files
+
+| Item | What was done |
+|------|--------------|
+| M19 | Fixed bug: `member.rejection_reason` → `member.review_notes` in `member_lifecycle_service.py` (field doesn't exist on Member DocType) |
+| M20 | Fixed bug: hardcoded `'2025-08-05 06:00:00'` → `DATE_SUB(NOW(), INTERVAL 90 DAY)` in `eboekhouden_rest_full_migration.py` (date passed 197 days ago) |
+| H5 | `determine_payment_status()` extracted to `utils/__init__.py`; fixed bug in `payment_history_service.py` (missing `outstanding_amount <= 0` check that the other implementation had) |
+| H6 | `batch_fetch_with_chunking()` extracted to `utils/__init__.py`; removed from `member_history_update_service.py`, `payment_history_service.py`; `payment_mixin.py` and `member.py` now delegate to shared utility |
+| H14 | `_batch_approve_and_apply_worker` and `_batch_apply_worker` consolidated into `_batch_event_worker()` with `approve_first` parameter |
+
+**New utilities in `utils/__init__.py`:**
+- `determine_payment_status(invoice, paid_amount)` — shared payment status determination
+- `batch_fetch_with_chunking(doctype, name_list, fields, filters, chunk_size)` — chunked IN() queries
+
+**Deferred:**
+- H16: `_ensure_*` error boilerplate — methods vary too much (different log levels, some use `frappe.log_error`, complex branching); decorator would reduce clarity for ~40 LOC savings
+- H9: ISO datetime parsing — 45 occurrences across 21 files, needs separate focused session
+- H11: Invoice creation — only 63% identical with significant financial logic differences

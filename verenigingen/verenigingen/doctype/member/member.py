@@ -867,19 +867,10 @@ class Member(
         return get_member_history_update_service().incremental_update_history_tables(self)
 
     def _batch_fetch_with_chunking(self, doctype, name_list, fields, filters=None, chunk_size=500):
-        """
-        Fetch records in batches - delegates to MemberHistoryUpdateService.
+        """Fetch records in batches — delegates to shared utility."""
+        from verenigingen.utils import batch_fetch_with_chunking
 
-        EXTRACTED: This method has been moved to MemberHistoryUpdateService._batch_fetch_with_chunking()
-        for better service layer separation and reusability.
-        """
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-
-        return get_member_history_update_service()._batch_fetch_with_chunking(
-            doctype, name_list, fields, filters, chunk_size
-        )
+        return batch_fetch_with_chunking(doctype, name_list, fields, filters, chunk_size)
 
     def _get_volunteer_id(self):
         """Get the volunteer ID for this member"""

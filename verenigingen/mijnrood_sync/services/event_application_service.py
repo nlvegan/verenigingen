@@ -2160,8 +2160,22 @@ def batch_apply(event_names: str | list) -> dict:
     return {"batch_id": batch_id, "total": len(event_names)}
 
 
-def _batch_approve_and_apply_worker(event_names: list, batch_id: str) -> None:
-    """Background worker: approve then apply each event."""
+def _batch_event_worker(
+    event_names: list,
+    batch_id: str,
+    approve_first: bool = False,
+    progress_event: str = "batch_apply_progress",
+    complete_event: str = "batch_apply_complete",
+) -> None:
+    """Background worker for batch applying (and optionally approving) sync events.
+
+    Args:
+        event_names: List of MijnRood Sync Event names to process.
+        batch_id: Unique identifier for progress tracking.
+        approve_first: If True, approve Pending events before applying.
+        progress_event: Realtime event name for per-item progress.
+        complete_event: Realtime event name for completion.
+    """
     events_with_table = frappe.get_all(
         "MijnRood Sync Event",
         filters={"name": ["in", event_names]},
@@ -2175,29 +2189,27 @@ def _batch_approve_and_apply_worker(event_names: list, batch_id: str) -> None:
     applied = 0
     errors = []
 
-    skipped = 0
     for i, name in enumerate(sorted_names):
         try:
-            event = frappe.get_doc("MijnRood Sync Event", name)
-            if event.status not in ("Pending", "Approved"):
-                skipped += 1
-                frappe.db.commit()
-                frappe.publish_realtime(
-                    "batch_approve_apply_progress",
-                    {
-                        "batch_id": batch_id,
-                        "current": i + 1,
-                        "total": total,
-                        "applied": applied,
-                        "errors": len(errors),
-                    },
-                    user=frappe.session.user,
-                )
-                continue
-
-            if event.status == "Pending":
-                event.approve()
-                frappe.db.commit()
+            if approve_first:
+                event = frappe.get_doc("MijnRood Sync Event", name)
+                if event.status not in ("Pending", "Approved"):
+                    frappe.db.commit()
+                    frappe.publish_realtime(
+                        progress_event,
+                        {
+                            "batch_id": batch_id,
+                            "current": i + 1,
+                            "total": total,
+                            "applied": applied,
+                            "errors": len(errors),
+                        },
+                        user=frappe.session.user,
+                    )
+                    continue
+                if event.status == "Pending":
+                    event.approve()
+                    frappe.db.commit()
 
             result = service.apply_event(name)
             if result.get("success"):
@@ -2208,7 +2220,7 @@ def _batch_approve_and_apply_worker(event_names: list, batch_id: str) -> None:
             errors.append(f"{name}: {str(e)[:100]}")
         frappe.db.commit()
         frappe.publish_realtime(
-            "batch_approve_apply_progress",
+            progress_event,
             {
                 "batch_id": batch_id,
                 "current": i + 1,
@@ -2220,48 +2232,23 @@ def _batch_approve_and_apply_worker(event_names: list, batch_id: str) -> None:
         )
 
     frappe.publish_realtime(
-        "batch_approve_apply_complete",
+        complete_event,
         {"batch_id": batch_id, "applied": applied, "total": total, "errors": errors},
         user=frappe.session.user,
+    )
+
+
+def _batch_approve_and_apply_worker(event_names: list, batch_id: str) -> None:
+    """Background worker: approve then apply each event."""
+    _batch_event_worker(
+        event_names,
+        batch_id,
+        approve_first=True,
+        progress_event="batch_approve_apply_progress",
+        complete_event="batch_approve_apply_complete",
     )
 
 
 def _batch_apply_worker(event_names: list, batch_id: str) -> None:
     """Background worker for batch applying sync events."""
-    events_with_table = frappe.get_all(
-        "MijnRood Sync Event",
-        filters={"name": ["in", event_names]},
-        fields=["name", "mijnrood_table"],
-    )
-    events_with_table.sort(key=lambda e: _TABLE_PRIORITY.get(e.mijnrood_table, 99))
-    sorted_names = [e.name for e in events_with_table]
-
-    total = len(sorted_names)
-    service = get_event_application_service()
-    applied = 0
-    errors = []
-
-    for i, name in enumerate(sorted_names):
-        result = service.apply_event(name)
-        if result.get("success"):
-            applied += 1
-        else:
-            errors.append(f"{name}: {result.get('message', 'Unknown error')}")
-        frappe.db.commit()
-        frappe.publish_realtime(
-            "batch_apply_progress",
-            {
-                "batch_id": batch_id,
-                "current": i + 1,
-                "total": total,
-                "applied": applied,
-                "errors": len(errors),
-            },
-            user=frappe.session.user,
-        )
-
-    frappe.publish_realtime(
-        "batch_apply_complete",
-        {"batch_id": batch_id, "applied": applied, "total": total, "errors": errors},
-        user=frappe.session.user,
-    )
+    _batch_event_worker(event_names, batch_id)
