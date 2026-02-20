@@ -1131,39 +1131,6 @@ class UnifiedWebhookWrapperService:
                 original_error=e,
             ) from e
 
-    def _create_unified_payment_entry(self, donation, payment_data):
-        """Create Payment Entry using unified payment entry creator."""
-        try:
-            from ..utils.unified_payment_entry_creator import create_unified_payment_entry
-
-            # Extract payment amount using centralized extractor
-            extractor = get_payment_data_extractor()
-            amount = extractor.extract_amount(payment_data, allow_zero=True)  # payment_data is dict format
-            payment_id = payment_data.get("id")
-
-            self.logger.info(f"Creating Payment Entry for donation {donation.name}: €{amount}")
-
-            payment_entry = create_unified_payment_entry(
-                donation_doc=donation,
-                mollie_payment_id=payment_id,
-                amount=amount,
-                payment_type="Receive",
-                reference_suffix="",  # No suffix for main payments
-                refund_date=None,  # Not applicable for main payments
-                description=f"Mollie payment {payment_id}",
-            )
-
-            if payment_entry:
-                self.logger.info(f"✅ Created Payment Entry: {payment_entry.name}")
-            else:
-                self.logger.error(f"❌ Failed to create Payment Entry for donation {donation.name}")
-
-            return payment_entry
-
-        except Exception as e:
-            self.logger.error(f"❌ Error creating Payment Entry: {e}")
-            return None
-
     def _update_donation_status(self, donation, payment_data):
         """Update donation status based on payment data."""
         try:

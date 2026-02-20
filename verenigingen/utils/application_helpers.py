@@ -203,38 +203,12 @@ def map_payment_method(payment_method, validate: bool = True):
 
 
 def generate_application_id():
-    """Generate unique application ID with robust collision handling"""
-    import datetime
-    import os
-    import random
+    """Generate unique application ID — delegates to canonical implementation."""
+    from verenigingen.services.member.core.member_id_service import (
+        generate_application_id as _canonical,
+    )
 
-    date_str = frappe.utils.nowdate().replace("-", "")
-    max_attempts = 20  # Reduce attempts but improve strategy
-
-    for attempt in range(max_attempts):
-        # Use different strategies for better distribution
-        if attempt == 0:
-            # First attempt: use timestamp + microseconds for high uniqueness
-            now = datetime.datetime.now()
-            timestamp_part = int(now.timestamp() * 1000) % 10000  # millisecond precision
-            app_id = f"APP-{date_str}-{timestamp_part:04d}"
-        elif attempt < 5:
-            # Early attempts: use timestamp with random offset
-            timestamp_part = int(time.time() % 10000) + random.randint(-500, 500)
-            timestamp_part = abs(timestamp_part) % 10000  # Keep in range
-            app_id = f"APP-{date_str}-{timestamp_part:04d}"
-        else:
-            # Later attempts: pure random with wider range
-            random_part = random.randint(1000, 9999)
-            app_id = f"APP-{date_str}-{random_part}"
-
-        # Simple existence check (database constraint will handle race conditions)
-        if not frappe.db.exists("Member", {"application_id": app_id}):
-            return app_id
-
-    # Final fallback: use process ID + microseconds for maximum uniqueness
-    final_part = f"{os.getpid() % 100:02d}{datetime.datetime.now().microsecond % 100:02d}"
-    return f"APP-{date_str}-{final_part}"
+    return _canonical()
 
 
 def parse_application_data(data_input):
