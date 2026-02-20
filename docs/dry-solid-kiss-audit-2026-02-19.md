@@ -9,7 +9,7 @@
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 24 | 13 |
+| High | 37 | 26 | 11 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -87,7 +87,7 @@
 | H1 | 3 member ID implementations | `core/member_id_service.py`, `identification/member_id_service.py`, `member_id_manager.py` | ~161 | Cross-cutting | PARTIAL — `generate_application_id()` duplicate consolidated; architecture is actually clean layered delegation (not competing) |
 | H2 | `create_customer_for_member` diverges (one creates Contact, other doesn't) | `application_payments.py`, `customer_handling_service.py` | ~110 | Cross-cutting | |
 | H3 | `get_member_for_customer` duplicated | `member_utils.py:542`, `financial_utils.py:172` | ~20 | Cross-cutting | **FIXED** — `financial_utils` delegates to `member_utils` |
-| H4 | Deadlock retry logic in 7 places (not 3) | `account_creation_manager.py` (2x), `retry_utilities.py` (2x), `invoice_generator.py`, `payment_entry_handler.py`, `bank_transaction_creator.py` | ~60 | Utils | DEFERRED — implementations differ (raise vs return, some rollback) |
+| H4 | Deadlock retry logic in 7 places (not 3) | `account_creation_manager.py` (2x), `retry_utilities.py` (2x), `invoice_generator.py`, `payment_entry_handler.py`, `bank_transaction_creator.py` | ~60 | Utils | PARTIAL — deleted duplicate `retry_on_deadlock` decorator from `account_creation_manager.py` (-57 LOC), replaced 2 callers with `execute_with_deadlock_retry()` from `retry_utilities.py`. Remaining 3 inline implementations (invoice, payment_entry, bank_tx) have legitimately different failure modes (return OperationResult vs return None vs raise). |
 | H5 | Payment status determination logic diverges | `member_history_update_service.py:611`, `payment_history_service.py:444` | ~25 | Services/Member | **FIXED** — extracted `determine_payment_status()`, fixed bug (missing `outstanding_amount <= 0` check) |
 | H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | **FIXED** — extracted `batch_fetch_with_chunking()` to `utils/__init__.py` |
 | H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | **FIXED** (Phase 1) — extracted `emit_event()` to `events/event_emitter.py`; 4 simple emitters now delegate (~-80 LOC); `invoice_events` and `expense_events` have conditional logic and stay as-is |
@@ -99,7 +99,7 @@
 | H13 | `_safe_int` duplicated in both MijnRood services | `event_application_service.py`, `polling_service.py` | ~8 | MijnRood | **FIXED** — extracted to `mijnrood_sync/utils.py` |
 | H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | **FIXED** — consolidated into `_batch_event_worker()` with `approve_first` parameter |
 | H15 | JSON unpack guard repeated 9 times | `event_application_service.py` | ~30 | MijnRood | **FIXED** — extracted `safe_json_load()` to `mijnrood_sync/utils.py` |
-| H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | DEFERRED — methods vary too much (different log levels, branching); decorator would reduce clarity |
+| H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | PARTIAL — extracted `_ensure_account_group()` + `_name_filter()` helpers in `account_organization_service.py`, consolidating 6 near-identical methods (~-105 LOC). MijnRood `_ensure_*` methods confirmed too varied (different service callables, return types, skip conditions). |
 | H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | DEFERRED — massive scope (138+ instances), needs Roles constants file |
 
 ### SRP Violations
@@ -423,3 +423,12 @@ The audit agents consistently noted these strong patterns:
 | H7 | Extracted shared `emit_event()` helper to `events/event_emitter.py`. Refactored `member_events.py`, `chapter_events.py`, `approval_events.py`, `team_events.py` to delegate — each `_emit_*_event()` is now ~6 lines instead of ~20. `invoice_events` and `expense_events` have subscriber-specific conditional logic and stay as-is. |
 | H32 | Fixed bug: `_generate_audit_recommendations()` was called at line 1275 but never defined — would crash at runtime. Added stub method returning empty list. Remaining placeholder methods deferred (dashboard dependency). |
 | H36 | Closed as **FALSE POSITIVE** — intentional backward-compatible design: `get_membership_type_fee_info()` returns legacy tier names/multipliers for existing consumers; `get_membership_type_details()` returns canonical field names. Both are correct for their respective contexts. |
+
+### Batch 10: Deadlock retry dedup + account group consolidation (2026-02-20)
+
+**Impact:** ~-162 net LOC
+
+| Item | What was done |
+|------|--------------|
+| H4 | Deleted duplicate `retry_on_deadlock` decorator (57 LOC) from `account_creation_manager.py`. Replaced 2 inline callers with `execute_with_deadlock_retry()` from `retry_utilities.py`. The centralized version has better backoff (jitter, max_delay cap) and proper `is_deadlock_error()` detection. Remaining 3 inline implementations (invoice_generator, payment_entry_handler, bank_transaction_creator) have legitimately different failure modes and cannot be consolidated. |
+| H16 | Extracted `_ensure_account_group()` + `_name_filter()` shared helpers in `account_organization_service.py`. 6 near-identical methods (vorderingen, financial_accounts, overlopende_activa, schulden, tax_payable, tax_receivable) now delegate to the helper (~-105 LOC). MijnRood `_ensure_*` methods confirmed too varied for consolidation. |

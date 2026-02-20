@@ -38,7 +38,6 @@ import random
 import time
 import traceback
 from contextlib import contextmanager
-from functools import wraps
 from typing import Any, Dict
 
 import frappe
@@ -47,67 +46,8 @@ from frappe.utils import get_site_name, now
 
 from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
-
-
-def retry_on_deadlock(max_retries=3, initial_delay=0.1):
-    """
-    Decorator to retry database operations on deadlock errors.
-
-    Implements exponential backoff with jitter to handle MySQL deadlocks
-    during concurrent ACR processing.
-
-    Args:
-        max_retries: Maximum number of retry attempts (default 3)
-        initial_delay: Initial delay in seconds before first retry (default 0.1)
-
-    Usage:
-        @retry_on_deadlock(max_retries=3, initial_delay=0.1)
-        def my_database_operation():
-            # ... database operations that might deadlock ...
-    """
-
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    error_msg = str(e)
-
-                    # Check if this is a deadlock error
-                    is_deadlock = "Deadlock" in error_msg or "1213" in error_msg
-                    is_last_attempt = attempt >= max_retries - 1
-
-                    if is_deadlock and not is_last_attempt:
-                        # Calculate exponential backoff with jitter
-                        delay = (initial_delay * (2**attempt)) + random.uniform(0, 0.05)
-
-                        frappe.logger().warning(
-                            f"[RETRY] Deadlock detected in {func.__name__}, "
-                            f"retrying in {delay:.3f}s (attempt {attempt + 1}/{max_retries})"
-                        )
-
-                        time.sleep(delay)
-
-                        # Reload any DocType instances that might have stale data
-                        # This is handled by the calling code if needed
-                        continue
-                    else:
-                        # Not a deadlock, or last attempt failed - re-raise
-                        if is_deadlock and is_last_attempt:
-                            frappe.logger().error(
-                                f"[RETRY] Deadlock in {func.__name__} persists after {max_retries} attempts, giving up"
-                            )
-                        raise
-
-            # Should never reach here, but just in case
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 class AccountCreationManager:
@@ -211,7 +151,7 @@ class AccountCreationManager:
         try:
             if self.request.pipeline_stage != "Completed":
                 # Wrap role assignment with retry logic for deadlock handling
-                retry_on_deadlock(max_retries=3, initial_delay=0.1)(self.assign_roles_and_profile)()
+                execute_with_deadlock_retry(self.assign_roles_and_profile, "assign_roles_and_profile")
         except Exception as e:
             error_msg = f"Role assignment failed: {str(e)[:200]}"
             errors.append(error_msg)
@@ -226,7 +166,7 @@ class AccountCreationManager:
             try:
                 if not self.request.created_employee:
                     # Wrap employee creation with retry logic for deadlock handling
-                    retry_on_deadlock(max_retries=3, initial_delay=0.1)(self.create_employee_record)()
+                    execute_with_deadlock_retry(self.create_employee_record, "create_employee_record")
                 else:
                     # Employee already exists - populate instance variable for linking
                     self.created_employee = self.request.created_employee
@@ -823,7 +763,7 @@ class AccountCreationManager:
                 frappe.logger().info(f"Role profile {self.request.role_profile} assigned")
 
             # Save with proper permissions - NO ignore_permissions=True
-            # Retry logic is handled at higher level via @retry_on_deadlock decorator
+            # Retry logic is handled at higher level via execute_with_deadlock_retry
             if roles_added or self.request.role_profile:
                 frappe.logger().info(
                     f"[ACR PIPELINE] Saving user with roles | "

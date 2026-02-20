@@ -224,183 +224,100 @@ class AccountOrganizationService:
             results["errors"].append(str(e))
             return results
 
-    def _ensure_vorderingen_group(self):
-        """Ensure Vorderingen (Receivables) group exists under Activa"""
-        # Look for existing Vorderingen group
-        existing = frappe.db.get_value(
-            "Account",
-            {"company": self.company, "account_number": "4", "is_group": 1, "root_type": "Asset"},
-            "name",
+    def _ensure_account_group(
+        self, filter_dict, group_name, root_type, parent_getter, account_number=None, *, reparent=True
+    ):
+        """Ensure an account group exists, optionally fixing its parent.
+
+        Args:
+            filter_dict: Filters for frappe.db.get_value lookup.
+            group_name: Display name for the account group.
+            root_type: "Asset" or "Liability".
+            parent_getter: Callable returning the expected parent account name.
+            account_number: Optional account number for creation.
+            reparent: If True, fix parent_account when it doesn't match expected.
+        """
+        existing = frappe.db.get_value("Account", filter_dict, "name")
+        if existing:
+            if reparent:
+                parent = frappe.db.get_value("Account", existing, "parent_account")
+                expected = parent_getter()
+                if parent != expected and expected:
+                    frappe.db.set_value("Account", existing, "parent_account", expected)
+                    frappe.logger().info(f"Moved {group_name} under correct parent: {existing}")
+            return existing
+        return self._create_group_account(
+            group_name=group_name,
+            root_type=root_type,
+            account_number=account_number,
+            parent_account=parent_getter(),
         )
 
-        if existing:
-            # Ensure it's under Activa, not a root account
-            parent = frappe.db.get_value("Account", existing, "parent_account")
-            if not parent:
-                activa = self._get_activa_root()
-                if activa:
-                    frappe.db.set_value("Account", existing, "parent_account", activa)
-                    frappe.logger().info(f"Moved Vorderingen under Activa: {existing}")
-            return existing
+    def _name_filter(self, group_name, root_type):
+        """Build a LIKE filter dict for account_name search."""
+        search_name = group_name.split(" - ")[0]
+        return {
+            "company": self.company,
+            "account_name": ["like", f"%{search_name}%"],
+            "is_group": 1,
+            "root_type": root_type,
+        }
 
-        return self._create_group_account(
-            group_name=self.vorderingen_name,
-            root_type="Asset",
+    def _ensure_vorderingen_group(self):
+        """Ensure Vorderingen (Receivables) group exists under Activa"""
+        return self._ensure_account_group(
+            {"company": self.company, "account_number": "4", "is_group": 1, "root_type": "Asset"},
+            self.vorderingen_name,
+            "Asset",
+            self._get_activa_root,
             account_number="4",
-            parent_account=self._get_activa_root(),
         )
 
     def _ensure_financial_accounts_group(self):
         """Ensure Financial Accounts (Bank/Cash) group exists under Activa"""
-        search_name = self.financial_accounts_name.split(" - ")[0]
-
-        # Look for existing Financial Accounts group
-        existing = frappe.db.get_value(
-            "Account",
-            {
-                "company": self.company,
-                "account_name": ["like", f"%{search_name}%"],
-                "is_group": 1,
-                "root_type": "Asset",
-            },
-            "name",
-        )
-
-        if existing:
-            # Ensure it's directly under Activa
-            parent = frappe.db.get_value("Account", existing, "parent_account")
-            activa = self._get_activa_root()
-            if parent != activa and activa:
-                frappe.db.set_value("Account", existing, "parent_account", activa)
-                frappe.logger().info(f"Moved {self.financial_accounts_name} under Activa: {existing}")
-            return existing
-
-        return self._create_group_account(
-            group_name=self.financial_accounts_name,
-            root_type="Asset",
-            account_number=None,
-            parent_account=self._get_activa_root(),
+        return self._ensure_account_group(
+            self._name_filter(self.financial_accounts_name, "Asset"),
+            self.financial_accounts_name,
+            "Asset",
+            self._get_activa_root,
         )
 
     def _ensure_overlopende_activa_group(self):
         """Ensure Overlopende activa (Prepaid/Accrued Assets) group exists under Activa"""
-        search_name = self.overlopende_activa_name.split(" - ")[0]
-
-        # Look for existing Overlopende activa group
-        existing = frappe.db.get_value(
-            "Account",
-            {
-                "company": self.company,
-                "account_name": ["like", f"%{search_name}%"],
-                "is_group": 1,
-                "root_type": "Asset",
-            },
-            "name",
-        )
-
-        if existing:
-            # Ensure it's directly under Activa
-            parent = frappe.db.get_value("Account", existing, "parent_account")
-            activa = self._get_activa_root()
-            if parent != activa and activa:
-                frappe.db.set_value("Account", existing, "parent_account", activa)
-                frappe.logger().info(f"Moved {self.overlopende_activa_name} under Activa: {existing}")
-            return existing
-
-        return self._create_group_account(
-            group_name=self.overlopende_activa_name,
-            root_type="Asset",
+        return self._ensure_account_group(
+            self._name_filter(self.overlopende_activa_name, "Asset"),
+            self.overlopende_activa_name,
+            "Asset",
+            self._get_activa_root,
             account_number="15",
-            parent_account=self._get_activa_root(),
         )
 
     def _ensure_schulden_group(self):
         """Ensure Schulden (Creditors) group exists under Passiva"""
-        # Extract base name for search (e.g., "Schulden" from "Schulden - Liabilities")
-        search_name = self.schulden_name.split(" - ")[0]
-
-        # Look for existing Schulden group
-        existing = frappe.db.get_value(
-            "Account",
-            {
-                "company": self.company,
-                "account_name": ["like", f"%{search_name}%"],
-                "is_group": 1,
-                "root_type": "Liability",
-            },
-            "name",
-        )
-
-        if existing:
-            return existing
-
-        return self._create_group_account(
-            group_name=self.schulden_name,
-            root_type="Liability",
-            account_number=None,
-            parent_account=self._get_passiva_root(),
+        return self._ensure_account_group(
+            self._name_filter(self.schulden_name, "Liability"),
+            self.schulden_name,
+            "Liability",
+            self._get_passiva_root,
+            reparent=False,
         )
 
     def _ensure_tax_payable_group(self):
         """Ensure Belastingen (Tax Payable) group exists under Passiva"""
-        search_name = self.tax_payable_name.split(" - ")[0]
-
-        existing = frappe.db.get_value(
-            "Account",
-            {
-                "company": self.company,
-                "account_name": ["like", f"%{search_name}%"],
-                "is_group": 1,
-                "root_type": "Liability",
-            },
-            "name",
-        )
-
-        if existing:
-            # Ensure it's directly under Passiva
-            parent = frappe.db.get_value("Account", existing, "parent_account")
-            passiva = self._get_passiva_root()
-            if parent != passiva and passiva:
-                frappe.db.set_value("Account", existing, "parent_account", passiva)
-                frappe.logger().info(f"Moved {self.tax_payable_name} under Passiva: {existing}")
-            return existing
-
-        return self._create_group_account(
-            group_name=self.tax_payable_name,
-            root_type="Liability",
-            account_number=None,
-            parent_account=self._get_passiva_root(),
+        return self._ensure_account_group(
+            self._name_filter(self.tax_payable_name, "Liability"),
+            self.tax_payable_name,
+            "Liability",
+            self._get_passiva_root,
         )
 
     def _ensure_tax_receivable_group(self):
         """Ensure Belastingen (Tax Receivable) group exists under Activa"""
-        search_name = self.tax_receivable_name.split(" - ")[0]
-
-        existing = frappe.db.get_value(
-            "Account",
-            {
-                "company": self.company,
-                "account_name": ["like", f"%{search_name}%"],
-                "is_group": 1,
-                "root_type": "Asset",
-            },
-            "name",
-        )
-
-        if existing:
-            # Ensure it's directly under Activa
-            parent = frappe.db.get_value("Account", existing, "parent_account")
-            activa = self._get_activa_root()
-            if parent != activa and activa:
-                frappe.db.set_value("Account", existing, "parent_account", activa)
-                frappe.logger().info(f"Moved {self.tax_receivable_name} under Activa: {existing}")
-            return existing
-
-        return self._create_group_account(
-            group_name=self.tax_receivable_name,
-            root_type="Asset",
-            account_number=None,
-            parent_account=self._get_activa_root(),
+        return self._ensure_account_group(
+            self._name_filter(self.tax_receivable_name, "Asset"),
+            self.tax_receivable_name,
+            "Asset",
+            self._get_activa_root,
         )
 
     def _organize_debtor_accounts(self, vorderingen_group, results):
