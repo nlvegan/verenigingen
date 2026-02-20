@@ -19,7 +19,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def diagnose_stuck_schedule(schedule_name):
+def diagnose_stuck_schedule(schedule_name: str):
     """
     Diagnose why a dues schedule is not generating invoices
     """
@@ -99,7 +99,7 @@ def diagnose_stuck_schedule(schedule_name):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def fix_stuck_schedule(schedule_name, force=False):
+def fix_stuck_schedule(schedule_name: str, force=False):
     """
     Fix a stuck dues schedule by resetting the dates appropriately
     """
@@ -393,12 +393,12 @@ def check_and_notify_stuck_schedules():
             urgency_emoji = "🔥" if any(s.get("severity") == "CRITICAL" for s in critical_stuck) else "🚨"
 
             # Create in-app notifications (email delivery is controlled by user preferences)
-            for user in admin_users:
-                if user.email:
+            for email in admin_emails:
+                if email:
                     try:
                         notification = frappe.new_doc("Notification Log")
                         notification.subject = f"{urgency_emoji} {critical_count} Stuck Dues Schedules"
-                        notification.for_user = user.email
+                        notification.for_user = email
                         notification.type = "Alert"
                         notification.document_type = "Membership Dues Schedule"
                         notification.from_user = "Administrator"
@@ -407,16 +407,16 @@ def check_and_notify_stuck_schedules():
                         result = secure_document_operation(
                             operation="insert",
                             doc=notification,
-                            justification=f"Create stuck dues schedule notification for user {user.email} - financial schedule monitoring alert",
+                            justification=f"Create stuck dues schedule notification for user {email} - financial schedule monitoring alert",
                             required_permissions=["Notification Log:create"],
                         )
 
                         if not result.success:
                             frappe.log_error(
-                                f"Failed to create notification for {user.email}: {'; '.join(result.errors)}"
+                                f"Failed to create notification for {email}: {'; '.join(result.errors)}"
                             )
                     except Exception as e:
-                        frappe.log_error(f"Failed to create notification for {user.email}: {str(e)}")
+                        frappe.log_error(f"Failed to create notification for {email}: {str(e)}")
 
         # Enhanced logging with breakdown by issue type
         critical_names = [s["name"] for s in critical_stuck]

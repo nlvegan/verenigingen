@@ -542,7 +542,10 @@ def update_dashboard_data_periodically():
 @standard_api(operation_type=OperationType.REPORTING)
 def get_dashboard_data_api():
     """API endpoint for dashboard data (properly whitelisted)"""
-    return test_dashboard_data()
+    from verenigingen.e_boekhouden.services.dashboard_service import EBoekhoudenDashboardService
+
+    service = EBoekhoudenDashboardService()
+    return service.get_dashboard_data()
 
 
 @frappe.whitelist()

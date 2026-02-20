@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 
 from verenigingen.utils.secure_operations import secure_document_operation
 

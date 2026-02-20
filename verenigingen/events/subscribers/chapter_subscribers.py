@@ -608,7 +608,7 @@ def _update_chapter_website(chapter_name):
 
             # Update website route if needed
             if hasattr(chapter, "route") and chapter.route:
-                from frappe.website.render import clear_cache
+                from frappe.website.utils import clear_cache
 
                 clear_cache(chapter.route)
 

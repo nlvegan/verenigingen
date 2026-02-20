@@ -15,6 +15,7 @@ from frappe import _
 from frappe.query_builder import DocType
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.validation_utilities import get_all_active_records
 from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import CommunicationManager
 
 

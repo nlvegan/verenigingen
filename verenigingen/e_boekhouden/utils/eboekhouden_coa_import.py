@@ -13,13 +13,13 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def coa_import_with_bank_accounts(migration_doc_name):
+def coa_import_with_bank_accounts(migration_doc_name: str):
     """
     CoA import that creates Bank and Bank Account records for bank accounts
     """
     try:
         # Get the migration document
-        # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_doc_name)
+        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_doc_name)
 
         # Import CoA first using existing functionality
         from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (

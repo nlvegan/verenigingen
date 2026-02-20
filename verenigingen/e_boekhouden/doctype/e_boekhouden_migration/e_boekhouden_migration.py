@@ -114,38 +114,6 @@ class EBoekhoudenMigration(Document):
             migration_log = []
             self.failed_record_details = []  # Track details of failed records
 
-            # Phase 0: Full Initial Migration Cleanup
-            if getattr(self, "migration_type", "") == "Full Initial Migration":
-                self.db_set(
-                    {
-                        "current_operation": "Performing initial cleanup for full migration...",
-                        "progress_percentage": 2,
-                    }
-                )
-                frappe.db.commit()
-
-                try:
-                    # Use the enhanced cleanup function
-                    cleanup_result = debug_cleanup_all_imported_data(settings.default_company)
-                    if cleanup_result["success"]:
-                        cleanup_summary = f"Cleaned up existing data: {cleanup_result['results']}"
-                        migration_log.append(f"Initial Cleanup: {cleanup_summary}")
-                        self.log_error(
-                            f"Full migration cleanup completed: {cleanup_summary}",
-                            "cleanup",
-                            cleanup_result["results"],
-                        )
-                    else:
-                        # Log error but continue - don't fail migration for cleanup issues
-                        error_msg = f"Initial cleanup warning: {cleanup_result.get('error', 'Unknown error')}"
-                        migration_log.append(f"Initial Cleanup: {error_msg}")
-                        self.log_error(error_msg, "cleanup_warning")
-                except Exception as e:
-                    # Log error but continue
-                    error_msg = f"Initial cleanup failed: {str(e)}"
-                    migration_log.append(f"Initial Cleanup: {error_msg}")
-                    self.log_error(error_msg, "cleanup_error")
-
             # Phase 1: Chart of Accounts
             if getattr(self, "migrate_accounts", 0):
                 self.db_set(
@@ -1196,7 +1164,7 @@ class EBoekhoudenMigration(Document):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def start_migration_api(migration_name, dry_run=1):
+def start_migration_api(migration_name: str, dry_run: int = 1):
     """API method to start migration process"""
     try:
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -1229,7 +1197,7 @@ def start_migration_api(migration_name, dry_run=1):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def start_migration(migration_name, setup_only=False):
+def start_migration(migration_name: str, setup_only: bool = False):
     """API method to start migration process
 
     Args:
@@ -1298,7 +1266,7 @@ def start_migration(migration_name, setup_only=False):
 # NOTE: @critical_api decorator removed because JavaScript UI already provides
 # comprehensive confirmation dialogs including "Type DELETE ALL" safeguard (see e_boekhouden_migration.js:1158-1184)
 # Removing decorator prevents double-confirmation validation conflicts
-def cleanup_chart_of_accounts(company, delete_all_accounts=False):
+def cleanup_chart_of_accounts(company: str, delete_all_accounts: bool = False):
     """Delegated to cleanup_utils for better organization"""
     from verenigingen.e_boekhouden.utils.cleanup_utils import cleanup_chart_of_accounts as cleanup_impl
 
@@ -1307,7 +1275,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=False):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def import_single_mutation(migration_name, mutation_id, overwrite_existing=True):
+def import_single_mutation(migration_name: str, mutation_id: str, overwrite_existing: bool = True):
     """Import a single mutation by ID for testing purposes"""
     debug_info = []  # Initialize early to avoid UnboundLocalError
 
@@ -1640,7 +1608,9 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def start_transaction_import(migration_name, import_type="recent", mutation_types=None):
+def start_transaction_import(
+    migration_name: str, import_type: str = "recent", mutation_types: str | None = None
+):
     """Start importing transactions using REST API only
 
     DEPRECATED: The 'recent' option previously used SOAP API which was limited to 500 transactions.
@@ -1792,7 +1762,7 @@ def check_rest_api_status():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def check_migration_data_quality(migration_name):
+def check_migration_data_quality(migration_name: str):
     """Check data quality for a migration"""
     try:
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -1810,7 +1780,7 @@ def check_migration_data_quality(migration_name):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def import_opening_balances_only(migration_name, force=False):
+def import_opening_balances_only(migration_name: str, force: bool = False):
     """Import only opening balances using the new ERPNext approach"""
     try:
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -1890,7 +1860,7 @@ def import_opening_balances_only(migration_name, force=False):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def update_account_type_mapping(account_name, new_account_type, company):
+def update_account_type_mapping(account_name: str, new_account_type: str, company: str):
     """Update the account type for a specific account with deadlock retry.
 
     This function handles nested set deadlocks that occur when multiple accounts
@@ -2046,7 +2016,7 @@ def update_account_type_mapping(account_name, new_account_type, company):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def run_migration_background(migration_name, setup_only=False):
+def run_migration_background(migration_name: str, setup_only: bool = False):
     """Background function to run migration without timeout issues"""
     try:
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -2069,7 +2039,7 @@ def run_migration_background(migration_name, setup_only=False):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_account_type_recommendations(company, show_all=False):
+def get_account_type_recommendations(company: str, show_all: bool = False):
     """Get recommended account types for E-Boekhouden imported accounts
 
     Args:

@@ -935,7 +935,7 @@ def api_security_framework(
         warnings.warn(
             f"csrf_exempt=True used without csrf_exempt_reason. "
             f"Always document why CSRF exemption is needed for security audit trail.",
-            SecurityWarning,
+            UserWarning,
             stacklevel=2,
         )
 

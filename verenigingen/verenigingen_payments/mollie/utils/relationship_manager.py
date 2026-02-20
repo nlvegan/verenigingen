@@ -230,7 +230,10 @@ class MollieRelationshipManager:
                 f"Error creating Mollie relationship for member {member_name}: {str(create_error)}",
                 "Mollie Relationship Creation Error",
             )
-            return {"status": "error", "message": f"Failed to create Mollie relationship: {str(e)}"}
+            return {
+                "status": "error",
+                "message": f"Failed to create Mollie relationship: {str(create_error)}",
+            }
 
     def activate_subscription_after_first_payment(self, payment_data: Dict) -> Dict:
         """
@@ -282,7 +285,7 @@ class MollieRelationshipManager:
                 f"Error activating subscription: {str(activation_error)}",
                 "Mollie Subscription Activation Error",
             )
-            return {"status": "error", "message": f"Subscription activation failed: {str(e)}"}
+            return {"status": "error", "message": f"Subscription activation failed: {str(activation_error)}"}
 
     def _create_customer_for_member(self, member_name: str) -> str:
         """Create ERPNext Customer record for member using existing patterns"""

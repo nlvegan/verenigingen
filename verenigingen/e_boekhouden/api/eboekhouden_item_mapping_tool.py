@@ -5,7 +5,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def get_unmapped_accounts(company):
+def get_unmapped_accounts(company: str):
     """Get E-boekhouden accounts that don't have item mappings yet"""
     frappe.set_user("Administrator")
 
@@ -105,7 +105,7 @@ def suggest_item_name(account):
             return suggestion
 
     # Clean up account name as fallback
-    from verenigingen.e_boekhouden.utils_improved_item_naming import clean_item_name
+    from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import clean_item_name
 
     cleaned = clean_item_name(account.get("account_name", ""))
 
@@ -118,7 +118,9 @@ def suggest_item_name(account):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def create_mapping(company, account_code, account_name, item_code, transaction_type="Both"):
+def create_mapping(
+    company: str, account_code: str, account_name: str, item_code: str, transaction_type: str = "Both"
+):
     """Create a new item mapping"""
     frappe.set_user("Administrator")
 

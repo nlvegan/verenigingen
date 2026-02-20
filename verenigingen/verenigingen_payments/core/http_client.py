@@ -22,7 +22,7 @@ import frappe
 import requests
 from frappe import _
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 
 from .compliance.audit_trail import AuditEventType, AuditSeverity, get_audit_trail
 

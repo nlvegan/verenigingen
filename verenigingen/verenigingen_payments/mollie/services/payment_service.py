@@ -35,13 +35,9 @@ else:
 from frappe import _
 from frappe.utils import flt, now_datetime
 
+from ..core.mollie_models import Money
+from ..exceptions import MollieIntegrationError, MollieValidationError
 from ..utils.amount_helpers import extract_amount_currency, extract_amount_float
-
-# Temporarily disabled - these modules don't exist yet
-# from ..core.mollie_client import MollieClient
-# from ..core.mollie_exceptions import MollieIntegrationError, MollieValidationError
-# from ..core.mollie_models import Money, Payment
-# from ..utils.validators import PaymentDataValidator
 
 
 class PaymentService:

@@ -315,7 +315,7 @@ class MemberManager(BaseManager):
                 (name, parent, parenttype, parentfield, member, enabled, status, creation, modified, owner, modified_by)
                 VALUES (%s, %s, 'Chapter', 'members', %s, 1, 'Pending', NOW(), NOW(), %s, %s)
             """,
-                (chapter_member_name, chapter_name, member_id, frappe.session.user, frappe.session.user),
+                (chapter_member_name, self.chapter_name, member_id, frappe.session.user, frappe.session.user),
             )
             frappe.db.commit()
 

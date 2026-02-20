@@ -53,7 +53,7 @@ def get_payment_account_mapping(company, account_code):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def import_default_mappings(company):
     """Import default payment mappings for a company"""
-    from verenigingen.e_boekhouden.utils_migration_config import PAYMENT_ACCOUNT_CONFIG
+    from verenigingen.e_boekhouden.utils.eboekhouden_migration_config import PAYMENT_ACCOUNT_CONFIG
 
     imported = 0
 

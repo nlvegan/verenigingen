@@ -295,7 +295,7 @@ def get_audit_trail_details(request_id):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def export_audit_report(filters=None):
+def export_audit_report(filters: dict | None = None):
     """Export audit report to Excel with enhanced formatting"""
 
     columns, data, _, _, summary = execute(filters)
@@ -324,7 +324,7 @@ def export_audit_report(filters=None):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_compliance_statistics(filters=None):
+def get_compliance_statistics(filters: dict | None = None):
     """Get compliance statistics for dashboard"""
     from verenigingen.utils.validation.api_validators import parse_json_filters
 
@@ -336,7 +336,7 @@ def get_compliance_statistics(filters=None):
     total = len(data)
     compliant = len([r for r in data if r["compliance_status"] == "Compliant"])
     critical = len([r for r in data if r["compliance_status"] == "Critical"])
-    # warnings = len([r for r in data if r["compliance_status"] == "Warning"])
+    warnings = len([r for r in data if r["compliance_status"] == "Warning"])
 
     # Type-based compliance
     type_compliance = {}

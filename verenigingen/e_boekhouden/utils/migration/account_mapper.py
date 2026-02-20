@@ -42,20 +42,6 @@ class AccountMapper:
         except Exception as e:
             return f"Error migrating Chart of Accounts: {str(e)}"
 
-    def clear_existing_accounts(self, settings):
-        """Clear existing accounts before migration"""
-        try:
-            from verenigingen.e_boekhouden.utils.debug_cleanup_all_imported_data import (
-                debug_cleanup_all_imported_data,
-            )
-
-            result = debug_cleanup_all_imported_data(settings.default_company)
-            return result
-
-        except Exception as e:
-            frappe.log_error(f"Error clearing accounts: {str(e)}")
-            return {"success": False, "error": str(e)}
-
     def parse_account_group_mappings(self, settings):
         """Parse account group mappings from settings"""
         try:

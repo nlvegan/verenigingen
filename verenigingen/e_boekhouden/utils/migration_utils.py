@@ -14,7 +14,7 @@ from frappe.utils import getdate
 def stage_eboekhouden_data(migration_doc, settings):
     """Analyze E-Boekhouden data structure and provide insights"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
         # Get E-Boekhouden settings
         api = EBoekhoudenAPI(settings)

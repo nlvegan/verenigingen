@@ -1458,7 +1458,7 @@ class MijnroodCSVImport(Document):
                     if not created_chapter:
                         error_msg = f"Failed to auto-create chapter '{chapter_name}'. Skipping chapter assignment for member {member_doc.name}"
                         frappe.logger().error(error_msg)
-                        self._log_error(error_msg, row_data)
+                        frappe.logger().error(error_msg)
                         return
                     frappe.logger().info(
                         f"Auto-created chapter '{chapter_name}' and assigning member {member_doc.name}"

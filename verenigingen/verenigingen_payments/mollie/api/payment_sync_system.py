@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 import frappe
+from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api

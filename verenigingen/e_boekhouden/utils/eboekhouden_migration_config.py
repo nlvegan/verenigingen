@@ -108,7 +108,7 @@ def get_payment_account_info(account_code, company=None):
     """
     # First check database mappings if company is provided
     if company:
-        from verenigingen.verenigingen.doctype.eboekhouden_payment_mapping.eboekhouden_payment_mapping import (
+        from verenigingen.e_boekhouden.doctype.e_boekhouden_payment_mapping.e_boekhouden_payment_mapping import (
             get_payment_account_mapping,
         )
 

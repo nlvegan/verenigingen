@@ -52,10 +52,6 @@ class MigrationOrchestrator:
     def _execute_migration_phases(self, settings, migration_log):
         """Execute the migration phases"""
 
-        # Phase 0: Full Initial Migration Cleanup
-        if getattr(self.migration_doc, "migration_type", "") == "Full Initial Migration":
-            self._execute_cleanup_phase(settings, migration_log)
-
         # Phase 1: Chart of Accounts
         if getattr(self.migration_doc, "migrate_accounts", 0):
             self._execute_accounts_phase(settings, migration_log)
@@ -79,34 +75,6 @@ class MigrationOrchestrator:
         # Phase 6: Stock Transactions
         if getattr(self.migration_doc, "migrate_stock_transactions", 0):
             self._execute_stock_phase(settings, migration_log)
-
-    def _execute_cleanup_phase(self, settings, migration_log):
-        """Execute cleanup phase"""
-        self.migration_doc.db_set(
-            {
-                "current_operation": "Performing initial cleanup for full migration...",
-                "progress_percentage": 2,
-            }
-        )
-        frappe.db.commit()
-
-        try:
-            from verenigingen.e_boekhouden.utils.debug_cleanup_all_imported_data import (
-                debug_cleanup_all_imported_data,
-            )
-
-            cleanup_result = debug_cleanup_all_imported_data(settings.default_company)
-
-            if cleanup_result["success"]:
-                cleanup_summary = f"Cleaned up existing data: {cleanup_result['results']}"
-                migration_log.append(f"Initial Cleanup: {cleanup_summary}")
-            else:
-                error_msg = f"Initial cleanup warning: {cleanup_result.get('error', 'Unknown error')}"
-                migration_log.append(f"Initial Cleanup: {error_msg}")
-
-        except Exception as e:
-            error_msg = f"Initial cleanup failed: {str(e)}"
-            migration_log.append(f"Initial Cleanup: {error_msg}")
 
     def _execute_accounts_phase(self, settings, migration_log):
         """Execute chart of accounts migration"""

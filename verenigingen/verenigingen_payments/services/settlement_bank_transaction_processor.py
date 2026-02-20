@@ -634,9 +634,12 @@ class SettlementBankTransactionProcessor:
         # Add settlement reference for traceability
         bt_description += f" | Settlement: {settlement_id}"
 
+        # Extract payment date
+        payment_date = extractor.extract_date(source, field_name="paid_at")
+
         # Create Bank Transaction using centralized creator
         bank_transaction_name = self.bank_tx_creator.create(
-            date=getdate(paid_at) if paid_at else getdate(),
+            date=getdate(payment_date) if payment_date else getdate(),
             bank_account=clearing_bank_account,
             company=company,
             deposit=amount,

@@ -5,6 +5,7 @@ Comprehensive cleanup function to delete all members and related records
 for testing import functionality. Use with extreme caution - only on development servers.
 """
 
+import traceback
 from typing import Any, Dict
 
 import frappe

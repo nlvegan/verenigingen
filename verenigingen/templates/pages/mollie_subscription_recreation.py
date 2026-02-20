@@ -425,6 +425,7 @@ def parse_and_validate_csv(
             # Validation checks
             status = "valid"
             warnings = []
+            errors = []
 
             # Check mandate validity (skip warning if mandate_id is null - we'll fetch it during recreation)
             if current_mandate_id and not mandate_valid:

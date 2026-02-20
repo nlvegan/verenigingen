@@ -465,12 +465,12 @@ class EnhancedTransactionMigration:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def run_enhanced_migration(migration_name):
+def run_enhanced_migration(migration_name: str):
     """
     Run migration with enhanced category and group support
     """
     try:
-        # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 
         # Initialize enhanced migrators
         EnhancedAccountMigration(migration_doc)

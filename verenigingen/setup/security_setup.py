@@ -40,11 +40,10 @@ def security_rate_limit(limit=5, seconds=60):
             key = f"security_rate_limit:{frappe.session.user}:{func.__name__}"
 
             # Check rate limit
-            from frappe.cache import cache
             from frappe.utils import cint
 
             # Get current count
-            count = cint(cache().get(key) or 0)
+            count = cint(frappe.cache.get(key) or 0)
 
             if count >= limit:
                 # Log rate limit exceeded
@@ -64,7 +63,7 @@ def security_rate_limit(limit=5, seconds=60):
                 )
 
             # Increment counter
-            cache().setex(key, seconds, count + 1)
+            frappe.cache.setex(key, seconds, count + 1)
 
             # Execute function
             return func(*args, **kwargs)

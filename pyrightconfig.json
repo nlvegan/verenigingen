@@ -1,0 +1,30 @@
+{
+	"include": ["verenigingen"],
+	"exclude": [
+		"**/node_modules",
+		"**/__pycache__",
+		"**/dist",
+		"verenigingen/patches",
+		"verenigingen/fixtures",
+		"verenigingen/fixes",
+		"verenigingen/utils/migration"
+	],
+	"extraPaths": [
+		"/home/frappeuser/frappe-bench/apps/frappe",
+		"/home/frappeuser/frappe-bench/apps/erpnext",
+		"/home/frappeuser/frappe-bench/apps/hrms",
+		"/home/frappeuser/frappe-bench/apps/payments",
+		"/home/frappeuser/frappe-bench/apps/gameplan",
+		"/home/frappeuser/frappe-bench/apps/builder",
+		"/home/frappeuser/frappe-bench/apps/owl_theme"
+	],
+	"venvPath": "/home/frappeuser/frappe-bench",
+	"venv": "env",
+	"pythonVersion": "3.12",
+	"typeCheckingMode": "off",
+	"reportMissingModuleSource": false,
+	"reportUndefinedVariable": "error",
+	"reportMissingImports": "error",
+	"reportPossiblyUnboundVariable": "error",
+	"reportUnusedImport": "warning"
+}

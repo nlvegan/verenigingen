@@ -623,7 +623,7 @@ def send_chapter_announcement(chapter_name: str, subject: str, message: str, sen
             frappe.throw(_("No email addresses found for the selected recipients"))
 
         # Send emails (this would typically use Frappe's email queue)
-        from frappe.utils.email_lib import sendmail
+        from frappe.email import sendmail
 
         for email in emails:
             try:
