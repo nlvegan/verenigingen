@@ -184,7 +184,7 @@ class SEPAAdminReportGenerator:
         Returns:
             Mandate lifecycle report data
         """
-        # Get mandate data with lifecycle information
+        # Get mandate data with lifecycle information (pre-aggregated JOIN replaces 3 correlated subqueries)
         mandate_data = frappe.db.sql(
             """
             SELECT
@@ -201,26 +201,24 @@ class SEPAAdminReportGenerator:
                 m.email as member_email,
                 m.status as member_status,
                 DATEDIFF(NOW(), sm.sign_date) as age_days,
-                (SELECT COUNT(*) FROM `tabDirect Debit Batch Invoice` ddbi
-                 JOIN `tabDirect Debit Batch` ddb ON ddb.name = ddbi.parent
-                 JOIN `tabSales Invoice` si ON si.name = ddbi.invoice
-                 JOIN `tabMember` mem ON mem.customer = si.customer
-                 WHERE mem.name = sm.member
-                 AND ddb.docstatus = 1) as usage_count,
-                (SELECT MAX(ddb.batch_date) FROM `tabDirect Debit Batch Invoice` ddbi
-                 JOIN `tabDirect Debit Batch` ddb ON ddb.name = ddbi.parent
-                 JOIN `tabSales Invoice` si ON si.name = ddbi.invoice
-                 JOIN `tabMember` mem ON mem.customer = si.customer
-                 WHERE mem.name = sm.member
-                 AND ddb.docstatus = 1) as last_used,
-                (SELECT SUM(ddb.total_amount) FROM `tabDirect Debit Batch Invoice` ddbi
-                 JOIN `tabDirect Debit Batch` ddb ON ddb.name = ddbi.parent
-                 JOIN `tabSales Invoice` si ON si.name = ddbi.invoice
-                 JOIN `tabMember` mem ON mem.customer = si.customer
-                 WHERE mem.name = sm.member
-                 AND ddb.docstatus = 1) as total_processed_amount
+                COALESCE(ddb_stats.usage_count, 0) as usage_count,
+                ddb_stats.last_used,
+                COALESCE(ddb_stats.total_processed_amount, 0) as total_processed_amount
             FROM `tabSEPA Mandate` sm
             LEFT JOIN `tabMember` m ON m.name = sm.member
+            LEFT JOIN (
+                SELECT
+                    mem.name as member_id,
+                    COUNT(DISTINCT ddb.name) as usage_count,
+                    MAX(ddb.batch_date) as last_used,
+                    SUM(ddb.total_amount) as total_processed_amount
+                FROM `tabMember` mem
+                INNER JOIN `tabSales Invoice` si ON si.customer = mem.customer
+                INNER JOIN `tabDirect Debit Batch Invoice` ddbi ON ddbi.invoice = si.name
+                INNER JOIN `tabDirect Debit Batch` ddb ON ddb.name = ddbi.parent
+                WHERE ddb.docstatus = 1
+                GROUP BY mem.name
+            ) ddb_stats ON ddb_stats.member_id = sm.member
             WHERE sm.docstatus = 1
             ORDER BY sm.creation DESC
         """,

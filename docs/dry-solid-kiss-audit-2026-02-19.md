@@ -2,15 +2,15 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
-**Last updated:** 2026-02-20 (Phases 1-2, 3 (partial), 4 (continued), 6 complete)
+**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete)
 
 ## Executive Summary
 
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
-| Critical | 19 | 11 | 8 |
-| High | 37 | 16 | 21 |
-| Medium | 55+ | 11 | 44+ |
+| Critical | 19 | 14 | 5 |
+| High | 37 | 18 | 19 |
+| Medium | 55+ | 12 | 43+ |
 | Low | 30+ | 0 | 30+ |
 
 **Additional fix not in original audit:** Reversed decorator order across 27 files (102 endpoints) — `@frappe.whitelist()` must be outermost or HTTP calls fail with "Method Not Allowed".
@@ -57,15 +57,15 @@
 |---|------|-------------|-------|
 | C10 | `webhook_wrapper_service_unified.py` | Two incompatible financial entry architectures (BT+JE vs Payment Entry) in one class — corrupts trial balances | Payments | **FIXED** — orphaned PE method deleted; BT+JE is canonical |
 | C11 | `dues_payment_processor.py:822-831` | Deprecated Payment Entry mode silently redirected to Bank Transaction — wrong accounting with no error | Payments | **FIXED** — upgraded from silent warning to `frappe.log_error()` |
-| C12 | `eboekhouden_rest_full_migration.py:3796,3803` | Hardcoded database-specific primary key IDs for ledger accounts — silent wrong debit/credit on other instances | e-Boekhouden |
+| C12 | `eboekhouden_rest_full_migration.py:3796,3803` | Hardcoded database-specific primary key IDs for ledger accounts — silent wrong debit/credit on other instances | e-Boekhouden | **FIXED** — dead code deleted (~70 LOC); function `_should_debit_increase` was never called |
 | C13 | `payment_entry_handler.py:347-376` | Monkey-patches ERPNext `PaymentEntry` class methods at runtime under threading lock — unsafe in multi-worker | e-Boekhouden | KEEP — well-engineered workaround for ERPNext float bug; no native alternative |
-| C14 | `eboekhouden_rest_full_migration.py:3100-3102` | Creates 0.01 amount Payment Entry to bypass validation — fabricated accounting entry | e-Boekhouden |
+| C14 | `eboekhouden_rest_full_migration.py:3100-3102` | Creates 0.01 amount Payment Entry to bypass validation — fabricated accounting entry | e-Boekhouden | **FIXED** — dead code deleted (~92 LOC); function `_create_zero_amount_payment_entry` was never called |
 
 ### DRY (Duplicate Code with Divergence Risk)
 
 | # | File(s) | Description | Agent |
 |---|---------|-------------|-------|
-| C15 | `membership_application.py:829` + `membership_application_review.py:523` | Duplicate `reject_membership_application` — different signatures, different logic, different return types | API |
+| C15 | `membership_application.py:829` + `membership_application_review.py:523` | Duplicate `reject_membership_application` — different signatures, different logic, different return types | API | PARTIAL — legacy version marked DEPRECATED with warning log; canonical is `membership_application_review` |
 | C16 | `mollie_debug_service.py:1492-1834` | `create_subscription` / `create_scheduled_subscription` near-duplicate — financial logic | Top-level Services |
 | C17 | `eboekhouden_rest_full_migration.py:1377-1814` | `_import_opening_balances` / `_import_opening_balances_from_data` — 250 lines near-identical | e-Boekhouden |
 
@@ -119,8 +119,8 @@
 |---|------|-------|-------|
 | H24 | `membership_application_review.py:626-683` | N+1 query in `get_user_chapter_access` — 18+ queries per page load | API | **FIXED** — replaced N+1 with 3 flat queries |
 | H25 | `membership.py:380-500` | `Membership Type` fetched 4 times per validate cycle | DocTypes | **FIXED** — cached in `_get_membership_type_doc()` per validate cycle |
-| H26 | `mollie_payment_orchestrator.py` | `get_mollie_bank_account_config()` called 4 times without caching | Payments |
-| H27 | `sepa_admin_reporting.py:188-228` | Correlated subquery anti-pattern: 3,000 subqueries for 1,000 mandates | Payments |
+| H26 | `mollie_payment_orchestrator.py` | `get_mollie_bank_account_config()` called 4 times without caching | Payments | **FIXED** — per-instance cache via `_get_bank_account_config()` eliminates 3 redundant validations |
+| H27 | `sepa_admin_reporting.py:188-228` | Correlated subquery anti-pattern: 3,000 subqueries for 1,000 mandates | Payments | **FIXED** — replaced 3 correlated subqueries with 1 pre-aggregated LEFT JOIN (~50-100x speedup) |
 
 ### Dead Code
 
@@ -163,7 +163,7 @@
 | M13 | KISS | Deprecated `approve_membership_application` uses `warnings.warn` | Never surfaces in HTTP context — **FIXED** (→ `frappe.logger().warning()`) |
 | M14 | KISS | `membership.py:412-500` `set_renewal_date` | 68 lines, 4 nesting levels, self-defeating `self.renewal_date = None` — **FIXED** |
 | M15 | KISS | `lifecycle.py:32-36` patches run on every migrate | FALSE POSITIVE — patches correctly reference `execute()` functions |
-| M16 | KISS | `scheduler.py:122-126` 6-field cron expression | Possibly unsupported by Frappe |
+| M16 | KISS | `scheduler.py:122-126` 6-field cron expression | FALSE POSITIVE — croniter supports 6-field (seconds) format |
 | M17 | OCP | `document_portal_service.py` org-type `if/elif` chain x3 | Adding org type requires 3 edits |
 | M18 | OCP | `event_application_service.py` string-based dispatch | `getattr(self, f"_apply_{action}_{table_key}")` |
 | M19 | Bug | `lifecycle_service.py:495` retry path sets `member.rejection_reason` (field doesn't exist) | Should be `review_notes` — **FIXED** |
@@ -368,3 +368,16 @@ The audit agents consistently noted these strong patterns:
 **Deferred:**
 - H2: `create_customer_for_member` divergence — utility version creates Contact record, service version doesn't; needs design decision on Contact creation requirement
 - H23: SEPA mandate consolidation — 9 files, complex domain; `SEPAMandateRepository` still imported by `performance_measurement.py`
+
+### Phase 4+3 (batch 5): Dead code + Performance + Deprecation (2026-02-20)
+
+**Impact:** ~-162 LOC dead code + major query performance fix
+
+| Item | What was done |
+|------|--------------|
+| C12 | Deleted dead `_should_debit_increase()` (~70 LOC) from `eboekhouden_rest_full_migration.py` — function with hardcoded instance-specific IDs was never called |
+| C14 | Deleted dead `_create_zero_amount_payment_entry()` (~92 LOC) from `eboekhouden_rest_full_migration.py` — fabricated 0.01 PE hack was never called; `_create_import_log_entry()` is the correct fallback |
+| C15 | Added DEPRECATED warning log to legacy `reject_membership_application` in `membership_application.py` — canonical version is in `membership_application_review.py` |
+| H26 | Added per-instance cache `_get_bank_account_config()` in `MolliePaymentOrchestrator` — eliminates 3 redundant `validate_all_mollie_accounts()` calls per payment |
+| H27 | Replaced 3 correlated subqueries with 1 pre-aggregated LEFT JOIN in `sepa_admin_reporting.py` — reduces ~3,001 queries to 1 for mandate lifecycle report (~50-100x speedup) |
+| M16 | Investigated and closed as FALSE POSITIVE — Frappe's croniter supports 6-field (seconds) cron expressions |

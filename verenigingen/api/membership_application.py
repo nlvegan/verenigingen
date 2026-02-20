@@ -825,7 +825,11 @@ def approve_membership_application(member_name, notes=None) -> OperationResult[D
 @frappe.whitelist()
 @high_security_api()  # Member application rejection
 def reject_membership_application(member_name, reason) -> OperationResult[Dict[str, Any]]:
-    """Reject a membership application"""
+    """Reject a membership application — DEPRECATED, use membership_application_review version."""
+    frappe.logger("membership").warning(
+        "DEPRECATED: membership_application.reject_membership_application called. "
+        "Use membership_application_review.reject_membership_application instead."
+    )
     try:
         member = frappe.get_doc("Member", member_name)
 

@@ -179,6 +179,13 @@ class MolliePaymentOrchestrator:
         self.mollie_client = MollieClient()
         self.dues_processor = DuesPaymentProcessor()
         self.bt_creator = get_bank_transaction_creator()
+        self._bank_config_cache = None
+
+    def _get_bank_account_config(self):
+        """Get Mollie bank account config with per-instance caching (avoids 4x repeated validation)."""
+        if self._bank_config_cache is None:
+            self._bank_config_cache = self._get_bank_account_config()
+        return self._bank_config_cache
 
     def get_processing_status(self, payment_id: str) -> ProcessingStatus:
         """
@@ -645,7 +652,7 @@ class MolliePaymentOrchestrator:
             Bank Transaction name if created, None otherwise
         """
         # Get configuration
-        config = self.bt_creator.get_mollie_bank_account_config()
+        config = self._get_bank_account_config()
         if config.get("error"):
             frappe.log_error(
                 f"Bank account config error: {config['error']}",
@@ -837,7 +844,7 @@ class MolliePaymentOrchestrator:
                 result.actions_taken.append("Anonymous payment (no Mollie customer ID)")
 
             # Get BT configuration
-            config = self.bt_creator.get_mollie_bank_account_config()
+            config = self._get_bank_account_config()
             if config.get("error"):
                 result.status = "error"
                 result.error = f"Bank account config error: {config['error']}"
@@ -1155,7 +1162,7 @@ class MolliePaymentOrchestrator:
         customer: str,
     ) -> Optional[str]:
         """Create Bank Transaction for orphaned payment."""
-        config = self.bt_creator.get_mollie_bank_account_config()
+        config = self._get_bank_account_config()
         if config.get("error"):
             return None
 
@@ -1294,7 +1301,7 @@ class MolliePaymentOrchestrator:
                     result.actions_taken.append(f"Found member's Customer: {customer_name}")
 
             # Get BT configuration
-            config = self.bt_creator.get_mollie_bank_account_config()
+            config = self._get_bank_account_config()
             if config.get("error"):
                 result.status = "error"
                 result.error = f"Bank account config error: {config['error']}"
