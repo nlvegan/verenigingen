@@ -765,49 +765,15 @@ def get_pending_applications(chapter: str | None = None, days_overdue: int | Non
     """Get list of pending membership applications"""
     filters = {"application_status": "Pending", "status": "Pending"}
 
-    # Chapter filtering will be done post-query since we need to check Chapter Member table
-    # if chapter:
-    #     filters["current_chapter_display"] = chapter
-
     # Filter by overdue if specified
     if days_overdue:
         cutoff_date = add_days(today(), -days_overdue)
         filters["application_date"] = ["<", cutoff_date]
 
-    # Check user permissions
-    user = frappe.session.user
-    if not any(
-        role in frappe.get_roles(user)
-        for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-    ):
-        # Regular users can only see applications for their chapter
-        user_member = frappe.db.get_value("Member", {"user": user}, "name")
-        if user_member:
-            # Get chapters where user is a board member
-            board_chapters = frappe.db.sql(
-                """
-                SELECT DISTINCT c.name
-                FROM `tabChapter` c
-                JOIN `tabChapter Board Member` cbm ON cbm.parent = c.name
-                JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-                WHERE v.member = %s AND cbm.is_active = 1
-            """,
-                user_member,
-                as_dict=True,
-            )
-
-            if board_chapters:
-                # Chapter filtering will be done post-query using Chapter Member relationships
-                # chapter_list = [ch.name for ch in board_chapters]  # Not currently used
-                # if "current_chapter_display" in filters:
-                #     # Ensure requested chapter is in allowed list
-                #     if filters["current_chapter_display"] not in chapter_list:
-                #         return []
-                # else:
-                #     filters["current_chapter_display"] = ["in", chapter_list]
-                pass
-            else:
-                return []  # No board memberships
+    # Chapter-based permission filtering is applied at the end of this function
+    # via filter_applications_by_permission() from chapter_security.py, which
+    # calls get_user_manageable_chapters() and can_user_manage_application()
+    # for each result. No inline permission check is needed here.
 
     # Get applications
     applications = frappe.get_all(

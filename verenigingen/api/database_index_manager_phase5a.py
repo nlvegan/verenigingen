@@ -12,11 +12,11 @@ from typing import Any, Dict, List
 import frappe
 from frappe.utils import now, now_datetime
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
+@development_only_api(operation_type=OperationType.UTILITY)
 def implement_performance_indexes_safely():
     """
     Implement database indexes one by one with validation and rollback capability
@@ -386,7 +386,7 @@ def generate_index_recommendations(implementation_results: Dict) -> List[str]:
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_current_database_performance():
     """Get current database performance metrics for monitoring"""
     try:

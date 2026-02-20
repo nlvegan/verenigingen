@@ -8,11 +8,11 @@ Provides internal test execution methods that bypass security for development te
 import frappe
 from frappe.utils import now_datetime
 
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def execute_database_indexes_test():
     """
     Execute database index implementation for testing (bypasses CLI security issues)
@@ -144,7 +144,7 @@ def execute_database_indexes_test():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_phase5a_week1_summary():
     """
     Get summary of Phase 5A Week 1 implementation progress

@@ -10,14 +10,12 @@ from frappe.utils import now
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
-    high_security_api,
-    standard_api,
+    development_only_api,
 )
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_basic_query_measurement() -> Dict[str, Any]:
     """Test basic query measurement functionality"""
 
@@ -97,7 +95,7 @@ def _get_approximate_query_count() -> int:
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_payment_operations_benchmark() -> Dict[str, Any]:
     """Run a simple benchmark of payment-related operations"""
 
@@ -230,7 +228,7 @@ def _get_benchmark_recommendations(avg_queries: float, avg_time: float) -> list:
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def demo_phase1_capabilities() -> Dict[str, Any]:
     """Demonstrate Phase 1 measurement capabilities"""
 

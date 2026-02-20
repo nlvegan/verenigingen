@@ -3,10 +3,10 @@
 import frappe
 
 # Import security framework
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def run_test():
     """Run the basic chapter member test"""

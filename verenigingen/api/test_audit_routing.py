@@ -7,15 +7,13 @@ from frappe import _
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
-    high_security_api,
-    standard_api,
+    development_only_api,
 )
 from verenigingen.utils.security.audit_logging import get_audit_logger
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_audit_routing():
     """Test that events are routed to the correct audit tables"""
     if "System Manager" not in frappe.get_roles():
@@ -172,7 +170,7 @@ def test_audit_routing():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_field_mapping():
     """Test that field mappings work correctly for both tables"""
     if "System Manager" not in frappe.get_roles():

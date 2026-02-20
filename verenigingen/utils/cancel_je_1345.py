@@ -17,7 +17,7 @@ def cancel_and_delete_je_1345():
 
         # Check if exists
         if not frappe.db.exists("Journal Entry", je_name):
-            return {"success": False, "message": "Journal Entry {je_name} does not exist"}
+            return {"success": False, "message": f"Journal Entry {je_name} does not exist"}
 
         # Get the document
         je = frappe.get_doc("Journal Entry", je_name)
@@ -31,7 +31,7 @@ def cancel_and_delete_je_1345():
         frappe.delete_doc("Journal Entry", je_name, force=True)
         frappe.db.commit()
 
-        return {"success": True, "message": "Journal Entry {je_name} cancelled and deleted successfully"}
+        return {"success": True, "message": f"Journal Entry {je_name} cancelled and deleted successfully"}
 
     except Exception as e:
         import traceback

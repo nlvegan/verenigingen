@@ -4,11 +4,11 @@ Test member portal coverage display functionality
 
 import frappe
 
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_member_portal_coverage(member_name=None):
     """Test coverage display for a specific member"""
 
@@ -83,7 +83,7 @@ def test_member_portal_coverage(member_name=None):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@development_only_api(operation_type=OperationType.UTILITY)
 def populate_coverage_for_outstanding_invoices():
     """Populate coverage data for outstanding invoices"""
     frappe.only_for("System Manager")

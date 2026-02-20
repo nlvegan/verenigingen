@@ -11,11 +11,11 @@ from datetime import datetime
 import frappe
 from frappe import _
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_monitoring_tests():
     """Run comprehensive monitoring system tests"""
     frappe.set_user("Administrator")
@@ -148,7 +148,7 @@ def test_phase2_dashboard_and_alerts():
 
     # Test Dashboard APIs
     try:
-        from verenigingen.api.monitoring_dashboard import (
+        from verenigingen.www.monitoring_dashboard import (
             get_audit_summary,
             get_recent_errors,
             get_system_metrics,
@@ -291,7 +291,7 @@ def test_system_performance():
     try:
         import time
 
-        from verenigingen.api.monitoring_dashboard import get_system_metrics
+        from verenigingen.www.monitoring_dashboard import get_system_metrics
         from verenigingen.utils.resource_monitor import ResourceMonitor
 
         rm = ResourceMonitor()
@@ -382,7 +382,7 @@ def generate_test_summary(results):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
+@development_only_api(operation_type=OperationType.UTILITY)
 def cleanup_test_data():
     """Clean up test data created during monitoring tests"""
     frappe.set_user("Administrator")

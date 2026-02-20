@@ -5,14 +5,12 @@ from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
-    high_security_api,
-    standard_api,
+    development_only_api,
 )
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_refresh_button_reliability(member_name="Assoc-Member-2025-07-0030"):
     """Test the refresh button reliability by creating a new invoice and testing refresh"""
 
@@ -98,7 +96,7 @@ def test_refresh_button_reliability(member_name="Assoc-Member-2025-07-0030"):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
+@development_only_api(operation_type=OperationType.UTILITY)
 def comprehensive_refresh_test(member_name="Assoc-Member-2025-07-0030"):
     """Comprehensive test of the entire refresh button workflow"""
 
