@@ -9,7 +9,7 @@
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 30 | 7 |
+| High | 37 | 32 | 5 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -100,7 +100,7 @@
 | H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | **FIXED** — consolidated into `_batch_event_worker()` with `approve_first` parameter |
 | H15 | JSON unpack guard repeated 9 times | `event_application_service.py` | ~30 | MijnRood | **FIXED** — extracted `safe_json_load()` to `mijnrood_sync/utils.py` |
 | H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | PARTIAL — extracted `_ensure_account_group()` + `_name_filter()` helpers in `account_organization_service.py`, consolidating 6 near-identical methods (~-105 LOC). MijnRood `_ensure_*` methods confirmed too varied (different service callables, return types, skip conditions). |
-| H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | DEFERRED — massive scope (138+ instances), needs Roles constants file |
+| H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | **PARTIAL** — `Roles` class already existed in `utils/constants.py`; migrated `permissions.py` (19 instances → constants); added `VOLUNTEER_MANAGER`, `HR_MANAGER`, `HR_ADMIN_ROLES`, updated `VOLUNTEER_ADMIN_ROLES`. Remaining: service layer + API endpoints (Phase 2) |
 
 ### SRP Violations
 
@@ -109,7 +109,7 @@
 | H18 | `event_application_service.py` | 2,276 | God class: 45 methods, 6 distinct responsibilities | MijnRood |
 | H19 | `payment_gateways.py` | 2,177 | 8 responsibilities: gateway abstraction + subscription activation + webhook routing + API endpoints | Payments |
 | H20 | `application_helpers.py` | 1,573 | Utils bag: 6 unrelated concerns | Utils |
-| H21 | `account_creation_manager.py` | 2,356 | Duplicated pipeline linking between `_link_records_phase` and `link_records` | Utils |
+| H21 | `account_creation_manager.py` | 2,356 | Duplicated pipeline linking between `_link_records_phase` and `link_records` | Utils | **FIXED** — deleted dead `link_records()` method (101 LOC, zero callers); `_link_records_phase()` is the canonical production implementation |
 | H22 | `document_portal_service.py` | 1,381 | 4 concerns: authorization + file validation + storage + queries | Top-level Services |
 | H23 | SEPA mandate domain split across 6 classes | 6 files, ~4,141 LOC total | At least 4 separate `get_active_mandate` implementations | Payments | **FIXED** — deleted dead `SEPAMandateRepository` (357 LOC) + `SEPAMandateLifecycleManager` (1,214 LOC) + removed no-op cache invalidation calls; remaining 4 services are well-organized (Manager=CRUD, LifecycleService=hooks, ValidationService=validation, MandateService=caching) |
 
@@ -452,3 +452,12 @@ The audit agents consistently noted these strong patterns:
 | H8 | Removed 5 dead bulk-flag guard blocks from `approval_events.py` (2 checks on `bulk_member_approval`) and `team_events.py` (3 checks on `bulk_team_operations`). Both flags were checked but never set anywhere in the codebase — pure dead code. Also removed unused `from frappe import _` import. |
 | H11 | **CLOSED** after investigation: 59% identical / 41% genuine differences between `_create_sales_invoice` and `_create_purchase_invoice`. Party types, account fields, credit note conversion logic, and save placement all differ for valid reasons. Config-dict abstraction would add complexity for marginal -104 LOC. Bug fix (Purchase Invoice `submit()` error handling) was already shipped in a prior batch. |
 | H32 | Deleted 10 dead placeholder methods from `analytics_engine.py` (~110 LOC): `_calculate_hotspot_severity`, `_identify_critical_hotspots`, `_prioritize_hotspot_remediation`, `_estimate_optimization_impact`, `_create_implementation_roadmap`, `_generate_audit_recommendations`, `_check_data_retention_gaps`, `_check_security_compliance_gaps`, `_check_financial_compliance_gaps`, `_check_process_audit_coverage`. Inlined hardcoded returns at 3 call sites. Simplified `_check_audit_trail_gaps` from 22 lines to 9. Removed 3 fake "compliant" compliance entries that were padding the overall score. |
+
+### Batch 13: Dead code removal + role constant migration — H17, H21 (2026-02-20)
+
+**Impact:** ~101 LOC removed + 19 magic strings eliminated
+
+| Item | What was done |
+|------|--------------|
+| H21 | Deleted dead `link_records()` method from `account_creation_manager.py` (-101 LOC). Zero callers — production uses `_link_records_phase()` which has comprehensive error tracking, partial success handling, and Contact→Member linking that `link_records()` lacked. |
+| H17 | Migrated `permissions.py` to use `Roles` constants from `utils/constants.py`. Replaced 19 hardcoded admin role list definitions: 12 standard ADMIN_ROLES, 3 VOLUNTEER_ADMIN_ROLES, 2 HR_ADMIN_ROLES, 1 HR_ADMIN_ROLES+HR User, 1 System+Admin pair. Added `VOLUNTEER_MANAGER`, `HR_MANAGER` role constants and `HR_ADMIN_ROLES` group. Updated `VOLUNTEER_ADMIN_ROLES` to include Volunteer Manager. Left 2 narrower inline checks untouched (intentionally different scope). Remaining: service layer + API files (Phase 2). |

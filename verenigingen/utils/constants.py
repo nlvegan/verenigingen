@@ -17,8 +17,10 @@ class Roles:
     VERENIGINGEN_STAFF = "Verenigingen Staff"
     MEMBER = "Member"
     VOLUNTEER = "Verenigingen Volunteer"
+    VOLUNTEER_MANAGER = "Volunteer Manager"
     AUDITOR = "Verenigingen Auditor"
     CHAPTER_ADMIN = "Chapter Administrator"
+    HR_MANAGER = "HR Manager"
 
     # Role groups for common permission checks
     ADMIN_ROLES: Set[str] = {SYSTEM_MANAGER, VERENIGINGEN_ADMIN, VERENIGINGEN_STAFF}
@@ -27,6 +29,14 @@ class Roles:
         SYSTEM_MANAGER,
         VERENIGINGEN_ADMIN,
         VERENIGINGEN_STAFF,
+        VOLUNTEER_MANAGER,
+    }
+
+    HR_ADMIN_ROLES: Set[str] = {
+        SYSTEM_MANAGER,
+        VERENIGINGEN_ADMIN,
+        VERENIGINGEN_STAFF,
+        HR_MANAGER,
     }
 
     ALL_PRIVILEGED_ROLES: Set[str] = {
