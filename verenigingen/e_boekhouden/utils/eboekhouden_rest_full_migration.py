@@ -2981,7 +2981,13 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
         debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
         # Continue anyway - the submit() will give a clearer error message
 
-    pi.submit()
+    try:
+        pi.submit()
+        debug_info.append(f"Submitted Purchase Invoice: {pi.name}")
+    except Exception as submit_error:
+        debug_info.append(f"ERROR: Failed to submit Purchase Invoice {pi.name}: {str(submit_error)}")
+        debug_info.append(f"Submit error type: {type(submit_error).__name__}")
+        raise
 
     debug_info.append(f"Created enhanced Purchase Invoice {pi.name} with {len(pi.items)} line items")
     return pi

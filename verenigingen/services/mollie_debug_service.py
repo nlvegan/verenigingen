@@ -49,6 +49,17 @@ class MollieDebugService(StatelessService):
         """Get test mode from configuration service."""
         return self.config.is_test_mode()
 
+    @staticmethod
+    def _sanitize_limit(limit, max_val=250, default=20):
+        """Sanitize pagination limit to safe range."""
+        try:
+            limit = int(limit)
+            if limit < 1 or limit > max_val:
+                return default
+        except (ValueError, TypeError):
+            return default
+        return limit
+
     def debug_customer(self, customer_id):
         """Debug a Mollie customer with detailed information"""
         if not customer_id:
@@ -806,13 +817,7 @@ class MollieDebugService(StatelessService):
 
     def list_customers(self, limit=20):
         """List Mollie customers for easy ID lookup"""
-        # Validate limit
-        try:
-            limit = int(limit)
-            if limit < 1 or limit > 250:
-                limit = 20
-        except (ValueError, TypeError):
-            limit = 20
+        limit = self._sanitize_limit(limit)
 
         result = {
             "limit": limit,
@@ -963,12 +968,7 @@ class MollieDebugService(StatelessService):
 
     def list_payments(self, customer_id=None, limit=20, status_filter=None):
         """List payments with optional filtering"""
-        try:
-            limit = int(limit)
-            if limit < 1 or limit > 250:
-                limit = 20
-        except (ValueError, TypeError):
-            limit = 20
+        limit = self._sanitize_limit(limit)
 
         result = {
             "limit": limit,
@@ -1071,12 +1071,7 @@ class MollieDebugService(StatelessService):
 
     def list_chargebacks(self, customer_id=None, limit=20):
         """List chargebacks for debugging disputed transactions"""
-        try:
-            limit = int(limit)
-            if limit < 1 or limit > 250:
-                limit = 20
-        except (ValueError, TypeError):
-            limit = 20
+        limit = self._sanitize_limit(limit)
 
         result = {
             "limit": limit,
@@ -1345,12 +1340,7 @@ class MollieDebugService(StatelessService):
 
     def search_customers_by_name(self, search_term, limit=20):
         """Search Mollie customers by name/email"""
-        try:
-            limit = int(limit)
-            if limit < 1 or limit > 100:
-                limit = 20
-        except (ValueError, TypeError):
-            limit = 20
+        limit = self._sanitize_limit(limit, max_val=100)
 
         result = {
             "search_term": search_term,

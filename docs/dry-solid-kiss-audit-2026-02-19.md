@@ -9,8 +9,8 @@
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 14 | 5 |
-| High | 37 | 18 | 19 |
-| Medium | 55+ | 12 | 43+ |
+| High | 37 | 19 | 18 |
+| Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
 **Additional fix not in original audit:** Reversed decorator order across 27 files (102 endpoints) — `@frappe.whitelist()` must be outermost or HTTP calls fail with "Method Not Allowed".
@@ -92,9 +92,9 @@
 | H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | **FIXED** — extracted `batch_fetch_with_chunking()` to `utils/__init__.py` |
 | H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | PARTIAL — copy-paste bug in `chapter_events.py` **FIXED**; full refactor deferred |
 | H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | DEFERRED — inconsistent flag names need design decision |
-| H9 | ISO datetime parsing pattern in 8 files | Across payments layer | ~40 | Payments | |
+| H9 | ISO datetime parsing pattern in 61 files (119 occurrences) | Across payments layer | ~120 | Payments | DEFERRED — massive scope (61 files); existing `date_parser.py` + `timezone_utils.py` are underused; needs separate focused session |
 | H10 | `type_names` dict defined 5 times in same file | `eboekhouden_rest_full_migration.py` | ~25 | e-Boekhouden | **FIXED** — extracted to `MUTATION_TYPE_SINGULAR` / `MUTATION_TYPE_PLURAL` constants |
-| H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden | |
+| H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden | PARTIAL — fixed missing error handling on Purchase Invoice `submit()` (bug); full DRY refactor deferred (62% overlap, 38% genuine differences, marginal net savings) |
 | H12 | Notes-field append pattern repeated 18 times | `termination_integration.py`, `application_helpers.py` | ~100 | Utils | **FIXED** — extracted `append_to_text_field()` utility, 18 patterns replaced |
 | H13 | `_safe_int` duplicated in both MijnRood services | `event_application_service.py`, `polling_service.py` | ~8 | MijnRood | **FIXED** — extracted to `mijnrood_sync/utils.py` |
 | H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | **FIXED** — consolidated into `_batch_event_worker()` with `approve_first` parameter |
@@ -151,9 +151,9 @@
 | M1 | DRY | `_send_*_notification` x4 identical | `member_subscribers.py:279-408` — **FIXED** (→ `_send_member_status_notification`) |
 | M2 | DRY | `chapter_subscribers` — 3 identical role profile functions | Lines 363-393 — **FIXED** (→ `_sync_board_role_profile`) |
 | M3 | DRY | `expense_events.py` — volunteer lookup x4 | Same file, 4 identical patterns — **FIXED** (→ `_resolve_volunteer_and_member`) |
-| M4 | DRY | `mollie_debug_service` — result dict boilerplate x17 | Across all API methods |
-| M5 | DRY | `mollie_debug_service` — limit sanitization x6 | Same logic, inconsistent caps |
-| M6 | DRY | `mollie_debug_service` — optional attr serialization x25 | `getattr(obj, attr, None)` pattern |
+| M4 | DRY | `mollie_debug_service` — result dict boilerplate x21 | Across all API methods | DEFERRED — Phase 5 god object decomposition |
+| M5 | DRY | `mollie_debug_service` — limit sanitization x4 | Same logic, inconsistent caps (100 vs 250) — **FIXED** (→ `_sanitize_limit()`) |
+| M6 | DRY | `mollie_debug_service` — optional attr serialization x91 | `getattr(obj, attr, None)` pattern | DEFERRED — Phase 5 god object decomposition |
 | M7 | DRY | `_get_or_create_generic_customer/supplier` identical | `eboekhouden_rest_full_migration.py:908-1081` — **FIXED** (→ `_get_or_create_generic_party`) |
 | M8 | DRY | Pagination loops x5 in `eboekhouden_api.py` | Same while-loop structure — **FIXED** (→ `_paginated_fetch()`) |
 | M9 | SRP | `termination_integration.py` mixes 9 domains | 1,422 LOC with 9 concerns |
@@ -381,3 +381,17 @@ The audit agents consistently noted these strong patterns:
 | H26 | Added per-instance cache `_get_bank_account_config()` in `MolliePaymentOrchestrator` — eliminates 3 redundant `validate_all_mollie_accounts()` calls per payment |
 | H27 | Replaced 3 correlated subqueries with 1 pre-aggregated LEFT JOIN in `sepa_admin_reporting.py` — reduces ~3,001 queries to 1 for mandate lifecycle report (~50-100x speedup) |
 | M16 | Investigated and closed as FALSE POSITIVE — Frappe's croniter supports 6-field (seconds) cron expressions |
+
+### Batch 6: Bug fix + DRY extraction (2026-02-20)
+
+**Impact:** ~-10 net LOC + bug fix
+
+| Item | What was done |
+|------|--------------|
+| H11 | Fixed bug: Purchase Invoice `submit()` had no error handling (Sales Invoice has try/catch); added matching try/except with debug_info logging |
+| M5 | Extracted `_sanitize_limit(limit, max_val, default)` static method in `MollieDebugService`; replaced 4 inline 5-line blocks; makes inconsistent max (100 vs 250) explicit |
+
+**Investigated and deferred:**
+- H9: ISO datetime parsing — 119 occurrences across 61 files; existing `date_parser.py` + `timezone_utils.py` underused; needs separate session
+- H34: Singleton inconsistency — 118 service files with 3 competing patterns (~405 LOC boilerplate); needs `@singleton` decorator + mass migration
+- M4/M6: Part of Phase 5 `mollie_debug_service.py` god object decomposition (C18)
