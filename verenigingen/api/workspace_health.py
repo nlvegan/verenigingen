@@ -428,10 +428,8 @@ class WorkspaceHealthManager:
 
 
 # Public API Functions
-
-
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def diagnose_and_fix(
     workspace_name: str, auto_fix: bool = True, create_backup: bool = True
 ) -> OperationResult[Dict[str, Any]]:
@@ -483,8 +481,8 @@ def diagnose_and_fix(
         return OperationResult.fail(error_msg)
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def health_check(workspace_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Run diagnostics only without applying fixes
@@ -527,8 +525,8 @@ def health_check(workspace_name: str) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(error_msg)
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def quick_fix(workspace_name: str) -> OperationResult[Dict[str, Any]]:
     """
     Quick fix for the most common workspace issue (content sync)

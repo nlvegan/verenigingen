@@ -20,8 +20,8 @@ from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
@@ -153,8 +153,8 @@ def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @require_role(["Accounts Manager", "System Manager"])
 @validate_csrf_token
 def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict[str, Any]]:
@@ -335,8 +335,8 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
         )
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
 def prevent_orphaned_schedules() -> OperationResult[Dict[str, Any]]:

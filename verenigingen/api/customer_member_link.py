@@ -111,8 +111,8 @@ def add_customer_to_member_link():
         return {"message": f"Error: {str(e)}", "success": False}
 
 
-@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_from_customer(customer) -> OperationResult[Dict[str, Any]]:
     """
     Retrieve the Member record associated with a Customer record.
@@ -194,8 +194,8 @@ def get_member_from_customer(customer) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(error_msg, errors=[str(e)])
 
 
-@development_only_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_customer_member_button() -> OperationResult[Dict[str, Any]]:
     """Add a custom button to Customer form to navigate to Member"""
     try:

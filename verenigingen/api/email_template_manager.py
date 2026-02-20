@@ -76,8 +76,8 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@critical_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
     """
     Create and deploy all email templates used throughout the Verenigingen application.
@@ -699,8 +699,8 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
         return False
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def test_email_template(template_name, test_context=None) -> OperationResult[Dict[str, Any]]:
     """Test email template rendering with sample context"""
     try:
@@ -748,8 +748,8 @@ def test_email_template(template_name, test_context=None) -> OperationResult[Dic
         )
 
 
-@critical_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_all_email_templates() -> OperationResult[Dict[str, Any]]:
     """
     Legacy function name for backward compatibility with documentation.
@@ -909,8 +909,8 @@ def create_email_templates_cli():
         return {"success": False, "error": str(e), "message": error_msg}
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def list_all_email_templates() -> OperationResult[Dict[str, Any]]:
     """List all email templates in the system"""
     try:

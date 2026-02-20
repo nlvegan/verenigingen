@@ -100,8 +100,8 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist(methods=["POST"])
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 def send_overdue_payment_reminders(
@@ -297,8 +297,8 @@ def send_overdue_payment_reminders(
         )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=5000)
 def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[str, Any]]:
@@ -388,8 +388,8 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
         )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=10000)
 def execute_bulk_payment_action(
@@ -825,8 +825,8 @@ def process_application_refund(member_name, reason):
         return {"success": False, "message": f"Refund processing failed: {str(e)}"}
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @handle_api_error
 def check_scheduler_logs() -> OperationResult[Dict[str, Any]]:
     """Check dues schedule scheduler error logs in the last 7 days"""

@@ -562,8 +562,8 @@ def bulk_suspend_members(
         )
 
 
-@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 @performance_monitor()
 def get_suspension_list(limit=100, offset=0, status=None, chapter=None) -> OperationResult[Dict[str, Any]]:

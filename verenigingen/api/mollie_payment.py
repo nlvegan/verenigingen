@@ -20,8 +20,8 @@ from verenigingen.utils.payment_services.mollie_payment_service import MolliePay
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_payment(donation_data: Dict[str, Any] = None) -> OperationResult[Dict[str, Any]]:
     """
     Create a Mollie payment for a donation.
@@ -59,8 +59,8 @@ def create_payment(donation_data: Dict[str, Any] = None) -> OperationResult[Dict
         )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_payment_status(payment_id: str) -> OperationResult[Dict[str, Any]]:
     """
     Get the status of a Mollie payment.

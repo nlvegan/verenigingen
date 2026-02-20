@@ -30,8 +30,8 @@ def validate_member_exists(member_id: str | None) -> str:
     return member
 
 
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @performance_monitor()
 def get_dashboard_data(member=None) -> OperationResult[Dict[str, Any]]:
     """Get payment dashboard summary data"""
@@ -132,8 +132,8 @@ def get_dashboard_data(member=None) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retrieve dashboard data: {0}").format(str(e)))
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_payment_method(member=None) -> OperationResult[Dict[str, Any]]:
     """Get active payment method details"""
     try:
@@ -174,8 +174,8 @@ def get_payment_method(member=None) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retrieve payment method: {0}").format(str(e)))
 
 
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_history(member=None, year=None, status=None, **kwargs) -> OperationResult[Dict[str, Any]]:
     """Get payment history for member"""
     try:
@@ -351,8 +351,8 @@ def get_payment_history(member=None, year=None, status=None, **kwargs) -> Operat
         return OperationResult.fail(_("Failed to retrieve payment history: {0}").format(str(e)))
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mandate_history(member=None) -> OperationResult[Dict[str, Any]]:
     """Get SEPA mandate history"""
     try:
@@ -397,8 +397,8 @@ def get_mandate_history(member=None) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retrieve mandate history: {0}").format(str(e)))
 
 
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_schedule(member=None) -> OperationResult[Dict[str, Any]]:
     """Get upcoming payment schedule"""
     try:
@@ -478,8 +478,8 @@ def get_payment_schedule(member=None) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retrieve payment schedule: {0}").format(str(e)))
 
 
-@standard_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_next_payment(member=None) -> OperationResult[Dict[str, Any]]:
     """Get next scheduled payment"""
     try:
@@ -512,8 +512,8 @@ def get_next_payment(member=None) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retrieve next payment: {0}").format(str(e)))
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def retry_failed_payment(invoice_id) -> OperationResult[Dict[str, Any]]:
     """Manually trigger payment retry"""
     try:
@@ -557,8 +557,8 @@ def retry_failed_payment(invoice_id) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retry payment: {0}").format(str(e)))
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def download_payment_receipt(payment_id) -> OperationResult[Dict[str, Any]]:
     """Generate payment receipt PDF"""
     try:
@@ -596,8 +596,8 @@ def download_payment_receipt(payment_id) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to generate payment receipt: {0}").format(str(e)))
 
 
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def export_payment_history_csv(year=None) -> OperationResult[Dict[str, Any]]:
     """Export payment history as CSV"""
     try:

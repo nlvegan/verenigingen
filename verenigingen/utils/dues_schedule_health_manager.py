@@ -466,8 +466,8 @@ class DuesScheduleHealthManager:
             }
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def comprehensive_dues_schedule_health_check(
     member_filter: str = None,
     fix_issues: bool = False,
@@ -624,8 +624,8 @@ def _process_member_batch(manager, batch_members, fix_issues, continue_on_error,
     return batch_result
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def comprehensive_dues_health_maintenance():
     """
     Main scheduled job for comprehensive dues health maintenance
@@ -683,8 +683,8 @@ def comprehensive_dues_health_maintenance():
         return {"success": False, "error": str(e)}
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def sync_all_member_fields(batch_size=100, max_members=None, continue_on_error=True):
     """
     ✅ ENHANCED: Synchronize all member fields with transaction safety and batch processing

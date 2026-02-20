@@ -185,8 +185,8 @@ class TestAPISecurityDecorators(EnhancedTestCase):
             return {"chained": "whitelist_standard"}
         
         # Test chaining: @standard_api + @frappe.whitelist()
-        @standard_api()
         @frappe.whitelist()
+        @standard_api()
         def test_chained_function2():
             return {"chained": "standard_whitelist"}
         

@@ -17,8 +17,8 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@standard_api  # Skills overview - read-only aggregated data
 @frappe.whitelist()
+@standard_api  # Skills overview - read-only aggregated data
 def get_skills_overview() -> OperationResult[Dict[str, Any]]:
     """Get comprehensive skills overview for dashboards and reports"""
     try:
@@ -99,8 +99,8 @@ def get_skills_overview() -> OperationResult[Dict[str, Any]]:
         return OperationResult.from_exception(e, message=_("Failed to retrieve skills overview"))
 
 
-@high_security_api  # Volunteer search - personal data access
 @frappe.whitelist()
+@high_security_api  # Volunteer search - personal data access
 def search_volunteers_advanced(filters: str | None = None) -> OperationResult[Dict[str, Any]]:
     """Advanced volunteer search with multiple skill filters
 
@@ -231,8 +231,8 @@ def search_volunteers_advanced(filters: str | None = None) -> OperationResult[Di
         return OperationResult.from_exception(e, message=_("Failed to search volunteers"))
 
 
-@standard_api  # Skill recommendations - algorithmic suggestions
 @frappe.whitelist()
+@standard_api  # Skill recommendations - algorithmic suggestions
 def get_skill_recommendations(volunteer_name: str, limit: int = 10) -> OperationResult[Dict[str, Any]]:
     """Get skill recommendations for a volunteer based on similar volunteers
 
@@ -331,8 +331,8 @@ def get_skill_recommendations(volunteer_name: str, limit: int = 10) -> Operation
         return OperationResult.from_exception(e, message=_("Failed to retrieve skill recommendations"))
 
 
-@standard_api  # Skill gaps analysis - organizational metrics
 @frappe.whitelist()
+@standard_api  # Skill gaps analysis - organizational metrics
 def get_skill_gaps_analysis() -> OperationResult[Dict[str, Any]]:
     """Analyze skill gaps in the organization"""
     try:
@@ -401,8 +401,8 @@ def get_skill_gaps_analysis() -> OperationResult[Dict[str, Any]]:
         return OperationResult.from_exception(e, message=_("Failed to analyze skill gaps"))
 
 
-@high_security_api  # Data export - personal information
 @frappe.whitelist()
+@high_security_api  # Data export - personal information
 def export_skills_data(format_type="json") -> OperationResult[Dict[str, Any]]:
     """Export skills data for external analysis
 

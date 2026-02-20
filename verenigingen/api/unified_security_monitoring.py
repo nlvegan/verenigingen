@@ -30,8 +30,8 @@ from verenigingen.verenigingen_payments.utils.sepa_zabbix_enhanced import get_za
 from verenigingen.www.monitoring_dashboard import get_unified_security_summary
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_unified_monitoring_overview() -> OperationResult[Dict[str, Any]]:
     """Get comprehensive overview of all monitoring systems"""
     try:
@@ -112,8 +112,8 @@ def get_unified_monitoring_overview() -> OperationResult[Dict[str, Any]]:
         return OperationResult.from_exception(e, message=error_msg)
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_integrated_security_metrics(hours_back: int = 24) -> OperationResult[Dict[str, Any]]:
     """Get security metrics integrated across all monitoring systems"""
     try:
@@ -180,8 +180,8 @@ def get_integrated_security_metrics(hours_back: int = 24) -> OperationResult[Dic
         return OperationResult.from_exception(e, message=error_msg)
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_monitoring_system_health() -> OperationResult[Dict[str, Any]]:
     """Get health status of all monitoring system components"""
     try:
@@ -284,8 +284,8 @@ def get_monitoring_system_health() -> OperationResult[Dict[str, Any]]:
         return OperationResult.from_exception(e, message=error_msg)
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def trigger_unified_security_test() -> OperationResult[Dict[str, Any]]:
     """Trigger comprehensive security test across all monitoring systems"""
     if "System Manager" not in frappe.get_roles():

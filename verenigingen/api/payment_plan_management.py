@@ -18,8 +18,8 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def request_payment_plan(
     member: str,
     total_amount: float,
@@ -94,8 +94,8 @@ def request_payment_plan(
         return OperationResult.from_exception(e, message=_("Failed to request payment plan"))
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_member_payment_plans(member: str | None = None) -> OperationResult[Dict[str, Any]]:
     """
     Get payment plans for a member
@@ -165,8 +165,8 @@ def get_member_payment_plans(member: str | None = None) -> OperationResult[Dict[
         return OperationResult.from_exception(e, message=_("Failed to retrieve payment plans"))
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def make_payment_plan_payment(
     payment_plan_id: str,
     installment_number: int,
@@ -208,8 +208,8 @@ def make_payment_plan_payment(
         return OperationResult.from_exception(e, message=_("Failed to record payment"))
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_payment_plan_summary(payment_plan_id: str) -> OperationResult[Dict[str, Any]]:
     """
     Get detailed summary of a payment plan
@@ -263,8 +263,8 @@ def get_payment_plan_summary(payment_plan_id: str) -> OperationResult[Dict[str, 
         return OperationResult.from_exception(e, message=_("Failed to retrieve payment plan summary"))
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def approve_payment_plan_request(
     payment_plan_id: str, approval_notes: str | None = None
 ) -> OperationResult[Dict[str, Any]]:
@@ -304,8 +304,8 @@ def approve_payment_plan_request(
         return OperationResult.from_exception(e, message=_("Failed to approve payment plan"))
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def reject_payment_plan_request(
     payment_plan_id: str, rejection_reason: str | None = None
 ) -> OperationResult[Dict[str, Any]]:
@@ -342,8 +342,8 @@ def reject_payment_plan_request(
         return OperationResult.from_exception(e, message=_("Failed to reject payment plan"))
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_pending_payment_plan_requests() -> OperationResult[Dict[str, Any]]:
     """
     Get all pending payment plan requests (admin only)
@@ -507,8 +507,8 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
         frappe.log_error(f"Error sending payment plan approval notification: {str(e)}")
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def calculate_payment_plan_preview(total_amount, installments, frequency) -> OperationResult[Dict[str, Any]]:
     """
     Calculate payment plan preview for display

@@ -185,8 +185,8 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
     return invoices
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_invoice_mandate_info_secure(invoice):
     """
     Securely get mandate information for an invoice
@@ -256,8 +256,8 @@ def get_invoice_mandate_info_secure(invoice):
     return {"valid": False, "error": _("No active SEPA mandate found")}
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_invoice_mandate_secure(invoice, member):
     """
     Securely validate mandate for a specific invoice
@@ -340,8 +340,8 @@ def validate_invoice_mandate_secure(invoice, member):
         return {"valid": False, "error": str(e)}
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_batch_analytics_secure(batch_name):
     """
     Securely get detailed analytics for a batch
@@ -403,8 +403,8 @@ def get_batch_analytics_secure(batch_name):
     return analytics
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_sepa_xml_secure(batch_name):
     """
     Securely preview SEPA XML content before generation
@@ -465,8 +465,8 @@ def preview_sepa_xml_secure(batch_name):
     return preview
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_batch_validated_secure(**params):
     """
     Securely create SEPA batch with comprehensive security measures
@@ -684,8 +684,8 @@ def create_sepa_batch_validated_secure(**params):
         }
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_batch_invoices_secure(invoice_list):
     """
     Securely validate a list of invoices for SEPA batch processing
@@ -742,8 +742,8 @@ def validate_batch_invoices_secure(invoice_list):
 
 
 # API endpoint to get SEPA validation constraints with security
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_sepa_validation_constraints_secure():
     """
     Securely get SEPA validation constraints for frontend validation
@@ -760,8 +760,8 @@ def get_sepa_validation_constraints_secure():
 
 
 # Health check endpoint for security monitoring
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist(allow_guest=False)
+@standard_api(operation_type=OperationType.UTILITY)
 def sepa_security_health_check():
     """
     Security health check endpoint for monitoring

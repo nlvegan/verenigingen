@@ -22,8 +22,8 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_security_dashboard_data(hours_back: int = 24) -> OperationResult[Dict[str, Any]]:
     """Get comprehensive security dashboard data"""
 
@@ -383,8 +383,8 @@ def _get_framework_health_status():
         return {"overall_status": "ERROR", "components": {}, "error": str(e)}
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_security_metrics_summary() -> OperationResult[Dict[str, Any]]:
     """Get quick security metrics for overview"""
 

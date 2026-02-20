@@ -16,8 +16,8 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_chapter_head(chapter_name, chapter_head) -> OperationResult[Dict[str, Any]]:
     """
     Validate chapter head assignment
@@ -72,8 +72,8 @@ def validate_chapter_head(chapter_name, chapter_head) -> OperationResult[Dict[st
         )
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_region(chapter_name, region) -> OperationResult[Dict[str, Any]]:
     """
     Validate region assignment and suggest postal codes
@@ -126,8 +126,8 @@ def validate_region(chapter_name, region) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def update_publication_status(chapter_name, published) -> OperationResult[Dict[str, Any]]:
     """
     Update chapter publication status with validation
@@ -194,8 +194,8 @@ def update_publication_status(chapter_name, published) -> OperationResult[Dict[s
         )
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_board_member(chapter_name, volunteer, role) -> OperationResult[Dict[str, Any]]:
     """
     Validate board member assignment
@@ -259,8 +259,8 @@ def validate_board_member(chapter_name, volunteer, role) -> OperationResult[Dict
         )
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_board_removal(chapter_name) -> OperationResult[Dict[str, Any]]:
     """
     Validate board member removal

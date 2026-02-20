@@ -21,8 +21,8 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
+@standard_api(operation_type=OperationType.FINANCIAL)
 def check_member_dues_status(
     period_start: str = None, period_end: str = None
 ) -> OperationResult[Dict[str, Any]]:
@@ -203,8 +203,8 @@ def check_member_dues_status(
         )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_missing_invoices(
     member_list: List[str] = None, force: bool = False
 ) -> OperationResult[Dict[str, Any]]:
@@ -264,8 +264,8 @@ def generate_missing_invoices(
         )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult[Dict[str, Any]]:
     """
     Validate SEPA mandate eligibility for invoices
@@ -406,8 +406,8 @@ def validate_sepa_eligibility(invoice_list: List[str] = None) -> OperationResult
         )
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def prepare_sepa_batch(
     eligible_invoices: List[Dict] = None, batch_description: str = None
 ) -> OperationResult[Dict[str, Any]]:
@@ -458,8 +458,8 @@ def prepare_sepa_batch(
         )
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_workflow_status() -> OperationResult[Dict[str, Any]]:
     """
     Get current status of the dues invoice workflow
@@ -540,8 +540,8 @@ def get_workflow_status() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def check_coverage_scheduling_mismatches() -> OperationResult[Dict[str, Any]]:
     """
     Check for mismatches between next_invoice_date and actual invoice coverage.

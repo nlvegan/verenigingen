@@ -66,8 +66,8 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def review_account_types(company) -> OperationResult[Dict[str, Any]]:
     """
     Comprehensive analysis of account types for eBoekhouden imported accounts.
@@ -189,8 +189,8 @@ def review_account_types(company) -> OperationResult[Dict[str, Any]]:
         )
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def fix_account_type_issues(issues) -> OperationResult[Dict[str, Any]]:
     """
     Automated correction of multiple account type issues with administrative oversight.

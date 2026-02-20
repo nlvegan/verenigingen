@@ -21,8 +21,8 @@ def get_company():
     return company
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_account_groups():
     """Get all Income/Expense account groups in the Chart of Accounts."""
     company = get_company()
@@ -63,8 +63,8 @@ def get_account_groups():
     }
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_anbi_account_groups():
     """Create ANBI-compliant expense account groups.
 

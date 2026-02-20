@@ -558,8 +558,8 @@ def test_sepa_mandate_pattern() -> OperationResult[Dict[str, Any]]:
         )
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def check_dues_schedules() -> OperationResult[Dict[str, Any]]:
     """Check status of dues schedules"""
     try:

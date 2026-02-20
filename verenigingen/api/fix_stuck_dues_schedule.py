@@ -17,8 +17,8 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def diagnose_stuck_schedule(schedule_name):
     """
     Diagnose why a dues schedule is not generating invoices
@@ -97,8 +97,8 @@ def diagnose_stuck_schedule(schedule_name):
     return diagnosis
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def fix_stuck_schedule(schedule_name, force=False):
     """
     Fix a stuck dues schedule by resetting the dates appropriately
@@ -186,8 +186,8 @@ def fix_stuck_schedule(schedule_name, force=False):
     return {"success": False, "message": "Unable to determine appropriate fix", "diagnosis": diagnosis}
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def find_all_stuck_schedules():
     """
     Find all schedules that are stuck - enhanced detection for multiple stuck patterns:
@@ -322,8 +322,8 @@ def find_all_stuck_schedules():
     }
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def check_and_notify_stuck_schedules():
     """
     Enhanced scheduled job to check for multiple types of stuck schedules.

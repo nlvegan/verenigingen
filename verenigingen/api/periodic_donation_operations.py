@@ -26,8 +26,8 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_periodic_agreement(
     donor,
     annual_amount,
@@ -101,8 +101,8 @@ def create_periodic_agreement(
         return OperationResult.fail(_("Failed to create periodic donation agreement"), errors=[str(e)])
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_donor_agreements(donor, status=None) -> OperationResult[Dict[str, Any]]:
     """
     Get all periodic donation agreements for a donor
@@ -151,8 +151,8 @@ def get_donor_agreements(donor, status=None) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retrieve donor agreements"), errors=[str(e)])
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str, Any]]:
     """
     Link an existing donation to a periodic agreement
@@ -210,8 +210,8 @@ def link_donation_to_agreement(donation, agreement) -> OperationResult[Dict[str,
         return OperationResult.fail(_("Failed to link donation to agreement"), errors=[str(e)])
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def generate_periodic_donation_report(from_date=None, to_date=None) -> OperationResult[Dict[str, Any]]:
     """
     Generate report of all periodic donation agreements
@@ -301,8 +301,8 @@ def generate_periodic_donation_report(from_date=None, to_date=None) -> Operation
         return OperationResult.fail(_("Failed to generate periodic donation report"), errors=[str(e)])
 
 
-@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def check_expiring_agreements(days_ahead=90) -> OperationResult[Dict[str, Any]]:
     """
     Check for agreements expiring within specified days
@@ -353,8 +353,8 @@ def check_expiring_agreements(days_ahead=90) -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to check expiring agreements"), errors=[str(e)])
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_donation_from_agreement(agreement_name) -> OperationResult[Dict[str, Any]]:
     """
     Create a donation based on periodic agreement settings
@@ -414,8 +414,8 @@ def create_donation_from_agreement(agreement_name) -> OperationResult[Dict[str, 
         return OperationResult.fail(_("Failed to create donation from agreement"), errors=[str(e)])
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_agreement_statistics() -> OperationResult[Dict[str, Any]]:
     """
     Get overall statistics for periodic donation agreements
@@ -490,8 +490,8 @@ def get_agreement_statistics() -> OperationResult[Dict[str, Any]]:
         return OperationResult.fail(_("Failed to retrieve agreement statistics"), errors=[str(e)])
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def send_renewal_reminders(days_before_expiry=90) -> OperationResult[Dict[str, Any]]:
     """
     Send renewal reminders for expiring agreements
@@ -614,8 +614,8 @@ def get_renewal_reminder_email(agreement, days_remaining):
     """
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_tax_receipts(filters) -> OperationResult[Dict[str, Any]]:
     """
     Generate tax receipts for periodic donations
@@ -690,8 +690,8 @@ def generate_tax_receipt_content(agreement):
     """
 
 
-@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def export_agreements(filters) -> OperationResult[Dict[str, Any]]:
     """
     Export periodic agreements to CSV
