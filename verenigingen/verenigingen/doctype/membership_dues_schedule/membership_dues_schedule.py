@@ -284,20 +284,6 @@ class MembershipDuesSchedule(Document):
 
         get_dues_schedule_validation_service().validate_financial_constraints(self)
 
-    def validate_template_fields(self):
-        """Additional validation for template-specific fields"""
-        if self.is_template:
-            # Templates should not have member-specific data
-            # (Most member-specific fields have been removed)
-            pass
-        else:
-            # Instances should have required member data
-            self.member_name = None
-            if not self.member_name:
-                if self.member:
-                    member_doc = frappe.get_doc("Member", self.member)
-                    self.member_name = member_doc.full_name
-
     def sync_from_template(self):
         """Sync minimum_amount and other read-only fields from template and membership type"""
         if not self.membership_type:

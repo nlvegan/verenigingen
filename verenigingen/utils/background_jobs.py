@@ -843,14 +843,10 @@ def queue_expense_event_processing_handler(doc, method=None):
     """
     try:
         # Determine event type based on method
-        if method == "on_submit":
-            event_type = "payment_made"
-        elif method == "on_update_after_submit":
-            event_type = "claim_approved"
-        elif method == "on_cancel":
+        if method == "on_cancel":
             event_type = "claim_cancelled"
         else:
-            event_type = "payment_made"  # Default
+            event_type = "payment_made"
 
         # Queue background job
         job_id = BackgroundJobManager.queue_expense_event_processing(

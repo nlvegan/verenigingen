@@ -304,7 +304,6 @@
 ./verenigingen/email/simplified_email_manager.py
 ./verenigingen/email/validation_utils.py
 ./verenigingen/events/migration_helper.py
-./verenigingen/events/subscribers/payment_history_queue.py
 ./verenigingen/fixes/correct_implementation_example.py
 ./verenigingen/fixes/step1_fix_data_fetching.py
 ./verenigingen/fixtures/add_sepa_database_indexes.py

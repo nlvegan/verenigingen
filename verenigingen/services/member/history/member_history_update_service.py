@@ -10,7 +10,6 @@ including donations, payments, invoices, volunteer expenses, and fee changes.
 Extracted from member.py:
 - incremental_update_history_tables() - orchestration (lines 2676-2759, 84 LOC)
 - _update_donation_history() - uses DonationHistoryManager (14 LOC)
-- _update_volunteer_expense_history() - expense claims (lines 2312-2401, 90 LOC)
 - _update_dues_payment_history() - payment entries (lines 2403-2490, 88 LOC)
 - _update_invoice_payment_history() - sales invoices (lines 2492-2672, 180 LOC)
 - refresh_fee_change_history() - fee history refresh (lines 3143-3327, 185 LOC)
@@ -159,18 +158,7 @@ class MemberHistoryUpdateService(StatelessService):
         if pay_err:
             has_errors = True
 
-        # STEP 6: Update volunteer expense history
-        try:
-            expense_changes = self._update_volunteer_expense_history(member_doc)
-            results["volunteer_expenses"]["count"] = expense_changes
-            if expense_changes > 0:
-                changes_made = True
-        except Exception as e:
-            log_operation_error("HIST_005", f"member {member_doc.name}", e)
-            results["volunteer_expenses"]["success"] = False
-            results["volunteer_expenses"]["error"] = str(e)
-            results["volunteer_expenses"]["error_code"] = "HIST_005"
-            has_errors = True
+        # STEP 6: Volunteer expense history — archived (child table removed)
 
         # Save if needed
         if changes_made:
@@ -310,8 +298,6 @@ class MemberHistoryUpdateService(StatelessService):
             message_parts.append(f"{results['dues_payments']['count']} dues payment changes")
         if results["invoices"]["count"] > 0:
             message_parts.append(f"{results['invoices']['count']} invoice changes")
-        if results["volunteer_expenses"]["count"] > 0:
-            message_parts.append(f"{results['volunteer_expenses']['count']} expense changes")
         if cleanup_removed > 0:
             message_parts.append(f"{cleanup_removed} broken entries cleaned")
 
@@ -429,24 +415,6 @@ class MemberHistoryUpdateService(StatelessService):
         member_doc.reload()
         new_donation_count = len(getattr(member_doc, "donation_history", []))
         return abs(new_donation_count - original_donation_count)
-
-    def _update_volunteer_expense_history(self, member_doc: "Document") -> int:
-        """
-        DEPRECATED: Volunteer expense history feature has been archived.
-
-        The volunteer_expenses child table was removed from the Member DocType.
-        This method is retained for backward compatibility but performs no operations.
-
-        Scheduled for removal in v3.0.
-
-        Args:
-            member_doc: Member document object
-
-        Returns:
-            int: Always returns 0 (no changes)
-        """
-        # Feature archived - volunteer_expenses child table no longer exists
-        return 0
 
     @staticmethod
     def _remove_stale_history_rows(member_doc, field_name, valid_names, filter_field, filter_value):
@@ -812,60 +780,6 @@ class MemberHistoryUpdateService(StatelessService):
             results.extend(chunk_results)
 
         return results
-
-    def _build_expense_entries_batched(
-        self, member_doc: "Document", claims: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """
-        DEPRECATED: Volunteer expense history feature has been archived.
-
-        This method was used for batch-building expense entries with optimized queries.
-        The volunteer_expenses child table was removed from the Member DocType.
-
-        Retained for backward compatibility with existing code/tests.
-        Scheduled for removal in v3.0.
-
-        Args:
-            member_doc: Member document object
-            claims: List of expense claim data (ignored)
-
-        Returns:
-            list: Always returns empty list
-        """
-        # Feature archived - volunteer_expenses child table no longer exists
-        return []
-
-    def _build_lightweight_expense_entry(self, member_doc: "Document", claim_data) -> dict:
-        """
-        DEPRECATED: Volunteer expense history feature has been archived.
-
-        This method was used for building individual expense entries.
-        The volunteer_expenses child table was removed from the Member DocType.
-
-        Retained for backward compatibility with existing code/tests.
-        Scheduled for removal in v3.0.
-
-        Args:
-            member_doc: Member document object
-            claim_data: Expense claim data (ignored)
-
-        Returns:
-            dict: Empty expense entry dictionary
-        """
-        # Feature archived - return minimal stub for backward compatibility
-        return {
-            "expense_claim": getattr(claim_data, "name", claim_data.get("name", "")),
-            "volunteer": None,
-            "posting_date": None,
-            "total_claimed_amount": 0,
-            "total_sanctioned_amount": 0,
-            "status": "Archived",
-            "payment_entry": None,
-            "payment_date": None,
-            "paid_amount": 0,
-            "payment_method": None,
-            "payment_status": "Archived",
-        }
 
     @staticmethod
     def _process_fee_amendments(member_doc, applied_amendments, existing_entries_by_amendment):

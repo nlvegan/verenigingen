@@ -2,18 +2,21 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
+**Last updated:** 2026-02-20 (Phases 1-2 complete + decorator order fix + Phase 6 dead code removal)
 
 ## Executive Summary
 
-| Severity | Count | Est. Hours |
-|----------|-------|------------|
-| Critical | 19 | 35-45h |
-| High | 37 | 60-80h |
-| Medium | 55+ | 40-60h |
-| Low | 30+ | 15-20h |
+| Severity | Count | Fixed | Remaining |
+|----------|-------|-------|-----------|
+| Critical | 19 | 9 | 10 |
+| High | 37 | 5 | 32 |
+| Medium | 55+ | 0 | 55+ |
+| Low | 30+ | 0 | 30+ |
+
+**Additional fix not in original audit:** Reversed decorator order across 27 files (102 endpoints) — `@frappe.whitelist()` must be outermost or HTTP calls fail with "Method Not Allowed".
 
 **Top 5 systemic issues (cross-cutting):**
-1. ~5,600 LOC of test/debug scripts committed as production API endpoints (32+ files)
+1. ~~\~5,600 LOC of test/debug scripts committed as production API endpoints (32+ files)~~ **MITIGATED** — 14 test/debug files restricted to `@development_only_api`
 2. 6 parallel SEPA mandate services (~4,141 LOC) doing the same thing
 3. 3 competing member ID implementations across 3 directories
 4. Inconsistent return types: `OperationResult` vs plain dicts split across ~180 files
@@ -25,22 +28,28 @@
 
 ### BUGS (Runtime Failures)
 
-| # | File | Description | Agent |
-|---|------|-------------|-------|
-| C1 | `membership.py:1274` | `NameError`: `membership_type` undefined in `revert_to_standard_amount` — will crash on unhappy path | DocTypes |
-| C2 | `sepa_duplicate_prevention.py:930-943` | `NameError`: `oldest_keys` referenced outside its defining `if`-block + cache write outside mutex | API |
-| C3 | `member_subscribers.py:171-408` | 5 bare `except Exception:` blocks reference unbound `e` — swallows real errors | Hooks/Events |
-| C4 | `payment_gateways.py:631-634` | `NameError`: `member` undefined in `get_subscription_status` exception handler | Payments |
-| C5 | `payment_gateways.py:785` | Missing f-string prefix: `"MAND-{donation.name}"` produces literal string | Payments |
+| # | File | Description | Status |
+|---|------|-------------|--------|
+| C1 | `membership.py:1274` | `NameError`: `membership_type` undefined in `revert_to_standard_amount` — will crash on unhappy path | **FIXED** `d4a5cf78` |
+| C2 | `sepa_duplicate_prevention.py:930-943` | `NameError`: `oldest_keys` referenced outside its defining `if`-block + cache write outside mutex | **FIXED** `d4a5cf78` |
+| C3 | `member_subscribers.py:171-408` | 8 bare `except Exception:` blocks reference unbound `e` — swallows real errors | **FIXED** `d4a5cf78` |
+| C4 | `payment_gateways.py:631-634` | `NameError`: `member` undefined in `get_subscription_status` exception handler | **FIXED** `d4a5cf78` |
+| C5 | `payment_gateways.py:785` | Missing f-string prefix: `"MAND-{donation.name}"` produces literal string | **FIXED** `d4a5cf78` |
 
 ### SECURITY
 
-| # | File | Description | Agent |
-|---|------|-------------|-------|
-| C6 | `member_import_cleanup.py:24-26` | Developer-mode safety guard disabled ("TEMPORARILY") — `nuclear_cleanup_all_members` callable in production | Utils |
-| C7 | `volunteer.py:1073-1113` | SQL injection surface: `.format()` used for query structure in whitelisted endpoint | DocTypes |
-| C8 | 32+ files in `api/` | Test/debug scripts as whitelisted API endpoints — ~347 endpoints in production, 32+ are test/debug | API |
-| C9 | `migration_helper.py:61-86` | `test_event_system()` whitelisted endpoint fires fake events with hardcoded test data | Hooks/Events |
+| # | File | Description | Status |
+|---|------|-------------|--------|
+| C6 | `member_import_cleanup.py:24-26` | Developer-mode safety guard disabled ("TEMPORARILY") — `nuclear_cleanup_all_members` callable in production | **DEFERRED** — still in staging testing |
+| C7 | `volunteer.py:1073-1113` | SQL injection surface: `.format()` used for query structure in whitelisted endpoint | **FIXED** `d4a5cf78` |
+| C8 | 32+ files in `api/` | Test/debug scripts as whitelisted API endpoints — ~347 endpoints in production, 32+ are test/debug | **MITIGATED** `f2d9f5ea` — 14 files restricted to `@development_only_api` |
+| C9 | `migration_helper.py:61-86` | `test_event_system()` whitelisted endpoint fires fake events with hardcoded test data | **FIXED** `d4a5cf78` |
+
+### DECORATOR ORDER (Discovered during fix, not in original audit)
+
+| # | File(s) | Description | Status |
+|---|---------|-------------|--------|
+| NEW | 27 files, 102 endpoints | `@security_decorator` above `@frappe.whitelist()` — Frappe uses object identity (`fn in set`) so reversed order causes "Method Not Allowed" on all HTTP calls | **FIXED** `4a7e1a25` + `799de536` |
 
 ### ARCHITECTURAL (Data Integrity)
 
@@ -115,14 +124,14 @@
 
 ### Dead Code
 
-| # | File | Issue | Agent |
-|---|------|-------|-------|
-| H28 | `membership.py:749-817` | Dead `on_submit_legacy`/`on_cancel_legacy` methods | DocTypes |
-| H29 | `membership_dues_schedule.py:287-299` | `validate_template_fields` is a no-op, never called | DocTypes |
-| H30 | `member_history_update_service.py` | 3 deprecated methods returning hardcoded values, still called | Services/Member |
-| H31 | `payment_history_queue.py` | 461-line orphaned queue system, never called from hooks or scheduler | Hooks/Events |
-| H32 | `analytics_engine.py:1132-1395` | 15+ placeholder methods returning fabricated data | Utils |
-| H33 | `background_jobs.py:856` | `queue_expense_event_processing_handler` calls defunct manager | Hooks/Events |
+| # | File | Issue | Agent | Status |
+|---|------|-------|-------|--------|
+| H28 | `membership.py:749-817` | Dead `on_submit_legacy`/`on_cancel_legacy` methods | DocTypes | **FIXED** — deleted ~68 LOC |
+| H29 | `membership_dues_schedule.py:287-299` | `validate_template_fields` is a no-op, never called | DocTypes | **FIXED** — deleted ~13 LOC |
+| H30 | `member_history_update_service.py` | 3 deprecated methods returning hardcoded values, still called | Services/Member | **FIXED** — deleted methods, wrappers in member.py, dead tests (~200 LOC) |
+| H31 | `payment_history_queue.py` | 461-line orphaned queue system, never called from hooks or scheduler | Hooks/Events | **FIXED** — deleted file + DocType + fixtures (~630 LOC) |
+| H32 | `analytics_engine.py:1132-1395` | 15+ placeholder methods returning fabricated data | Utils | DEFERRED — dashboard depends on it; needs fake-data replacement |
+| H33 | `background_jobs.py:856` | `queue_expense_event_processing_handler` dead `on_update_after_submit` branch | Hooks/Events | **FIXED** — dead branch removed |
 
 ### Inconsistency
 
@@ -131,7 +140,7 @@
 | H34 | 3 competing singleton patterns | `global` keyword (10 files) vs new-instance-per-call (14 files) vs `__new__` (1 file) | Services/Member |
 | H35 | Competing approval orchestrators | `member_lifecycle_service` vs `member_approval_service` vs `membership_application_review` API | Services/Member |
 | H36 | `application_helpers.py` has inconsistent tier labels | `get_membership_type_fee_info` vs `get_membership_type_details` use different multipliers and names | Utils |
-| H37 | `membership_application_review.py:769-810` | Commented-out security filter — chapter permission check collects data then ignores it (`pass`) | API |
+| H37 | `membership_application_review.py:769-810` | Commented-out security filter — chapter permission check collects data then ignores it (`pass`) | API | **FIXED** `f2d9f5ea` — dead code removed; `Verenigingen Staff` added to bypass roles in `chapter_security.py` (`4a7e1a25`) |
 
 ---
 
@@ -170,7 +179,7 @@ The audit agents consistently noted these strong patterns:
 2. **Chapter validators** — `ValidationResult.merge()` pattern is exemplary
 3. **`BaseHistoryManager._with_doc()` callback protocol** — clean template method pattern
 4. **Query optimization** — `PaymentHistoryService` reduced 81 queries to 3; `mt940_import` batch preloads
-5. **Security decorators** — `@critical_api`, `@high_security_api`, `@development_only_api` consistently applied
+5. **Security decorators** — `@critical_api`, `@high_security_api`, `@development_only_api` consistently applied (NOTE: 102 had reversed order with `@frappe.whitelist()`, fixed 2026-02-20)
 6. **`OperationResult` adoption** — well-typed in newer services (email, payment validation)
 7. **Billing domain** — cleanly decomposed into focused single-responsibility services
 8. **`TerminationExecutionService`** — correct transaction safety with savepoints and FOR UPDATE locks
@@ -181,16 +190,17 @@ The audit agents consistently noted these strong patterns:
 
 ## Prioritized Action Plan
 
-### Phase 1: Fix Bugs (1-2 days)
-- Fix 5 `NameError` bugs (C1-C5)
-- Fix unbound `e` in exception handlers (C3)
-- Restore developer-mode safety guard (C6)
-- Fix f-string bugs in `cancel_je_1345.py`
+### Phase 1: Fix Bugs (1-2 days) — DONE `d4a5cf78`
+- ~~Fix 5 `NameError` bugs (C1-C5)~~ **DONE**
+- ~~Fix unbound `e` in exception handlers (C3)~~ **DONE** (8 instances, not 5)
+- ~~Restore developer-mode safety guard (C6)~~ **DEFERRED** — still in staging testing per user request
+- ~~Fix f-string bugs in `cancel_je_1345.py`~~ **DONE** (2 missing f-prefixes)
 
-### Phase 2: Security Hardening (2-3 days)
-- Move 32+ test/debug files out of API layer (C8, C9)
-- Fix SQL injection surface in `volunteer.py` (C7)
-- Remove commented-out security filter or document reasoning (H37)
+### Phase 2: Security Hardening (2-3 days) — DONE `f2d9f5ea` + `4a7e1a25` + `799de536`
+- ~~Move 32+ test/debug files out of API layer (C8, C9)~~ **DONE** — 14 files restricted to `@development_only_api`
+- ~~Fix SQL injection surface in `volunteer.py` (C7)~~ **DONE** (Phase 1)
+- ~~Remove commented-out security filter or document reasoning (H37)~~ **DONE** — dead code removed, `Verenigingen Staff` added to bypass roles
+- ~~Fix reversed decorator order~~ **DONE** — 102 swaps across 27 files (discovered during review)
 
 ### Phase 3: Architectural Derisking (1-2 weeks)
 - Resolve BT+JE vs Payment Entry conflict (C10)
@@ -214,11 +224,11 @@ The audit agents consistently noted these strong patterns:
 - Split `payment_gateways.py` (H19)
 - Decompose `application_helpers.py` (H20)
 
-### Phase 6: Dead Code Removal (1 week)
-- Delete dead legacy methods (H28-H33)
-- Delete placeholder/stub methods in analytics (H32)
-- Remove orphaned payment history queue (H31)
-- Clean deprecated function wrappers
+### ~~Phase 6: Dead Code Removal~~ **DONE** (2026-02-20, -1,123 LOC)
+- ~~Delete dead legacy methods (H28-H33)~~ **DONE** (H28, H29, H30, H31, H33 deleted)
+- Delete placeholder/stub methods in analytics (H32) — DEFERRED (dashboard dependency)
+- ~~Remove orphaned payment history queue (H31)~~ **DONE**
+- ~~Clean deprecated function wrappers~~ **DONE**
 
 ---
 
@@ -236,3 +246,33 @@ The audit agents consistently noted these strong patterns:
 | Hooks/Events/Tasks | ~30 | ~5,500 | 2 | 4 | 9 | 4 |
 | Top-level Services | ~25 | ~6,500 | 2 | 5 | 5 | 3 |
 | Cross-cutting | all | 302,818 | 0 | 4 | 4 | 3 |
+
+---
+
+## Change Log
+
+### 2026-02-20: Phases 1-2 Complete
+
+**Commits:**
+- `d4a5cf78` — Phase 1: Fix 5 NameErrors (C1-C5), 8 unbound exceptions (C3), SQL injection (C7), test endpoint guard (C9), f-string bugs
+- `f2d9f5ea` — Phase 2: Restrict 14 test/debug API files to `@development_only_api` (C8), remove dead permission code (H37), fix broken import in `test_monitoring.py`
+- `4a7e1a25` — Code review fixes: Restore `Verenigingen Staff` to bypass roles in `chapter_security.py` (H37 regression), fix decorator order in 2 files
+- `799de536` — Fix reversed decorator order across 25 additional files (102 endpoints total)
+
+**Key discovery:** `@frappe.whitelist()` MUST be the outermost decorator. Frappe checks whitelist status via object identity (`fn in set`). When a security decorator wraps the function first, the module-level name points to the wrapper — not in the whitelist set — causing silent "Method Not Allowed" on all HTTP API calls. This affected 102 endpoints across 27 files. Frappe has no native developer-mode API guard; `@development_only_api` is entirely custom.
+
+**Deferred:** C6 (`member_import_cleanup.py` developer-mode guard) — still needed for staging testing.
+
+### Phase 6: Dead Code Removal (2026-02-20)
+
+**Impact:** -1,123 LOC across 16 files
+
+| Item | What was removed | LOC removed |
+|------|-----------------|-------------|
+| H28 | `on_submit_legacy`/`on_cancel_legacy` from membership.py | ~68 |
+| H29 | `validate_template_fields` from membership_dues_schedule.py | ~13 |
+| H30 | 3 deprecated volunteer expense methods from service + member.py + dead tests | ~200 |
+| H31 | `payment_history_queue.py` (461 LOC) + `PaymentHistoryUpdateQueue` DocType + fixture entries + broken import | ~630 |
+| H33 | Dead `on_update_after_submit` branch from background_jobs.py | ~6 |
+
+**Deferred:** H32 (`analytics_engine.py` placeholder methods) — dashboard depends on it; needs stub replacement, not deletion.

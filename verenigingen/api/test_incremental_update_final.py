@@ -1,6 +1,3 @@
-import json
-from datetime import datetime
-
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
@@ -17,7 +14,6 @@ def test_incremental_update_comprehensive():
     test_results = {
         "functionality_test": None,
         "interface_test": None,
-        "performance_test": None,
         "validation_bypass_check": None,
         "regression_test": None,
         "overall_status": "PENDING",
@@ -93,39 +89,6 @@ def test_incremental_update_comprehensive():
                         "errors": interface_errors,
                         "structure_valid": interface_valid,
                     }
-
-                    # Test 3: Performance Test (Lightweight Approach)
-                    if hasattr(member_doc, "_build_lightweight_expense_entry"):
-                        mock_claim = {
-                            "name": "TEST-CLAIM-001",
-                            "employee": member_doc.employee,
-                            "posting_date": frappe.utils.today(),
-                            "total_claimed_amount": 100.0,
-                            "total_sanctioned_amount": 90.0,
-                            "status": "Approved",
-                            "docstatus": 1,
-                            "approval_status": "Approved",
-                        }
-
-                        start_time = datetime.now()
-                        lightweight_entry = member_doc._build_lightweight_expense_entry(mock_claim)
-                        end_time = datetime.now()
-
-                        execution_time = (end_time - start_time).total_seconds() * 1000  # ms
-
-                        test_results["performance_test"] = {
-                            "success": True,
-                            "execution_time_ms": execution_time,
-                            "performance_acceptable": execution_time < 100,
-                            "lightweight_entry_structure": (
-                                list(lightweight_entry.keys()) if lightweight_entry else []
-                            ),
-                        }
-                    else:
-                        test_results["performance_test"] = {
-                            "success": False,
-                            "error": "Lightweight entry builder method not found",
-                        }
 
                 except Exception as e:
                     test_results["functionality_test"] = {

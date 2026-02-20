@@ -20,8 +20,7 @@ def test_incremental_update_comprehensive():
     
     test_results = {
         'functionality_test': None,
-        'interface_test': None, 
-        'performance_test': None,
+        'interface_test': None,
         'regression_test': None,
         'error_handling_test': None,
         'validation_bypass_check': None,
@@ -120,57 +119,8 @@ def test_incremental_update_comprehensive():
                 for error in interface_errors:
                     print(f"  - {error}")
         
-        # Test 3: Performance Test (Lightweight Approach)
-        print("\n3. PERFORMANCE TEST")
-        print("-" * 40)
-        
-        if member_name:
-            # Test the lightweight expense entry builder
-            member_doc = frappe.get_doc('Member', member_name)
-            
-            if hasattr(member_doc, '_build_lightweight_expense_entry'):
-                # Mock claim data (similar to what frappe.get_all returns)
-                mock_claim = type('MockClaim', (), {
-                    'name': 'TEST-CLAIM-001',
-                    'employee': member_doc.employee,
-                    'posting_date': today(),
-                    'total_claimed_amount': 100.0,
-                    'total_sanctioned_amount': 90.0,
-                    'status': 'Approved',
-                    'docstatus': 1,
-                    'approval_status': 'Approved'
-                })()
-                
-                # Test lightweight entry building
-                start_time = datetime.now()
-                lightweight_entry = member_doc._build_lightweight_expense_entry(mock_claim)
-                end_time = datetime.now()
-                
-                execution_time = (end_time - start_time).total_seconds() * 1000  # ms
-                
-                test_results['performance_test'] = {
-                    'success': True,
-                    'execution_time_ms': execution_time,
-                    'lightweight_entry': lightweight_entry,
-                    'performance_acceptable': execution_time < 100  # Should be under 100ms
-                }
-                
-                print(f"✅ Lightweight entry builder executed in {execution_time:.2f}ms")
-                print(f"Entry structure: {json.dumps(lightweight_entry, indent=2, default=str)}")
-                
-                if execution_time < 100:
-                    print("✅ Performance acceptable (< 100ms)")
-                else:
-                    print("⚠️  Performance may need optimization (> 100ms)")
-            else:
-                test_results['performance_test'] = {
-                    'success': False,
-                    'error': 'Lightweight entry builder method not found'
-                }
-                print("❌ _build_lightweight_expense_entry method not found")
-        
-        # Test 4: Validation Bypass Check  
-        print("\n4. VALIDATION BYPASS CHECK")
+        # Test 3: Validation Bypass Check
+        print("\n3. VALIDATION BYPASS CHECK")
         print("-" * 40)
         
         # Check ExpenseMixin for ignore_permissions usage

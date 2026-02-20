@@ -235,14 +235,6 @@ def check_system_status():
         except:
             pass
 
-        # Payment history sync
-        try:
-            from verenigingen.events.subscribers.payment_history_queue import refresh_financial_history
-
-            status["payment_history_sync"] = True
-        except:
-            pass
-
         # Summary
         working_components = sum(status.values())
         total_components = len(status)

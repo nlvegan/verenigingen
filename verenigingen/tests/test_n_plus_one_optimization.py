@@ -3,7 +3,7 @@
 Test N+1 Query Optimization Implementation
 
 Tests for the batch query optimization that eliminates N+1 patterns
-in payment history and expense history loading.
+in payment history loading.
 
 Covers:
 - Chunking functionality for large datasets
@@ -226,87 +226,6 @@ class TestPaymentHistoryBatchedOptimization(EnhancedTestCase):
         self.assertGreater(history_row.paid_amount, 0)
 
 
-class TestExpenseHistoryBatchedOptimization(EnhancedTestCase):
-    """Test expense history loading with batch optimization"""
-
-    def test_expense_entries_batched_with_empty_claims(self):
-        """Empty claims list should return empty results"""
-        member = self.create_test_member(
-            first_name="No",
-            last_name="Claims",
-            birth_date="1990-01-01"
-        )
-
-        result = member._build_expense_entries_batched([])
-
-        self.assertEqual(result, [])
-
-    def test_expense_entries_batched_with_single_claim(self):
-        """Single expense claim should be processed"""
-        member = self.create_test_member_with_volunteer()
-
-        # Create expense claim
-        expense = self.create_test_expense_claim(employee=member.employee)
-
-        # Get claim data (simulating what _update_volunteer_expense_history does)
-        claims = frappe.get_all(
-            "Expense Claim",
-            filters={"employee": member.employee},
-            fields=["name", "employee", "posting_date", "total_claimed_amount",
-                    "total_sanctioned_amount", "status", "approval_status", "docstatus"]
-        )
-
-        result = member._build_expense_entries_batched(claims)
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["expense_claim"], expense.name)
-
-    def test_expense_entries_batched_with_multiple_claims(self):
-        """Multiple expense claims should all be processed"""
-        member = self.create_test_member_with_volunteer()
-
-        # Create 5 expense claims
-        claim_names = []
-        for i in range(5):
-            expense = self.create_test_expense_claim(employee=member.employee)
-            claim_names.append(expense.name)
-
-        # Get claim data
-        claims = frappe.get_all(
-            "Expense Claim",
-            filters={"employee": member.employee},
-            fields=["name", "employee", "posting_date", "total_claimed_amount",
-                    "total_sanctioned_amount", "status", "approval_status", "docstatus"]
-        )
-
-        result = member._build_expense_entries_batched(claims)
-
-        self.assertEqual(len(result), 5)
-        result_names = {entry["expense_claim"] for entry in result}
-        self.assertEqual(result_names, set(claim_names))
-
-    def test_expense_entries_include_volunteer_lookup(self):
-        """Volunteer should be correctly linked to expense claims"""
-        member = self.create_test_member_with_volunteer()
-        volunteer = frappe.get_doc("Volunteer", {"member": member.name})
-
-        # Create expense claim
-        expense = self.create_test_expense_claim(employee=member.employee)
-
-        # Get claim data
-        claims = frappe.get_all(
-            "Expense Claim",
-            filters={"employee": member.employee},
-            fields=["name", "employee", "posting_date", "total_claimed_amount",
-                    "total_sanctioned_amount", "status", "approval_status", "docstatus"]
-        )
-
-        result = member._build_expense_entries_batched(claims)
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["volunteer"], volunteer.name)
-
-
 class TestErrorCountingMetrics(EnhancedTestCase):
     """Test error counting and logging functionality"""
 
@@ -335,29 +254,6 @@ class TestErrorCountingMetrics(EnhancedTestCase):
 
         # Verify all invoices processed
         self.assertEqual(len(member.payment_history), 3)
-
-    def test_expense_entries_handles_partial_failures(self):
-        """Partial failures should continue processing remaining items"""
-        member = self.create_test_member_with_volunteer()
-
-        # Create valid expense claims
-        for i in range(3):
-            self.create_test_expense_claim(employee=member.employee)
-
-        # Get claim data
-        claims = frappe.get_all(
-            "Expense Claim",
-            filters={"employee": member.employee},
-            fields=["name", "employee", "posting_date", "total_claimed_amount",
-                    "total_sanctioned_amount", "status", "approval_status", "docstatus"]
-        )
-
-        # Process - should handle gracefully even if some claims have issues
-        result = member._build_expense_entries_batched(claims)
-
-        # Should get results for valid claims
-        self.assertGreater(len(result), 0)
-
 
 class TestFallbackMechanism(EnhancedTestCase):
     """Test fallback to original N+1 implementation"""
@@ -391,22 +287,6 @@ class TestFallbackMechanism(EnhancedTestCase):
 
         finally:
             member._load_payment_history_batched = original_method
-
-    def test_expense_entries_falls_back_on_batch_failure(self):
-        """Fallback to individual processing when batched fails"""
-        member = self.create_test_member_with_volunteer()
-
-        # Create expense claims
-        for i in range(3):
-            self.create_test_expense_claim(employee=member.employee)
-
-        # Trigger update which uses batched version with fallback
-        # The method already has try-except fallback built in
-        result = member._update_volunteer_expense_history()
-
-        # Should succeed via fallback
-        self.assertIsNotNone(result)
-
 
 class TestDataIntegrity(EnhancedTestCase):
     """Verify batched and original implementations produce identical results"""

@@ -840,14 +840,6 @@ class Member(
 
         return get_member_history_update_service()._update_donation_history(self)
 
-    def _update_volunteer_expense_history(self):
-        """Update volunteer expense history - delegates to MemberHistoryUpdateService"""
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-
-        return get_member_history_update_service()._update_volunteer_expense_history(self)
-
     def _update_dues_payment_history(self):
         """Rebuild membership dues payment history - delegates to MemberHistoryUpdateService"""
         from verenigingen.services.member.history.member_history_update_service import (
@@ -888,32 +880,6 @@ class Member(
         return get_member_history_update_service()._batch_fetch_with_chunking(
             doctype, name_list, fields, filters, chunk_size
         )
-
-    def _build_expense_entries_batched(self, claims):
-        """
-        Build expense entries - delegates to MemberHistoryUpdateService.
-
-        EXTRACTED: Moved to MemberHistoryUpdateService._build_expense_entries_batched()
-        for service layer separation. Query reduction: 41 queries → 3 queries (93%).
-        """
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-
-        return get_member_history_update_service()._build_expense_entries_batched(self, claims)
-
-    def _build_lightweight_expense_entry(self, claim_data):
-        """
-        Build expense entry - delegates to MemberHistoryUpdateService.
-
-        EXTRACTED: Moved to MemberHistoryUpdateService._build_lightweight_expense_entry()
-        for service layer separation.
-        """
-        from verenigingen.services.member.history.member_history_update_service import (
-            get_member_history_update_service,
-        )
-
-        return get_member_history_update_service()._build_lightweight_expense_entry(self, claim_data)
 
     def _get_volunteer_id(self):
         """Get the volunteer ID for this member"""
