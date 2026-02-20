@@ -164,37 +164,11 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
         # determine_sequence_type() if sequence_type is None
         mandate.save()
 
-        # Invalidate lifecycle manager cache to ensure fresh sequence type determination
-        # for any subsequent calls
-        _invalidate_lifecycle_cache(mandate.mandate_id)
-
         return usage_row.name
 
     finally:
         # Always release the lock, even if an error occurred
         release_processing_lock("mandate_usage", mandate_name)
-
-
-def _invalidate_lifecycle_cache(mandate_id: str) -> None:
-    """
-    Invalidate the lifecycle manager cache for a mandate after usage record creation.
-
-    This ensures subsequent sequence type determinations use fresh data including
-    the newly created usage record.
-    """
-    try:
-        from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
-            SEPAMandateLifecycleManager,
-        )
-
-        manager = SEPAMandateLifecycleManager()
-        manager.invalidate_cache(mandate_id)
-    except ImportError:
-        # Lifecycle manager not available - skip cache invalidation
-        pass
-    except Exception as e:
-        # Log but don't fail the main operation
-        frappe.logger().warning(f"Failed to invalidate lifecycle cache for {mandate_id}: {str(e)}")
 
 
 @frappe.whitelist()

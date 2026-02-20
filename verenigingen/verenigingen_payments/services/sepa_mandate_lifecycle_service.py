@@ -478,9 +478,6 @@ class SEPAMandateLifecycleService:
                     f"Member mandate update had errors for {mandate_doc.name}: {result['errors']}"
                 )
 
-            # Invalidate lifecycle manager cache for this mandate
-            self._invalidate_lifecycle_manager_cache(mandate_doc.mandate_id)
-
             # Log the status change
             frappe.logger().info(
                 f"Mandate {mandate_doc.name} status changed to {status} for member {mandate_doc.member}"
@@ -489,36 +486,6 @@ class SEPAMandateLifecycleService:
         except Exception as e:
             metrics.record_error("member_mandate_update", str(e), mandate_doc.mandate_id)
             frappe.log_error(f"Error updating member mandate status: {str(e)}", "SEPA Mandate Lifecycle")
-
-    def _invalidate_lifecycle_manager_cache(self, mandate_id: str) -> None:
-        """
-        Invalidate the lifecycle manager cache for a specific mandate.
-
-        This ensures sequence type determination uses fresh data after
-        status changes or usage record updates.
-
-        Args:
-            mandate_id: SEPA mandate ID to invalidate
-        """
-        try:
-            from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
-                SEPAMandateLifecycleManager,
-            )
-
-            # Create a manager instance and invalidate cache
-            # Note: In production with high volume, consider using a shared cache (Redis)
-            # For now, each request creates its own manager with fresh data
-            manager = SEPAMandateLifecycleManager()
-            manager.invalidate_cache(mandate_id)
-
-            frappe.logger().debug(f"Invalidated lifecycle cache for mandate {mandate_id}")
-
-        except ImportError:
-            # Lifecycle manager not available - skip cache invalidation
-            pass
-        except Exception as e:
-            # Don't fail the main operation if cache invalidation fails
-            frappe.logger().warning(f"Failed to invalidate lifecycle cache for {mandate_id}: {str(e)}")
 
     def handle_mandate_creation(self, mandate_doc) -> Dict[str, any]:
         """

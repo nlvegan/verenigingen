@@ -33,10 +33,6 @@ from verenigingen.verenigingen_payments.utils.sepa_conflict_detector import (
     ConflictSeverity,
     SEPAConflictDetector,
 )
-from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
-    MandateUsageType,
-    SEPAMandateLifecycleManager,
-)
 from verenigingen.verenigingen_payments.utils.sepa_notification_manager import (
     NotificationPriority,
     NotificationType,
@@ -480,107 +476,6 @@ class TestSEPAWeek3Features(EnhancedTestCase):
     # Mandate Lifecycle Management Tests
     # ========================================================================
 
-    def test_mandate_lifecycle_manager(self):
-        """Test mandate lifecycle management with real SEPA business logic"""
-        # Create real test member and SEPA mandate for testing
-        member = self.create_test_member(
-            first_name="SEPA",
-            last_name="Lifecycle",
-            email_address="sepa.lifecycle@test.com",
-            birth_date="1985-01-01"
-        )
-
-        # Create real SEPA mandate with proper business data
-        mandate = frappe.get_doc({
-            "doctype": "SEPA Mandate",
-            "member": member.name,
-            "mandate_id": "TEST-MANDATE-001",
-            "status": "Active",
-            "sign_date": add_days(today(), -30),
-            "iban": "NL91ABNA0417164300",
-            "account_holder_name": member.full_name,
-            "bic": "ABNANL2A"
-        })
-        mandate.insert()
-
-        # Test real SEPA mandate lifecycle business logic
-        manager = SEPAMandateLifecycleManager()
-
-        try:
-            # Test actual mandate sequence type determination
-            result = manager.determine_sequence_type(mandate.name)
-
-            # Real business logic validation
-            self.assertIsNotNone(result, "Real mandate lifecycle should return result")
-            # Test actual SEPA sequence type logic - catches real bugs
-            if hasattr(result, 'is_valid'):
-                self.assertIsInstance(result.is_valid, bool)
-            if hasattr(result, 'usage_type'):
-                self.assertIn(result.usage_type, [MandateUsageType.FIRST_USE, MandateUsageType.RECURRING, MandateUsageType.FINAL])
-            if hasattr(result, 'recommended_sequence_type'):
-                self.assertIn(result.recommended_sequence_type, [SEPASequenceType.FRST, SEPASequenceType.RCUR, SEPASequenceType.FNAL])
-
-        except Exception as e:
-            # Real business logic exceptions provide valuable feedback
-            print(f"SEPA mandate lifecycle real behavior: {e}")
-            # Test that system handles real mandate lifecycle issues appropriately
-            self.assertIsInstance(str(e), str)
-
-        finally:
-            # Clean up
-            mandate.delete()
-
-    def test_mandate_usage_validation(self):
-        """Test mandate usage validation with real SEPA business logic"""
-        # Create real test member and SEPA mandate
-        member = self.create_test_member(
-            first_name="SEPA",
-            last_name="Validation",
-            email_address="sepa.validation@test.com",
-            birth_date="1985-01-01"
-        )
-
-        # Create real SEPA mandate for transaction validation
-        mandate = frappe.get_doc({
-            "doctype": "SEPA Mandate",
-            "member": member.name,
-            "mandate_id": "TEST-MANDATE-VALIDATION",
-            "status": "Active",
-            "sign_date": add_days(today(), -30),
-            "iban": "NL91ABNA0417164300",
-            "account_holder_name": member.full_name,
-            "bic": "ABNANL2A"
-        })
-        mandate.insert()
-
-        # Test real mandate transaction validation business logic
-        manager = SEPAMandateLifecycleManager()
-
-        try:
-            # Test actual mandate validation for transaction - real business logic
-            result = manager.validate_mandate_for_transaction(
-                mandate.name,
-                Decimal("100.50")
-            )
-
-            # Real business logic validation - catches actual validation bugs
-            self.assertIsNotNone(result, "Real mandate validation should return result")
-            if hasattr(result, 'is_valid'):
-                self.assertIsInstance(result.is_valid, bool)
-            if hasattr(result, 'errors'):
-                self.assertIsInstance(result.errors, list)
-            if hasattr(result, 'warnings'):
-                self.assertIsInstance(result.warnings, list)
-
-        except Exception as e:
-            # Real mandate validation exceptions reveal system behavior
-            print(f"SEPA mandate validation real behavior: {e}")
-            self.assertIsInstance(str(e), str)
-
-        finally:
-            # Clean up
-            mandate.delete()
-
     # ========================================================================
     # Rollback Manager Tests
     # ========================================================================
@@ -710,7 +605,6 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         retry_manager = SEPARetryManager()
         xml_generator = EnhancedSEPAXMLGenerator()
         rulebook_validator = SEPARulebookValidator()
-        mandate_manager = SEPAMandateLifecycleManager()
         rollback_manager = SEPARollbackManager()
         notification_manager = SEPANotificationManager()
 
@@ -720,7 +614,6 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         self.assertIsNotNone(retry_manager)
         self.assertIsNotNone(xml_generator)
         self.assertIsNotNone(rulebook_validator)
-        self.assertIsNotNone(mandate_manager)
         self.assertIsNotNone(rollback_manager)
         self.assertIsNotNone(notification_manager)
 

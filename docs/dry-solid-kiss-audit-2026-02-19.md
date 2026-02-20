@@ -9,7 +9,7 @@
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 20 | 17 |
+| High | 37 | 22 | 15 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -92,7 +92,7 @@
 | H6 | `_batch_fetch_with_chunking` in 3 places | `member_history_update_service.py`, `payment_history_service.py`, `payment_mixin.py` | ~50 | Services/Member + DocTypes | **FIXED** — extracted `batch_fetch_with_chunking()` to `utils/__init__.py` |
 | H7 | `_emit_*_event` / `_get_*_subscribers` copied 5 times | All event emitter files | ~100 | Hooks/Events | PARTIAL — copy-paste bug in `chapter_events.py` **FIXED**; full refactor deferred |
 | H8 | Bulk-mode guard logic copied 20+ times with inconsistent flag names | All event files | ~60 | Hooks/Events | DEFERRED — inconsistent flag names need design decision |
-| H9 | ISO datetime parsing pattern in 61 files (119 occurrences) | Across payments layer | ~120 | Payments | DEFERRED — massive scope (61 files); existing `date_parser.py` + `timezone_utils.py` are underused; needs separate focused session |
+| H9 | ISO datetime parsing pattern in 61 files (119 occurrences) | Across payments layer | ~120 | Payments | **FALSE POSITIVE** — audit overcounted (164 `.strftime` formatting, 100+ correct `getdate()`, 78 test-only `fromisoformat`); only 12 genuine `parser.parse()` in 10 production files, all following same try/fallback pattern; not worth extracting |
 | H10 | `type_names` dict defined 5 times in same file | `eboekhouden_rest_full_migration.py` | ~25 | e-Boekhouden | **FIXED** — extracted to `MUTATION_TYPE_SINGULAR` / `MUTATION_TYPE_PLURAL` constants |
 | H11 | `_create_sales_invoice` / `_create_purchase_invoice` share 60 lines | `eboekhouden_rest_full_migration.py` | ~60 | e-Boekhouden | PARTIAL — fixed missing error handling on Purchase Invoice `submit()` (bug); full DRY refactor deferred (62% overlap, 38% genuine differences, marginal net savings) |
 | H12 | Notes-field append pattern repeated 18 times | `termination_integration.py`, `application_helpers.py` | ~100 | Utils | **FIXED** — extracted `append_to_text_field()` utility, 18 patterns replaced |
@@ -111,7 +111,7 @@
 | H20 | `application_helpers.py` | 1,573 | Utils bag: 6 unrelated concerns | Utils |
 | H21 | `account_creation_manager.py` | 2,356 | Duplicated pipeline linking between `_link_records_phase` and `link_records` | Utils |
 | H22 | `document_portal_service.py` | 1,381 | 4 concerns: authorization + file validation + storage + queries | Top-level Services |
-| H23 | SEPA mandate domain split across 6 classes | 6 files, ~4,141 LOC total | At least 4 separate `get_active_mandate` implementations | Payments |
+| H23 | SEPA mandate domain split across 6 classes | 6 files, ~4,141 LOC total | At least 4 separate `get_active_mandate` implementations | Payments | **FIXED** — deleted dead `SEPAMandateRepository` (357 LOC) + `SEPAMandateLifecycleManager` (1,214 LOC) + removed no-op cache invalidation calls; remaining 4 services are well-organized (Manager=CRUD, LifecycleService=hooks, ValidationService=validation, MandateService=caching) |
 
 ### Performance
 
@@ -404,3 +404,12 @@ The audit agents consistently noted these strong patterns:
 |------|--------------|
 | C17 | Extracted `_build_opening_balance_je()` shared helper from `_import_opening_balances` and `_import_opening_balances_from_data` — parameterized differences: `amount_field` ("amount" vs "balance"), `je_title`, `je_user_remark`, `track_skip_reasons` |
 | H35 | Marked `background_approval_api.approve_membership_application_background()` as deprecated — never adopted in production; canonical path is `membership_application_review.approve_membership_application()` |
+
+### Batch 8: SEPA mandate dead code removal + H9 closure (2026-02-20)
+
+**Impact:** -1,571 LOC production code, -876 LOC tests
+
+| Item | What was done |
+|------|--------------|
+| H23 | Deleted dead `SEPAMandateRepository` (357 LOC) — only caller was benchmarking tool, superseded by `SEPAMandateManager`. Deleted dead `SEPAMandateLifecycleManager` (1,214 LOC) — 2 production callers were no-ops (new instance + `invalidate_cache()` on empty per-instance dict). Removed no-op calls from `sepa_mandate_lifecycle_service.py` and `sepa_mandate_usage.py`. Deleted associated test files (876 LOC). Remaining 4 SEPA services are well-organized with clear responsibilities. |
+| H9 | Closed as **FALSE POSITIVE** — audit counted 119 occurrences but investigation found: 164 `.strftime()` (formatting, not parsing), 100+ `getdate()` (correct Frappe usage), 78 `fromisoformat()` in test files only. Only 12 genuine `parser.parse()` calls in 10 production files, all following identical try/fallback pattern. Not worth a utility extraction. |
