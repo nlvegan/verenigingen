@@ -10,7 +10,7 @@
 |----------|-------|-------|-----------|
 | Critical | 19 | 9 | 10 |
 | High | 37 | 15 | 22 |
-| Medium | 55+ | 7 | 48+ |
+| Medium | 55+ | 11 | 44+ |
 | Low | 30+ | 0 | 30+ |
 
 **Additional fix not in original audit:** Reversed decorator order across 27 files (102 endpoints) — `@frappe.whitelist()` must be outermost or HTTP calls fail with "Method Not Allowed".
@@ -155,14 +155,14 @@
 | M5 | DRY | `mollie_debug_service` — limit sanitization x6 | Same logic, inconsistent caps |
 | M6 | DRY | `mollie_debug_service` — optional attr serialization x25 | `getattr(obj, attr, None)` pattern |
 | M7 | DRY | `_get_or_create_generic_customer/supplier` identical | `eboekhouden_rest_full_migration.py:908-1081` — **FIXED** (→ `_get_or_create_generic_party`) |
-| M8 | DRY | Pagination loops x4 in `eboekhouden_api.py` | Same while-loop structure |
+| M8 | DRY | Pagination loops x5 in `eboekhouden_api.py` | Same while-loop structure — **FIXED** (→ `_paginated_fetch()`) |
 | M9 | SRP | `termination_integration.py` mixes 9 domains | 1,422 LOC with 9 concerns |
 | M10 | SRP | `membership.py:76-238` `create_or_update_dues_schedule` | 163 lines, 5+ responsibilities |
 | M11 | SRP | `membership_dues_schedule.py:44-66` validate() inconsistency | 12 validators, inconsistent template guards |
-| M12 | KISS | `application_helpers.py:240-309` excessive debug logging | 7 debug log calls per JSON parse, PII risk |
-| M13 | KISS | Deprecated `approve_membership_application` uses `warnings.warn` | Never surfaces in HTTP context |
+| M12 | KISS | `application_helpers.py:240-309` excessive debug logging | 7 debug log calls per JSON parse, PII risk — **FIXED** (removed PII-leaking logs) |
+| M13 | KISS | Deprecated `approve_membership_application` uses `warnings.warn` | Never surfaces in HTTP context — **FIXED** (→ `frappe.logger().warning()`) |
 | M14 | KISS | `membership.py:412-500` `set_renewal_date` | 68 lines, 4 nesting levels, self-defeating `self.renewal_date = None` — **FIXED** |
-| M15 | KISS | `lifecycle.py:32-36` patches run on every migrate | Should be in `patches.txt` |
+| M15 | KISS | `lifecycle.py:32-36` patches run on every migrate | FALSE POSITIVE — patches correctly reference `execute()` functions |
 | M16 | KISS | `scheduler.py:122-126` 6-field cron expression | Possibly unsupported by Frappe |
 | M17 | OCP | `document_portal_service.py` org-type `if/elif` chain x3 | Adding org type requires 3 edits |
 | M18 | OCP | `event_application_service.py` string-based dispatch | `getattr(self, f"_apply_{action}_{table_key}")` |
@@ -341,3 +341,14 @@ The audit agents consistently noted these strong patterns:
 | H24 | N+1 query in `get_user_chapter_access()` replaced with 3 flat queries (volunteers → board members → roles); eliminates 18+ DB calls per page load |
 | M7 | `_get_or_create_generic_customer/supplier` consolidated into single `_get_or_create_generic_party(party_type, ...)` with thin wrappers |
 | M14 | Self-defeating `self.renewal_date = None` removed; dead `not self.renewal_date` condition simplified in 2 places |
+
+### Phase 4 (batch 4): KISS + DRY cleanup (2026-02-20)
+
+**Impact:** ~-90 net LOC
+
+| Item | What was done |
+|------|--------------|
+| M8 | 5 identical pagination while-loops in `eboekhouden_api.py` consolidated into `_paginated_fetch(endpoint, params, safety_limit)` |
+| M12 | Removed 7 PII-leaking debug log calls from `parse_application_data()` in `application_helpers.py`; kept structural validation only |
+| M13 | Replaced `warnings.warn()` with `frappe.logger().warning()` in deprecated `approve_membership_application` shim — `warnings.warn` never surfaces in HTTP context |
+| M15 | Investigated and closed as FALSE POSITIVE — lifecycle.py correctly references patch `execute()` functions |

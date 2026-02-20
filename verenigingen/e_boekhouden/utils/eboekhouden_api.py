@@ -98,41 +98,46 @@ class EBoekhoudenAPI(EBoekhoudenHTTPClientMixin):
         else:
             return {"success": False, "error": data, "status_code": status_code}
 
+    def _paginated_fetch(self, endpoint, params=None, safety_limit=10000):
+        """Fetch all pages from an e-Boekhouden API endpoint.
+
+        Args:
+            endpoint: API path (e.g. "v1/ledger")
+            params: Base query parameters (pagination is added automatically)
+            safety_limit: Max offset before breaking (default 10000, use 50000 for large datasets)
+        """
+        all_items = []
+        offset = 0
+        limit = 500
+
+        if params is None:
+            params = {}
+
+        while True:
+            page_params = {**params, "limit": limit, "offset": offset}
+            result = self.make_request(endpoint, "GET", page_params)
+
+            if not result["success"]:
+                return result
+
+            data = json.loads(result["data"])
+            items = data.get("items", [])
+            all_items.extend(items)
+
+            if len(items) < limit:
+                break
+
+            offset += limit
+            if offset > safety_limit:
+                frappe.log_error(f"Safety limit reached in {endpoint} pagination")
+                break
+
+        return {"success": True, "data": json.dumps({"items": all_items}), "status_code": 200}
+
     def get_chart_of_accounts(self):
         """Get Chart of Accounts (Ledgers) - fetches ALL accounts with pagination"""
         try:
-            all_accounts = []
-            offset = 0
-            limit = 500  # Use 500 per page for efficiency
-
-            while True:
-                # Get page of accounts
-                result = self.make_request("v1/ledger", "GET", {"limit": limit, "offset": offset})
-
-                if not result["success"]:
-                    return result
-
-                data = json.loads(result["data"])
-                accounts = data.get("items", [])
-
-                # Add accounts to collection
-                all_accounts.extend(accounts)
-
-                # Check if we got less than requested (end of data)
-                if len(accounts) < limit:
-                    break
-
-                # Move to next page
-                offset += limit
-
-                # Safety check to prevent infinite loops
-                if offset > 10000:
-                    frappe.log_error("Safety limit reached in get_chart_of_accounts pagination")
-                    break
-
-            # Return complete data in same format as before
-            return {"success": True, "data": json.dumps({"items": all_accounts}), "status_code": 200}
-
+            return self._paginated_fetch("v1/ledger")
         except Exception as e:
             frappe.log_error(f"Error in get_chart_of_accounts: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -140,29 +145,7 @@ class EBoekhoudenAPI(EBoekhoudenHTTPClientMixin):
     def get_cost_centers(self):
         """Get Cost Centers - fetches ALL cost centers with pagination"""
         try:
-            all_items = []
-            offset = 0
-            limit = 500
-
-            while True:
-                result = self.make_request("v1/costcenter", "GET", {"limit": limit, "offset": offset})
-
-                if not result["success"]:
-                    return result
-
-                data = json.loads(result["data"])
-                items = data.get("items", [])
-                all_items.extend(items)
-
-                if len(items) < limit:
-                    break
-
-                offset += limit
-                if offset > 10000:
-                    frappe.log_error("Safety limit reached in get_cost_centers pagination")
-                    break
-
-            return {"success": True, "data": json.dumps({"items": all_items}), "status_code": 200}
+            return self._paginated_fetch("v1/costcenter")
         except Exception as e:
             frappe.log_error(f"Error in get_cost_centers: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -170,35 +153,7 @@ class EBoekhoudenAPI(EBoekhoudenHTTPClientMixin):
     def get_invoices(self, params=None):
         """Get Invoices - fetches ALL invoices with pagination"""
         try:
-            all_items = []
-            offset = 0
-            limit = 500
-
-            if not params:
-                params = {}
-
-            while True:
-                params_with_pagination = params.copy()
-                params_with_pagination.update({"limit": limit, "offset": offset})
-
-                result = self.make_request("v1/invoice", "GET", params_with_pagination)
-
-                if not result["success"]:
-                    return result
-
-                data = json.loads(result["data"])
-                items = data.get("items", [])
-                all_items.extend(items)
-
-                if len(items) < limit:
-                    break
-
-                offset += limit
-                if offset > 50000:  # Higher limit for invoices
-                    frappe.log_error("Safety limit reached in get_invoices pagination")
-                    break
-
-            return {"success": True, "data": json.dumps({"items": all_items}), "status_code": 200}
+            return self._paginated_fetch("v1/invoice", params=params, safety_limit=50000)
         except Exception as e:
             frappe.log_error(f"Error in get_invoices: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -222,35 +177,7 @@ class EBoekhoudenAPI(EBoekhoudenHTTPClientMixin):
     def get_relations(self, params=None):
         """Get Relations (Customers/Suppliers) - fetches ALL relations with pagination"""
         try:
-            all_items = []
-            offset = 0
-            limit = 500
-
-            if not params:
-                params = {}
-
-            while True:
-                params_with_pagination = params.copy()
-                params_with_pagination.update({"limit": limit, "offset": offset})
-
-                result = self.make_request("v1/relation", "GET", params_with_pagination)
-
-                if not result["success"]:
-                    return result
-
-                data = json.loads(result["data"])
-                items = data.get("items", [])
-                all_items.extend(items)
-
-                if len(items) < limit:
-                    break
-
-                offset += limit
-                if offset > 10000:
-                    frappe.log_error("Safety limit reached in get_relations pagination")
-                    break
-
-            return {"success": True, "data": json.dumps({"items": all_items}), "status_code": 200}
+            return self._paginated_fetch("v1/relation", params=params)
         except Exception as e:
             frappe.log_error(f"Error in get_relations: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -272,35 +199,7 @@ class EBoekhoudenAPI(EBoekhoudenHTTPClientMixin):
     def get_mutations(self, params=None):
         """Get Mutations (Transactions) - fetches ALL mutations with pagination"""
         try:
-            all_items = []
-            offset = 0
-            limit = 500
-
-            if not params:
-                params = {}
-
-            while True:
-                params_with_pagination = params.copy()
-                params_with_pagination.update({"limit": limit, "offset": offset})
-
-                result = self.make_request("v1/mutation", "GET", params_with_pagination)
-
-                if not result["success"]:
-                    return result
-
-                data = json.loads(result["data"])
-                items = data.get("items", [])
-                all_items.extend(items)
-
-                if len(items) < limit:
-                    break
-
-                offset += limit
-                if offset > 50000:  # Higher limit for mutations
-                    frappe.log_error("Safety limit reached in get_mutations pagination")
-                    break
-
-            return {"success": True, "data": json.dumps({"items": all_items}), "status_code": 200}
+            return self._paginated_fetch("v1/mutation", params=params, safety_limit=50000)
         except Exception as e:
             frappe.log_error(f"Error in get_mutations: {str(e)}")
             return {"success": False, "error": str(e)}

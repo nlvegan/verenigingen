@@ -785,13 +785,9 @@ def approve_membership_application(member_name, notes=None) -> OperationResult[D
     This function redirects to the canonical implementation for backward compatibility.
     Will be removed in a future version.
     """
-    import warnings
-
-    warnings.warn(
-        "verenigingen.api.membership_application.approve_membership_application is deprecated. "
-        "Use verenigingen.api.membership_application_review.approve_membership_application instead.",
-        DeprecationWarning,
-        stacklevel=2,
+    frappe.logger("membership").warning(
+        "DEPRECATED: membership_application.approve_membership_application called. "
+        "Use membership_application_review.approve_membership_application instead."
     )
 
     # Redirect to canonical implementation
