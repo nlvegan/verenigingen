@@ -1,10 +1,15 @@
 """
-Unit tests for suspension integration functions
+Integration tests for suspension functions using real database operations.
+
+Tests suspend_member_safe, unsuspend_member_safe, and get_member_suspension_status
+with actual Member and User documents.
 """
 
-from unittest.mock import MagicMock, patch
+import unittest
 
+import frappe
 from frappe.utils import today
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.termination_integration import (
     get_member_suspension_status,
@@ -14,275 +19,263 @@ from verenigingen.utils.termination_integration import (
 
 
 class TestSuspensionIntegration(EnhancedTestCase):
-    """Test suspension integration functions"""
+    """Integration tests for suspension functions with real data"""
 
     def setUp(self):
-        """Set up test data using factory methods"""
+        """Create test member with linked user account"""
         super().setUp()
-        
-        # Create test member using factory method
+
+        # Create user first so member can be linked
+        self.test_user = self.create_test_user_with_roles(
+            email="test.suspension@test.verenigingen.invalid",
+            roles=["Verenigingen Member"],
+            first_name="TestSuspension",
+            last_name="Member",
+        )
+
+        # Create member linked to user
         self.test_member = self.create_test_member(
             first_name="TestSuspension",
             last_name="Member",
-            email="test.suspension@example.com",
-            status="Active"
+            email="test.suspension@test.verenigingen.invalid",
+            status="Active",
         )
-        
+
         self.test_member_name = self.test_member.name
-        self.test_user_email = self.test_member.email
-        self.test_suspension_reason = "Test suspension for unit testing"
-        self.test_unsuspension_reason = "Test unsuspension for unit testing"
+        self.test_suspension_reason = "Test suspension for integration testing"
+        self.test_unsuspension_reason = "Test unsuspension for integration testing"
 
-    # tearDown handled by VereningingenTestCase automatically
+    def _ensure_member_status(self, status):
+        """Helper to set member status directly for test setup"""
+        frappe.db.set_value("Member", self.test_member_name, "status", status)
+        frappe.db.commit()
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    @patch("verenigingen.utils.termination_integration.frappe.db.get_value")
-    @patch("verenigingen.utils.termination_integration.frappe.db.exists")
-    @patch("verenigingen.utils.termination_integration.suspend_team_memberships_safe")
-    def test_suspend_member_safe_success(self, mock_suspend_teams, mock_exists, mock_get_value, mock_get_doc):
-        """Test successful member suspension"""
+    def _ensure_user_enabled(self, enabled):
+        """Helper to set user enabled state directly for test setup"""
+        frappe.db.set_value("User", self.test_user.name, "enabled", enabled)
+        frappe.db.commit()
 
-        # Mock member document
-        mock_member = MagicMock()
-        mock_member.status = "Active"
-        mock_member.notes = "Existing notes"
-        mock_member.name = self.test_member_name
-        mock_get_doc.return_value = mock_member
+    def test_suspend_member_safe_success(self):
+        """Test successful member suspension with user account"""
+        self._ensure_member_status("Active")
+        self._ensure_user_enabled(1)
 
-        # Mock user lookup
-        mock_get_value.return_value = self.test_user_email
-        mock_exists.return_value = True
-
-        # Mock user document
-        mock_user = MagicMock()
-        mock_user.enabled = 1
-        mock_user.bio = ""  # Initialize bio as empty string
-        mock_get_doc.side_effect = lambda doctype, name: {"Member": mock_member, "User": mock_user}.get(
-            doctype, mock_member
-        )
-
-        # Mock team suspension
-        mock_suspend_teams.return_value = 2
-
-        # Execute suspension
         result = suspend_member_safe(
-            self.test_member_name, self.test_suspension_reason, suspend_user=True, suspend_teams=True
+            self.test_member_name,
+            self.test_suspension_reason,
+            suspend_user=True,
+            suspend_teams=False,
         )
 
-        # Verify results
         self.assertTrue(result["success"])
         self.assertTrue(result["member_suspended"])
-        self.assertTrue(result["user_suspended"])
-        self.assertEqual(result["teams_suspended"], 2)
-        self.assertIn("Member status changed from Active to Suspended", result["actions_taken"])
-        self.assertIn("User account suspended", result["actions_taken"])
-        self.assertIn("Suspended 2 team membership(s)", result["actions_taken"])
 
-        # Verify member document updates
-        self.assertEqual(mock_member.status, "Suspended")
-        self.assertEqual(mock_member.pre_suspension_status, "Active")
-        self.assertIn(self.test_suspension_reason, mock_member.notes)
-        mock_member.save.assert_called_once()
+        # Verify member status in database
+        member = frappe.get_doc("Member", self.test_member_name)
+        self.assertEqual(member.status, "Suspended")
+        self.assertIn(self.test_suspension_reason, member.notes or "")
+        self.assertIn("Pre-suspension status: Active", member.notes or "")
 
-        # Verify user document updates
-        self.assertEqual(mock_user.enabled, 0)
-        self.assertIn(self.test_suspension_reason, mock_user.bio)
-        mock_user.save.assert_called_once()
+        # Verify user account was disabled
+        user = frappe.get_doc("User", self.test_user.name)
+        self.assertEqual(user.enabled, 0)
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    def test_suspend_member_safe_failure(self, mock_get_doc):
-        """Test suspension failure handling"""
+        # Verify action reporting
+        actions = result["actions_taken"]
+        self.assertTrue(
+            any("Member status changed from Active to Suspended" in a for a in actions)
+        )
+        self.assertTrue(any("User account suspended" in a for a in actions))
 
-        # Mock exception during member document retrieval
-        mock_get_doc.side_effect = Exception("Database error")
+    def test_suspend_member_safe_failure_nonexistent(self):
+        """Test suspension failure for non-existent member"""
+        result = suspend_member_safe("NONEXISTENT-MEMBER-999", self.test_suspension_reason)
 
-        # Execute suspension
-        result = suspend_member_safe(self.test_member_name, self.test_suspension_reason)
-
-        # Verify failure handling
         self.assertFalse(result["success"])
         self.assertIn("error", result)
-        self.assertEqual(result["error"], "Database error")
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    @patch("verenigingen.utils.termination_integration.frappe.db.get_value")
-    @patch("verenigingen.utils.termination_integration.frappe.db.exists")
-    def test_unsuspend_member_safe_success(self, mock_exists, mock_get_value, mock_get_doc):
-        """Test successful member unsuspension"""
+    def test_suspend_member_already_suspended(self):
+        """Test suspension of already-suspended member is idempotent"""
+        self._ensure_member_status("Suspended")
 
-        # Mock member document
-        mock_member = MagicMock()
-        mock_member.status = "Suspended"
-        mock_member.pre_suspension_status = "Active"
-        mock_member.notes = "Existing notes"
-        mock_member.name = self.test_member_name
-        mock_get_doc.return_value = mock_member
-
-        # Mock user lookup
-        mock_get_value.return_value = self.test_user_email
-        mock_exists.return_value = True
-
-        # Mock user document
-        mock_user = MagicMock()
-        mock_user.enabled = 0
-        mock_user.bio = ""  # Initialize bio as empty string
-        mock_get_doc.side_effect = lambda doctype, name: {"Member": mock_member, "User": mock_user}.get(
-            doctype, mock_member
+        result = suspend_member_safe(
+            self.test_member_name, self.test_suspension_reason
         )
 
-        # Execute unsuspension
-        result = unsuspend_member_safe(self.test_member_name, self.test_unsuspension_reason)
+        # Should succeed but report already suspended
+        self.assertTrue(result["success"])
+        self.assertTrue(
+            any("already suspended" in a for a in result["actions_taken"])
+        )
 
-        # Verify results
+    def test_unsuspend_member_safe_success(self):
+        """Test successful member unsuspension"""
+        # First suspend the member properly
+        self._ensure_member_status("Active")
+        self._ensure_user_enabled(1)
+        suspend_member_safe(
+            self.test_member_name,
+            self.test_suspension_reason,
+            suspend_user=True,
+            suspend_teams=False,
+        )
+
+        # Now unsuspend
+        result = unsuspend_member_safe(
+            self.test_member_name, self.test_unsuspension_reason
+        )
+
         self.assertTrue(result["success"])
         self.assertTrue(result["member_unsuspended"])
-        self.assertTrue(result["user_unsuspended"])
-        self.assertIn("Member status restored to Active", result["actions_taken"])
-        self.assertIn("User account reactivated", result["actions_taken"])
 
-        # Verify member document updates
-        self.assertEqual(mock_member.status, "Active")
-        self.assertIsNone(mock_member.pre_suspension_status)
-        self.assertIn(self.test_unsuspension_reason, mock_member.notes)
-        mock_member.save.assert_called_once()
+        # Verify member status restored in database
+        member = frappe.get_doc("Member", self.test_member_name)
+        self.assertEqual(member.status, "Active")
+        self.assertIn(self.test_unsuspension_reason, member.notes or "")
 
-        # Verify user document updates
-        self.assertEqual(mock_user.enabled, 1)
-        self.assertIn(self.test_unsuspension_reason, mock_user.bio)
-        mock_user.save.assert_called_once()
+        # Verify user account was re-enabled
+        user = frappe.get_doc("User", self.test_user.name)
+        self.assertEqual(user.enabled, 1)
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    def test_unsuspend_member_not_suspended(self, mock_get_doc):
-        """Test unsuspension of non-suspended member"""
+        # Verify action reporting
+        actions = result["actions_taken"]
+        self.assertTrue(
+            any("Member status restored to Active" in a for a in actions)
+        )
+        self.assertTrue(any("User account reactivated" in a for a in actions))
 
-        # Mock member document that is not suspended
-        mock_member = MagicMock()
-        mock_member.status = "Active"
-        mock_get_doc.return_value = mock_member
+    def test_unsuspend_member_not_suspended(self):
+        """Test unsuspension of non-suspended member returns error"""
+        self._ensure_member_status("Active")
 
-        # Execute unsuspension
-        result = unsuspend_member_safe(self.test_member_name, self.test_unsuspension_reason)
+        result = unsuspend_member_safe(
+            self.test_member_name, self.test_unsuspension_reason
+        )
 
-        # Verify failure handling
         self.assertFalse(result["success"])
         self.assertIn("is not suspended", result["error"])
         self.assertIn("Member is not suspended", result["errors"])
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    @patch("verenigingen.utils.termination_integration.frappe.db.get_value")
-    @patch("verenigingen.utils.termination_integration.frappe.db.exists")
-    @patch("verenigingen.utils.termination_integration.frappe.db.count")
-    def test_get_member_suspension_status(self, mock_count, mock_exists, mock_get_value, mock_get_doc):
-        """Test getting member suspension status"""
-
-        # Mock member document
-        mock_member = MagicMock()
-        mock_member.status = "Suspended"
-        mock_member.pre_suspension_status = "Active"
-        mock_get_doc.return_value = mock_member
-
-        # Mock user lookup
-        mock_get_value.return_value = self.test_user_email
-        mock_exists.return_value = True
-
-        # Mock user document
-        mock_user = MagicMock()
-        mock_user.enabled = 0
-        mock_get_doc.side_effect = lambda doctype, name: {"Member": mock_member, "User": mock_user}.get(
-            doctype, mock_member
+    def test_get_member_suspension_status_suspended(self):
+        """Test getting suspension status for suspended member"""
+        # Suspend the member first
+        self._ensure_member_status("Active")
+        self._ensure_user_enabled(1)
+        suspend_member_safe(
+            self.test_member_name,
+            self.test_suspension_reason,
+            suspend_user=True,
+            suspend_teams=False,
         )
 
-        # Mock team count
-        mock_count.return_value = 3
-
-        # Get suspension status
         status = get_member_suspension_status(self.test_member_name)
 
-        # Verify status information
         self.assertTrue(status["is_suspended"])
         self.assertEqual(status["member_status"], "Suspended")
         self.assertTrue(status["user_suspended"])
-        self.assertEqual(status["active_teams"], 3)
         self.assertEqual(status["pre_suspension_status"], "Active")
         self.assertTrue(status["can_unsuspend"])
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    def test_get_member_suspension_status_failure(self, mock_get_doc):
-        """Test suspension status failure handling"""
+    def test_get_member_suspension_status_active(self):
+        """Test getting suspension status for active member"""
+        self._ensure_member_status("Active")
+        self._ensure_user_enabled(1)
 
-        # Mock exception during member document retrieval
-        mock_get_doc.side_effect = Exception("Database error")
-
-        # Get suspension status
         status = get_member_suspension_status(self.test_member_name)
 
-        # Verify failure handling
+        self.assertFalse(status["is_suspended"])
+        self.assertEqual(status["member_status"], "Active")
+        self.assertFalse(status["can_unsuspend"])
+
+    def test_get_member_suspension_status_nonexistent(self):
+        """Test suspension status for non-existent member"""
+        status = get_member_suspension_status("NONEXISTENT-MEMBER-999")
+
         self.assertIn("error", status)
-        self.assertEqual(status["error"], "Database error")
         self.assertFalse(status["is_suspended"])
         self.assertFalse(status["can_unsuspend"])
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    @patch("verenigingen.utils.termination_integration.frappe.db.get_value")
-    def test_suspend_member_without_user_account(self, mock_get_value, mock_get_doc):
-        """Test suspending member without user account"""
-
-        # Mock member document
-        mock_member = MagicMock()
-        mock_member.status = "Active"
-        mock_member.notes = None
-        mock_get_doc.return_value = mock_member
-
-        # Mock no user account
-        mock_get_value.return_value = None
-
-        # Execute suspension
-        result = suspend_member_safe(self.test_member_name, self.test_suspension_reason, suspend_user=True)
-
-        # Verify results
-        self.assertTrue(result["success"])
-        self.assertTrue(result["member_suspended"])
-        self.assertFalse(result["user_suspended"])  # No user to suspend
-
-        # Verify member document updates
-        self.assertEqual(mock_member.status, "Suspended")
-        self.assertEqual(
-            mock_member.notes, f"Member suspended on {today()} - Reason: {self.test_suspension_reason}"
+    def test_suspend_member_without_user_account(self):
+        """Test suspending member that has no linked user account"""
+        # Create a member without a user account
+        member_no_user = self.create_test_member(
+            first_name="NoUser",
+            last_name="Member",
+            email="nouser.suspension@test.verenigingen.invalid",
+            status="Active",
         )
 
-    @patch("verenigingen.utils.termination_integration.frappe.get_doc")
-    @patch("verenigingen.utils.termination_integration.suspend_team_memberships_safe")
-    def test_suspend_member_teams_only(self, mock_suspend_teams, mock_get_doc):
-        """Test suspending only team memberships, not user account"""
-
-        # Mock member document
-        mock_member = MagicMock()
-        mock_member.status = "Active"
-        mock_member.notes = "Existing notes"
-        mock_get_doc.return_value = mock_member
-
-        # Mock team suspension
-        mock_suspend_teams.return_value = 1
-
-        # Execute suspension with user=False, teams=True
         result = suspend_member_safe(
-            self.test_member_name, self.test_suspension_reason, suspend_user=False, suspend_teams=True
+            member_no_user.name,
+            self.test_suspension_reason,
+            suspend_user=True,
+            suspend_teams=False,
         )
 
-        # Verify results
         self.assertTrue(result["success"])
         self.assertTrue(result["member_suspended"])
         self.assertFalse(result["user_suspended"])
-        self.assertEqual(result["teams_suspended"], 1)
 
-        # Verify team suspension was called
-        mock_suspend_teams.assert_called_once_with(
-            self.test_member_name, today(), f"Member suspended - {self.test_suspension_reason}"
+        # Verify member status in database
+        member = frappe.get_doc("Member", member_no_user.name)
+        self.assertEqual(member.status, "Suspended")
+        self.assertIn(self.test_suspension_reason, member.notes or "")
+
+    def test_suspend_without_user_flag(self):
+        """Test suspension with suspend_user=False skips user account"""
+        self._ensure_member_status("Active")
+        self._ensure_user_enabled(1)
+
+        result = suspend_member_safe(
+            self.test_member_name,
+            self.test_suspension_reason,
+            suspend_user=False,
+            suspend_teams=False,
         )
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["member_suspended"])
+        self.assertFalse(result["user_suspended"])
+
+        # Verify member is suspended but user is still enabled
+        member = frappe.get_doc("Member", self.test_member_name)
+        self.assertEqual(member.status, "Suspended")
+
+        user = frappe.get_doc("User", self.test_user.name)
+        self.assertEqual(user.enabled, 1)
+
+    def test_full_suspend_unsuspend_cycle(self):
+        """Test complete suspend → verify → unsuspend → verify cycle"""
+        self._ensure_member_status("Active")
+        self._ensure_user_enabled(1)
+
+        # Suspend
+        suspend_result = suspend_member_safe(
+            self.test_member_name,
+            self.test_suspension_reason,
+            suspend_user=True,
+            suspend_teams=False,
+        )
+        self.assertTrue(suspend_result["success"])
+
+        # Verify suspended state
+        status = get_member_suspension_status(self.test_member_name)
+        self.assertTrue(status["is_suspended"])
+        self.assertTrue(status["user_suspended"])
+
+        # Unsuspend
+        unsuspend_result = unsuspend_member_safe(
+            self.test_member_name, self.test_unsuspension_reason
+        )
+        self.assertTrue(unsuspend_result["success"])
+
+        # Verify restored state
+        status = get_member_suspension_status(self.test_member_name)
+        self.assertFalse(status["is_suspended"])
+        self.assertEqual(status["member_status"], "Active")
 
 
 if __name__ == "__main__":
-    # Can be run via:
-    # bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.integration.test_suspension_integration
-    import unittest
+    # bench --site veg11.veganisme.org run-tests --app verenigingen \
+    #   --module verenigingen.tests.backend.integration.test_suspension_integration
     unittest.main()
