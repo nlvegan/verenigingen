@@ -104,7 +104,7 @@ class InsecureAPIDetector:
     SECURITY_DECORATORS = {
         'critical_api', 'high_security_api', 'standard_api', 'utility_api', 'public_api',
         'api_security_framework', 'require_csrf_token', 'rate_limit', 'require_roles',
-        'audit_log', 'require_sepa_permission'
+        'audit_log', 'require_sepa_permission', 'development_only'
     }
 
     # Operation type classification patterns
