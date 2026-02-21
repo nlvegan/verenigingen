@@ -1,7 +1,7 @@
 """
 Financial History Batch Processor
 
-Implements 10-second batching for financial history updates to:
+Implements 30-second batching for financial history updates to:
 - Eliminate database lock contention
 - Reduce I/O overhead
 - Maintain atomic operations per member
@@ -78,19 +78,19 @@ class FinancialHistoryBatchProcessor:
 
     @classmethod
     def _maybe_process_batches(cls):
-        """Check if it's time to process batches (every 10 seconds)."""
+        """Check if it's time to process batches (every 30 seconds)."""
         current_time = get_datetime(now())
 
         # Process payment batches
         last_payment = cls._last_processed.get("payments")
-        if not last_payment or (current_time - get_datetime(last_payment)).seconds >= 10:
+        if not last_payment or (current_time - get_datetime(last_payment)).seconds >= 30:
             if cls._payment_queue:
                 cls._process_payment_batches()
                 cls._last_processed["payments"] = now()
 
         # Process expense batches
         last_expense = cls._last_processed.get("expenses")
-        if not last_expense or (current_time - get_datetime(last_expense)).seconds >= 10:
+        if not last_expense or (current_time - get_datetime(last_expense)).seconds >= 30:
             if cls._expense_queue:
                 cls._process_expense_batches()
                 cls._last_processed["expenses"] = now()
@@ -273,7 +273,7 @@ def schedule_financial_history_processing():
 
     Add to hooks.py:
     "cron": {
-        "*/10 * * * * *": [  # Every 10 seconds
+        "*/30 * * * * *": [  # Every 30 seconds
             "verenigingen.utils.financial_history_batch_processor.schedule_financial_history_processing"
         ]
     }

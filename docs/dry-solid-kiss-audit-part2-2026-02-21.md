@@ -293,30 +293,110 @@
 
 ---
 
+## Resolution Status
+
+### P0 — Data Integrity & Security (commit `03f32976`, 2026-02-21)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| R-C1 | SQL injection in `sepa_batch_processor.py` | **FIXED** | Converted to parameterized query |
+| R-C2 | `chapter_members.py` SQL injection | **FALSE POSITIVE** | Already uses `%(chapter)s` / `%(status)s` parameterized placeholders |
+| R-C3 | `members_without_active_memberships.py` SQL injection | **FALSE POSITIVE** | Status exclusion list uses hardcoded string literals; user input via `%(member_status)s` |
+| R-C4 | `pending_membership_applications.py` SQL injection | **FALSE POSITIVE** | Uses `%(_overdue_date)s` etc. parameterized placeholders; dates from `add_days(today(), ...)` |
+| R-C5 | `volunteer_interest_analysis.py` SQL injection | **FALSE POSITIVE** | Uses `%(availability)s` etc. parameterized placeholders |
+| HK-C1 | Dead e_boekhouden hook references | **FIXED** | Removed 4 dead function references |
+| OV-C1 | Monkey-patch `validate_due_date()` | **FIXED** | Removed; replaced with configurable due date field in Payment Settings |
+| OV-C2 | Monkey-patch `session_cache_fix.py` | **FIXED** | Removed monkey-patch and boot.py import |
+| P-C1 | 5 missing patches in patches.txt | **ALREADY FIXED** | 8 orphaned entries removed in commit `03f32976`; all in Patch Log on existing site |
+| P-C2 | SQL injection in `remove_membership_legacy_fields.py` | **FALSE POSITIVE** | Column names are hardcoded in patch; DDL can't use parameterized identifiers |
+| P-C3 | SQL injection in `add_volunteer_assignment_query_indexes.py` | **FALSE POSITIVE** | Table/index names hardcoded in patch; DDL can't use parameterized identifiers |
+
+### P1 — Reliability (commit `7878f1d2`, 2026-02-21)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| BG-C1 | Scheduler idempotency | **FIXED** | Advisory lock guards on 6 critical tasks: `process_expired_memberships`, `send_renewal_reminders`, `auto_create_missing_dues_schedules`, `daily_batch_optimization`, `create_monthly_dues_collection_batch`, `reconcile_bank_transactions` |
+| BG-C3 | Missing try/except on enqueue | **FIXED** | Added to `payment_retry.py`, `account_creation_manager.py` (2 locations), `bulk_invoice_generation_service.py` |
+| WT-C1 | XSS in `apply_for_membership.html` | **FIXED** | Replaced innerHTML with safe DOM element creation |
+| WT-C2 | XSS in `mollie_bulk_payment_creation.html` | **FIXED** | Added `frappe.utils.escape_html()` to 4 unescaped fields |
+| WT-C3 | XSS in `mt940_import.html` | **FIXED** | Added `escapeHtml()` helper, applied to ~15 dynamic values |
+| WT-C4 | XSS in `admin_tools.html` | **FIXED** | Added `escapeHtml()` helper, applied to all dynamic output |
+| SC-C3 | pytest-coverage-critical on pre-commit | **FIXED** | Moved to `stages: [pre-push]` (~80s saved per commit) |
+
+### P2 — DRY Consolidation (commit `a46e4fb9`, 2026-02-21)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| HK-C2 | `critical_operation_rule.json` duplicates | **FIXED** | Removed 21 content-identical rules (2,596 → 2,575) |
+| HK-C3 | `operation-result-helpers.js` loaded twice | **FALSE POSITIVE** | `app_include_js` (Desk) and `web_include_js` (portal) are separate page contexts |
+| HK-H3 | Duplicate module blocking in `module_profile.json` | **FIXED** | Removed 7 dead "E Boekhouden" (space) entries; actual module is "E-Boekhouden" (hyphen) |
+| CSS-C1 | `.membership-type-card` defined twice | **FALSE POSITIVE** | Two definitions have different border-radius (8px vs 12px), shadows, and child selectors |
+| CSS-C2 | Extract shared CSS variables | **DEFERRED** | Brand primary (#cf3131) doesn't match CSS blue (#007bff); mechanical replacement would change UI appearance. Requires design review. |
+| SC-C1 | 98 archived validators | **SKIPPED** | 10 of 97 "archived" validators are STILL ACTIVE in `.pre-commit-config.yaml`. Not safe to delete. |
+| T-C1 | Consolidate test factories | Not yet addressed | Large scope (~9,800 LOC) |
+| T-C2/T-C3 | Consolidate duplicate test suites | Not yet addressed | Large scope (30+ files) |
+
+### Batch 3 — Scheduler & Hooks Cleanup (2026-02-21)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| HK-H2 | Dead `workflow_action_handlers` hook | **FIXED** | Removed from `hooks/__init__.py` — NOT a recognized Frappe hook, never invoked |
+| BG-H2 | Financial history batch processor at 10s | **FIXED** | Reduced to 30s (`*/30 * * * * *`); 3x less scheduler overhead while still near-real-time |
+| BG-H3 | No batch size limit on `process_expired_memberships` | **FIXED** | Added 500-per-run limit with warning when cap is reached |
+| OV-H1 | Empty Payment Entry pass-through override | **KEPT** | Legitimate — counters HRMS global override that breaks Customer/Supplier payment cancellations |
+| P-C1 | 5 missing patches in patches.txt | **ALREADY FIXED** | Resolved in commit `03f32976` (8 orphaned entries removed) |
+| R-C4 | `pending_membership_applications.py` SQL injection | **FALSE POSITIVE** | Uses `%(_overdue_date)s` parameterized placeholders with server-generated dates |
+| P-C2 | Patch SQL injection (ALTER TABLE) | **FALSE POSITIVE** | Hardcoded column names; DDL can't use parameterized identifiers |
+| P-C3 | Patch SQL injection (CREATE INDEX) | **FALSE POSITIVE** | Hardcoded table/index names; DDL can't use parameterized identifiers |
+
+### Remaining Items (Not Yet Addressed)
+
+**P1 remaining:**
+- BG-C2: Job chaining recovery in `account_creation_manager.py` (partially mitigated — tracker comment added)
+- BG-C4: No progress checkpointing in bulk invoice generation (3600s timeout)
+- BG-H1: Triple enqueue pattern not consolidated
+
+**P2 remaining:**
+- T-C1 through T-C4: Test factory and suite consolidation (large scope)
+- SC-H1: 5 overlapping field validators
+- CSS-H2 through CSS-H6: CSS cleanup items
+
+**P3 (architecture):**
+- JS-C3, JS-H1, JS-H2: Split JS god objects
+- DT-H1: Split Member DocType
+- OV-H2: Consolidate Sales Invoice hooks
+- R-H2, R-H3: Shared report utilities
+
+---
+
 ## Prioritized Action Plan
 
 ### Immediate (P0) — Data Integrity & Security
 
-1. **Fix 6 SQL injection risks in reports** (R-C1 through R-C5) — use parameterized queries
-2. **Fix 5 missing patches in patches.txt** (P-C1) — remove or create missing files to prevent migration failures
-3. **Fix 4 dead function references in e_boekhouden hooks** (HK-C1) — remove or implement
-4. **Add version guards to monkey-patches** (OV-C1, OV-C2) — prevent silent breakage on upgrade
+1. ~~Fix 6 SQL injection risks in reports~~ — **R-C1 FIXED; R-C2 through R-C5 all false positives (already parameterized)**
+2. ~~Fix 5 missing patches in patches.txt~~ — **ALREADY FIXED** (commit `03f32976`)
+3. ~~Fix 4 dead function references in e_boekhouden hooks~~ — **FIXED**
+4. ~~Add version guards to monkey-patches~~ — **REMOVED entirely (OV-C1 replaced with configurable setting; OV-C2 deleted)**
+5. ~~Patch SQL injection (P-C2, P-C3)~~ — **FALSE POSITIVE** (hardcoded DDL identifiers)
 
 ### Short-term (P1) — Reliability
 
-5. **Add idempotency to top 10 scheduled tasks** (BG-C1) — start with financial tasks
-6. **Add try/except to critical enqueue calls** (BG-C3) — especially payment retry
-7. **Fix innerHTML XSS in 4 critical templates** (WT-C1 through WT-C4) — use textContent or escapeHtml
-8. **Reduce pre-commit time** (SC-C3) — move pytest-coverage to pre-push (saves 2+ min per commit)
+6. ~~Add idempotency to top 10 scheduled tasks~~ — **FIXED** (6 tasks with advisory locks)
+7. ~~Add try/except to critical enqueue calls~~ — **FIXED** (4 files)
+8. ~~Fix innerHTML XSS in 4 critical templates~~ — **FIXED**
+9. ~~Reduce pre-commit time~~ — **FIXED** (pytest-coverage moved to pre-push)
+10. ~~Remove dead workflow_action_handlers hook~~ — **FIXED** (HK-H2)
+11. ~~Reduce batch processor frequency~~ — **FIXED** (10s → 30s, BG-H2)
+12. ~~Add batch size limit~~ — **FIXED** (500-per-run cap, BG-H3)
 
 ### Medium-term (P2) — DRY Consolidation
 
 9. **Consolidate test factories** (T-C1) — create single TestDataFactory with composition, delete 5 duplicates
-10. **Delete 98 archived validators** (SC-C1) — available in git history if needed
+10. ~~Delete 98 archived validators~~ — **SKIPPED** (10 still active in pre-commit)
 11. **Consolidate 5 field validators into 2** (SC-H1) — fast pre-commit + thorough pre-push
 12. **Consolidate duplicate test suites** (T-C2, T-C3) — keep _real versions, delete _optimized/_minimal
-13. **Clean up critical_operation_rule.json** (HK-C2) — deduplicate 243 operation names
-14. **Extract shared CSS variables** (CSS-C2) — replace 52+ hardcoded color values
+13. ~~Clean up critical_operation_rule.json~~ — **FIXED** (21 duplicates removed)
+14. ~~Extract shared CSS variables~~ — **DEFERRED** (design review needed)
 
 ### Long-term (P3) — Architecture
 
@@ -325,7 +405,7 @@
 17. **Split Member DocType** (DT-H1) — extract payment/SEPA/history to linked DocTypes
 18. **Consolidate Sales Invoice hooks** (OV-H2) — single location for all handlers
 19. **Extract shared report utilities** (R-H2, R-H3) — column definitions, chart generation
-20. **Add batch size limits to scheduler tasks** (BG-H3) — prevent worker blocking
+20. ~~Add batch size limits to scheduler tasks~~ — **FIXED** (BG-H3, 500-per-run limit)
 
 ---
 
@@ -345,3 +425,6 @@
 | 10 | CSS/Styles | 11 files | 3 | 6 | 10 | 5 |
 | 11 | Overrides | 3 patches | 3 | 3 | 2 | 0 |
 | | **Total** | | **37** | **46** | **67** | **43** |
+| | **Resolved** | | **15** | **5** | **0** | **0** |
+| | **False Positive** | | **8** | **0** | **0** | **0** |
+| | **Remaining** | | **14** | **41** | **67** | **43** |

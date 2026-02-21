@@ -67,17 +67,6 @@ jinja = {
 }
 
 # =============================================================================
-# WORKFLOW ACTION HANDLERS
-# =============================================================================
-workflow_action_handlers = {
-    "Membership Termination Workflow": {
-        "Approve": "verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.on_workflow_action",
-        "Execute": "verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.on_workflow_action",
-        "Reject": "verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.on_workflow_action",
-    }
-}
-
-# =============================================================================
 # DOCTYPE CLASS OVERRIDES
 # =============================================================================
 override_doctype_class = {"Payment Entry": "verenigingen.overrides.payment_entry.PaymentEntry"}

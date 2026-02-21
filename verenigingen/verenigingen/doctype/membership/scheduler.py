@@ -111,10 +111,13 @@ def process_expired_memberships():
 
 
 def _process_expired_memberships_impl():
+    batch_size = 500
+
     memberships = frappe.get_all(
         "Membership",
         filters={"status": "Active", "renewal_date": ["<", today()], "docstatus": 1},
         fields=["name"],
+        limit_page_length=batch_size,
     )
 
     count = 0
@@ -135,6 +138,10 @@ def _process_expired_memberships_impl():
 
     if count:
         frappe.logger().info(f"Processed {count} expired memberships")
+        if count >= batch_size:
+            frappe.logger().warning(
+                f"Batch limit ({batch_size}) reached — more expired memberships may remain for next run"
+            )
 
     return count
 
