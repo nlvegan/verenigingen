@@ -89,19 +89,19 @@ def get_data(filters):
             conditions.append("m.current_membership_type = %(membership_type)s")
 
         if filters.get("overdue_only"):
-            overdue_date = add_days(today(), -14)
-            conditions.append(f"DATE(m.application_date) < '{overdue_date}'")
+            filters["_overdue_date"] = add_days(today(), -14)
+            conditions.append("DATE(m.application_date) < %(_overdue_date)s")
 
         # Support for aging filter (7+ days)
         if filters.get("aging_only"):
-            aging_date = add_days(today(), -7)
-            conditions.append(f"DATE(m.application_date) < '{aging_date}'")
+            filters["_aging_date"] = add_days(today(), -7)
+            conditions.append("DATE(m.application_date) < %(_aging_date)s")
 
         # Support for days filter from URL parameters
         if filters.get("days_filter"):
             days = int(filters.get("days_filter"))
-            cutoff_date = add_days(today(), -days)
-            conditions.append(f"DATE(m.application_date) < '{cutoff_date}'")
+            filters["_cutoff_date"] = add_days(today(), -days)
+            conditions.append("DATE(m.application_date) < %(_cutoff_date)s")
 
     if conditions:
         where_clause = "WHERE " + " AND ".join(conditions)
@@ -261,14 +261,14 @@ def get_user_chapter_filter():
         pass
 
     # Chapter-specific access - proper JOIN-based filtering for security
-    chapter_list = "'" + "','".join(accessible_chapters) + "'"
+    escaped_chapters = ", ".join(frappe.db.escape(ch) for ch in accessible_chapters)
     return f"""(
         EXISTS (
             SELECT 1 FROM `tabChapter Member` cm
             WHERE cm.member = m.name
-            AND cm.parent IN ({chapter_list})
+            AND cm.parent IN ({escaped_chapters})
             AND cm.status = 'Active'
-        ) OR m.preferred_chapter IN ({chapter_list})
+        ) OR m.preferred_chapter IN ({escaped_chapters})
         OR m.preferred_chapter IS NULL
         OR m.preferred_chapter = ''
     )"""

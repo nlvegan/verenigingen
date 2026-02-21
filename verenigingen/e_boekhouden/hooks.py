@@ -15,19 +15,10 @@ app_publisher = "Verenigingen App"
 # Module-specific DocTypes (will be loaded automatically from doctype folders)
 # No explicit declaration needed - Frappe autodiscovers from directory structure
 
-# Scheduled tasks specific to E-Boekhouden
-scheduler_events = {
-    "daily": ["verenigingen.e_boekhouden.utils.eboekhouden_api.daily_sync_check"],
-    "weekly": ["verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_old_logs"],
-}
-
-# Document events specific to E-Boekhouden operations
-doc_events = {
-    "Account": {"before_save": ["verenigingen.e_boekhouden.utils.eboekhouden_api.validate_account_mapping"]},
-    "Sales Invoice": {
-        "on_submit": ["verenigingen.e_boekhouden.utils.eboekhouden_api.sync_invoice_to_eboekhouden"]
-    },
-}
+# NOTE: Frappe only loads hooks.py from the app root, not submodules.
+# These were never active. The real doc_events for Sales Invoice are in
+# vereinigingen/hooks/doc_events.py. Scheduler tasks for e-boekhouden
+# are in verenigingen/hooks/scheduler.py. Dead references removed 2026-02-21.
 
 # Website context for E-Boekhouden specific pages
 website_context = {"eboekhouden_integration_enabled": True}
@@ -35,7 +26,7 @@ website_context = {"eboekhouden_integration_enabled": True}
 # Fixtures for E-Boekhouden specific setup data
 fixtures = [
     {
-        "dt": "Custom Field",
+        "doctype": "Custom Field",
         "filters": [
             [
                 "name",

@@ -185,9 +185,10 @@ def get_conditions(filters):
         conditions.append("(pda.anbi_eligible = 0 OR pda.anbi_eligible IS NULL)")
 
     if filters.get("expiring_in_days"):
-        future_date = add_days(today(), int(filters.get("expiring_in_days")))
+        filters["_future_date"] = add_days(today(), int(filters.get("expiring_in_days")))
+        filters["_today_date"] = today()
         conditions.append(
-            f"pda.end_date <= '{future_date}' AND pda.end_date >= '{today()}' AND pda.status = 'Active'"
+            "pda.end_date <= %(_future_date)s AND pda.end_date >= %(_today_date)s AND pda.status = 'Active'"
         )
 
     if filters.get("payment_frequency"):

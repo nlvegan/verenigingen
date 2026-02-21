@@ -5,17 +5,15 @@ verenigingen.patches.v1_0.create_eboekhouden_fields
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
-verenigingen.patches.migrate_contribution_amendment_request
-verenigingen.patches.migrate_contribution_amendment_request_v2
-verenigingen.patches.v1_0.cleanup_workspaces
-verenigingen.patches.fix_onboarding_visibility
-verenigingen.patches.add_national_board_member_role
+# NOTE: 8 orphaned patch entries removed 2026-02-21 — files never existed, would cause
+# ImportError on fresh install. Already recorded in __patches on existing sites.
+# Removed: migrate_contribution_amendment_request, migrate_contribution_amendment_request_v2,
+# v1_0.cleanup_workspaces, fix_onboarding_visibility, add_national_board_member_role,
+# remove_unique_constraint_member_dues_schedule, rename_amount_to_dues_rate,
+# add_customer_member_link_field
 verenigingen.patches.v1_0.add_membership_analytics
-verenigingen.patches.remove_unique_constraint_member_dues_schedule
-verenigingen.patches.rename_amount_to_dues_rate
 verenigingen.patches.v2_0.add_workflow_demo_to_workspace
 verenigingen.patches.v2_0.migrate_membership_type_billing_to_dues_schedule
-verenigingen.patches.add_customer_member_link_field
 verenigingen.patches.v2_0.remove_membership_legacy_fields
 verenigingen.patches.v2_0.standardize_donation_field_names
 verenigingen.patches.v2_0.add_donor_auto_creation_fields

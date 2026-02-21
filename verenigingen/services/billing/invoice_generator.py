@@ -678,10 +678,12 @@ class InvoiceGenerator(StatelessService):
             invoice.membership = member_doc.current_membership_plan
 
         # Set payment terms or default due date
+        # Use 45 days from coverage period start — ensures due_date >= posting_date
+        # even when billing retroactively, avoiding ERPNext's validate_due_date rejection.
         if payment_config["payment_terms"]:
             invoice.payment_terms_template = payment_config["payment_terms"]
         else:
-            invoice.due_date = add_days(today(), 30)
+            invoice.due_date = add_days(coverage_start, 45)
 
         # Set SEPA mandate if applicable
         if payment_config["sepa_mandate_id"]:
