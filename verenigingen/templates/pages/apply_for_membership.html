@@ -1509,19 +1509,40 @@ function addCustomSkill() {
         }
     }
 
-    // Create new skill element
+    // Create new skill element using DOM methods to prevent XSS
     const skillElement = document.createElement('div');
     skillElement.className = 'flex items-center justify-between bg-white p-2 rounded border';
-    skillElement.innerHTML = `
-        <label class="flex items-center space-x-2 flex-1">
-            <input type="checkbox" name="volunteer_skills[]" value="${skillValue}" class="form-input w-auto" checked>
-            <span class="text-sm">${skillName}</span>
-            <span class="text-xs text-gray-500">(${category})</span>
-        </label>
-        <button type="button" onclick="removeCustomSkill(this)" class="text-red-500 hover:text-red-700 text-sm px-2">
-            Remove
-        </button>
-    `;
+
+    const label = document.createElement('label');
+    label.className = 'flex items-center space-x-2 flex-1';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.name = 'volunteer_skills[]';
+    checkbox.value = skillValue;
+    checkbox.className = 'form-input w-auto';
+    checkbox.checked = true;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'text-sm';
+    nameSpan.textContent = skillName;
+
+    const catSpan = document.createElement('span');
+    catSpan.className = 'text-xs text-gray-500';
+    catSpan.textContent = '(' + category + ')';
+
+    label.appendChild(checkbox);
+    label.appendChild(nameSpan);
+    label.appendChild(catSpan);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'text-red-500 hover:text-red-700 text-sm px-2';
+    removeBtn.textContent = 'Remove';
+    removeBtn.onclick = function() { removeCustomSkill(this); };
+
+    skillElement.appendChild(label);
+    skillElement.appendChild(removeBtn);
 
     skillsList.appendChild(skillElement);
 

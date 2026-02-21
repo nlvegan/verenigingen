@@ -55,6 +55,21 @@ def create_monthly_dues_collection_batch():
     """
     from frappe.utils import getdate, today
 
+    from verenigingen.utils.db_advisory_lock import get_lock, release_lock
+
+    if not get_lock("sched_monthly_dues_collection_batch", timeout=0):
+        frappe.logger().info("create_monthly_dues_collection_batch already running, skipping")
+        return None
+
+    try:
+        return _create_monthly_dues_collection_batch_impl()
+    finally:
+        release_lock("sched_monthly_dues_collection_batch")
+
+
+def _create_monthly_dues_collection_batch_impl():
+    from frappe.utils import getdate, today
+
     # Use centralized configuration manager
     config_manager = get_sepa_config_manager()
     timing_config = config_manager.get_batch_timing_config()

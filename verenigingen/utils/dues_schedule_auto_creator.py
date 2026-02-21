@@ -109,6 +109,19 @@ def auto_create_missing_dues_schedules_scheduled():
     This scheduled task ensures billing continuity for members.
     Note: Retry logic is now handled by DuesScheduleCreationService with frappe.enqueue().
     """
+    from verenigingen.utils.db_advisory_lock import get_lock, release_lock
+
+    if not get_lock("sched_auto_create_dues_schedules", timeout=0):
+        frappe.logger().info("auto_create_missing_dues_schedules already running, skipping")
+        return {"total_found": 0, "created": 0, "errors": 0, "skipped": True}
+
+    try:
+        return _auto_create_missing_dues_schedules_impl()
+    finally:
+        release_lock("sched_auto_create_dues_schedules")
+
+
+def _auto_create_missing_dues_schedules_impl():
     frappe.logger().info("Starting scheduled auto-creation of missing dues schedules")
 
     # Call the enhanced version that's defined later in this file

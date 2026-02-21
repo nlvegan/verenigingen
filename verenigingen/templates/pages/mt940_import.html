@@ -352,6 +352,13 @@
 </style>
 
 <script>
+function escapeHtml(str) {
+    if (str == null) return '';
+    var div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Import type selection elements
     const mt940Option = document.getElementById('mt940-option');
@@ -794,39 +801,39 @@ document.addEventListener('DOMContentLoaded', function() {
     function showError(message) {
         resultsSection.style.display = 'block';
         resultsAlert.className = 'alert alert-danger';
-        resultsContent.innerHTML = '<strong>Error:</strong> ' + message;
+        resultsContent.innerHTML = '<strong>Error:</strong> ' + escapeHtml(message);
     }
 
     function formatSuccessResults(result) {
         let html = '<h4><i class="fa fa-check-circle"></i> Import Successful!</h4>';
 
         if (result.bank_account) {
-            html += '<p><strong>Bank Account:</strong> ' + result.bank_account + '</p>';
+            html += '<p><strong>Bank Account:</strong> ' + escapeHtml(result.bank_account) + '</p>';
         }
 
         if (result.transactions_created) {
-            html += '<p><strong>Transactions Created:</strong> ' + result.transactions_created + '</p>';
+            html += '<p><strong>Transactions Created:</strong> ' + escapeHtml(result.transactions_created) + '</p>';
         }
 
         if (result.transactions_updated) {
-            html += '<p><strong>Transactions Updated:</strong> ' + result.transactions_updated + '</p>';
+            html += '<p><strong>Transactions Updated:</strong> ' + escapeHtml(result.transactions_updated) + '</p>';
         }
 
         if (result.transactions_skipped) {
-            html += '<p><strong>Transactions Skipped:</strong> ' + result.transactions_skipped + '</p>';
+            html += '<p><strong>Transactions Skipped:</strong> ' + escapeHtml(result.transactions_skipped) + '</p>';
         }
 
         if (result.statement_info) {
             html += '<div class="transaction-summary">';
             html += '<h5>Statement Information</h5>';
             if (result.statement_info.account_iban) {
-                html += '<p><strong>Account IBAN:</strong> ' + result.statement_info.account_iban + '</p>';
+                html += '<p><strong>Account IBAN:</strong> ' + escapeHtml(result.statement_info.account_iban) + '</p>';
             }
             if (result.statement_info.opening_balance) {
-                html += '<p><strong>Opening Balance:</strong> ' + result.statement_info.opening_balance + '</p>';
+                html += '<p><strong>Opening Balance:</strong> ' + escapeHtml(result.statement_info.opening_balance) + '</p>';
             }
             if (result.statement_info.closing_balance) {
-                html += '<p><strong>Closing Balance:</strong> ' + result.statement_info.closing_balance + '</p>';
+                html += '<p><strong>Closing Balance:</strong> ' + escapeHtml(result.statement_info.closing_balance) + '</p>';
             }
             if (result.statement_info.statement_date) {
                 html += '<p><strong>Statement Date:</strong> ' + result.statement_info.statement_date + '</p>';
@@ -859,15 +866,15 @@ document.addEventListener('DOMContentLoaded', function() {
         let html = '<h4><i class="fa fa-bug"></i> Debug Information</h4>';
 
         if (debug.error) {
-            html += '<div class="alert alert-danger"><strong>Error:</strong> ' + debug.error + '</div>';
+            html += '<div class="alert alert-danger"><strong>Error:</strong> ' + escapeHtml(debug.error) + '</div>';
             if (debug.traceback) {
-                html += '<pre style="font-size: 11px; max-height: 200px; overflow-y: auto;">' + debug.traceback + '</pre>';
+                html += '<pre style="font-size: 11px; max-height: 200px; overflow-y: auto;">' + escapeHtml(debug.traceback) + '</pre>';
             }
         } else {
             html += '<div class="row">';
             html += '<div class="col-md-6">';
             html += '<h5>File Processing</h5>';
-            html += '<p><strong>Step:</strong> ' + debug.step + '</p>';
+            html += '<p><strong>Step:</strong> ' + escapeHtml(debug.step) + '</p>';
             html += '<p><strong>Content Length:</strong> ' + debug.content_length + ' characters</p>';
 
             if (debug.statements_found !== undefined) {
@@ -875,7 +882,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             if (debug.parse_error) {
-                html += '<div class="alert alert-warning"><strong>Parse Error:</strong> ' + debug.parse_error + '</div>';
+                html += '<div class="alert alert-warning"><strong>Parse Error:</strong> ' + escapeHtml(debug.parse_error) + '</div>';
             }
 
             html += '</div>';
@@ -986,7 +993,7 @@ document.addEventListener('DOMContentLoaded', function() {
             resultsContent.innerHTML = html;
         } else {
             resultsAlert.className = 'alert alert-danger';
-            resultsContent.innerHTML = '<h4><i class="fa fa-exclamation-circle"></i> Test Failed</h4><p>' + (result.error || 'Unknown error') + '</p>';
+            resultsContent.innerHTML = '<h4><i class="fa fa-exclamation-circle"></i> Test Failed</h4><p>' + escapeHtml(result.error || 'Unknown error') + '</p>';
         }
     }
 
@@ -997,22 +1004,22 @@ document.addEventListener('DOMContentLoaded', function() {
         let html = '<h4><i class="fa fa-wrench"></i> Detailed Import Debug</h4>';
 
         if (result.error) {
-            html += '<div class="alert alert-danger"><strong>Error:</strong> ' + result.error + '</div>';
+            html += '<div class="alert alert-danger"><strong>Error:</strong> ' + escapeHtml(result.error) + '</div>';
         } else {
             html += '<ul>';
-            html += '<li><strong>Step:</strong> ' + result.step + '</li>';
-            html += '<li><strong>Content Length:</strong> ' + result.content_length + ' characters</li>';
+            html += '<li><strong>Step:</strong> ' + escapeHtml(result.step) + '</li>';
+            html += '<li><strong>Content Length:</strong> ' + escapeHtml(result.content_length) + ' characters</li>';
 
             if (result.extracted_iban) {
-                html += '<li><strong>Extracted IBAN:</strong> ' + result.extracted_iban + '</li>';
+                html += '<li><strong>Extracted IBAN:</strong> ' + escapeHtml(result.extracted_iban) + '</li>';
             }
 
             if (result.found_bank_account) {
-                html += '<li><strong>Found Bank Account:</strong> ' + result.found_bank_account + '</li>';
+                html += '<li><strong>Found Bank Account:</strong> ' + escapeHtml(result.found_bank_account) + '</li>';
             }
 
-            html += '<li><strong>Final Bank Account:</strong> ' + (result.final_bank_account || 'None') + '</li>';
-            html += '<li><strong>Final Company:</strong> ' + (result.final_company || 'None') + '</li>';
+            html += '<li><strong>Final Bank Account:</strong> ' + escapeHtml(result.final_bank_account || 'None') + '</li>';
+            html += '<li><strong>Final Company:</strong> ' + escapeHtml(result.final_company || 'None') + '</li>';
 
             if (result.statements_found) {
                 html += '<li><strong>Statements Found:</strong> ' + result.statements_found + '</li>';
@@ -1061,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     mollieResultsSection.style.display = 'block';
                     mollieResultsAlert.className = 'alert alert-warning';
-                    mollieResultsContent.innerHTML = '<h4>Import Started</h4><p>Import document created: ' + importDocName + '</p><p>Check the document status for progress updates.</p>';
+                    mollieResultsContent.innerHTML = '<h4>Import Started</h4><p>Import document created: ' + escapeHtml(importDocName) + '</p><p>Check the document status for progress updates.</p>';
                 }
             },
             error: function(err) {
@@ -1069,7 +1076,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 mollieProgressSection.style.display = 'none';
                 mollieResultsSection.style.display = 'block';
                 mollieResultsAlert.className = 'alert alert-danger';
-                mollieResultsContent.innerHTML = '<h4>Submit Failed</h4><p>' + (err.message || 'Unknown error') + '</p>';
+                mollieResultsContent.innerHTML = '<h4>Submit Failed</h4><p>' + escapeHtml(err.message || 'Unknown error') + '</p>';
             }
         });
     }
@@ -1078,7 +1085,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let html = '';
 
         if (estimate.error) {
-            html = '<div class="alert alert-danger">' + estimate.error + '</div>';
+            html = '<div class="alert alert-danger">' + escapeHtml(estimate.error) + '</div>';
         } else {
             html += '<div class="mollie-estimate-item"><strong>Date Range:</strong> ' + estimate.date_range.days + ' days (' + estimate.date_range.from.split('T')[0] + ' to ' + estimate.date_range.to.split('T')[0] + ')</div>';
             html += '<div class="mollie-estimate-item"><strong>Strategy:</strong> ' + estimate.strategy.charAt(0).toUpperCase() + estimate.strategy.slice(1) + '</div>';
@@ -1095,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (estimate.warnings && estimate.warnings.length > 0) {
                 html += '<div class="alert alert-warning mollie-warning" style="margin-top: 15px;"><strong>Warnings:</strong><ul>';
                 for (let warning of estimate.warnings) {
-                    html += '<li>' + warning + '</li>';
+                    html += '<li>' + escapeHtml(warning) + '</li>';
                 }
                 html += '</ul></div>';
             }

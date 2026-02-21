@@ -838,6 +838,13 @@
 
 <script>
 
+function escapeHtml(str) {
+    if (str == null) return '';
+    var div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
+
 // Tab switching
 function switchTab(tabName) {
     // Update tab buttons
@@ -936,8 +943,8 @@ function formatInvoiceResult(result) {
         html += '<thead style="background-color: var(--brand-bg-secondary, #f8f9fa);"><tr><th style="color: var(--brand-text-primary, #333);">Invoice</th><th style="color: var(--brand-text-primary, #333);">Member</th><th style="color: var(--brand-text-primary, #333);">Amount</th></tr></thead><tbody>';
         result.generated_invoices.slice(0, 10).forEach(function(invoice) {
             html += '<tr>';
-            html += '<td style="color: var(--brand-text-primary, #333);"><strong>' + (invoice.invoice || 'Unknown') + '</strong></td>';
-            html += '<td style="color: var(--brand-text-primary, #333);">' + (invoice.member_name || 'Unknown') + '</td>';
+            html += '<td style="color: var(--brand-text-primary, #333);"><strong>' + escapeHtml(invoice.invoice || 'Unknown') + '</strong></td>';
+            html += '<td style="color: var(--brand-text-primary, #333);">' + escapeHtml(invoice.member_name || 'Unknown') + '</td>';
             html += '<td style="color: var(--brand-primary, #F99F20); font-weight: 600;">€' + (invoice.amount || 0) + '</td>';
             html += '</tr>';
         });
@@ -1026,7 +1033,7 @@ function formatHealthResult(result) {
             if (result.errors && result.errors.length > 0) {
                 html += '<div class="alert alert-warning"><i class="fa fa-exclamation-triangle"></i> <strong>Errors:</strong><ul class="mt-2 mb-0">';
                 result.errors.forEach(function(error) {
-                    html += '<li>' + error + '</li>';
+                    html += '<li>' + escapeHtml(error) + '</li>';
                 });
                 html += '</ul></div>';
             }
@@ -1114,7 +1121,7 @@ function formatSecurityResult(result) {
             html += '<h6>Security Recommendations</h6>';
             html += '<ul class="mb-0">';
             status.recommendations.forEach(function(rec) {
-                html += '<li>' + rec + '</li>';
+                html += '<li>' + escapeHtml(rec) + '</li>';
             });
             html += '</ul>';
             html += '</div>';
@@ -1127,11 +1134,11 @@ function formatSecurityResult(result) {
         html += '<h6>Security Changes Applied</h6>';
         html += '<ul class="mb-0">';
         result.changes.forEach(function(change) {
-            html += '<li>✅ ' + change + '</li>';
+            html += '<li>✅ ' + escapeHtml(change) + '</li>';
         });
         html += '</ul>';
         if (result.note) {
-            html += '<p class="mb-0 mt-3"><strong>Note:</strong> ' + result.note + '</p>';
+            html += '<p class="mb-0 mt-3"><strong>Note:</strong> ' + escapeHtml(result.note) + '</p>';
         }
         html += '</div>';
     }
@@ -1151,14 +1158,14 @@ function formatCleanupResult(result) {
     // Handle message field for orphaned schedule cleanup
     if (result.message) {
         html += '<div class="alert alert-' + (result.dry_run ? 'info' : 'success') + ' mb-3">';
-        html += '<strong><i class="fa fa-info-circle"></i> Result:</strong> ' + result.message;
+        html += '<strong><i class="fa fa-info-circle"></i> Result:</strong> ' + escapeHtml(result.message);
         html += '</div>';
     }
 
     // Handle summary field for other cleanup types
     if (result.summary) {
         html += '<div class="alert alert-' + (result.dry_run ? 'info' : 'warning') + ' mb-3">';
-        html += '<strong>Summary:</strong> ' + result.summary;
+        html += '<strong>Summary:</strong> ' + escapeHtml(result.summary);
         html += '</div>';
     }
 
@@ -1231,7 +1238,7 @@ function formatCleanupResult(result) {
         html += '<div class="alert alert-warning">';
         html += '<strong>Warnings:</strong><br>';
         result.warnings.forEach(function(warning) {
-            html += '• ' + warning + '<br>';
+            html += '• ' + escapeHtml(warning) + '<br>';
         });
         html += '</div>';
     }
@@ -1254,7 +1261,7 @@ function formatCleanupResult(result) {
                 html += '<h6 class="mt-2">' + (categoryNames[cat] || cat) + ':</h6>';
                 html += '<ul>';
                 result[cat].errors.forEach(function(error) {
-                    html += '<li>' + error + '</li>';
+                    html += '<li>' + escapeHtml(error) + '</li>';
                 });
                 html += '</ul>';
             }
@@ -1268,7 +1275,7 @@ function formatCleanupResult(result) {
         html += '<strong><i class="fa fa-exclamation-circle"></i> Errors encountered:</strong>';
         html += '<ul class="mt-2 mb-0">';
         result.errors.forEach(function(error) {
-            html += '<li>' + error + '</li>';
+            html += '<li>' + escapeHtml(error) + '</li>';
         });
         html += '</ul></div>';
     }

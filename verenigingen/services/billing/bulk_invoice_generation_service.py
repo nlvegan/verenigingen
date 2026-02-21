@@ -552,19 +552,27 @@ class BulkInvoiceGenerationService(StatefulService):
 
         # Enqueue background jobs
         job_ids = []
+        failed_chunks = []
         for idx, chunk in enumerate(chunks, 1):
-            job = frappe.enqueue(
-                "verenigingen.services.billing.bulk_invoice_generation_service.process_invoice_chunk",
-                queue="long",
-                timeout=1800,
-                now=False,
-                schedule_names=chunk,
-                chunk_id=idx,
-                total_chunks=len(chunks),
-                cutoff_date=cutoff_date,
-                test_mode=test_mode,
-            )
-            job_ids.append(job)
+            try:
+                job = frappe.enqueue(
+                    "verenigingen.services.billing.bulk_invoice_generation_service.process_invoice_chunk",
+                    queue="long",
+                    timeout=1800,
+                    now=False,
+                    schedule_names=chunk,
+                    chunk_id=idx,
+                    total_chunks=len(chunks),
+                    cutoff_date=cutoff_date,
+                    test_mode=test_mode,
+                )
+                job_ids.append(job)
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to enqueue invoice chunk {idx}/{len(chunks)}: {str(e)}",
+                    "Bulk Invoice Enqueue Failed",
+                )
+                failed_chunks.append(idx)
 
         result.parallel_mode = True
         result.job_count = len(job_ids)

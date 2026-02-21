@@ -172,14 +172,19 @@ class PaymentRetryManager:
         retry_record.status = "Scheduled"
         retry_record.save()
 
-        # Schedule job via frappe.enqueue for the next retry date
-        frappe.enqueue(
-            "verenigingen.utils.payment_retry.execute_payment_retry",
-            retry_record=retry_record.name,
-            queue="default",
-            now=False,
-            enqueue_after_commit=True,
-        )
+        try:
+            frappe.enqueue(
+                "verenigingen.utils.payment_retry.execute_payment_retry",
+                retry_record=retry_record.name,
+                queue="default",
+                now=False,
+                enqueue_after_commit=True,
+            )
+        except Exception:
+            frappe.log_error("Payment retry enqueue failed", f"Retry record: {retry_record.name}")
+            retry_record.status = "Pending"
+            retry_record.save()
+            return {"job_scheduled": False, "retry_record": retry_record.name}
 
         return {"job_scheduled": True, "retry_record": retry_record.name}
 

@@ -31,6 +31,19 @@ def daily_batch_optimization():
     Called by Frappe scheduler (hooks.py) - runs in early morning hours (typically 00:00-02:00 AM server time)
     Checks if today is a configured batch creation day
     """
+    from verenigingen.utils.db_advisory_lock import get_lock, release_lock
+
+    if not get_lock("sched_daily_batch_optimization", timeout=0):
+        frappe.logger().info("daily_batch_optimization already running, skipping")
+        return
+
+    try:
+        return _daily_batch_optimization_impl()
+    finally:
+        release_lock("sched_daily_batch_optimization")
+
+
+def _daily_batch_optimization_impl():
     try:
         # Check if auto-creation is enabled
         payments_settings = get_payments_settings()

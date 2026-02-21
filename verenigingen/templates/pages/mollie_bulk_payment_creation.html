@@ -634,14 +634,14 @@ function displayValidationResults(data) {
 
         // Build row HTML
         row.innerHTML += `
-            <td><code style="font-size: 0.75rem;">${result.customer_id}</code></td>
-            <td>${result.member_name || '<span style="color: #94a3b8;">Not found</span>'}</td>
-            <td class="${memberStatusClass}">${result.member_status || 'N/A'}</td>
+            <td><code style="font-size: 0.75rem;">${frappe.utils.escape_html(result.customer_id || '')}</code></td>
+            <td>${result.member_name ? frappe.utils.escape_html(result.member_name) : '<span style="color: #94a3b8;">Not found</span>'}</td>
+            <td class="${memberStatusClass}">${frappe.utils.escape_html(result.member_status || 'N/A')}</td>
             <td class="${mandateStatusClass}">
                 ${result.mandate_valid ? 'Valid' : (result.mandate_id ? 'Invalid' : 'Missing')}
             </td>
             <td class="amount-cell">${result.amount ? '€' + parseFloat(result.amount).toFixed(2) : '<span style="color: #dc2626;">Missing</span>'}</td>
-            <td class="date-cell">${result.charge_date || '<span style="color: #dc2626;">Missing</span>'}</td>
+            <td class="date-cell">${result.charge_date ? frappe.utils.escape_html(result.charge_date) : '<span style="color: #dc2626;">Missing</span>'}</td>
             <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${frappe.utils.escape_html(result.description || '')}">${frappe.utils.escape_html(result.description || '')}</td>
             <td style="color: #dc2626; font-size: 0.75rem;">${frappe.utils.escape_html(result.issues ? result.issues.join('; ') : '')}</td>
         `;

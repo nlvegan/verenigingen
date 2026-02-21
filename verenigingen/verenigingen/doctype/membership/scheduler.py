@@ -98,6 +98,19 @@ def notify_about_orphaned_records():
 
 def process_expired_memberships():
     """Mark memberships as expired if end date has passed"""
+    from verenigingen.utils.db_advisory_lock import get_lock, release_lock
+
+    if not get_lock("sched_process_expired_memberships", timeout=0):
+        frappe.logger().info("process_expired_memberships already running, skipping")
+        return 0
+
+    try:
+        return _process_expired_memberships_impl()
+    finally:
+        release_lock("sched_process_expired_memberships")
+
+
+def _process_expired_memberships_impl():
     memberships = frappe.get_all(
         "Membership",
         filters={"status": "Active", "renewal_date": ["<", today()], "docstatus": 1},
@@ -128,6 +141,19 @@ def process_expired_memberships():
 
 def send_renewal_reminders():
     """Send renewal reminders for memberships expiring soon"""
+    from verenigingen.utils.db_advisory_lock import get_lock, release_lock
+
+    if not get_lock("sched_send_renewal_reminders", timeout=0):
+        frappe.logger().info("send_renewal_reminders already running, skipping")
+        return 0
+
+    try:
+        return _send_renewal_reminders_impl()
+    finally:
+        release_lock("sched_send_renewal_reminders")
+
+
+def _send_renewal_reminders_impl():
     # Look for memberships expiring in the next 30, 15, and 7 days
     upcoming_expiry = []
 

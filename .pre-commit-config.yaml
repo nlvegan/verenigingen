@@ -438,7 +438,7 @@ repos:
         pass_filenames: false
         files: '\.py$'
         exclude: '^(migrations/|fixtures/|scripts/testing/|scripts/debug/|.*_debug\.py|test_.*\.py|archived_.*)'
-        stages: [pre-commit]
+        stages: [pre-push]
         verbose: true
         require_serial: true
 

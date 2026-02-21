@@ -980,18 +980,23 @@ class AccountCreationManager:
 
         retry_delay_minutes = min(5 * (2**current_retry_count), 60)  # Exponential backoff
 
-        frappe.enqueue(
-            "verenigingen.utils.account_creation_manager.process_account_creation_request",
-            request_name=self.request_name,
-            queue="long",
-            timeout=600,
-            job_name=f"account_creation_retry_{self.request_name}",
-            at_time=frappe.utils.add_to_date(None, minutes=retry_delay_minutes),
-        )
-
-        frappe.logger().info(
-            f"Scheduled retry {new_retry_count} for {self.request_name} in {retry_delay_minutes} minutes"
-        )
+        try:
+            frappe.enqueue(
+                "verenigingen.utils.account_creation_manager.process_account_creation_request",
+                request_name=self.request_name,
+                queue="long",
+                timeout=600,
+                job_name=f"account_creation_retry_{self.request_name}",
+                at_time=frappe.utils.add_to_date(None, minutes=retry_delay_minutes),
+            )
+            frappe.logger().info(
+                f"Scheduled retry {new_retry_count} for {self.request_name} in {retry_delay_minutes} minutes"
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to enqueue retry for {self.request_name}: {str(e)}",
+                "Account Creation Retry Enqueue Failed",
+            )
 
     def send_completion_notification(self):
         """Send notification when account creation is completed"""
@@ -1877,6 +1882,16 @@ def process_bulk_account_creation_batch(
                 f"Remaining batches: {len(remaining_batches)}",
                 "Bulk Account Creation Chain Failure",
             )
+            try:
+                tracker = frappe.get_doc("Bulk Operation Tracker", tracker_name)
+                tracker.add_comment(
+                    "Comment",
+                    f"Chain broken after batch {batch_id}: failed to queue {next_batch['batch_id']}. "
+                    f"{len(remaining_batches)} remaining batches will not be processed.",
+                )
+                tracker.save()
+            except Exception:
+                pass
 
     else:
         frappe.logger().info(f"Batch {batch_id} completed. No remaining batches - bulk operation finished!")

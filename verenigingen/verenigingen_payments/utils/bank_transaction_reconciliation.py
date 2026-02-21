@@ -1162,5 +1162,14 @@ def get_reconciliation_summary(from_date=None, to_date=None):
 
 def reconcile_bank_transactions(bank_account=None, from_date=None, to_date=None):
     """Module-level function for scheduled job to reconcile bank transactions"""
-    manager = PaymentReconciliationManager()
-    return manager.reconcile_bank_transactions(bank_account, from_date, to_date)
+    from verenigingen.utils.db_advisory_lock import get_lock, release_lock
+
+    if not get_lock("sched_reconcile_bank_transactions", timeout=0):
+        frappe.logger().info("reconcile_bank_transactions already running, skipping")
+        return None
+
+    try:
+        manager = PaymentReconciliationManager()
+        return manager.reconcile_bank_transactions(bank_account, from_date, to_date)
+    finally:
+        release_lock("sched_reconcile_bank_transactions")
