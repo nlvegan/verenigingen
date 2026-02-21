@@ -149,38 +149,11 @@ class Membership(Document):
                     kwargs["custom_amount_approved"] = 1  # Auto-approve for CSV imports
 
                     # CRITICAL: Clear fields after use to prevent reuse on renewals
-                    frappe.logger().info(
-                        f"[DUES SCHEDULE] Clearing csv_import_custom_fee after use for member {self.member}"
-                    )
-                    frappe.db.set_value(
-                        "Member",
-                        self.member,
-                        {
-                            "csv_import_custom_fee": 0,  # Set to 0, not None (Currency field)
-                            "csv_import_custom_fee_reason": "",  # Set to empty string, not None
-                        },
-                        update_modified=False,
-                    )
+                    self._clear_csv_import_fee_fields()
 
                 schedule_name = MembershipDuesSchedule.create_from_template(self.member, **kwargs)
 
-                # Update member record with dues schedule link
-                member = frappe.get_doc("Member", self.member)
-                member.current_dues_schedule = schedule_name
-                # Mark as system update to bypass fee override validation
-                # (dues_rate was just set by schedule creation)
-                member._system_update = True
-
-                # Handle timestamp mismatch by reloading and retrying once
-                try:
-                    member.save()
-                except frappe.TimestampMismatchError:
-                    # Reload member and retry save once
-                    member.reload()
-                    member.current_dues_schedule = schedule_name
-                    # Re-set flag after reload
-                    member._system_update = True
-                    member.save()
+                self._update_member_dues_schedule_link(schedule_name)
 
                 # Log successful creation for monitoring
                 frappe.logger().info(
@@ -205,29 +178,11 @@ class Membership(Document):
                 )
 
                 if result.success:
-                    # Update member record with dues schedule link
-                    member = frappe.get_doc("Member", self.member)
-                    member.current_dues_schedule = result.data
-                    member._system_update = True
-                    try:
-                        member.save()
-                    except frappe.TimestampMismatchError:
-                        member.reload()
-                        member.current_dues_schedule = result.data
-                        member._system_update = True
-                        member.save()
+                    self._update_member_dues_schedule_link(result.data)
 
                     # Clear CSV import fields if used
                     if custom_fee and custom_fee > 0:
-                        frappe.db.set_value(
-                            "Member",
-                            self.member,
-                            {
-                                "csv_import_custom_fee": 0,
-                                "csv_import_custom_fee_reason": "",
-                            },
-                            update_modified=False,
-                        )
+                        self._clear_csv_import_fee_fields()
 
                     frappe.logger().info(
                         f"Successfully created dues schedule {result.data} via retry service"
@@ -244,6 +199,38 @@ class Membership(Document):
                 else:
                     # Permanent failure - show error
                     self._handle_dues_schedule_error(e, "create")
+
+    def _clear_csv_import_fee_fields(self):
+        """Clear CSV import custom fee fields after use to prevent reuse on renewals."""
+        frappe.logger().info(
+            f"[DUES SCHEDULE] Clearing csv_import_custom_fee after use for member {self.member}"
+        )
+        frappe.db.set_value(
+            "Member",
+            self.member,
+            {
+                "csv_import_custom_fee": 0,  # Set to 0, not None (Currency field)
+                "csv_import_custom_fee_reason": "",  # Set to empty string, not None
+            },
+            update_modified=False,
+        )
+
+    def _update_member_dues_schedule_link(self, schedule_name):
+        """Update member record with dues schedule link, retrying on timestamp mismatch."""
+        member = frappe.get_doc("Member", self.member)
+        member.current_dues_schedule = schedule_name
+        # Mark as system update to bypass fee override validation
+        # (dues_rate was just set by schedule creation)
+        member._system_update = True
+
+        # Handle timestamp mismatch by reloading and retrying once
+        try:
+            member.save()
+        except frappe.TimestampMismatchError:
+            member.reload()
+            member.current_dues_schedule = schedule_name
+            member._system_update = True
+            member.save()
 
     def _handle_dues_schedule_error(self, error, operation="create", schedule_name=None):
         """Enhanced error handling for dues schedule operations (simplified - retry handled by service)"""
@@ -364,7 +351,7 @@ class Membership(Document):
                 allow_creation = frappe.form_dict.get("allow_multiple_memberships")
 
                 if not allow_creation:
-                    msg += f'<br><br>{_("If you want to create multiple memberships for this member, check the Allow Multiple Memberships box.")}'
+                    msg += f"<br><br>{_('If you want to create multiple memberships for this member, check the Allow Multiple Memberships box.')}"
 
                     frappe.msgprint(
                         msg=msg,
