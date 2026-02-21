@@ -41,6 +41,11 @@ class TestSuspensionIntegration(EnhancedTestCase):
             status="Active",
         )
 
+        # Link user account to member (factory doesn't set this automatically)
+        frappe.db.set_value("Member", self.test_member.name, "user", self.test_user.name)
+        frappe.db.commit()
+        self.test_member.reload()
+
         self.test_member_name = self.test_member.name
         self.test_suspension_reason = "Test suspension for integration testing"
         self.test_unsuspension_reason = "Test unsuspension for integration testing"
