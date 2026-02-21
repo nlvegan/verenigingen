@@ -2,14 +2,14 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
-**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete; batches 7-14)
+**Last updated:** 2026-02-21 (Phases 1-2, 3 (continued), 4 (continued), 6 complete; batches 7-15)
 
 ## Executive Summary
 
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 33 | 4 |
+| High | 37 | 34 | 3 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -100,7 +100,7 @@
 | H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | **FIXED** — consolidated into `_batch_event_worker()` with `approve_first` parameter |
 | H15 | JSON unpack guard repeated 9 times | `event_application_service.py` | ~30 | MijnRood | **FIXED** — extracted `safe_json_load()` to `mijnrood_sync/utils.py` |
 | H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | PARTIAL — extracted `_ensure_account_group()` + `_name_filter()` helpers in `account_organization_service.py`, consolidating 6 near-identical methods (~-105 LOC). MijnRood `_ensure_*` methods confirmed too varied (different service callables, return types, skip conditions). |
-| H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | **FIXED** `37a9490e` + `7170ab71` — `Roles` class in `utils/constants.py` extended with `ADMIN_PAIR`, `VOLUNTEER_MANAGER`, `HR_MANAGER`, `HR_ADMIN_ROLES`; migrated 29 files total: `permissions.py` (19 instances), 10 ADMIN_ROLES, 7 SYSTEM_MANAGER, 11 ADMIN_PAIR patterns |
+| H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | **FIXED** `37a9490e` + `7170ab71` + `b0c4f768` — `Roles` class in `utils/constants.py` extended with `ADMIN_PAIR`, `VOLUNTEER_MANAGER`, `HR_MANAGER`, `HR_ADMIN_ROLES`; role group constants converted to `frozenset` for immutability; migrated 153 files total (122 in batch 15 + 31 in batches 13-14). 12 files intentionally skipped (workflow setup DB state values, historical patches, fixtures, docstrings). |
 
 ### SRP Violations
 
@@ -311,7 +311,7 @@ The audit agents consistently noted these strong patterns:
 **Deferred items (explored, too complex for safe batch):**
 - H4: Deadlock retry — 7 implementations (not 3), each with different error handling semantics
 - H7/H8: Event emitter — copy-paste bug found in `chapter_events.py` (checks `bulk_member_operations` instead of `bulk_chapter_operations`)
-- ~~H17: Hardcoded roles~~ **FIXED** — 29 files migrated to `Roles` constants from `utils/constants.py`
+- ~~H17: Hardcoded roles~~ **FIXED** — 153 files migrated to `Roles` constants from `utils/constants.py` (batches 13-15)
 
 ### Phase 4 (continued): DRY Consolidation + Bug Fixes (2026-02-20)
 
@@ -469,3 +469,18 @@ The audit agents consistently noted these strong patterns:
 | Item | What was done |
 |------|--------------|
 | H17 | Completed bulk migration of hardcoded role strings to `Roles` constants across 28 additional files (29 total including `permissions.py` from Batch 13). Added `ADMIN_PAIR` constant to `utils/constants.py`. Three migration patterns: **ADMIN_ROLES** (10 files: `chapter_utils.py`, `member_portal_utils.py`, `dues_schedule_validation_service.py`, `member_fee_validation_service.py`, `member.py`, `event_contact_campaign.py`, `membership_application_review.py`, `sepa_mandate.py`, `payment_dashboard.py`, `membership_application.py`), **SYSTEM_MANAGER** (7 files: `deleted_document_cleanup.py`, `performance_optimization.py`, `dues_schedule_permission_service.py`, `bulk_delete_test_invoices.py`, `migration_helper.py`, `role_cleanup.py`, `permissions.py` inline checks), **ADMIN_PAIR** (11 files: `suspension_api.py`, `brand_management.py`, `admin_membership_operations.py`, `team_admin_utilities.py`, `termination_utils.py`, `notification_helpers.py`, `expense_history_batch_processor.py`, `dd_batch_api.py`, `workflow_setup.py`, `membership_application_workflow_setup.py`, `contribution_amendment_request.py`). Uses `list()` conversion where Frappe APIs require lists (e.g., `frappe.only_for()`, `@require_roles()`). |
+
+### Batch 15: Complete H17 migration + review fixes + tooling (2026-02-21)
+
+**Impact:** 130 files changed, +493/-333 LOC (net +160 from imports across 122 files)
+
+| Item | What was done |
+|------|--------------|
+| H17 | **COMPLETED** — migrated remaining 122 files to `Roles` constants (153 total across batches 13-15). Converted all role group constants (`ADMIN_ROLES`, `ADMIN_PAIR`, `VOLUNTEER_ADMIN_ROLES`, `HR_ADMIN_ROLES`, `ALL_PRIVILEGED_ROLES`) from mutable `Set` to immutable `frozenset` for safety. Fixed `list()` wrapping in `contribution_amendment_request.py` where frozenset passed to Frappe filter API. Replaced 2 remaining inline `{Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN}` in `permissions.py` with `Roles.ADMIN_PAIR`. 12 files intentionally not migrated: 5 workflow setup (DB state values), 3 patches (historical), 1 fixtures (role creation data), 3 docstrings/comments. |
+| REVIEW-1 | Converted `Roles` group constants from `Set[str]` to `FrozenSet[str] = frozenset(...)` — prevents accidental mutation of shared role sets |
+| REVIEW-2 | Added `list()` wrap in `contribution_amendment_request.py` line 385 — frozenset not accepted by Frappe `filters={"role": ["in", ...]}` |
+| REVIEW-3 | Replaced last 2 inline admin pairs in `permissions.py` with `Roles.ADMIN_PAIR` |
+| CLEANUP | Deleted 3 stale `.pyc` files for removed SEPA modules (sepa_mandate_repository, sepa_mandate_lifecycle_manager, test_sepa_mandate_repository) |
+| TOOLING | Added `development_only` to `SECURITY_DECORATORS` set in `insecure_api_detector.py` — pre-push hook was false-positive flagging all `@development_only()` debug endpoints |
+
+**Commits:** `b0c4f768`, `da58d07a`
