@@ -375,23 +375,40 @@
 | DT-H4 | `fetch_from` duplication (8 DocTypes) | **BY DESIGN** | Standard Frappe denormalization pattern for reporting performance |
 | CSS-H5 | 32 `!important` across all CSS | **PARTIAL** | 12 removed in chapter_list.css; 11 in volunteer_portal.css need responsive audit; 7 in verenigingen_custom.css mixed |
 
+### Batch 6 — Final Assessment of Remaining Items (2026-02-21)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| CSS-C2 | 26× hardcoded `#007bff` vs Tailwind `#cf3131` | **NEEDS DESIGN REVIEW** | Bootstrap blue dominates membership flow (92%); mechanical replacement would change UI appearance across buttons, form controls, progress indicators |
+| CSS-H2 | `mobile_dues_schedule.css` 658 LOC (27% of CSS) | **NEEDS DESIGN REVIEW** | 31 padding + 28 font-size overrides extractable to shared utilities (~150 LOC savings), but requires mobile UX testing |
+| CSS-H3 | 4 competing color schemes, 61 unique hex values | **NEEDS DESIGN REVIEW** | Bootstrap (88 uses), Material (30), Tailwind (2), Custom (34). Requires design system decision. |
+| R-H2 | Chart generation duplication in 8+ reports | **FALSE POSITIVE** | Only 1 active report file exists (`anbi_expense_report.py`); pattern doesn't repeat |
+| R-H3 | Column definition duplication in 8+ reports | **FALSE POSITIVE** | Same — only 1 report; insufficient repetition to justify abstraction |
+| P-H2 | Partial failure risk in billing migration patch | **LOW RISK** | Individual `doc.save()` per iteration; exception handling prevents cascading failures; patch runs once |
+| SC-H2 | API security validators overlap | **KEPT** | Verified distinct: `insecure_api_detector` = gatekeeper, `api_security_validator` = quality control |
+
 ### Remaining Items (Not Yet Addressed)
 
 **P1 remaining:**
 - BG-C2: Job chaining recovery in `account_creation_manager.py` (partially mitigated; needs DocType schema change for full fix)
 - BG-C4: No progress checkpointing in bulk invoice generation (parallel mode already chunked; sequential mode low risk)
 
-**P2 remaining:**
-- T-C1 through T-C4: Test factory and suite consolidation (large scope)
+**P2 remaining (large scope — each requires dedicated design/planning):**
+- T-C1 through T-C4: Test factory and suite consolidation (~9,800 LOC in factories, 30+ duplicate test suites)
 - SC-H1: 4 remaining overlapping field validators (need per-validator analysis to safely remove)
-- CSS-H2 through CSS-H6: CSS cleanup (CSS-H5 partially done; rest need design decisions)
+- CSS-C2/H2/H3/H5/H6: CSS design system unification (requires brand color decision + mobile UX testing)
 - R-H1: Extract helpers from `get_summary_data()` in `account_creation_status.py` (276 LOC)
-- SC-H3: Shell script shared library (when 3rd test runner added)
 
-**P3 (architecture):**
-- JS-C3, JS-H1, JS-H2: Split JS god objects
-- DT-H1: Split Member DocType
-- R-H2, R-H3: Shared report utilities
+**P3 (architecture — each is a multi-week project):**
+- JS-C3, JS-H1, JS-H2: Split JS god objects (member.js 4,104 LOC, chapter.js 1,833 LOC)
+- DT-H1: Split Member DocType (122 fields → core + payment + history)
+
+**Closed (no further action needed):**
+- R-H2, R-H3: Only 1 active report — no extraction justified
+- P-H1, P-H4: Patches immutable after execution
+- P-H2: Low risk, one-time patch
+- SC-H3: Wait for 3rd test runner before extracting shell library
+- DT-H4: Standard Frappe `fetch_from` denormalization pattern
 
 ---
 
@@ -458,6 +475,7 @@
 | 11 | Overrides | 3 patches | 3 | 3 | 2 | 0 |
 | | **Total** | | **37** | **46** | **67** | **43** |
 | | **Resolved** | | **16** | **13** | **0** | **0** |
-| | **False Positive / By Design** | | **8** | **3** | **0** | **0** |
+| | **False Positive / By Design** | | **8** | **5** | **0** | **0** |
 | | **Deferred / Skipped** | | **0** | **5** | **0** | **0** |
-| | **Remaining** | | **13** | **25** | **67** | **43** |
+| | **Needs Design Review** | | **0** | **3** | **0** | **0** |
+| | **Remaining (actionable)** | | **13** | **20** | **67** | **43** |
