@@ -5,7 +5,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.fixtures.secure_test_data_factory import SecureTestDataFactory
+from verenigingen.tests.fixtures.enhanced_test_factory import SecureTestDataFactory
 
 
 class TestChapterMemberIntegration(EnhancedTestCase):

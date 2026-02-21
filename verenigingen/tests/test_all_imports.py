@@ -103,7 +103,7 @@ class TestAllImports(EnhancedTestCase):
         
     def test_test_utility_imports(self):
         """Test that test utilities can be imported"""
-        import verenigingen.tests.test_data_factory
+        import verenigingen.tests.fixtures.test_data_factory
         import verenigingen.tests.base_test_case
         import verenigingen.tests.test_runner
         

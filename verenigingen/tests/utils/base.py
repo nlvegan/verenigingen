@@ -107,10 +107,9 @@ class VereningingenTestCase(FrappeTestCase):
         self._test_start_time = frappe.utils.now()
 
         # Initialize test data factory
-        from verenigingen.tests.fixtures.test_data_factory import (
-            StreamlinedTestDataFactory as TestDataFactory,
-        )
-        self.factory = TestDataFactory()
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+
+        self.factory = CoreTestDataFactory()
 
         # Set up test request context for API security framework
         self._setup_test_request_context()
@@ -703,28 +702,6 @@ class VereningingenTestCase(FrappeTestCase):
             message = f"Expected {doctype} to not exist with filters {filters}"
         self.assertFalse(exists, message)
 
-    def create_test_member(self, **kwargs):
-        """Create a test member with default values"""
-        defaults = {
-            "first_name": "Test",
-            "last_name": "Member",
-            "email": f"test.member.{frappe.generate_hash(length=6)}@example.com",
-            "member_since": frappe.utils.today(),
-            "address_line1": "123 Test Street",
-            "postal_code": "1234AB",
-            "city": "Test City",
-            "country": "Netherlands"
-        }
-        defaults.update(kwargs)
-
-        member = frappe.new_doc("Member")
-        for key, value in defaults.items():
-            setattr(member, key, value)
-
-        member.save()
-        self.track_doc("Member", member.name)
-        return member
-
     def create_test_membership_type(self, **kwargs):
         """Create a test membership type with default values and unique naming"""
         # Get a dues schedule template first
@@ -766,43 +743,6 @@ class VereningingenTestCase(FrappeTestCase):
         membership_type.save()
         self.track_doc("Membership Type", membership_type.name)
         return membership_type
-
-    def create_test_membership(self, **kwargs):
-        """Create a test membership with default values"""
-        # Get a test membership type with low minimum amount
-        membership_type = frappe.db.get_value(
-            "Membership Type",
-            {"minimum_amount": ["<=", 5.0]},
-            "name",
-            order_by="minimum_amount asc"
-        )
-        if not membership_type:
-            # Fallback to any test membership type
-            membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
-        if not membership_type:
-            # Final fallback
-            membership_type = "Test Membership"
-
-        defaults = {
-            "membership_type": membership_type,
-            "status": "Active",
-            "docstatus": 1,
-            "start_date": frappe.utils.today(),
-            "from_date": frappe.utils.today(),
-            "to_date": frappe.utils.add_months(frappe.utils.today(), 12)
-        }
-        defaults.update(kwargs)
-
-        membership = frappe.new_doc("Membership")
-        for key, value in defaults.items():
-            setattr(membership, key, value)
-
-        membership.save()
-        # Only submit if the original default was used (submit by default unless explicitly set to 0)
-        if membership.docstatus == 0 and kwargs.get("docstatus", 1) != 0:
-            membership.submit()
-        self.track_doc("Membership", membership.name)
-        return membership
 
     def create_test_dues_schedule(self, **kwargs):
         """Create a test dues schedule with default values"""
@@ -881,38 +821,6 @@ class VereningingenTestCase(FrappeTestCase):
         dues_schedule.save()
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         return dues_schedule
-
-    def create_test_chapter(self, **kwargs):
-        """Create a test chapter with default values including required region and unique naming"""
-        # Generate unique chapter name with timestamp to prevent duplicates
-        import time
-        timestamp = str(int(time.time() * 1000))  # millisecond precision
-        unique_suffix = frappe.generate_hash(length=4)
-        chapter_name = kwargs.pop("chapter_name", f"Test Chapter {timestamp[-6:]}-{unique_suffix}")
-
-        # Ensure uniqueness by checking existence
-        base_name = chapter_name
-        counter = 1
-        while frappe.db.exists("Chapter", chapter_name):
-            chapter_name = f"{base_name}-{counter}"
-            counter += 1
-
-        defaults = {
-            "region": self.get_test_region_name(),  # Use existing test region
-            "introduction": "Test chapter for automated testing",
-            "published": 1,  # Enable chapter to be found in searches
-        }
-        defaults.update(kwargs)
-
-        chapter = frappe.new_doc("Chapter")
-        chapter.name = chapter_name  # Set the name directly
-
-        for key, value in defaults.items():
-            setattr(chapter, key, value)
-
-        chapter.save()
-        self.track_doc("Chapter", chapter.name)
-        return chapter
 
     def create_test_volunteer_team(self, **kwargs):
         """Create a test volunteer team with default values"""
@@ -1839,29 +1747,6 @@ class VereningingenTestCase(FrappeTestCase):
         role.save()
         self.track_doc("Chapter Role", role.name)
         return role
-
-    def create_test_volunteer(self, **kwargs):
-        """Create a test volunteer with default values"""
-        # Create a member first if not provided
-        if "member" not in kwargs:
-            member = self.create_test_member()
-            kwargs["member"] = member.name
-
-        defaults = {
-            "volunteer_name": f"Test Volunteer {frappe.generate_hash(length=6)}",  # Required field
-            "email": f"volunteer.{frappe.generate_hash(length=6)}@example.com",    # Required, unique field
-            "status": "Active",
-            "start_date": frappe.utils.today()
-        }
-        defaults.update(kwargs)
-
-        volunteer = frappe.new_doc("Volunteer")
-        for key, value in defaults.items():
-            setattr(volunteer, key, value)
-
-        volunteer.save()
-        self.track_doc("Volunteer", volunteer.name)
-        return volunteer
 
     def create_test_volunteer_with_realistic_name(self, **kwargs):
         """Create volunteer with realistic name that could cause duplicates (for production scenario testing)"""

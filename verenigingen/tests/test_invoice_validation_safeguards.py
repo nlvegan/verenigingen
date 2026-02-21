@@ -6,7 +6,7 @@ Following CLAUDE.md testing guidelines using VereningingenTestCase
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.tests.test_data_factory import TestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
 
 
 class TestInvoiceValidationSafeguards(VereningingenTestCase):

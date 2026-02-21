@@ -40,7 +40,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
     def _create_test_mandate(self, **kwargs):
         """Create a real SEPA mandate document using Enhanced Test Factory pattern"""
         # Import the streamlined factory for SEPA mandate creation
-        from verenigingen.tests.fixtures.test_data_factory import StreamlinedTestDataFactory
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
         # Create a test member first if not provided
         if 'member' not in kwargs:
@@ -51,9 +51,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
             )
             kwargs['member'] = member.name
 
-        # Use StreamlinedTestDataFactory for SEPA mandate creation
-        # This is acceptable as we're testing business logic, not permission bypasses
-        factory = StreamlinedTestDataFactory()
+        factory = CoreTestDataFactory()
 
         # Generate unique mandate_id to avoid duplicates
         import uuid

@@ -102,7 +102,7 @@ def test_schema_validation():
 def test_secure_factory_basic():
     """Test basic SecureTestDataFactory functionality"""
     try:
-        from verenigingen.tests.fixtures.secure_test_data_factory import SecureTestContext
+        from verenigingen.tests.fixtures.enhanced_test_factory import SecureTestContext
         
         print("Testing SecureTestDataFactory...")
         

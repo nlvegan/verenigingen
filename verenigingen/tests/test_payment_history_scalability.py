@@ -17,7 +17,7 @@ Features:
 
 Architecture:
 - Inherits from VereningingenTestCase for automatic cleanup
-- Uses StreamlinedTestDataFactory for efficient data generation
+- Uses CoreTestDataFactory for efficient data generation
 - Integrates with BackgroundJobManager for realistic queue testing
 - Provides comprehensive performance measurement
 
@@ -52,7 +52,7 @@ import frappe
 from frappe.utils import add_days, add_months, today, now
 
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.tests.fixtures.test_data_factory import StreamlinedTestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 from verenigingen.utils.background_jobs import BackgroundJobManager
 
 
@@ -208,7 +208,7 @@ class PerformanceMetricsCollector:
 class PaymentHistoryTestDataGenerator:
     """Specialized test data generator for payment history scalability testing"""
     
-    def __init__(self, factory: StreamlinedTestDataFactory, seed: int = None):
+    def __init__(self, factory: CoreTestDataFactory, seed: int = None):
         self.factory = factory
         self.seed = seed or 42
         random.seed(self.seed)
@@ -372,7 +372,7 @@ class PaymentHistoryScalabilityTest(VereningingenTestCase):
     def setUpClass(cls):
         """Set up test class with factory and metrics collector"""
         super().setUpClass()
-        cls.factory = StreamlinedTestDataFactory(cleanup_on_exit=False, seed=42)
+        cls.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
         cls.test_results = {}
         
     @classmethod
@@ -608,7 +608,7 @@ class BackgroundJobScalabilityTest(VereningingenTestCase):
     def setUp(self):
         """Set up background job testing environment"""
         super().setUp()
-        self.factory = StreamlinedTestDataFactory(cleanup_on_exit=False, seed=42)
+        self.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
         self.metrics_collector = PerformanceMetricsCollector()
         self.job_completion_times = []
         
@@ -737,7 +737,7 @@ class EdgeCaseScalabilityTest(VereningingenTestCase):
     def setUp(self):
         """Set up edge case testing environment"""
         super().setUp()
-        self.factory = StreamlinedTestDataFactory(cleanup_on_exit=False, seed=42)
+        self.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
         
     def tearDown(self):
         """Clean up edge case testing"""

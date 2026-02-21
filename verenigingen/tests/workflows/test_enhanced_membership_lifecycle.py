@@ -610,9 +610,10 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
     def create_sepa_dues_schedule(self, member):
         """Create SEPA-enabled dues schedule"""
         # First ensure member has a SEPA mandate
-        from verenigingen.tests.test_data_factory import TestDataFactory
-        factory = TestDataFactory()
-        factory.create_sepa_mandate(member=member.name)
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+
+        factory = CoreTestDataFactory()
+        factory.create_test_sepa_mandate(member=member.name)
 
         dues_schedule = self.create_calculator_dues_schedule(member)
         # Payment method will be automatically determined from active mandate

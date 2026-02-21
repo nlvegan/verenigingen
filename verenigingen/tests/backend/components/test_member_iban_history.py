@@ -2,7 +2,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.test_data_factory import TestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
 import unittest
 
 

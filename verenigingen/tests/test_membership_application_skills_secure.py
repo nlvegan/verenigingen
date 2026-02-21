@@ -17,9 +17,9 @@ from verenigingen.verenigingen.web_form.membership_application import (
     approve_membership_application
 )
 
-from verenigingen.tests.fixtures.secure_test_data_factory import (
+from verenigingen.tests.fixtures.enhanced_test_factory import (
     SecureTestContext,
-    with_secure_test_data
+    with_secure_test_data,
 )
 from verenigingen.tests.fixtures.field_validator import validate_field
 import unittest

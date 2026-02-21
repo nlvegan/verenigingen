@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import frappe
 from frappe.utils import now_datetime, add_days, add_months, getdate
-from verenigingen.tests.test_data_factory import TestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
 
 
 class ExtendedTestDataFactory(TestDataFactory):

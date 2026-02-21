@@ -3,7 +3,7 @@
 Payment History Test Data Factory for Scalability Testing
 ========================================================
 
-This factory extends the StreamlinedTestDataFactory to create realistic payment 
+This factory extends CoreTestDataFactory to create realistic payment
 scenarios for testing payment history system scalability. It generates:
 
 - Members with diverse payment patterns
@@ -37,10 +37,10 @@ import frappe
 from verenigingen.utils.validation_utilities import QueryBuilder
 from frappe.utils import add_days, add_months, random_string, today, flt, get_datetime
 
-from verenigingen.tests.fixtures.test_data_factory import StreamlinedTestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
 
-class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
+class PaymentHistoryTestFactory(CoreTestDataFactory):
     """Extended factory for creating payment history test data at scale"""
 
     def __init__(self, cleanup_on_exit=True, seed=None):

@@ -355,9 +355,9 @@ class TestEnvironmentValidator:
 
             # Check test data factory
             try:
-                from verenigingen.tests.test_data_factory import TestDataFactory
+                from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
-                TestDataFactory()
+                CoreTestDataFactory()
                 # Test basic functionality without creating data
             except ImportError:
                 warnings.append("Test data factory not available")

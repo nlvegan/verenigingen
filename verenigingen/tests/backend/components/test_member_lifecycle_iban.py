@@ -8,7 +8,7 @@ import unittest
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.tests.test_data_factory import TestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
 
 
 class TestMemberLifecycleIBAN(unittest.TestCase):

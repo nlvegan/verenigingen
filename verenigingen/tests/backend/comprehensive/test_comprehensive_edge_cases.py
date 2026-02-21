@@ -174,7 +174,7 @@ def run_smoke_edge_cases():
         "verenigingen.tests.backend.components.test_member_status_transitions",
         "verenigingen.tests.backend.comprehensive.test_termination_workflow_edge_cases",
         "verenigingen.tests.backend.performance.test_performance_edge_cases",
-        "verenigingen.tests.test_data_factory",
+        "verenigingen.tests.fixtures.test_data_factory",
         "verenigingen.tests.utils.test_environment_validator",
     ]
 

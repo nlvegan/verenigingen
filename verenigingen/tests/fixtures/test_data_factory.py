@@ -1,23 +1,15 @@
 """
-Streamlined Test Data Factory for Verenigingen
-==============================================
+Core Test Data Factory for Verenigingen
+=======================================
 
-Legacy test data factory that provides comprehensive test data creation capabilities
-for the Verenigingen association management system. This factory focuses on volume
-and convenience over validation, making it suitable for integration testing and
-performance scenarios.
-
-Evolution and Architecture
--------------------------
-This factory was created during Phase 4.3 Factory Method Streamlining to reduce
-complexity while maintaining comprehensive test data creation capabilities. It has
-since been superseded by the EnhancedTestDataFactory for most use cases.
+Canonical core factory for creating test data in the Verenigingen association
+management system. All other test data factories (EnhancedTestDataFactory,
+VereningingenTestCase) delegate entity creation to this class.
 
 Design Philosophy
 ----------------
-- **Volume over Validation**: Prioritizes creating large amounts of test data quickly
-- **Convenience over Safety**: Uses ignore_permissions=True for speed (now discouraged)
-- **Faker Integration**: Generates realistic but deterministic test data
+- **Fast Defaults**: Uses ignore_permissions=True for speed in tests
+- **Deterministic Generation**: Uses configurable seeds for reproducible data
 - **Context Manager Support**: Provides automatic cleanup via context managers
 - **Scenario Building**: Includes pre-built scenarios for common testing needs
 
@@ -27,23 +19,13 @@ Core Capabilities
 2. **Relationship Management**: Handles complex relationships between DocTypes
 3. **Scenario Generation**: Provides complete business scenarios for testing
 4. **Edge Case Creation**: Generates edge case data for comprehensive testing
-5. **Stress Testing**: Creates large datasets for performance testing
-6. **Cleanup Management**: Automatic cleanup of created test data
-
-Key Features
------------
-- **Deterministic Generation**: Uses configurable seeds for reproducible data
-- **Intelligent Defaults**: Provides sensible defaults for all required fields
-- **Bulk Creation**: Efficiently creates multiple related records
-- **Status Distribution**: Creates realistic status distributions across entities
-- **Team Role Management**: Handles complex team role assignments
-- **SEPA Integration**: Creates valid SEPA mandates with test IBANs
+5. **Cleanup Management**: Automatic cleanup of created test data
 
 Usage Patterns
 -------------
 ```python
 # Basic usage with context manager (recommended)
-with StreamlinedTestDataFactory(cleanup_on_exit=True) as factory:
+with CoreTestDataFactory(cleanup_on_exit=True) as factory:
     member = factory.create_test_member()
     volunteer = factory.create_test_volunteer(member=member)
 
@@ -65,34 +47,6 @@ for new tests. Key differences:
 - **Legacy Factory**: Uses ignore_permissions=True (security bypass)
 - **Enhanced Factory**: Uses proper permissions and validation
 - **Legacy Factory**: Optimized for speed and volume
-- **Enhanced Factory**: Optimized for safety and validation
-
-**Migration Path**:
-1. Use EnhancedTestDataFactory for new tests requiring validation
-2. Keep StreamlinedTestDataFactory for performance tests and bulk data
-3. Gradually migrate existing tests to use enhanced validation
-
-Performance Characteristics
---------------------------
-- **Creation Speed**: Very fast due to permission bypasses
-- **Memory Usage**: Moderate due to caching of common objects
-- **Cleanup Efficiency**: Good due to reverse dependency tracking
-- **Scale Support**: Excellent - can create thousands of records efficiently
-
-Data Quality and Validation
----------------------------
-**Strengths**:
-- Generates realistic data using Faker library
-- Maintains referential integrity between related records
-- Provides comprehensive edge case scenarios
-- Includes proper IBAN generation with checksums
-
-**Limitations**:
-- Bypasses Frappe validation (ignore_permissions=True)
-- Does not validate business rules during creation
-- May create data that wouldn't be valid in production
-- Requires manual validation of business rule compliance
-
 Cleanup and Resource Management
 ------------------------------
 The factory includes comprehensive cleanup capabilities:
@@ -181,8 +135,12 @@ from frappe.utils import add_days, random_string, today, flt
 from faker import Faker
 
 
-class StreamlinedTestDataFactory:
-    """Streamlined factory for creating consistent test data with intelligent defaults"""
+class CoreTestDataFactory:
+    """Canonical core factory for creating consistent test data with intelligent defaults.
+
+    All other test data factories (EnhancedTestDataFactory, VereningingenTestCase)
+    delegate entity creation to this class.
+    """
 
     def __init__(self, cleanup_on_exit=True, seed=None):
         """Initialize factory with optional seed for reproducible data"""
@@ -930,7 +888,7 @@ class StreamlinedTestDataFactory:
 # CONVENIENCE FUNCTIONS
 def create_test_data_set(data_type: str = "minimal", **kwargs):
     """Create standardized test data sets"""
-    with StreamlinedTestDataFactory(cleanup_on_exit=False) as factory:
+    with CoreTestDataFactory(cleanup_on_exit=False) as factory:
         if data_type == "minimal":
             return {
                 "chapter": factory.create_test_chapter(),
@@ -945,13 +903,42 @@ def create_test_data_set(data_type: str = "minimal", **kwargs):
             raise ValueError(f"Unknown data_type: {data_type}")
 
 
-# BACKWARD COMPATIBILITY ALIAS
-TestDataFactory = StreamlinedTestDataFactory
+# BACKWARD COMPATIBILITY ALIASES
+TestDataFactory = CoreTestDataFactory
+StreamlinedTestDataFactory = CoreTestDataFactory
+
+
+class TestDataContext:
+    """No-op stub for backward compatibility.
+
+    WARNING: This stub ignores all constructor arguments and __enter__ returns
+    self (not a dict). Callers like test_performance_edge_cases.py that do
+    ``with TestDataContext("performance", member_count=1000) as data:``
+    will get a TestDataContext instance, not test data. Those tests need
+    rewriting to use CoreTestDataFactory directly.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.created_records = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for doctype, name in reversed(self.created_records):
+            try:
+                import frappe
+
+                if frappe.db.exists(doctype, name):
+                    frappe.delete_doc(doctype, name, force=True)
+            except Exception:
+                pass
+        return False
 
 # Additional convenience methods for Team Role testing
 def create_test_team_scenario(member_count=5, cleanup_on_exit=True):
     """Create complete team scenario with various roles"""
-    with StreamlinedTestDataFactory(cleanup_on_exit=cleanup_on_exit) as factory:
+    with CoreTestDataFactory(cleanup_on_exit=cleanup_on_exit) as factory:
         return factory.create_team_with_multiple_roles(member_count=member_count)
 
 def get_available_team_roles():

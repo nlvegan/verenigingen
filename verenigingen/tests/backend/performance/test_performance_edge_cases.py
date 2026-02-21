@@ -11,7 +11,10 @@ from datetime import datetime
 import frappe
 import psutil
 
-from verenigingen.tests.test_data_factory import TestDataContext, TestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import (
+    CoreTestDataFactory as TestDataFactory,
+    TestDataContext,
+)
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.validation_utilities import QueryBuilder
 import unittest

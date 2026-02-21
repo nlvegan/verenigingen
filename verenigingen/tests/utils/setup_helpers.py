@@ -194,12 +194,12 @@ Example:
 
 ### Factory Method Integration
 Example:
-    from tests.fixtures.test_data_factory import StreamlinedTestDataFactory
+    from tests.fixtures.test_data_factory import CoreTestDataFactory
     
     class TestWithEnvironment:
         def setup_method(self):
             self.environment = TestEnvironmentSetup.create_standard_test_environment()
-            self.factory = StreamlinedTestDataFactory()
+            self.factory = CoreTestDataFactory()
             
             # Use environment data in factory
             self.factory.default_chapter = self.environment['chapters'][0]
