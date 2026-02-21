@@ -45,29 +45,19 @@ class MembershipDuesSchedule(Document):
     def validate(self):
         self.validate_permissions()
         self.validate_template_or_instance()
-        if not self.is_template:
-            self.validate_member_membership()
-            self.validate_dates()
-
-        self.validate_custom_frequency()  # Validate custom frequency settings
-        self.validate_progressive_configuration()  # Validate progressive mode settings
-        self.sync_from_template()  # Sync minimum_amount and other fields from template
-        self.set_dues_rate_from_membership_type()  # Set default before validation
+        self.validate_member_membership()
+        self.validate_dates()
+        self.validate_custom_frequency()
+        self.validate_progressive_configuration()
+        self.sync_from_template()
+        self.set_dues_rate_from_membership_type()
         self.validate_dues_rate_configuration()
-        self.validate_financial_constraints()  # Add financial validation
-
-        # ERPNext-inspired validation enhancements
+        self.validate_financial_constraints()
         self.validate_status_transitions()
         self.validate_billing_frequency_consistency()
         self.validate_rate_boundaries()
-
-        # Set billing day for member schedules
-        if not self.is_template:
-            self.set_billing_day()
-
-        # Initialize next invoice date for new schedules
-        if self.is_new() and not self.is_template and not self.next_invoice_date:
-            self.next_invoice_date = today()
+        self.set_billing_day()
+        self._initialize_next_invoice_date()
 
         # Note: Old values tracking moved to before_save() to capture actual previous values
 
@@ -107,6 +97,9 @@ class MembershipDuesSchedule(Document):
 
     def validate_member_membership(self):
         """Ensure the member has an active membership"""
+        if self.is_template:
+            return
+
         if self.member:
             # Skip active membership validation if we're pausing the schedule
             # This allows membership cancellation to pause dues schedules properly
@@ -136,6 +129,9 @@ class MembershipDuesSchedule(Document):
         Validate schedule dates.
         DELEGATES to: DuesScheduleValidationService.validate_dates()
         """
+        if self.is_template:
+            return
+
         from verenigingen.services.billing.dues_schedule_validation_service import (
             get_dues_schedule_validation_service,
         )
@@ -144,6 +140,9 @@ class MembershipDuesSchedule(Document):
 
     def validate_custom_frequency(self):
         """Validate custom frequency settings"""
+        if self.is_template:
+            return
+
         if self.billing_frequency == "Custom":
             # Check if fields exist (might not exist during migration)
             frequency_number = getattr(self, "custom_frequency_number", None)
@@ -160,6 +159,9 @@ class MembershipDuesSchedule(Document):
 
         DELEGATES TO: ProgressiveDuesService.validate_progressive_configuration()
         """
+        if self.is_template:
+            return
+
         from verenigingen.services.billing.progressive_dues_service import (
             get_progressive_dues_service,
         )
@@ -201,6 +203,9 @@ class MembershipDuesSchedule(Document):
 
         DELEGATES TO: DuesSchedulePermissionService.validate_permissions()
         """
+        if self.is_template:
+            return
+
         from verenigingen.services.billing.dues_schedule_permission_service import (
             get_dues_schedule_permission_service,
         )
@@ -314,6 +319,9 @@ class MembershipDuesSchedule(Document):
 
     def set_dues_rate_from_membership_type(self):
         """Set dues rate based on membership type template if not already set"""
+        if self.is_template:
+            return
+
         # Use 'is None' check to allow 0 as a valid dues rate (e.g., for free memberships)
         if self.dues_rate is None and self.membership_type:
             # Get the fee from template values (explicit configuration)
@@ -330,11 +338,19 @@ class MembershipDuesSchedule(Document):
 
         DELEGATES TO: BillingDateService.set_billing_day()
         """
+        if self.is_template:
+            return
+
         from verenigingen.services.billing.billing_date_service import (
             get_billing_date_service,
         )
 
         get_billing_date_service().set_billing_day(self)
+
+    def _initialize_next_invoice_date(self):
+        """Initialize next invoice date for new non-template schedules."""
+        if self.is_new() and not self.is_template and not self.next_invoice_date:
+            self.next_invoice_date = today()
 
     def can_generate_invoice(self):
         """
