@@ -1,8 +1,13 @@
 {# Shared portal error banner for missing member record #}
-{# template-validator: context provided by setup_portal_context() — no_member_record, error_title, error_message, support_email #}
+{# template-validator: context provided by setup_portal_context() — no_member_record, error_title, error_message, support_email, organization_logo #}
 {% if no_member_record %}
 <div class="max-w-2xl mx-auto">
     <div class="bg-warning-100 border-2 border-warning-300 rounded-lg p-8 text-center">
+        {% if organization_logo %}
+        <div class="mb-6">
+            <img src="{{ organization_logo }}" alt="Organization Logo" class="mx-auto h-12 md:h-16 w-auto object-contain opacity-75">
+        </div>
+        {% endif %}
         <div class="mb-4">
             <svg class="w-16 h-16 text-warning-600 mx-auto" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>

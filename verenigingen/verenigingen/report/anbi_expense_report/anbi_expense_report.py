@@ -152,39 +152,50 @@ def get_gl_expenses_by_anbi_parent(company, from_date, to_date):
     """Get GL expenses grouped by ANBI parent account.
 
     Uses nested set model (lft/rgt) to sum all descendant accounts.
+    Fetches all ANBI parents in one query, then aggregates GL entries in a second.
     """
-    totals = {}
+    # Query 1: Get all ANBI parent accounts at once
+    parents = frappe.db.sql(
+        """
+        SELECT account_number, name, lft, rgt
+        FROM `tabAccount`
+        WHERE company = %s
+        AND account_number IN %s
+        AND is_group = 1
+        """,
+        (company, ANBI_ACCOUNT_NUMBERS),
+        as_dict=True,
+    )
 
-    for acc_num in ANBI_ACCOUNT_NUMBERS:
-        # Get the ANBI parent account's lft/rgt bounds
-        parent = frappe.db.get_value(
-            "Account",
-            {"company": company, "account_number": acc_num, "is_group": 1},
-            ["name", "lft", "rgt"],
-            as_dict=True,
+    if not parents:
+        return {acc_num: 0 for acc_num in ANBI_ACCOUNT_NUMBERS}
+
+    # Query 2: Aggregate GL entries for all ANBI parents at once
+    results = frappe.db.sql(
+        """
+        SELECT
+            parent_acc.account_number,
+            COALESCE(SUM(gl.debit - gl.credit), 0) as total_expense
+        FROM `tabGL Entry` gl
+        JOIN `tabAccount` child_acc ON gl.account = child_acc.name
+        JOIN `tabAccount` parent_acc ON (
+            child_acc.lft > parent_acc.lft AND child_acc.rgt < parent_acc.rgt
         )
+        WHERE gl.company = %s
+        AND gl.posting_date BETWEEN %s AND %s
+        AND gl.is_cancelled = 0
+        AND parent_acc.account_number IN %s
+        AND parent_acc.is_group = 1
+        AND parent_acc.company = %s
+        GROUP BY parent_acc.account_number
+        """,
+        (company, from_date, to_date, ANBI_ACCOUNT_NUMBERS, company),
+        as_dict=True,
+    )
 
-        if not parent:
-            totals[acc_num] = 0
-            continue
-
-        # Sum GL entries for all accounts within this parent's hierarchy
-        result = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as total_expense
-            FROM `tabGL Entry` gl
-            JOIN `tabAccount` acc ON gl.account = acc.name
-            WHERE gl.company = %s
-            AND gl.posting_date BETWEEN %s AND %s
-            AND gl.is_cancelled = 0
-            AND acc.lft > %s
-            AND acc.rgt < %s
-            """,
-            (company, from_date, to_date, parent.lft, parent.rgt),
-            as_dict=True,
-        )
-
-        totals[acc_num] = result[0].total_expense if result else 0
+    totals = {acc_num: 0 for acc_num in ANBI_ACCOUNT_NUMBERS}
+    for row in results:
+        totals[row.account_number] = row.total_expense
 
     return totals
 

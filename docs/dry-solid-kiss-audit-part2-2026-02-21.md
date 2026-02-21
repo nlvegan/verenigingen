@@ -360,6 +360,21 @@
 | OV-H2 | Sales Invoice hooks in two locations | **ALREADY FIXED** | Dead e_boekhouden doc_events removed in HK-C1 cleanup (commit `03f32976`) |
 | BG-H5 | 3 exponential retry implementations | **BY DESIGN** | Documented in `retry_utilities.py` lines 554-570; each has specialized behavior |
 
+### Batch 5 — Reports, CSS, Templates (2026-02-21)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| R-H4 | N+1 query in `anbi_expense_report.py` | **FIXED** | Collapsed 6 queries (3 account lookups + 3 GL scans) into 2 batch queries |
+| CSS-C3 | 12 `!important` in `chapter_list.css` | **FIXED** | All 12 removed — single-class selectors don't need `!important` |
+| WT-H2 | "No member" banner duplicated in 2 templates | **FIXED** | `member_portal.html` and `contact_request.html` now use `portal_no_member_error.html` partial; added `organization_logo` support to partial |
+| R-H1 | God method `get_summary_data()` 276 LOC | **DEFERRED** | Medium effort (2-3 hrs); extracting helpers within same file. Not a quick win. |
+| SC-H2 | API security validators overlap | **KEPT** | Distinct purposes: `insecure_api_detector` = gatekeeper (missing decorators), `api_security_validator` = quality control (wrong decorators, docs) |
+| SC-H3 | Test runner shell script boilerplate | **DEFERRED** | Only 15% duplication (~50 LOC) across 2 files; wait until 3rd runner added |
+| P-H1 | 5 index creation patches copy-paste | **SKIPPED** | Patches are immutable after execution; refactoring risks migration failures. Use helper for future patches only. |
+| P-H4 | Settings migration patches copy-paste | **SKIPPED** | Same immutability risk; only 2 patches, not worth a helper |
+| DT-H4 | `fetch_from` duplication (8 DocTypes) | **BY DESIGN** | Standard Frappe denormalization pattern for reporting performance |
+| CSS-H5 | 32 `!important` across all CSS | **PARTIAL** | 12 removed in chapter_list.css; 11 in volunteer_portal.css need responsive audit; 7 in verenigingen_custom.css mixed |
+
 ### Remaining Items (Not Yet Addressed)
 
 **P1 remaining:**
@@ -369,7 +384,9 @@
 **P2 remaining:**
 - T-C1 through T-C4: Test factory and suite consolidation (large scope)
 - SC-H1: 4 remaining overlapping field validators (need per-validator analysis to safely remove)
-- CSS-H2 through CSS-H6: CSS cleanup items
+- CSS-H2 through CSS-H6: CSS cleanup (CSS-H5 partially done; rest need design decisions)
+- R-H1: Extract helpers from `get_summary_data()` in `account_creation_status.py` (276 LOC)
+- SC-H3: Shell script shared library (when 3rd test runner added)
 
 **P3 (architecture):**
 - JS-C3, JS-H1, JS-H2: Split JS god objects
@@ -409,15 +426,18 @@
 19. **Consolidate duplicate test suites** (T-C2, T-C3) — keep _real versions, delete _optimized/_minimal
 20. ~~Clean up critical_operation_rule.json~~ — **FIXED** (21 duplicates removed)
 21. ~~Extract shared CSS variables~~ — **DEFERRED** (design review needed)
+22. ~~Fix N+1 query in ANBI expense report~~ — **FIXED** (R-H4, 6 queries → 2)
+23. ~~Remove !important from chapter_list.css~~ — **FIXED** (CSS-C3, 12 removed)
+24. ~~Consolidate "no member" banner templates~~ — **FIXED** (WT-H2, 2 templates → partial include)
 
 ### Long-term (P3) — Architecture
 
-22. **Split JS god objects** (JS-C3, JS-H1, JS-H2) — member.js into domain modules
-23. **Adopt Tailwind consistently** (CSS-H1) — migrate custom CSS to utilities
-24. **Split Member DocType** (DT-H1) — extract payment/SEPA/history to linked DocTypes
-25. ~~Consolidate Sales Invoice hooks~~ — **ALREADY FIXED** (OV-H2, resolved in HK-C1 cleanup)
-26. **Extract shared report utilities** (R-H2, R-H3) — column definitions, chart generation
-27. ~~Add batch size limits to scheduler tasks~~ — **FIXED** (BG-H3, 500-per-run limit)
+25. **Split JS god objects** (JS-C3, JS-H1, JS-H2) — member.js into domain modules
+26. **Adopt Tailwind consistently** (CSS-H1) — migrate custom CSS to utilities
+27. **Split Member DocType** (DT-H1) — extract payment/SEPA/history to linked DocTypes
+28. ~~Consolidate Sales Invoice hooks~~ — **ALREADY FIXED** (OV-H2, resolved in HK-C1 cleanup)
+29. **Extract shared report utilities** (R-H2, R-H3) — column definitions, chart generation
+30. ~~Add batch size limits to scheduler tasks~~ — **FIXED** (BG-H3, 500-per-run limit)
 
 ---
 
@@ -437,6 +457,7 @@
 | 10 | CSS/Styles | 11 files | 3 | 6 | 10 | 5 |
 | 11 | Overrides | 3 patches | 3 | 3 | 2 | 0 |
 | | **Total** | | **37** | **46** | **67** | **43** |
-| | **Resolved** | | **16** | **9** | **0** | **0** |
-| | **False Positive** | | **8** | **1** | **0** | **0** |
-| | **Remaining** | | **13** | **36** | **67** | **43** |
+| | **Resolved** | | **16** | **13** | **0** | **0** |
+| | **False Positive / By Design** | | **8** | **3** | **0** | **0** |
+| | **Deferred / Skipped** | | **0** | **5** | **0** | **0** |
+| | **Remaining** | | **13** | **25** | **67** | **43** |
