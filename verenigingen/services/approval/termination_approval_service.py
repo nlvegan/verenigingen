@@ -13,6 +13,7 @@ from frappe import _
 from frappe.utils import now
 
 from verenigingen.services.infrastructure.base_service import StatefulService
+from verenigingen.utils.constants import Roles
 
 
 class TerminationApprovalService(StatefulService):
@@ -30,9 +31,9 @@ class TerminationApprovalService(StatefulService):
 
     # Roles authorized to approve termination requests
     APPROVAL_ROLES = [
-        "System Manager",
-        "Verenigingen Administrator",
-        "Chapter Administrator",
+        Roles.SYSTEM_MANAGER,
+        Roles.VERENIGINGEN_ADMIN,
+        Roles.CHAPTER_ADMIN,
         "Board Member",
     ]
 

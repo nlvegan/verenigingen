@@ -2,14 +2,14 @@
 
 **Scope:** Entire Verenigingen app (~302,818 LOC, 2,243 Python files)
 **Method:** 10 parallel audit agents covering all layers
-**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete; batches 7-12)
+**Last updated:** 2026-02-20 (Phases 1-2, 3 (continued), 4 (continued), 6 complete; batches 7-14)
 
 ## Executive Summary
 
 | Severity | Count | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 19 | 15 | 4 |
-| High | 37 | 32 | 5 |
+| High | 37 | 33 | 4 |
 | Medium | 55+ | 13 | 42+ |
 | Low | 30+ | 0 | 30+ |
 
@@ -100,7 +100,7 @@
 | H14 | Two near-identical batch workers | `event_application_service.py:2172-2276` | ~80 | MijnRood | **FIXED** — consolidated into `_batch_event_worker()` with `approve_first` parameter |
 | H15 | JSON unpack guard repeated 9 times | `event_application_service.py` | ~30 | MijnRood | **FIXED** — extracted `safe_json_load()` to `mijnrood_sync/utils.py` |
 | H16 | Error-handling boilerplate in 12 `_ensure_*` methods | `event_application_service.py` | ~60 | MijnRood | PARTIAL — extracted `_ensure_account_group()` + `_name_filter()` helpers in `account_organization_service.py`, consolidating 6 near-identical methods (~-105 LOC). MijnRood `_ensure_*` methods confirmed too varied (different service callables, return types, skip conditions). |
-| H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | **PARTIAL** — `Roles` class already existed in `utils/constants.py`; migrated `permissions.py` (19 instances → constants); added `VOLUNTEER_MANAGER`, `HR_MANAGER`, `HR_ADMIN_ROLES`, updated `VOLUNTEER_ADMIN_ROLES`. Remaining: service layer + API endpoints (Phase 2) |
+| H17 | Hardcoded role lists in 138+ locations across 40+ files | API + DocType + service layers | ~40 | API + DocTypes | **FIXED** `37a9490e` + `7170ab71` — `Roles` class in `utils/constants.py` extended with `ADMIN_PAIR`, `VOLUNTEER_MANAGER`, `HR_MANAGER`, `HR_ADMIN_ROLES`; migrated 29 files total: `permissions.py` (19 instances), 10 ADMIN_ROLES, 7 SYSTEM_MANAGER, 11 ADMIN_PAIR patterns |
 
 ### SRP Violations
 
@@ -227,7 +227,7 @@ The audit agents consistently noted these strong patterns:
 - ~~Delete duplicate deadlock retry decorator (H4)~~ **DONE** — replaced with `execute_with_deadlock_retry()`
 - ~~Extract `_ensure_account_group` helper (H16)~~ **DONE** — 6 methods → 1 parametrized helper
 - Consolidate deadlock retry logic (H4) — DEFERRED (7 implementations with different semantics)
-- Extract hardcoded role constants (H17) — DEFERRED (138+ instances across 40+ files)
+- ~~Extract hardcoded role constants (H17)~~ **FIXED** — migrated 29 files to `Roles` constants
 - Extract `_ensure_*` error decorator (H16) — DEFERRED (methods vary too much; ~40 LOC savings not worth clarity loss)
 - Add `@singleton` decorator to base service (Pattern 9)
 - Standardize return types (H34, Pattern 4)
@@ -311,7 +311,7 @@ The audit agents consistently noted these strong patterns:
 **Deferred items (explored, too complex for safe batch):**
 - H4: Deadlock retry — 7 implementations (not 3), each with different error handling semantics
 - H7/H8: Event emitter — copy-paste bug found in `chapter_events.py` (checks `bulk_member_operations` instead of `bulk_chapter_operations`)
-- H17: Hardcoded roles — 138+ instances across 40+ files, needs architectural decision on Roles constants
+- ~~H17: Hardcoded roles~~ **FIXED** — 29 files migrated to `Roles` constants from `utils/constants.py`
 
 ### Phase 4 (continued): DRY Consolidation + Bug Fixes (2026-02-20)
 
@@ -460,4 +460,12 @@ The audit agents consistently noted these strong patterns:
 | Item | What was done |
 |------|--------------|
 | H21 | Deleted dead `link_records()` method from `account_creation_manager.py` (-101 LOC). Zero callers — production uses `_link_records_phase()` which has comprehensive error tracking, partial success handling, and Contact→Member linking that `link_records()` lacked. |
-| H17 | Migrated `permissions.py` to use `Roles` constants from `utils/constants.py`. Replaced 19 hardcoded admin role list definitions: 12 standard ADMIN_ROLES, 3 VOLUNTEER_ADMIN_ROLES, 2 HR_ADMIN_ROLES, 1 HR_ADMIN_ROLES+HR User, 1 System+Admin pair. Added `VOLUNTEER_MANAGER`, `HR_MANAGER` role constants and `HR_ADMIN_ROLES` group. Updated `VOLUNTEER_ADMIN_ROLES` to include Volunteer Manager. Left 2 narrower inline checks untouched (intentionally different scope). Remaining: service layer + API files (Phase 2). |
+| H17 | Migrated `permissions.py` to use `Roles` constants from `utils/constants.py`. Replaced 19 hardcoded admin role list definitions: 12 standard ADMIN_ROLES, 3 VOLUNTEER_ADMIN_ROLES, 2 HR_ADMIN_ROLES, 1 HR_ADMIN_ROLES+HR User, 1 System+Admin pair. Added `VOLUNTEER_MANAGER`, `HR_MANAGER` role constants and `HR_ADMIN_ROLES` group. Updated `VOLUNTEER_ADMIN_ROLES` to include Volunteer Manager. Left 2 narrower inline checks untouched (intentionally different scope). Continued in Batch 14. |
+
+### Batch 14: Complete role constant migration — H17 (2026-02-20)
+
+**Impact:** 29 files migrated, +29 LOC (imports) / -57 LOC (inline strings) = net cleaner
+
+| Item | What was done |
+|------|--------------|
+| H17 | Completed bulk migration of hardcoded role strings to `Roles` constants across 28 additional files (29 total including `permissions.py` from Batch 13). Added `ADMIN_PAIR` constant to `utils/constants.py`. Three migration patterns: **ADMIN_ROLES** (10 files: `chapter_utils.py`, `member_portal_utils.py`, `dues_schedule_validation_service.py`, `member_fee_validation_service.py`, `member.py`, `event_contact_campaign.py`, `membership_application_review.py`, `sepa_mandate.py`, `payment_dashboard.py`, `membership_application.py`), **SYSTEM_MANAGER** (7 files: `deleted_document_cleanup.py`, `performance_optimization.py`, `dues_schedule_permission_service.py`, `bulk_delete_test_invoices.py`, `migration_helper.py`, `role_cleanup.py`, `permissions.py` inline checks), **ADMIN_PAIR** (11 files: `suspension_api.py`, `brand_management.py`, `admin_membership_operations.py`, `team_admin_utilities.py`, `termination_utils.py`, `notification_helpers.py`, `expense_history_batch_processor.py`, `dd_batch_api.py`, `workflow_setup.py`, `membership_application_workflow_setup.py`, `contribution_amendment_request.py`). Uses `list()` conversion where Frappe APIs require lists (e.g., `frappe.only_for()`, `@require_roles()`). |

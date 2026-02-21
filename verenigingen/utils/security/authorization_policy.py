@@ -15,6 +15,7 @@ This module can be tested in complete isolation from Frappe.
 
 from typing import Dict, List
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.types import AuthResult, SecurityLevel
 
 
@@ -54,7 +55,7 @@ class AuthorizationPolicy:
             SecurityLevel.MEDIUM,
             SecurityLevel.LOW,
         ],
-        "Verenigingen Administrator": [
+        Roles.VERENIGINGEN_ADMIN: [
             SecurityLevel.CRITICAL,
             SecurityLevel.HIGH,
             SecurityLevel.MEDIUM,
@@ -70,7 +71,7 @@ class AuthorizationPolicy:
             SecurityLevel.HIGH,
             SecurityLevel.MEDIUM,
         ],  # National oversight
-        "Verenigingen Staff": [
+        Roles.VERENIGINGEN_STAFF: [
             SecurityLevel.HIGH,
             SecurityLevel.MEDIUM,
             SecurityLevel.LOW,
@@ -178,7 +179,7 @@ class AuthorizationPolicy:
                 )
 
         # ===== RULE 6: System Manager exception for MEDIUM =====
-        if "System Manager" in user_roles and required_level == SecurityLevel.MEDIUM:
+        if Roles.SYSTEM_MANAGER in user_roles and required_level == SecurityLevel.MEDIUM:
             return AuthResult(
                 granted=True,
                 rule_matched="rule_6_system_manager",

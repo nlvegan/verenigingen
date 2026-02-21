@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import add_days, get_weekday, getdate, now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -543,7 +544,7 @@ def run_batch_creation_now():
 
         # 3. Validate user has required roles (not just permissions)
         user_roles = frappe.get_roles(frappe.session.user)
-        required_roles = ["Finance Manager", "SEPA Administrator", "System Manager"]
+        required_roles = ["Finance Manager", "SEPA Administrator", Roles.SYSTEM_MANAGER]
         if not any(role in required_roles for role in user_roles):
             return {
                 "success": False,

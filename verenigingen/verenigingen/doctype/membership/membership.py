@@ -8,6 +8,7 @@ from frappe.utils import add_months, add_to_date, flt, getdate, nowdate, today
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -400,7 +401,7 @@ class Membership(Document):
             min_membership_period = add_months(getdate(self.start_date), 12)
             if DateRangeValidator.is_date_before(self.cancellation_date, min_membership_period):
                 # Check if user is an admin
-                is_admin = "System Manager" in frappe.get_roles(frappe.session.user)
+                is_admin = Roles.SYSTEM_MANAGER in frappe.get_roles(frappe.session.user)
 
                 if is_admin:
                     # Show warning but allow cancellation
@@ -866,7 +867,7 @@ def cancel_membership(
         min_membership_period = add_months(getdate(membership.start_date), 12)
         if DateRangeValidator.is_date_before(cancellation_date, min_membership_period):
             # Check if user is an admin
-            is_admin = "System Manager" in frappe.get_roles(frappe.session.user)
+            is_admin = Roles.SYSTEM_MANAGER in frappe.get_roles(frappe.session.user)
 
             if is_admin:
                 # Show warning but allow cancellation

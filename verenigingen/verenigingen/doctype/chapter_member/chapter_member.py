@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.constants import Roles
+
 
 class ChapterMember(Document):
     def after_insert(self):
@@ -40,9 +42,10 @@ class ChapterMember(Document):
 
         # Also allow if the change is being made by administrator or system user
         current_user = frappe.session.user
-        is_admin_user = current_user in ["Administrator", "Guest"] or "System Manager" in frappe.get_roles(
-            current_user
-        )
+        is_admin_user = current_user in [
+            "Administrator",
+            "Guest",
+        ] or Roles.SYSTEM_MANAGER in frappe.get_roles(current_user)
 
         # Allow if we're updating an existing record without changing key fields
         if (

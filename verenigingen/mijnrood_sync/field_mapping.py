@@ -9,6 +9,8 @@ MijnRood status IDs are mapped via MIJNROOD_STATUS_MAP to the same status string
 that MemberImportService.STATUS_MAP expects (e.g. "lid", "opgezegd").
 """
 
+from verenigingen.utils.constants import Roles
+
 # Columns to include in MD5 checksum for each MijnRood table.
 # Order matters for checksum consistency — do not reorder.
 # NOTE: Sensitive columns (password_hash, new_password_token, etc.) are
@@ -280,7 +282,7 @@ def get_role_mapping() -> dict[str, dict]:
     {
         "ROLE_ADMIN": {
             "create_volunteer": True,
-            "verenigingen_role": "Verenigingen Staff",
+            "verenigingen_role": Roles.VERENIGINGEN_STAFF,
             "add_to_chapter_board": False,
             "chapter_role": None,
         },

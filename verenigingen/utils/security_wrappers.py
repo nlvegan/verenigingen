@@ -46,6 +46,8 @@ from typing import List, Optional, Union
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 # Configure security logger
 security_logger = logging.getLogger("verenigingen.security")
 
@@ -98,7 +100,7 @@ def safe_get_roles(user: Optional[Union[str, None]] = None) -> List[str]:
             return []
 
         # Log administrative role access for audit
-        admin_roles = {"System Manager", "Administrator", "Verenigingen Administrator"}
+        admin_roles = {Roles.SYSTEM_MANAGER, "Administrator", Roles.VERENIGINGEN_ADMIN}
         if any(role in admin_roles for role in roles):
             security_logger.info(f"Administrative role access: user={user}, roles={roles}")
 
@@ -134,7 +136,7 @@ def safe_has_role(user: Optional[str], role: str) -> bool:
         has_role = role in user_roles
 
         # Log privileged role checks
-        if has_role and role in {"System Manager", "Administrator", "Verenigingen Administrator"}:
+        if has_role and role in {Roles.SYSTEM_MANAGER, "Administrator", Roles.VERENIGINGEN_ADMIN}:
             effective_user = user or getattr(frappe.session, "user", "Unknown")
             security_logger.info(f"Privileged role check: user={effective_user}, role={role}, granted=True")
 
@@ -226,7 +228,7 @@ def get_security_audit_info() -> dict:
             "current_user": current_user,
             "user_roles": user_roles,
             "has_admin_access": safe_has_any_role(
-                current_user, ["System Manager", "Administrator", "Verenigingen Administrator"]
+                current_user, [Roles.SYSTEM_MANAGER, "Administrator", Roles.VERENIGINGEN_ADMIN]
             ),
             "session_sid": getattr(frappe.session, "sid", "Unknown"),
             "is_guest": current_user == "Guest",

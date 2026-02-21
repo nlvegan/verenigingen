@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 
@@ -22,7 +23,7 @@ from verenigingen.utils.security.csrf_protection import validate_csrf_token
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-@require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+@require_role(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
 @validate_csrf_token
 def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
     """
@@ -155,7 +156,7 @@ def get_schedule_health_report() -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-@require_role(["Accounts Manager", "System Manager"])
+@require_role(["Accounts Manager", Roles.SYSTEM_MANAGER])
 @validate_csrf_token
 def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict[str, Any]]:
     """
@@ -337,7 +338,7 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-@require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+@require_role(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
 @validate_csrf_token
 def prevent_orphaned_schedules() -> OperationResult[Dict[str, Any]]:
     """

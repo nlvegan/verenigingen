@@ -22,6 +22,8 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 class MollieConfigurationService:
     """
@@ -39,8 +41,8 @@ class MollieConfigurationService:
     # has_permission() doesn't work correctly for service accounts
     # See: webhook_security.py comments for details
     ALLOWED_ROLES = {
-        "System Manager",
-        "Verenigingen Administrator",
+        Roles.SYSTEM_MANAGER,
+        Roles.VERENIGINGEN_ADMIN,
         "Verenigingen Webhook User",
     }
     CACHE_TTL_SECONDS = 300  # 5 minutes

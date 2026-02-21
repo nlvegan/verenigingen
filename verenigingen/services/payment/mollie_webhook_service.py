@@ -13,6 +13,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
+from verenigingen.utils.constants import Roles
 
 
 class MollieWebhookService:
@@ -26,10 +27,10 @@ class MollieWebhookService:
     """
 
     ALLOWED_ROLES = [
-        "System Manager",
+        Roles.SYSTEM_MANAGER,
         "Administrator",
-        "Verenigingen Administrator",
-        "Verenigingen Staff",
+        Roles.VERENIGINGEN_ADMIN,
+        Roles.VERENIGINGEN_STAFF,
     ]
 
     def __init__(self):

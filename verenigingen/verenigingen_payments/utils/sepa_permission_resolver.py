@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Set
 
 import frappe
 
+from verenigingen.utils.constants import Roles
+
 
 @dataclass
 class UserPermissionContext:
@@ -35,10 +37,10 @@ class SEPAPermissionResolverClean:
         roles = set(frappe.get_roles(self.user))
 
         # Single-path hierarchy - no complex fallbacks
-        if "System Manager" in roles:
+        if Roles.SYSTEM_MANAGER in roles:
             return UserPermissionContext(user=self.user, roles=roles, permission_level="admin")
 
-        if "Verenigingen Staff" in roles:
+        if Roles.VERENIGINGEN_STAFF in roles:
             return UserPermissionContext(user=self.user, roles=roles, permission_level="manager")
 
         if "Verenigingen Member" in roles:

@@ -8,6 +8,7 @@ Scheduled task to auto-create missing dues schedules for members with assigned m
 import frappe
 from frappe.utils import add_days, add_months, add_years, getdate, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -213,8 +214,8 @@ def _create_max_retry_alert(member_name, retry_data):
             "User",
             filters={"enabled": 1, "user_type": "System User"},
             or_filters=[
-                ["role_profile_name", "=", "Verenigingen Administrator"],
-                ["name", "in", frappe.get_roles("Verenigingen Administrator")],
+                ["role_profile_name", "=", Roles.VERENIGINGEN_ADMIN],
+                ["name", "in", frappe.get_roles(Roles.VERENIGINGEN_ADMIN)],
             ],
             pluck="name",
         )
@@ -223,7 +224,7 @@ def _create_max_retry_alert(member_name, retry_data):
             admin_users = frappe.get_all(
                 "User",
                 filters={"enabled": 1, "user_type": "System User"},
-                or_filters=[["name", "in", frappe.get_roles("System Manager")]],
+                or_filters=[["name", "in", frappe.get_roles(Roles.SYSTEM_MANAGER)]],
                 pluck="name",
             )
 
@@ -269,8 +270,8 @@ def _send_enhanced_summary_email(main_result, retry_result):
             "User",
             filters={"enabled": 1, "user_type": "System User"},
             or_filters=[
-                ["role_profile_name", "=", "Verenigingen Administrator"],
-                ["name", "in", frappe.get_roles("Verenigingen Administrator")],
+                ["role_profile_name", "=", Roles.VERENIGINGEN_ADMIN],
+                ["name", "in", frappe.get_roles(Roles.VERENIGINGEN_ADMIN)],
             ],
             pluck="email",
         )
@@ -417,8 +418,8 @@ def send_summary_email(created_count, error_count, total_found):
             "User",
             filters={"enabled": 1, "user_type": "System User"},
             or_filters=[
-                ["role_profile_name", "=", "Verenigingen Administrator"],
-                ["name", "in", frappe.get_roles("Verenigingen Administrator")],
+                ["role_profile_name", "=", Roles.VERENIGINGEN_ADMIN],
+                ["name", "in", frappe.get_roles(Roles.VERENIGINGEN_ADMIN)],
             ],
             pluck="email",
         )
@@ -769,7 +770,7 @@ def _send_summary_email(result):
         "User",
         filters={"enabled": 1, "user_type": "System User"},
         or_filters=[
-            ["role_profile_name", "=", "Verenigingen Administrator"],
+            ["role_profile_name", "=", Roles.VERENIGINGEN_ADMIN],
         ],
         pluck="email",
     )

@@ -14,6 +14,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, now, today
 
+from verenigingen.utils.constants import Roles
+
 # Lazy import for email_service to avoid circular dependency
 # from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.error_handling import log_error
@@ -429,7 +431,7 @@ class SEPAAuditLogger:
             from verenigingen.services.communication.email_service import get_email_service
 
             # Get users with security roles via direct query (avoids loading all users)
-            security_roles = ["System Manager", "Verenigingen Administrator"]
+            security_roles = list(Roles.ADMIN_PAIR)
             role_holders = frappe.get_all(
                 "Has Role",
                 filters={"role": ["in", security_roles], "parenttype": "User"},
@@ -892,7 +894,7 @@ def search_audit_logs(**filters):
         List of audit log entries
     """
     # Require admin permission
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can access audit logs"), frappe.PermissionError)
 
     try:
@@ -920,7 +922,7 @@ def get_audit_statistics(days: int = 7):
         Dictionary with statistics
     """
     # Require admin permission
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can access audit statistics"), frappe.PermissionError)
 
     try:

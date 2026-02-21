@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import add_days, today
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -125,7 +126,7 @@ def escalate_contact_request(request, overdue_days):
 
     # Get managers to escalate to
     managers = frappe.get_all(
-        "Has Role", filters={"role": "Verenigingen Administrator", "parenttype": "User"}, fields=["parent"]
+        "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"}, fields=["parent"]
     )
 
     if not managers:

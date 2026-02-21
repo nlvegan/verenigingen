@@ -29,6 +29,7 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.document_categories import get_category_icon, get_document_category_options
 
 
@@ -211,7 +212,7 @@ class DocumentPortalService(StatelessService):
         """
         # Administrators can upload anywhere
         user_roles = frappe.get_roles(user)
-        if "System Manager" in user_roles or "Verenigingen Administrator" in user_roles:
+        if Roles.SYSTEM_MANAGER in user_roles or Roles.VERENIGINGEN_ADMIN in user_roles:
             return True
 
         member_name = self._get_member_for_user(user)
@@ -977,7 +978,7 @@ class DocumentPortalService(StatelessService):
             member_name = self._get_member_for_user(user)
             volunteer_name = self._get_volunteer_for_member(member_name) if member_name else None
             user_roles = frappe.get_roles(user)
-            is_admin = "System Manager" in user_roles or "Verenigingen Administrator" in user_roles
+            is_admin = Roles.SYSTEM_MANAGER in user_roles or Roles.VERENIGINGEN_ADMIN in user_roles
             is_member = "Verenigingen Member" in user_roles
 
             # Get accessible organizations
@@ -1220,7 +1221,7 @@ class DocumentPortalService(StatelessService):
         user_roles = frappe.get_roles(user)
 
         # Admins can view anything
-        if "System Manager" in user_roles or "Verenigingen Administrator" in user_roles:
+        if Roles.SYSTEM_MANAGER in user_roles or Roles.VERENIGINGEN_ADMIN in user_roles:
             return True
 
         member_name = self._get_member_for_user(user)

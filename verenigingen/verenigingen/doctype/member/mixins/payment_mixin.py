@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import date_diff, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -363,7 +364,7 @@ class PaymentMixin:
 
     def can_view_member_payments(self, view_member):
         """Check if this member can view another member's payment info"""
-        if "System Manager" in frappe.get_roles(self.user):
+        if Roles.SYSTEM_MANAGER in frappe.get_roles(self.user):
             return True
 
         if self.name == view_member:

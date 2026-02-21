@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import PermissionError as VerenigingenPermissionError, log_error
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, log_security_event
 from verenigingen.utils.security.authorization_engine import get_authorization_engine
@@ -96,7 +97,7 @@ class SEPAAuthorizationManager:
         # compatibility fallback in get_user_permissions().
         #
         # System Manager: Frappe's built-in admin role - full SEPA access
-        "System Manager": [
+        Roles.SYSTEM_MANAGER: [
             SEPAPermissionLevel.READ,
             SEPAPermissionLevel.VALIDATE,
             SEPAPermissionLevel.CREATE,
@@ -122,7 +123,7 @@ class SEPAAuthorizationManager:
             SEPAPermissionLevel.AUDIT,
         ],
         # Administrator: Full operational access, no system admin
-        "Verenigingen Administrator": [
+        Roles.VERENIGINGEN_ADMIN: [
             SEPAPermissionLevel.READ,
             SEPAPermissionLevel.VALIDATE,
             SEPAPermissionLevel.CREATE,
@@ -146,7 +147,7 @@ class SEPAAuthorizationManager:
             SEPAPermissionLevel.AUDIT,
         ],
         # Staff: Operational access without audit
-        "Verenigingen Staff": [
+        Roles.VERENIGINGEN_STAFF: [
             SEPAPermissionLevel.READ,
             SEPAPermissionLevel.VALIDATE,
             SEPAPermissionLevel.CREATE,

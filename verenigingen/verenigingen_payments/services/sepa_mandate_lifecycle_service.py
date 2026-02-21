@@ -21,6 +21,7 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 
 # =============================================================================
@@ -618,7 +619,7 @@ def get_mandate_lifecycle_metrics() -> Dict[str, Any]:
     Returns:
         Dictionary with current metrics summary and any active alerts
     """
-    frappe.only_for(["System Manager", "Accounts Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER, "Accounts Manager"])
 
     metrics = get_mandate_metrics_collector()
 
@@ -639,7 +640,7 @@ def reset_mandate_lifecycle_metrics() -> Dict[str, Any]:
     Returns:
         Dictionary with final metrics summary before reset
     """
-    frappe.only_for(["System Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER])
 
     metrics = get_mandate_metrics_collector()
 

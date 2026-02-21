@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
     PermissionError,
     ValidationError,
@@ -70,8 +71,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
     user = frappe.session.user
 
     # System managers and Association/Membership managers can assign anyone
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    if any(role in frappe.get_roles(user) for role in Roles.ADMIN_ROLES):
         return True
 
     # Get user's member record
@@ -183,8 +183,7 @@ def can_view_members_without_chapter():
     user = frappe.session.user
 
     # System managers and Association/Membership managers can view
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    if any(role in frappe.get_roles(user) for role in Roles.ADMIN_ROLES):
         return True
 
     # Chapter board members with admin/membership permissions can view
@@ -923,6 +922,6 @@ def get_chapter_member_emails(chapter_name) -> OperationResult[Dict[str, Any]]:
 def can_approve_members():
     """Check if current user can approve members (has required roles)"""
     user_roles = frappe.get_roles(frappe.session.user)
-    required_roles = ["System Manager", "Verenigingen Administrator", "Chapter Administrator", "Board Member"]
+    required_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, Roles.CHAPTER_ADMIN, "Board Member"]
 
     return any(role in user_roles for role in required_roles)

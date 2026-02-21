@@ -382,7 +382,7 @@ class ContributionAmendmentRequest(Document):
             admin_roles = Roles.ADMIN_PAIR
             admin_emails = frappe.get_all(
                 "Has Role",
-                filters={"role": ["in", admin_roles], "parenttype": "User"},
+                filters={"role": ["in", list(admin_roles)], "parenttype": "User"},
                 fields=["parent"],
                 distinct=True,
             )

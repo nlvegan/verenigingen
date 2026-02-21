@@ -46,6 +46,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
     ConfigurationError,
     mask_iban,
@@ -108,10 +109,10 @@ def increment_metric(name: str, value: int = 1):
 # These roles represent trusted internal staff who can request elevated operations
 ESCALATION_ALLOWED_ROLES = frozenset(
     [
-        "System Manager",
-        "Verenigingen Administrator",
+        Roles.SYSTEM_MANAGER,
+        Roles.VERENIGINGEN_ADMIN,
         "Verenigingen System Administrator",
-        "Verenigingen Staff",
+        Roles.VERENIGINGEN_STAFF,
         "Verenigingen Treasurer",
     ]
 )
@@ -121,7 +122,7 @@ ESCALATION_ALLOWED_ROLES = frozenset(
 # the security implications should be allowed to bypass validations
 BYPASS_VALIDATION_ALLOWED_ROLES = frozenset(
     [
-        "System Manager",
+        Roles.SYSTEM_MANAGER,
         "Verenigingen System Administrator",
     ]
 )

@@ -23,6 +23,7 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
     PermissionError as VPermissionError,
     ValidationError as VValidationError,
@@ -1409,7 +1410,7 @@ def analyze_api_security_status():
     Returns comprehensive report of security coverage and recommendations
     """
     # Require admin permission
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can access security analysis"), frappe.PermissionError)
 
     try:
@@ -1548,7 +1549,7 @@ def webhook_api(
 def get_security_framework_status():
     """Get current security framework configuration and status"""
     # Require admin permission
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can access framework status"), frappe.PermissionError)
 
     try:
@@ -1661,7 +1662,7 @@ def get_user_security_profile_analysis(email: str = None):
         Dict containing user's role profiles, security levels, and access analysis
     """
     # Require System Manager permission
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can access security profile analysis"), frappe.PermissionError)
 
     try:

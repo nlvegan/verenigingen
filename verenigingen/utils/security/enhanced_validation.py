@@ -18,6 +18,7 @@ import frappe
 from frappe import _
 from frappe.utils import cstr, get_datetime, getdate
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import ValidationError as VValidationError
 from verenigingen.utils.security.api_security_framework import development_only_api
 from verenigingen.utils.security.audit_logging import AuditSeverity, get_audit_logger
@@ -709,7 +710,7 @@ def validate_with_schema(schema_name: str, expose_errors: bool = False):
             # Check if validation passed
             if not validation_result["valid"]:
                 # Create secure error response
-                expose_details = expose_errors or "System Manager" in frappe.get_roles()
+                expose_details = expose_errors or Roles.SYSTEM_MANAGER in frappe.get_roles()
                 error_response = validator.create_secure_error_response(validation_result, expose_details)
 
                 if expose_details:
@@ -765,7 +766,7 @@ def validate_business_rules(*rule_functions):
 def get_validation_schemas():
     # Development-only utility operation: Get validation schemas
     """Get list of available validation schemas"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     registry = get_schema_registry()
@@ -787,7 +788,7 @@ def get_validation_schemas():
 def validate_data_with_schema(data: str, schema_name: str):
     # Development-only utility operation: Test validation rule
     """API endpoint to validate data against schema"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:

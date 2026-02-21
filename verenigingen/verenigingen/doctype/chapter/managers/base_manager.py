@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 class BaseManager(ABC):
     """Base class for all chapter managers"""
@@ -188,11 +190,11 @@ class BaseManager(ABC):
             user = frappe.session.user
 
         # System managers can do everything
-        if "System Manager" in frappe.get_roles(user):
+        if Roles.SYSTEM_MANAGER in frappe.get_roles(user):
             return True
 
         # Association managers can manage chapters
-        if "Verenigingen Administrator" in frappe.get_roles(user):
+        if Roles.VERENIGINGEN_ADMIN in frappe.get_roles(user):
             return True
 
         # Check if user is a board member of this chapter

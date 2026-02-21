@@ -28,6 +28,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import get_datetime, now_datetime
 
+from verenigingen.utils.constants import Roles
+
 
 class EmailConfigurationService:
     """Service for managing email configuration and notification settings."""
@@ -308,7 +310,7 @@ class EmailConfigurationService:
     def _get_fallback_recipients(self) -> List[str]:
         """Get fallback recipients when no specific config exists."""
         config = self._get_config()
-        fallback_role = "System Manager"
+        fallback_role = Roles.SYSTEM_MANAGER
         if config and config.fallback_admin_role:
             fallback_role = config.fallback_admin_role
 

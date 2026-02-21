@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import frappe
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -168,7 +169,7 @@ def alert_if_auth_issues():
 
             # Send to system administrators
             recipients = frappe.get_all(
-                "User", filters={"role_profile_name": "System Manager", "enabled": 1}, pluck="email"
+                "User", filters={"role_profile_name": Roles.SYSTEM_MANAGER, "enabled": 1}, pluck="email"
             )
 
             if recipients:

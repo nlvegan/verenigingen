@@ -3,6 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -170,7 +171,7 @@ class MemberContactRequest(Document):
         # Get users with Verenigingen Administrator role
         managers = frappe.get_all(
             "Has Role",
-            filters={"role": "Verenigingen Administrator", "parenttype": "User"},
+            filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"},
             fields=["parent"],
         )
         recipients.extend([m.parent for m in managers])
@@ -178,7 +179,7 @@ class MemberContactRequest(Document):
         # For urgent requests, also notify System Managers
         if self.urgency == "Urgent":
             system_managers = frappe.get_all(
-                "Has Role", filters={"role": "System Manager", "parenttype": "User"}, fields=["parent"]
+                "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
             )
             recipients.extend([sm.parent for sm in system_managers])
 

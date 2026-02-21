@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     user_has_any_role,
@@ -58,10 +59,10 @@ def has_payment_processing_access():
     """Check if current user has access to payment processing page"""
     return user_has_any_role(
         [
-            "System Manager",
+            Roles.SYSTEM_MANAGER,
             "Administrator",
-            "Verenigingen Administrator",
-            "Verenigingen Staff",
+            Roles.VERENIGINGEN_ADMIN,
+            Roles.VERENIGINGEN_STAFF,
             "Treasurer",
         ]
     )

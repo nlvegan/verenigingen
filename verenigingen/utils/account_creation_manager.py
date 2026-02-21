@@ -44,6 +44,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_site_name, now
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
@@ -907,15 +908,15 @@ class AccountCreationManager:
         current_roles = frappe.get_roles()
 
         # System managers can assign any role
-        if "System Manager" in current_roles:
+        if Roles.SYSTEM_MANAGER in current_roles:
             return True
 
         # Verenigingen administrators can assign verenigingen roles
-        if "Verenigingen Administrator" in current_roles:
+        if Roles.VERENIGINGEN_ADMIN in current_roles:
             allowed_roles = [
                 "Verenigingen Member",
                 "Verenigingen Volunteer",
-                "Verenigingen Staff",
+                Roles.VERENIGINGEN_STAFF,
                 "Verenigingen Chapter Board Member",
                 "Employee",
                 "Employee Self Service",

@@ -433,7 +433,7 @@ def has_member_permission(doc, user=None, permission_type=None):
             frappe.log_error(f"Error checking chapter board member permissions: {str(e)}")
 
     # Verenigingen Staff - handled by query conditions, allow individual document access
-    if "Verenigingen Staff" in user_roles:
+    if Roles.VERENIGINGEN_STAFF in user_roles:
         frappe.logger().debug(f"User {user} has Verenigingen Staff role, allowing access")
         return True
 
@@ -1192,7 +1192,7 @@ def can_terminate_member(member_name, user=None):
         user = frappe.session.user
 
     # System managers and Association managers always can
-    admin_roles = {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN}
+    admin_roles = Roles.ADMIN_PAIR
     user_roles = frappe.get_roles(user)
     if any(role in user_roles for role in admin_roles):
         frappe.logger().debug(f"User {user} has admin role, granting termination access")
@@ -1266,7 +1266,7 @@ def can_access_termination_functions(user=None):
         user = frappe.session.user
 
     # System managers and Association managers always can
-    admin_roles = {Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN}
+    admin_roles = Roles.ADMIN_PAIR
     user_roles = frappe.get_roles(user)
     if any(role in user_roles for role in admin_roles):
         return True

@@ -19,6 +19,7 @@ from typing import Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -104,7 +105,7 @@ def list_phantom_hashes(
     Returns:
         Dict with entries list and pagination info
     """
-    frappe.only_for(["System Manager", "Accounts Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER, "Accounts Manager"])
 
     limit = min(max(int(limit), 1), 200)
     offset = max(int(offset), 0)
@@ -159,7 +160,7 @@ def get_phantom_hash_details(log_name: str) -> Dict:
     Returns:
         Dict with full entry details and related batch info
     """
-    frappe.only_for(["System Manager", "Accounts Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER, "Accounts Manager"])
 
     log_entry = frappe.get_doc("SEPA Batch Upload Log", log_name)
 
@@ -247,7 +248,7 @@ def mark_phantom_hash_abandoned(
     Returns:
         Dict with success status and updated entry
     """
-    frappe.only_for(["System Manager", "Accounts Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER, "Accounts Manager"])
 
     if not reason or len(reason.strip()) < 10:
         frappe.throw(_("Reason must be at least 10 characters for audit purposes."))
@@ -352,7 +353,7 @@ def retry_phantom_attachment(
     Returns:
         Dict with success status and file URL if successful
     """
-    frappe.only_for(["System Manager", "Accounts Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER, "Accounts Manager"])
 
     # Use transaction with row lock to prevent race conditions
     frappe.db.begin()
@@ -568,7 +569,7 @@ def get_phantom_hash_stats() -> Dict:
     Returns:
         Dict with counts by status and age distribution
     """
-    frappe.only_for(["System Manager", "Accounts Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER, "Accounts Manager"])
 
     # Count using indexed is_phantom field (efficient)
     total = frappe.db.count("SEPA Batch Upload Log", filters={"is_phantom": 1})

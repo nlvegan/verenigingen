@@ -21,6 +21,7 @@ from frappe import _
 from frappe.utils import add_days, get_datetime, now, today
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
@@ -473,7 +474,7 @@ Generated at: {timestamp}
             if recipient_group == "sepa_administrators":
                 # Get users with SEPA admin roles
                 sepa_admins = frappe.get_all(
-                    "Has Role", filters={"role": "Verenigingen Administrator"}, fields=["parent"]
+                    "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN}, fields=["parent"]
                 )
                 for admin in sepa_admins:
                     user = frappe.get_doc("User", admin.parent)
@@ -483,7 +484,7 @@ Generated at: {timestamp}
             elif recipient_group == "system_managers":
                 # Get system managers
                 sys_managers = frappe.get_all(
-                    "Has Role", filters={"role": "System Manager"}, fields=["parent"]
+                    "Has Role", filters={"role": Roles.SYSTEM_MANAGER}, fields=["parent"]
                 )
                 for manager in sys_managers:
                     user = frappe.get_doc("User", manager.parent)

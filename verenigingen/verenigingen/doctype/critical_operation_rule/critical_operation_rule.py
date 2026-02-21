@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
@@ -253,7 +254,7 @@ class CriticalOperationRule(Document):
         """Get list of admin emails for notifications"""
         try:
             admins = frappe.get_all(
-                "Has Role", filters={"role": "System Manager", "parenttype": "User"}, fields=["parent"]
+                "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
             )
 
             admin_emails = []
@@ -406,7 +407,7 @@ def send_security_policy_change_digest():
 
     # Get admin emails
     admins = frappe.get_all(
-        "Has Role", filters={"role": "System Manager", "parenttype": "User"}, fields=["parent"]
+        "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
     )
     admin_emails = []
     for admin in admins:

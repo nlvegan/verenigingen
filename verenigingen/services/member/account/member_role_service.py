@@ -27,6 +27,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -86,7 +87,7 @@ class MemberRoleService(StatelessService):
             # - Role profiles provide complete role sets and don't work well when mixed with individual roles
             # - This method is called during member account creation/setup, not for existing active users
             # - Member accounts should have ONLY member-related roles (Verenigingen Member, All)
-            # - If this user account already has roles (e.g., "System Manager"), those roles
+            # - If this user account already has roles (e.g., Roles.SYSTEM_MANAGER), those roles
             #   were assigned incorrectly or the account is being re-purposed as a member account
             #
             # SAFETY NOTES:

@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 import frappe
 
 from verenigingen.utils.config_manager import ConfigManager
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import get_logger
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
@@ -141,7 +142,7 @@ from verenigingen.utils.config_manager import ConfigManager
                 keyword in function_def.lower()
                 for keyword in ["approve", "reject", "delete", "bulk", "admin"]
             ):
-                decorators.append('@require_roles(["System Manager", "Verenigingen Administrator"])')
+                decorators.append("@require_roles(list(Roles.ADMIN_PAIR))")
 
             # Add rate limiting for resource-intensive operations
             if any(keyword in function_def.lower() for keyword in ["export", "bulk", "send", "process"]):

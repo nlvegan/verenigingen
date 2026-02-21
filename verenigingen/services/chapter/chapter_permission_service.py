@@ -39,6 +39,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -60,8 +61,8 @@ class ChapterPermissionService(StatelessService):
     # ADMIN ROLE CONSTANTS
     # ========================================================================
 
-    ADMIN_ROLES = ("System Manager", "Verenigingen Administrator")
-    STAFF_ROLES = ("System Manager", "Verenigingen Administrator", "Verenigingen Staff")
+    ADMIN_ROLES = tuple(Roles.ADMIN_PAIR)
+    STAFF_ROLES = tuple(Roles.ADMIN_ROLES)
     BOARD_MEMBER_ROLE = "Verenigingen Chapter Board Member"
     MEMBER_ROLE = "Verenigingen Member"
 

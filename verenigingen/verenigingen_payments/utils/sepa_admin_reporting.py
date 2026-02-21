@@ -21,6 +21,7 @@ from frappe import _
 from frappe.utils import cint, flt, format_datetime, formatdate, get_datetime, now_datetime
 from frappe.utils.pdf import get_pdf
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.sepa_memory_optimizer import SEPAMemoryMonitor
@@ -1272,7 +1273,7 @@ def schedule_report(
     Returns:
         Schedule confirmation
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only system managers can schedule reports"))
 
     try:

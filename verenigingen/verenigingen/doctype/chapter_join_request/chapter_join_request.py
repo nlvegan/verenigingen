@@ -7,6 +7,7 @@ from frappe.model.document import Document
 from frappe.utils import getdate, today
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -300,7 +301,7 @@ def has_chapter_approval_permission(chapter_name=None, user=None):
 
     # Administrators and Managers can approve for any chapter
     user_roles = frappe.get_roles(user)
-    if "Verenigingen Administrator" in user_roles or "Verenigingen Staff" in user_roles:
+    if Roles.VERENIGINGEN_ADMIN in user_roles or Roles.VERENIGINGEN_STAFF in user_roles:
         return True
 
     # Check if user is a board member of this specific chapter

@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import flt, getdate, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -888,7 +889,7 @@ def send_membership_type_change_notification(member, old_type, new_type, reason)
         # Get notification recipients (membership committee + chapter admins)
         recipients = get_notification_recipients(
             "membership_committee_email",
-            default_roles=["Verenigingen Administrator", "System Manager"],
+            default_roles=list(Roles.ADMIN_PAIR),
         )
 
         # Also notify chapter administrators

@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     development_only_api,
@@ -63,10 +64,10 @@ def has_mollie_debug_access():
     """Check if current user has access to Mollie debug page"""
     return user_has_any_role(
         [
-            "System Manager",
+            Roles.SYSTEM_MANAGER,
             "Administrator",
-            "Verenigingen Administrator",
-            "Verenigingen Staff",
+            Roles.VERENIGINGEN_ADMIN,
+            Roles.VERENIGINGEN_STAFF,
             "Treasurer",
         ]
     )
@@ -187,7 +188,7 @@ def create_mandate(
 
 def has_customer_deletion_access():
     """Check if current user has access to customer deletion (most restrictive)"""
-    return user_has_any_role(["Verenigingen Administrator"])
+    return user_has_any_role([Roles.VERENIGINGEN_ADMIN])
 
 
 @frappe.whitelist(allow_guest=False)
@@ -385,7 +386,7 @@ def create_subscription(customer_id, amount, interval, description, mandate_id=N
     try:
         # Restrict to Verenigingen Administrator only
         user_roles = frappe.get_roles(frappe.session.user)
-        if "Verenigingen Administrator" not in user_roles:
+        if Roles.VERENIGINGEN_ADMIN not in user_roles:
             frappe.throw(_("Access denied - Verenigingen Administrator role required"))
 
         service = MollieDebugService()
@@ -424,7 +425,7 @@ def create_scheduled_subscription(
     try:
         # Restrict to Verenigingen Administrator only
         user_roles = frappe.get_roles(frappe.session.user)
-        if "Verenigingen Administrator" not in user_roles:
+        if Roles.VERENIGINGEN_ADMIN not in user_roles:
             frappe.throw(_("Access denied - Verenigingen Administrator role required"))
 
         service = MollieDebugService()

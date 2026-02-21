@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     APISecurityFramework,
     OperationType,
@@ -793,7 +794,7 @@ def get_api_classifier() -> APIClassifier:
 @frappe.whitelist()
 def classify_all_api_endpoints():
     """API endpoint to classify all endpoints"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can perform API classification"), frappe.PermissionError)
 
     try:
@@ -814,7 +815,7 @@ def classify_all_api_endpoints():
 @frappe.whitelist()
 def generate_migration_report():
     """Generate comprehensive migration report"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can generate migration reports"), frappe.PermissionError)
 
     try:
@@ -831,7 +832,7 @@ def generate_migration_report():
 @frappe.whitelist()
 def get_implementation_code(module_path: str, function_name: str):
     """Get implementation code for securing a specific endpoint"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can generate implementation code"), frappe.PermissionError)
 
     try:

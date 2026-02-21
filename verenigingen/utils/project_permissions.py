@@ -28,6 +28,8 @@ from functools import lru_cache
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 # Custom Exceptions
 # -----------------
@@ -756,7 +758,7 @@ def get_project_permission_query_conditions(user):
 
     # Admin users get full access
     user_roles = frappe.get_roles(user)
-    admin_roles = ["System Manager", "Projects Manager", "Verenigingen Administrator"]
+    admin_roles = [Roles.SYSTEM_MANAGER, "Projects Manager", Roles.VERENIGINGEN_ADMIN]
     if any(role in user_roles for role in admin_roles):
         return ""  # Full access
 

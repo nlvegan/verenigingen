@@ -5,6 +5,8 @@ Role Analysis Utilities - Analyze current role usage and identify issues
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def analyze_current_role_structure():
     """Analyze current roles and identify potential issues"""
@@ -48,9 +50,9 @@ def analyze_current_role_structure():
 
     # Find role assignment redundancies
     admin_role_patterns = [
-        "System Manager",
-        "Verenigingen Administrator",
-        "Verenigingen Staff",
+        Roles.SYSTEM_MANAGER,
+        Roles.VERENIGINGEN_ADMIN,
+        Roles.VERENIGINGEN_STAFF,
         "Administrator",
         "Verenigingen Chapter Board Member",
     ]
@@ -139,7 +141,7 @@ def identify_role_problems():
 
     # Problem 1: Check for users with both System Manager and custom admin roles
     system_managers = frappe.get_all(
-        "Has Role", filters={"role": "System Manager"}, fields=["parent"], pluck="parent"
+        "Has Role", filters={"role": Roles.SYSTEM_MANAGER}, fields=["parent"], pluck="parent"
     )
 
     for user in system_managers:
@@ -147,10 +149,10 @@ def identify_role_problems():
             user_roles = frappe.get_roles(user)
             redundant_roles = []
 
-            if "Verenigingen Administrator" in user_roles:
-                redundant_roles.append("Verenigingen Administrator")
-            if "Verenigingen Staff" in user_roles:
-                redundant_roles.append("Verenigingen Staff")
+            if Roles.VERENIGINGEN_ADMIN in user_roles:
+                redundant_roles.append(Roles.VERENIGINGEN_ADMIN)
+            if Roles.VERENIGINGEN_STAFF in user_roles:
+                redundant_roles.append(Roles.VERENIGINGEN_STAFF)
 
             if redundant_roles:
                 problems.append(

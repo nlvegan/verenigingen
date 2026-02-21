@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 import frappe
 from frappe.utils import getdate
 
+from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     EnhancedSEPAXMLGenerator,
@@ -208,7 +209,7 @@ class SEPAXMLAdapter:
                 # Fall back to system managers
                 recipients = frappe.get_all(
                     "Has Role",
-                    filters={"role": "System Manager", "parenttype": "User"},
+                    filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"},
                     pluck="parent",
                     limit=5,
                 )

@@ -7,6 +7,7 @@ from frappe.utils import getdate, today
 
 from verenigingen.services.billing import DuplicateInvoiceDetector
 from verenigingen.utils.billing_period_calculator import calculate_billing_period, calculate_next_invoice_date
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -1235,9 +1236,7 @@ def get_member_dues_schedule(member: str = None):
     if member_user != user:
         # Check if user has permission to view this member's schedule
         roles = frappe.get_roles(user)
-        if not any(
-            role in roles for role in ["Verenigingen Staff", "Verenigingen Administrator", "System Manager"]
-        ):
+        if not any(role in roles for role in Roles.ADMIN_ROLES):
             # Check if user is chapter board with finance permissions
             schedule_doc = frappe.new_doc("Membership Dues Schedule")
             schedule_doc.member = member

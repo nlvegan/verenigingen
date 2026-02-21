@@ -24,6 +24,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, get_datetime, now
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import (
@@ -694,7 +695,7 @@ def reset_retry_circuit_breaker(operation_id: str) -> Dict[str, Any]:
     Returns:
         Reset result
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         raise SEPAError(_("Only system managers can reset circuit breakers"))
 
     retry_manager = SEPARetryManager()

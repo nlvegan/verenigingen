@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import add_days, today
 from frappe.utils.background_jobs import enqueue
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -54,7 +55,7 @@ def notify_about_orphaned_records():
 
         # Add appropriate roles or specific users as recipients
         membership_managers = frappe.get_all(
-            "Has Role", filters={"role": "Verenigingen Staff", "parenttype": "User"}, fields=["parent"]
+            "Has Role", filters={"role": Roles.VERENIGINGEN_STAFF, "parenttype": "User"}, fields=["parent"]
         )
 
         for manager in membership_managers:

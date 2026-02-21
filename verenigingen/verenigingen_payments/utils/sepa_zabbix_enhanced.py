@@ -19,6 +19,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, get_datetime, now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.performance_dashboard import _performance_dashboard
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
@@ -1159,7 +1160,7 @@ def test_sepa_zabbix_integration() -> Dict[str, Any]:
     Returns:
         Test results
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only system managers can test Zabbix integration"))
 
     return _zabbix_integration.test_zabbix_connectivity()

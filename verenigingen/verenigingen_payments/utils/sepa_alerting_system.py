@@ -22,6 +22,7 @@ from frappe import _
 from frappe.core.doctype.communication.email import make
 from frappe.utils import cint, flt, get_datetime, now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -1028,7 +1029,7 @@ def toggle_security_integration(enabled: bool = True) -> Dict[str, Any]:
     Returns:
         Status confirmation
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only system managers can toggle security integration"))
 
     try:
@@ -1053,7 +1054,7 @@ def test_alert_system() -> Dict[str, Any]:
     Returns:
         Test results
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only system managers can test the alert system"))
 
     try:

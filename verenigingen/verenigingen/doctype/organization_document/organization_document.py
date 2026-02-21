@@ -26,6 +26,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import today
 
+from verenigingen.utils.constants import Roles
+
 
 class OrganizationDocument(Document):
     """Organization Document for Chapters, Teams, and Movements"""
@@ -111,7 +113,7 @@ class OrganizationDocument(Document):
         - Movement: Must be movement member
         """
         # Skip for administrators
-        if "System Manager" in frappe.get_roles() or "Verenigingen Administrator" in frappe.get_roles():
+        if Roles.ADMIN_PAIR & set(frappe.get_roles()):
             return
 
         user = frappe.session.user

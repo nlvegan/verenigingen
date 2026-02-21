@@ -15,6 +15,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     SecurityLevel,
@@ -69,10 +70,10 @@ def has_admin_access():
     """Check if current user has access to subscription recreation tool"""
     # Match mollie_payments_debug permissions for consistency
     allowed_roles = [
-        "System Manager",
+        Roles.SYSTEM_MANAGER,
         "Administrator",
-        "Verenigingen Administrator",
-        "Verenigingen Staff",
+        Roles.VERENIGINGEN_ADMIN,
+        Roles.VERENIGINGEN_STAFF,
         "Treasurer",
     ]
     user_roles = frappe.get_roles(frappe.session.user)

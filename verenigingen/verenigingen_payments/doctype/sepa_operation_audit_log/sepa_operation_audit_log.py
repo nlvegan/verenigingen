@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.constants import Roles
+
 
 class SEPAOperationAuditLog(Document):
     """
@@ -68,7 +70,7 @@ def has_permission(doc, user=None, ptype=None):
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Auditor"]],
+            "role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_STAFF, "Verenigingen Auditor"]],
         },
         "name",
     ):
@@ -89,7 +91,7 @@ def get_permission_query_conditions(user=None):
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Auditor"]],
+            "role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_STAFF, "Verenigingen Auditor"]],
         },
         "name",
     ):

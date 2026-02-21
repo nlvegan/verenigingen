@@ -71,6 +71,8 @@ from typing import Any, Callable, Dict, Optional, Union
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 class VerenigingenException(frappe.ValidationError):
     """
@@ -682,7 +684,7 @@ ERROR_HANDLING_CONFIG = {
     "max_error_message_length": 1000,
     "log_sensitive_data": False,
     "include_stack_trace": True,
-    "error_notification_roles": ["System Manager", "Verenigingen System Admin"],
+    "error_notification_roles": [Roles.SYSTEM_MANAGER, "Verenigingen System Admin"],
     "critical_error_threshold": 10,  # Number of errors before alerting
 }
 
@@ -777,7 +779,7 @@ def validate_admin_access(custom_message: str = None) -> None:
     Args:
         custom_message: Custom error message
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         message = custom_message or "You don't have permission to access this page"
         frappe.throw(_(message), frappe.PermissionError)
 
@@ -1033,7 +1035,7 @@ def sanitize_error_for_audit(
 def sanitize_error_for_display(
     detailed_message: str,
     generic_message: str = "An error occurred. Please contact support.",
-    admin_roles: tuple = ("System Manager", "Administrator"),
+    admin_roles: tuple = (Roles.SYSTEM_MANAGER, "Administrator"),
 ) -> str:
     """
     Return appropriate error message based on user permissions.
@@ -1104,7 +1106,7 @@ def sanitize_error_for_api_response(
     if include_details_for_admins:
         try:
             user_roles = frappe.get_roles()
-            if "System Manager" in user_roles or "Administrator" in user_roles:
+            if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
                 return {
                     "message": sanitized or generic_message,
                     "error_type": type(error).__name__ if isinstance(error, Exception) else "Error",

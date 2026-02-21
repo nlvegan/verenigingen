@@ -1,6 +1,7 @@
 import frappe
 from frappe.utils import format_datetime, getdate
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
@@ -12,7 +13,7 @@ def get_pending_applications(chapter: str = None):
     filters = {"application_status": "Pending", "status": "Pending"}
 
     # If user is a chapter board member, filter by their chapter
-    if not frappe.user.has_role(["Verenigingen Administrator", "Verenigingen Staff"]):
+    if not frappe.user.has_role([Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF]):
         # Get chapters where user is a board member
         member = get_current_user_member_name()
         if member:

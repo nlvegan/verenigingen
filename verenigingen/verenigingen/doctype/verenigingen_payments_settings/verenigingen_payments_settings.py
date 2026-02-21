@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.validation.iban_validator import validate_iban
 
@@ -49,7 +50,7 @@ class VerenigingenPaymentsSettings(Document):
 
         # Ensure user doesn't have excessive permissions
         user_roles = [role.role for role in user_doc.roles]
-        dangerous_roles = ["System Manager", "Administrator", "All"]
+        dangerous_roles = [Roles.SYSTEM_MANAGER, "Administrator", "All"]
         has_dangerous_roles = any(role in dangerous_roles for role in user_roles)
 
         if has_dangerous_roles:

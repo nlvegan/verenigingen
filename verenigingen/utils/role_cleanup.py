@@ -17,7 +17,7 @@ def remove_redundant_admin_roles():
     try:
         # Find all users with System Manager role
         system_managers = frappe.get_all(
-            "Has Role", filters={"role": "System Manager"}, fields=["parent"], pluck="parent"
+            "Has Role", filters={"role": Roles.SYSTEM_MANAGER}, fields=["parent"], pluck="parent"
         )
 
         for user in system_managers:
@@ -27,7 +27,7 @@ def remove_redundant_admin_roles():
                     "Has Role",
                     filters={
                         "parent": user,
-                        "role": ["in", ["Verenigingen Administrator", "Verenigingen Staff"]],
+                        "role": ["in", [Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF]],
                     },
                     fields=["name", "role"],
                 )
@@ -111,14 +111,14 @@ def validate_role_cleanup():
 
     try:
         # Check for remaining redundant roles
-        system_managers = frappe.get_all("Has Role", filters={"role": "System Manager"}, pluck="parent")
+        system_managers = frappe.get_all("Has Role", filters={"role": Roles.SYSTEM_MANAGER}, pluck="parent")
 
         for user in system_managers:
             redundant_roles = frappe.get_all(
                 "Has Role",
                 filters={
                     "parent": user,
-                    "role": ["in", ["Verenigingen Administrator", "Verenigingen Staff"]],
+                    "role": ["in", [Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF]],
                 },
             )
             validation["redundant_roles_remaining"] += len(redundant_roles)
@@ -154,12 +154,12 @@ def create_role_hierarchy_documentation():
             "permissions": "Complete access to all doctypes and system functions",
         },
         "verenigingen_admin_tier": {
-            "roles": ["Verenigingen Administrator"],
+            "roles": [Roles.VERENIGINGEN_ADMIN],
             "description": "Full access to Verenigingen module only",
             "permissions": "Create, read, update, delete all Verenigingen documents",
         },
         "verenigingen_staff_tier": {
-            "roles": ["Verenigingen Staff", "Verenigingen Staff"],
+            "roles": [Roles.VERENIGINGEN_STAFF, Roles.VERENIGINGEN_STAFF],
             "description": "Daily operational access to Verenigingen functions",
             "permissions": "Read/write access to most Verenigingen documents, limited admin functions",
         },

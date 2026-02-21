@@ -6,6 +6,7 @@ preventing invoice generation despite no actual invoice existing.
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 
 # Import security framework
@@ -463,7 +464,7 @@ def check_and_notify_stuck_schedules():
             notify_administrators(
                 subject="[ERROR] Stuck Schedule Check Failed",
                 message=f"<p>The daily stuck schedule check failed with error:</p><pre>{str(e)}</pre>",
-                default_roles=["System Manager"],
+                default_roles=[Roles.SYSTEM_MANAGER],
                 notification_type="Alert",
                 document_type="Membership Dues Schedule",
             )

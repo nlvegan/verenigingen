@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.constants import Roles
+
 
 def execute(filters=None):
     if not filters:
@@ -15,8 +17,8 @@ def execute(filters=None):
     # or administrators to see any chapter
     if not (
         frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
+        or Roles.SYSTEM_MANAGER in frappe.get_roles()
+        or Roles.VERENIGINGEN_ADMIN in frappe.get_roles()
     ):
         # Check if user is a board member of this chapter
         user_email = frappe.session.user
@@ -59,8 +61,8 @@ def execute(filters=None):
     # Determine filtering based on user roles
     user_roles = frappe.get_roles()
     can_view_pending = (
-        "System Manager" in user_roles
-        or "Verenigingen Administrator" in user_roles
+        Roles.SYSTEM_MANAGER in user_roles
+        or Roles.VERENIGINGEN_ADMIN in user_roles
         or frappe.session.user == "Administrator"
     )
 

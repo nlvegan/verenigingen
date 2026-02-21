@@ -73,6 +73,7 @@ from frappe.utils import flt, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.config_manager import ConfigManager
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
     PermissionError,
     ValidationError,
@@ -219,8 +220,8 @@ def send_overdue_payment_reminders(
         required_roles = [
             "Finance Manager",
             "Accounts Manager",
-            "System Manager",
-            "Verenigingen Administrator",
+            Roles.SYSTEM_MANAGER,
+            Roles.VERENIGINGEN_ADMIN,
         ]
         if not any(role in required_roles for role in user_roles):
             return OperationResult.fail(

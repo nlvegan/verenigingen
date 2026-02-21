@@ -8,6 +8,8 @@ Author: Verenigingen Development Team
 Last Updated: 2025-10-10
 """
 
+from verenigingen.utils.constants import Roles
+
 # Role to Module Profile mapping
 # Maps role profiles to actual module profiles defined in fixtures/module_profile.json
 ROLE_MODULE_MAPPING = {
@@ -18,7 +20,7 @@ ROLE_MODULE_MAPPING = {
     "Verenigingen Treasurer": "Verenigingen Treasurer",
     "Verenigingen Communications Officer": "Verenigingen Volunteer",
     "Verenigingen Event Coordinator": "Verenigingen Volunteer",
-    "Verenigingen Staff": "Verenigingen National Board Member",
+    Roles.VERENIGINGEN_STAFF: "Verenigingen National Board Member",
     "Verenigingen Finance Manager": "Verenigingen Treasurer",
     "Verenigingen System Administrator": None,  # Full access
     "Verenigingen Auditor": "Verenigingen Auditor",

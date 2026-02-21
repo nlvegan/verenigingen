@@ -71,6 +71,7 @@ Version: 1.0
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_name_for_user
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.security_wrappers import safe_get_roles
@@ -361,9 +362,9 @@ def has_system_access(user):
 
         user_roles = safe_get_roles(user)
         system_roles = [
-            "System Manager",
-            "Verenigingen Administrator",
-            "Verenigingen Staff",
+            Roles.SYSTEM_MANAGER,
+            Roles.VERENIGINGEN_ADMIN,
+            Roles.VERENIGINGEN_STAFF,
             "Verenigingen Governance Auditor",
         ]
         return any(role in user_roles for role in system_roles)

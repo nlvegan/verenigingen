@@ -2,6 +2,8 @@ import frappe
 import frappe.utils
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def execute(filters=None):
     if not filters:
@@ -15,9 +17,9 @@ def execute(filters=None):
     # or administrators to see any team
     if not (
         frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
-        or "Verenigingen Staff" in frappe.get_roles()
+        or Roles.SYSTEM_MANAGER in frappe.get_roles()
+        or Roles.VERENIGINGEN_ADMIN in frappe.get_roles()
+        or Roles.VERENIGINGEN_STAFF in frappe.get_roles()
     ):
         # Check if user is a member of this team
         user_email = frappe.session.user

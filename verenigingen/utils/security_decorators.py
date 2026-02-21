@@ -16,6 +16,8 @@ from typing import Any, Callable, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 class SecurityViolationError(frappe.ValidationError):
     """Custom exception for security violations"""
@@ -215,7 +217,7 @@ def validate_system_operation_authorization():
     user_roles = frappe.get_roles(current_user)
 
     # Define authorized roles for system operations
-    authorized_roles = ["Administrator", "System Manager", "Verenigingen Administrator"]
+    authorized_roles = ["Administrator", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
 
     # Check if user has any authorized role
     has_authorized_role = any(role in user_roles for role in authorized_roles)
@@ -294,7 +296,7 @@ def rate_limited(max_calls: int = 10, window_minutes: int = 60):
 # Convenience decorator combinations
 def admin_required():
     """Shorthand for requiring administrator privileges"""
-    return require_roles(["Administrator", "System Manager", "Verenigingen Administrator"])
+    return require_roles(["Administrator", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
 
 
 def member_access_required():

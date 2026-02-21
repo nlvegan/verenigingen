@@ -6,13 +6,15 @@ Email Group Administration Page Controller
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def get_context(context):
     """
     Context for the email group administration page
     """
     # Check permissions - only allow System Manager or Verenigingen Staff
-    if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
+    if not (Roles.SYSTEM_MANAGER in frappe.get_roles() or Roles.VERENIGINGEN_STAFF in frappe.get_roles()):
         frappe.throw(_("You don't have permission to access this page"), frappe.PermissionError)
 
     # Basic context

@@ -19,6 +19,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, get_datetime, now
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -364,7 +365,7 @@ class SEPADistributedLock:
         Returns:
             True if lock was released
         """
-        if not admin_override and "System Manager" not in frappe.get_roles():
+        if not admin_override and Roles.SYSTEM_MANAGER not in frappe.get_roles():
             raise SEPAError(_("Only system managers can force release locks"))
 
         try:
@@ -827,7 +828,7 @@ def force_release_batch_lock(resource: str) -> Dict[str, Any]:
     Returns:
         Release result
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         raise SEPAError(_("Only system managers can force release locks"))
 
     lock_manager = SEPADistributedLock()

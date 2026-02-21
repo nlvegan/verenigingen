@@ -20,6 +20,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -49,8 +50,8 @@ def bulk_generate_dues_invoices(
 
     if not (
         frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
+        or Roles.SYSTEM_MANAGER in frappe.get_roles()
+        or Roles.VERENIGINGEN_ADMIN in frappe.get_roles()
     ):
         frappe.throw(_("Insufficient permissions for bulk invoice generation"))
 
@@ -371,8 +372,8 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20) -> OperationResult[
 
     if not (
         frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
+        or Roles.SYSTEM_MANAGER in frappe.get_roles()
+        or Roles.VERENIGINGEN_ADMIN in frappe.get_roles()
     ):
         frappe.throw(_("Insufficient permissions for schedule cleanup"))
 
@@ -668,8 +669,8 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50) -> Operatio
 
     if not (
         frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
+        or Roles.SYSTEM_MANAGER in frappe.get_roles()
+        or Roles.VERENIGINGEN_ADMIN in frappe.get_roles()
     ):
         frappe.throw(_("Insufficient permissions for member reference cleanup"))
 
@@ -790,8 +791,8 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationR
 
     if not (
         frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
+        or Roles.SYSTEM_MANAGER in frappe.get_roles()
+        or Roles.VERENIGINGEN_ADMIN in frappe.get_roles()
     ):
         frappe.throw(_("Insufficient permissions for membership data cleanup"))
 

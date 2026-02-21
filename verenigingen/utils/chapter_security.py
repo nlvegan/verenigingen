@@ -6,6 +6,7 @@ Provides fine-grained permission control for chapter operations
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -25,9 +26,9 @@ def get_user_manageable_chapters(user=None):
     if any(
         role in user_roles
         for role in [
-            "System Manager",
-            "Verenigingen Administrator",
-            "Verenigingen Staff",
+            Roles.SYSTEM_MANAGER,
+            Roles.VERENIGINGEN_ADMIN,
+            Roles.VERENIGINGEN_STAFF,
             "Verenigingen National Board Member",
         ]
     ):

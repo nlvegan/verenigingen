@@ -17,6 +17,7 @@ from frappe import _
 from frappe.utils import add_days, now_datetime
 
 from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 
 # Import security framework
@@ -288,7 +289,7 @@ def get_monitoring_system_health() -> OperationResult[Dict[str, Any]]:
 @high_security_api(operation_type=OperationType.ADMIN)
 def trigger_unified_security_test() -> OperationResult[Dict[str, Any]]:
     """Trigger comprehensive security test across all monitoring systems"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:

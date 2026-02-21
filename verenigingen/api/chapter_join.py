@@ -27,6 +27,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.operation_result import OperationResult
 
@@ -258,7 +259,7 @@ def get_user_chapter_requests() -> OperationResult[Dict[str, Any]]:
 
         # For administrators and managers, include all chapters
         user_roles = frappe.get_roles(user)
-        if "Verenigingen Administrator" in user_roles or "Verenigingen Staff" in user_roles:
+        if Roles.VERENIGINGEN_ADMIN in user_roles or Roles.VERENIGINGEN_STAFF in user_roles:
             all_chapters = frappe.get_all("Chapter", fields=["name"])
             chapter_names.extend([ch.name for ch in all_chapters])
             chapter_names = list(set(chapter_names))  # Remove duplicates

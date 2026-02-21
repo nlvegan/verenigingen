@@ -25,6 +25,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 class PontoConfigurationService:
     """
@@ -40,8 +42,8 @@ class PontoConfigurationService:
 
     # Roles allowed to access Ponto Settings (matches DocType permissions)
     ALLOWED_ROLES = {
-        "System Manager",
-        "Verenigingen Administrator",
+        Roles.SYSTEM_MANAGER,
+        Roles.VERENIGINGEN_ADMIN,
         "Verenigingen Webhook User",
     }
 

@@ -5,6 +5,8 @@ SEPA Reconciliation Dashboard Page Controller
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def get_context(context):
     """Get context for SEPA reconciliation dashboard"""
@@ -32,6 +34,6 @@ def has_website_permission(doc, ptype, user, verbose=False):
 
     # Check if user has banking or accounting role
     user_roles = frappe.get_roles(user)
-    banking_roles = ["Accounts Manager", "Accounts User", "System Manager", "Administrator"]
+    banking_roles = ["Accounts Manager", "Accounts User", Roles.SYSTEM_MANAGER, "Administrator"]
 
     return any(role in user_roles for role in banking_roles)

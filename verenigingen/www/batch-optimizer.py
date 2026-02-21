@@ -6,6 +6,8 @@ User-friendly interface for creating optimized SEPA Direct Debit batches
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def get_context(context):
     """Set up context for batch optimizer page"""
@@ -33,6 +35,8 @@ def get_context(context):
 
     # Get user roles for permission-based features
     context.user_roles = frappe.get_roles()
-    context.can_approve = any(role in ["Finance Manager", "System Manager"] for role in context.user_roles)
+    context.can_approve = any(
+        role in ["Finance Manager", Roles.SYSTEM_MANAGER] for role in context.user_roles
+    )
 
     return context

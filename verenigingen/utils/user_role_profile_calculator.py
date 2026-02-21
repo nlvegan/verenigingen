@@ -27,6 +27,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Profile configuration cache (5 minute TTL)
@@ -591,7 +592,7 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
     ERPNext's ``validate_employee_role()`` hook (User.validate) strips Employee
     and Employee Self Service roles when no Employee record exists for the user.
     This silently undoes role profile assignments for profiles that include
-    those roles (e.g. "Verenigingen Staff", "Vereinigingen Chapter Board Member").
+    those roles (e.g. Roles.VERENIGINGEN_STAFF, "Vereinigingen Chapter Board Member").
 
     This function is called from ``sync_user_role_profile()`` *before*
     ``user_doc.save()`` so the Employee exists by the time the hook fires.

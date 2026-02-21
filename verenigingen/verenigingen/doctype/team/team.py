@@ -11,6 +11,7 @@ from verenigingen.events.team_events import (
     emit_team_membership_changed,
     emit_team_settings_changed,
 )
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -509,7 +510,7 @@ def get_team_permission_query_conditions(user=None):
         if not user:
             user = frappe.session.user
 
-        if "System Manager" in frappe.get_roles(user) or "Verenigingen Administrator" in frappe.get_roles(
+        if Roles.SYSTEM_MANAGER in frappe.get_roles(user) or Roles.VERENIGINGEN_ADMIN in frappe.get_roles(
             user
         ):
             return ""

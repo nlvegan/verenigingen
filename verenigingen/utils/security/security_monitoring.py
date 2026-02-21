@@ -19,6 +19,7 @@ from frappe import _
 from frappe.utils import add_days, get_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     SecurityLevel,
@@ -783,7 +784,7 @@ def run_business_rule_monitoring():
                     # Get administrators who should be notified
                     admins = frappe.get_all(
                         "Has Role",
-                        filters={"role": "System Manager", "parenttype": "User"},
+                        filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"},
                         fields=["parent"],
                     )
 
@@ -1092,7 +1093,7 @@ def get_security_tester() -> SecurityTester:
 @high_security_api(operation_type=OperationType.ADMIN)
 def get_security_dashboard():
     """Get real-time security dashboard"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:
@@ -1106,7 +1107,7 @@ def get_security_dashboard():
 @high_security_api(operation_type=OperationType.ADMIN)
 def resolve_security_incident(incident_id: str, resolution_notes: str):
     """Resolve security incident"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:
@@ -1121,7 +1122,7 @@ def resolve_security_incident(incident_id: str, resolution_notes: str):
 @high_security_api(operation_type=OperationType.ADMIN)
 def run_security_tests():
     """Run automated security tests"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Access denied"), frappe.PermissionError)
 
     try:

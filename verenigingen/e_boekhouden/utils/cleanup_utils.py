@@ -10,6 +10,7 @@ import json
 import frappe
 
 from verenigingen.e_boekhouden.utils.security_helper import migration_context
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
 
@@ -235,7 +236,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0, force_delete=0):
 def test_cleanup_small_batch():
     """Test cleanup on a small batch of documents to verify fix"""
     try:
-        if "System Manager" not in frappe.get_roles():
+        if Roles.SYSTEM_MANAGER not in frappe.get_roles():
             frappe.throw("Only System Managers can perform cleanup testing")
 
         results = {"sales_invoices": 0, "errors": [], "test_completed": True}
@@ -287,7 +288,7 @@ def test_cleanup_small_batch():
 def nuclear_cleanup_all_imported_data():
     """WARNING: Nuclear option - deletes ALL imported data from E-Boekhouden"""
     try:
-        if "System Manager" not in frappe.get_roles():
+        if Roles.SYSTEM_MANAGER not in frappe.get_roles():
             frappe.throw("Only System Managers can perform nuclear cleanup")
 
         frappe.msgprint(
@@ -692,7 +693,7 @@ def delete_all_payment_entries():
     try:
         # Check for Verenigingen Administrator role
         user_roles = frappe.get_roles()
-        if "Verenigingen Administrator" not in user_roles and frappe.session.user != "Administrator":
+        if Roles.VERENIGINGEN_ADMIN not in user_roles and frappe.session.user != "Administrator":
             frappe.throw("Only Verenigingen Administrators can delete all payment entries")
 
         # Count payment entries before deletion

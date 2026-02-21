@@ -22,6 +22,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -255,7 +256,7 @@ def validate_member_id_change(doc, method=None):
         new_id = doc.member_id
 
         # Only allow changes by System Managers
-        if "System Manager" not in frappe.get_roles():
+        if Roles.SYSTEM_MANAGER not in frappe.get_roles():
             frappe.throw(_("Only System Managers can change member IDs"))
 
         # Validate new ID is not in use
@@ -276,7 +277,7 @@ def reset_member_id_counter(counter_value):
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions"))
 
-    if not frappe.user.has_role("System Manager"):
+    if not frappe.user.has_role(Roles.SYSTEM_MANAGER):
         frappe.throw(_("Only System Managers can reset the member ID counter"))
 
     counter_value = cint(counter_value)

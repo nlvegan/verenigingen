@@ -1,5 +1,6 @@
 import frappe
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -8,7 +9,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 @critical_api(operation_type=OperationType.ADMIN)
 def clear_failed_administrator_emails():
     """Clear failed email queue items with Administrator as recipient"""
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw("Only System Managers can clear failed email queue items")
 
     print("=== CLEARING FAILED EMAIL QUEUE ITEMS ===")

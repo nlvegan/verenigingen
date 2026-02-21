@@ -33,6 +33,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -872,7 +873,7 @@ def _is_system_operation_authorized() -> bool:
     user_roles = frappe.get_roles(current_user)
 
     # Allow system operations for administrators and system managers
-    authorized_roles = ["Administrator", "System Manager", "Verenigingen Administrator"]
+    authorized_roles = ["Administrator", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
 
     # Check if user has any authorized role
     has_authorized_role = any(role in user_roles for role in authorized_roles)

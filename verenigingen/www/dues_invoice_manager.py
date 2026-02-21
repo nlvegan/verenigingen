@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.constants import Roles
+
 
 def get_context(context):
     """Set up context for production dues invoice manager page"""
@@ -78,9 +80,9 @@ def get_context(context):
     # For financial operations (CRITICAL security level), check for specific roles
     # System Manager is included for admin access, plus specific verenigingen roles
     financial_roles = [
-        "System Manager",
+        Roles.SYSTEM_MANAGER,
         "Administrator",  # Standard Frappe admin role
-        "Verenigingen Administrator",
+        Roles.VERENIGINGEN_ADMIN,
         "Verenigingen Treasurer",
         "Verenigingen System Administrator",
     ]

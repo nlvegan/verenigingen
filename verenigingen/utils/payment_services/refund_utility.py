@@ -12,6 +12,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.payment_services.constants import (
     LOG_CATEGORY_REFUND,
     LOG_CATEGORY_VALIDATION,
@@ -601,5 +602,5 @@ def validate_refund_permissions(user: Optional[str] = None) -> bool:
 
     # Check if user has required roles or permissions
     return frappe.has_permission("Payment Entry", "write", user=user) and (
-        "Accounts Manager" in frappe.get_roles(user) or "Verenigingen Administrator" in frappe.get_roles(user)
+        "Accounts Manager" in frappe.get_roles(user) or Roles.VERENIGINGEN_ADMIN in frappe.get_roles(user)
     )

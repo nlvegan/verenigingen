@@ -16,6 +16,7 @@ import tempfile
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -439,7 +440,7 @@ def create_migration_backup(migration_name: str) -> dict:
         dict: Success status with backup path
     """
     user = frappe.session.user
-    if not frappe.has_role(user, "System Manager"):
+    if not frappe.has_role(user, Roles.SYSTEM_MANAGER):
         frappe.throw("Only System Manager can create migration backups")
 
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -485,7 +486,7 @@ def verify_migration_integrity(migration_name: str) -> dict:
         dict: Integrity report with checks, issues, and status
     """
     user = frappe.session.user
-    if not frappe.has_role(user, "System Manager"):
+    if not frappe.has_role(user, Roles.SYSTEM_MANAGER):
         frappe.throw("Only System Manager can verify migration integrity")
 
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)

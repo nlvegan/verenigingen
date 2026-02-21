@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import frappe
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 
 logger = logging.getLogger(__name__)
 
@@ -569,7 +570,7 @@ class BusinessLogicMonitor:
         """Get administrator email addresses"""
         try:
             admins = frappe.get_all(
-                "Has Role", filters={"role": "System Manager", "parenttype": "User"}, fields=["parent"]
+                "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, fields=["parent"]
             )
 
             admin_emails = []

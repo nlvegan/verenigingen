@@ -282,12 +282,7 @@ def can_suspend_member(member_name=None) -> OperationResult[Dict[str, Any]]:
         # If no member specified, just check if user has any suspension permissions
         if not member_name:
             user_roles = frappe.get_roles(frappe.session.user)
-            admin_roles = [
-                "System Manager",
-                "Verenigingen Administrator",
-                "Verenigingen Staff",
-            ]
-            has_permission = any(role in user_roles for role in admin_roles)
+            has_permission = any(role in user_roles for role in Roles.ADMIN_ROLES)
             return OperationResult.ok(
                 {"can_suspend": has_permission}, message=_("Permission check completed")
             )
@@ -688,13 +683,8 @@ def get_suspension_status_safe(member_name=None) -> OperationResult[Dict[str, An
 
         # For other members, check if user has admin permissions
         user_roles = frappe.get_roles(current_user)
-        admin_roles = [
-            "System Manager",
-            "Verenigingen Administrator",
-            "Verenigingen Staff",
-        ]
 
-        if any(role in user_roles for role in admin_roles):
+        if any(role in user_roles for role in Roles.ADMIN_ROLES):
             from verenigingen.utils.termination_integration import get_member_suspension_status
 
             result = get_member_suspension_status(member_name)

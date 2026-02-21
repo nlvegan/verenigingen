@@ -33,6 +33,7 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -74,7 +75,7 @@ class ChapterValidationService(StatelessService):
         """
         try:
             # Administrator and System Manager always have access
-            if frappe.session.user == "Administrator" or "System Manager" in frappe.get_roles():
+            if frappe.session.user == "Administrator" or Roles.SYSTEM_MANAGER in frappe.get_roles():
                 return
 
             # Get national board chapter configuration
@@ -85,7 +86,7 @@ class ChapterValidationService(StatelessService):
             # Block Verenigingen Administrators from editing national board chapter
             if chapter_doc.name == settings.national_board_chapter:
                 user_roles = frappe.get_roles()
-                if "Verenigingen Administrator" in user_roles and "System Manager" not in user_roles:
+                if Roles.VERENIGINGEN_ADMIN in user_roles and Roles.SYSTEM_MANAGER not in user_roles:
                     frappe.throw(
                         _(
                             "Verenigingen Administrators cannot edit the National Board chapter. "

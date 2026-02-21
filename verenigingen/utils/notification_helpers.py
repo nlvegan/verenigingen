@@ -220,7 +220,7 @@ def get_notification_recipients(setting_field, default_roles=None):
         # Emergency fallback - get System Managers
         try:
             admin_emails = frappe.get_all(
-                "User", filters=[["Has Role", "role", "=", "System Manager"]], pluck="email"
+                "User", filters=[["Has Role", "role", "=", Roles.SYSTEM_MANAGER]], pluck="email"
             )
             return [email for email in admin_emails if email]
         except:

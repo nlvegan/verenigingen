@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
@@ -581,7 +582,9 @@ def send_templated_email(
             )
         else:
             # Organization-wide email
-            if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
+            if not (
+                Roles.SYSTEM_MANAGER in frappe.get_roles() or Roles.VERENIGINGEN_STAFF in frappe.get_roles()
+            ):
                 frappe.throw(_("You don't have permission to send organization-wide emails"))
 
             # CIRCULAR IMPORT FIX: Import at function level to avoid circular import

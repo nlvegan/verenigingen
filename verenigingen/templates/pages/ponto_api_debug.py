@@ -8,6 +8,7 @@ from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.settings_utils import get_payments_settings
+from verenigingen.utils.constants import Roles
 
 
 def get_context(context):
@@ -91,10 +92,10 @@ def has_ponto_debug_access():
     """Check if current user has access to Ponto debug page"""
     user_roles = frappe.get_roles(frappe.session.user)
     allowed_roles = [
-        "System Manager",
+        Roles.SYSTEM_MANAGER,
         "Administrator",
-        "Verenigingen Administrator",
-        "Verenigingen Staff",
+        Roles.VERENIGINGEN_ADMIN,
+        Roles.VERENIGINGEN_STAFF,
         "Treasurer",
     ]
     return any(role in user_roles for role in allowed_roles)

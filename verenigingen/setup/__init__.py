@@ -5,6 +5,7 @@ from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.desk.page.setup_wizard.setup_wizard import make_records
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -771,7 +772,7 @@ def check_termination_system_status():
         status["workflows_exist"] = workflow_count > 0
 
         # Check roles
-        status["roles_exist"] = frappe.db.exists("Role", "Verenigingen Administrator")
+        status["roles_exist"] = frappe.db.exists("Role", Roles.VERENIGINGEN_ADMIN)
 
         return {"success": True, "status": status}
 
@@ -806,7 +807,7 @@ def run_termination_diagnostics():
     print("\n2. ROLE CHECK")
     print("-" * 12)
 
-    if frappe.db.exists("Role", "Verenigingen Administrator"):
+    if frappe.db.exists("Role", Roles.VERENIGINGEN_ADMIN):
         print("   ✅ Verenigingen Administrator")
     else:
         print("   ❌ Verenigingen Administrator - MISSING")

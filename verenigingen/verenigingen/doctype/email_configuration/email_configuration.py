@@ -13,6 +13,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import get_datetime, now_datetime
 
+from verenigingen.utils.constants import Roles
+
 
 class EmailConfiguration(Document):
     """Controller for Email Configuration singleton DocType."""
@@ -128,7 +130,7 @@ class EmailConfiguration(Document):
                 return self._parse_email_list(self.financial_admin_emails)
 
         # Fallback to role-based lookup
-        return self._get_users_with_role(self.fallback_admin_role or "System Manager")
+        return self._get_users_with_role(self.fallback_admin_role or Roles.SYSTEM_MANAGER)
 
     def _parse_email_list(self, email_string: str) -> list:
         """Parse comma-separated email list."""

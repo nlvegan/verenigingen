@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 from ..core.client import MollieClient
@@ -37,7 +38,7 @@ def sync_payment_status(payment_id: str) -> Dict[str, Any]:
         to prevent unauthorized financial sync operations.
     """
     # SECURITY: Restrict financial sync operations to authorized roles
-    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+    frappe.only_for(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
 
     try:
         if not payment_id:
@@ -83,7 +84,7 @@ def sync_subscription_status(customer_id: str, subscription_id: str) -> Dict[str
         Sync result with updated subscription information
     """
     # SECURITY: Restrict financial sync operations to authorized roles
-    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+    frappe.only_for(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
 
     try:
         if not customer_id or not subscription_id:
@@ -130,7 +131,7 @@ def sync_customer_payments(customer_id: str, limit: int = 50) -> Dict[str, Any]:
         Restricted to Accounts Manager, System Manager, and Verenigingen Administrator.
     """
     # SECURITY: Restrict financial sync operations to authorized roles
-    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+    frappe.only_for(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
 
     try:
         if not customer_id:
@@ -206,7 +207,7 @@ def sync_member_subscriptions(member_id: str) -> Dict[str, Any]:
         Restricted to Accounts Manager, System Manager, and Verenigingen Administrator.
     """
     # SECURITY: Restrict financial sync operations to authorized roles
-    frappe.only_for(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+    frappe.only_for(["Accounts Manager", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
 
     try:
         if not member_id:
@@ -280,7 +281,7 @@ def bulk_sync_recent_payments(hours: int = 24) -> Dict[str, Any]:
         Restricted to System Manager only due to bulk operation scope.
     """
     # SECURITY: Restrict bulk operations to system administrators only
-    frappe.only_for(["System Manager"])
+    frappe.only_for([Roles.SYSTEM_MANAGER])
 
     try:
         # Security check - limit bulk operations to reasonable timeframes

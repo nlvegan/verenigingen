@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Union
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.service_error_handler import ServiceError, create_service_result, handle_service_error
 
 
@@ -361,9 +362,9 @@ class APIService(BaseService):
 
         # Role-based additional permissions
         user_roles = frappe.get_roles(frappe.session.user)
-        if "System Manager" in user_roles:
+        if Roles.SYSTEM_MANAGER in user_roles:
             permission_level = "system_manager"
-        elif "Verenigingen Staff" in user_roles:
+        elif Roles.VERENIGINGEN_STAFF in user_roles:
             permission_level = "manager"
         elif "Verenigingen Member" in user_roles:
             permission_level = "member"

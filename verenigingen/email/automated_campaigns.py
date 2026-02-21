@@ -15,6 +15,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_months, formatdate, get_datetime, now_datetime
 
+from verenigingen.utils.constants import Roles
+
 
 class AutomatedCampaignManager:
     """Manager for automated email campaigns"""
@@ -449,7 +451,7 @@ def create_automated_campaign(
         frappe.throw(_("You don't have permission to create campaigns for this chapter"))
 
     if not chapter_name and not (
-        "System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()
+        Roles.SYSTEM_MANAGER in frappe.get_roles() or Roles.VERENIGINGEN_STAFF in frappe.get_roles()
     ):
         frappe.throw(_("You don't have permission to create organization-wide campaigns"))
 
@@ -518,7 +520,7 @@ def trigger_campaign_test(campaign_id: str) -> Dict:
         frappe.throw(_("You don't have permission to test this campaign"))
 
     if not chapter and not (
-        "System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()
+        Roles.SYSTEM_MANAGER in frappe.get_roles() or Roles.VERENIGINGEN_STAFF in frappe.get_roles()
     ):
         frappe.throw(_("You don't have permission to test organization-wide campaigns"))
 

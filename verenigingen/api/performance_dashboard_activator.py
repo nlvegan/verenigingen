@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 import frappe
 from frappe.utils import now, now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 from verenigingen.utils.security.audit_logging import get_audit_logger, log_sensitive_operation
 
@@ -225,7 +226,7 @@ def validate_security_integration():
         try:
             # Test if user has appropriate permissions for dashboard access
             user_roles = frappe.get_roles(frappe.session.user)
-            dashboard_roles = ["System Manager", "Verenigingen Administrator", "Performance Monitor"]
+            dashboard_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, "Performance Monitor"]
             permission_test = any(role in dashboard_roles for role in user_roles)
         except Exception:
             pass

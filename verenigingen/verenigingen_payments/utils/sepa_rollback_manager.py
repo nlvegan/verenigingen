@@ -19,6 +19,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, now, today
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -906,13 +907,13 @@ class SEPARollbackManager:
 
             # System Managers
             system_managers = frappe.get_all(
-                "Has Role", filters={"role": "System Manager"}, fields=["parent"]
+                "Has Role", filters={"role": Roles.SYSTEM_MANAGER}, fields=["parent"]
             )
             recipients.extend([sm.parent for sm in system_managers])
 
             # Verenigingen Administrators
             admin_users = frappe.get_all(
-                "Has Role", filters={"role": "Verenigingen Administrator"}, fields=["parent"]
+                "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN}, fields=["parent"]
             )
             recipients.extend([au.parent for au in admin_users])
 
@@ -1047,7 +1048,7 @@ def initiate_sepa_batch_rollback(
         Rollback operation result
     """
     user_roles = frappe.get_roles()
-    if "System Manager" not in user_roles and "Verenigingen Administrator" not in user_roles:
+    if Roles.SYSTEM_MANAGER not in user_roles and Roles.VERENIGINGEN_ADMIN not in user_roles:
         raise SEPAError(_("Insufficient permissions for batch rollback"))
 
     try:

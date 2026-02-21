@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 no_cache = 1
@@ -26,8 +27,8 @@ def get_context(context):
     # Check permissions
     if not (
         frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
+        or Roles.SYSTEM_MANAGER in frappe.get_roles()
+        or Roles.VERENIGINGEN_ADMIN in frappe.get_roles()
     ):
         frappe.throw(_("You don't have permission to access this page"), frappe.PermissionError)
 
@@ -683,12 +684,12 @@ def execute_admin_tool(method, args=None):
     # Must be Administrator OR have System Manager role OR have write permission on System Settings
     has_admin_access = (
         user == "Administrator"
-        or "System Manager" in user_roles
+        or Roles.SYSTEM_MANAGER in user_roles
         or frappe.has_permission("System Settings", "write")
     )
 
     # Additional role check for Verenigingen Administrator (but not sufficient alone)
-    has_verenigingen_admin = "Verenigingen Administrator" in user_roles
+    has_verenigingen_admin = Roles.VERENIGINGEN_ADMIN in user_roles
 
     if not has_admin_access and not has_verenigingen_admin:
         frappe.throw(
@@ -699,7 +700,11 @@ def execute_admin_tool(method, args=None):
         )
 
     # For cleanup operations, require stricter permissions
-    if "member_import_cleanup" in method and user != "Administrator" and "System Manager" not in user_roles:
+    if (
+        "member_import_cleanup" in method
+        and user != "Administrator"
+        and Roles.SYSTEM_MANAGER not in user_roles
+    ):
         frappe.throw(
             _("Cleanup operations require Administrator or System Manager role for security."),
             frappe.PermissionError,

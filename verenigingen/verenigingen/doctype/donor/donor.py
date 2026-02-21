@@ -10,6 +10,7 @@ from frappe.model.document import Document
 from frappe.utils import cstr, validate_email_address
 from frappe.utils.password import decrypt, encrypt
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -50,12 +51,12 @@ class Donor(Document):
         user_roles = frappe.get_roles(frappe.session.user)
 
         # System Manager and Administrator roles typically have all permissions
-        if "System Manager" in user_roles or "Administrator" in user_roles:
+        if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
             return True
 
         # Check if user has specific roles that should have permlevel access
         # You can customize this based on your role structure
-        privileged_roles = ["Verenigingen Administrator", "Donor Administrator", "Finance Manager"]
+        privileged_roles = [Roles.VERENIGINGEN_ADMIN, "Donor Administrator", "Finance Manager"]
         return any(role in user_roles for role in privileged_roles)
 
     def validate_tax_identifiers(self):

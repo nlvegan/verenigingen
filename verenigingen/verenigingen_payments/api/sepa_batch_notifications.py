@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url_to_form, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.security.authorization import (
     SEPAOperation,
@@ -59,7 +60,7 @@ def get_financial_admin_emails():
         # Fallback: get users with Financial Admin roles
         financial_admins = frappe.get_all(
             "Has Role",
-            filters={"role": ["in", ["System Manager", "Verenigingen Administrator", "Accounts Manager"]]},
+            filters={"role": ["in", [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, "Accounts Manager"]]},
             fields=["parent"],
         )
 

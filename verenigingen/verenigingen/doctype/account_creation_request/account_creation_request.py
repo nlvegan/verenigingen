@@ -26,6 +26,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_to_date, now
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -306,18 +307,18 @@ class AccountCreationRequest(Document):
     def can_request_role(self, role_name):
         """Check if current user can request assignment of this role"""
         # Restrict System Manager role assignment - requires explicit role manager permission
-        if role_name == "System Manager":
+        if role_name == Roles.SYSTEM_MANAGER:
             # Only allow if user has explicit role manager permission
             if frappe.has_permission("Role", "write"):
                 return True
             raise frappe.PermissionError(_("Cannot assign System Manager role without Role write permission"))
 
         # System managers can assign non-system-manager roles
-        if "System Manager" in frappe.get_roles():
+        if Roles.SYSTEM_MANAGER in frappe.get_roles():
             return True
 
         # Verenigingen administrators can assign verenigingen roles
-        if "Verenigingen Administrator" in frappe.get_roles():
+        if Roles.VERENIGINGEN_ADMIN in frappe.get_roles():
             verenigingen_roles = [
                 "Verenigingen Member",
                 "Verenigingen Volunteer",

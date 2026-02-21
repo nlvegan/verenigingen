@@ -5,6 +5,7 @@ API Audit Log DocType for tracking general API and security events
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -174,7 +175,7 @@ def clear_all_audit_logs():
 
     # Additional check for Verenigingen Administrator role
     user_roles = frappe.get_roles()
-    if "Verenigingen Administrator" not in user_roles and frappe.session.user != "Administrator":
+    if Roles.VERENIGINGEN_ADMIN not in user_roles and frappe.session.user != "Administrator":
         return {
             "success": False,
             "message": "This operation requires Verenigingen Administrator role.",

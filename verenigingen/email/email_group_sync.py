@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
@@ -108,7 +109,7 @@ def sync_email_groups_manually():
     Synchronizes member data with email groups
     """
     # Check permissions
-    if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
+    if not (Roles.SYSTEM_MANAGER in frappe.get_roles() or Roles.VERENIGINGEN_STAFF in frappe.get_roles()):
         frappe.throw(_("You don't have permission to sync email groups"))
 
     sync_stats = {"added": 0, "removed": 0, "errors": []}

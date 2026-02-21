@@ -12,16 +12,18 @@ from typing import Any, Callable, List, Optional
 
 import frappe
 
+from verenigingen.utils.constants import Roles
+
 # Migration system user - should have appropriate roles assigned
 MIGRATION_SYSTEM_USER = "Administrator"
 
 # Required roles for different operations
 MIGRATION_ROLES = {
-    "account_creation": ["Accounts Manager", "System Manager"],
+    "account_creation": ["Accounts Manager", Roles.SYSTEM_MANAGER],
     "payment_processing": ["Accounts User", "Accounts Manager"],
     "party_creation": ["Sales User", "Purchase User", "Accounts Manager"],
     "journal_entries": ["Accounts User", "Accounts Manager"],
-    "settings_update": ["System Manager"],
+    "settings_update": [Roles.SYSTEM_MANAGER],
 }
 
 
@@ -83,7 +85,7 @@ def has_migration_permission(operation_type: str) -> bool:
     Returns:
         True if user has required roles
     """
-    required_roles = MIGRATION_ROLES.get(operation_type, ["System Manager"])
+    required_roles = MIGRATION_ROLES.get(operation_type, [Roles.SYSTEM_MANAGER])
 
     # Safely get current user
     current_user = getattr(frappe.session, "user", None) or MIGRATION_SYSTEM_USER

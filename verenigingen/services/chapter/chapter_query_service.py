@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -86,8 +87,8 @@ class ChapterQueryService(StatelessService):
             user = frappe.session.user
             user_roles = frappe.get_roles(user)
 
-            is_system_manager = "System Manager" in user_roles
-            is_verenigingen_manager = "Verenigingen Administrator" in user_roles
+            is_system_manager = Roles.SYSTEM_MANAGER in user_roles
+            is_verenigingen_manager = Roles.VERENIGINGEN_ADMIN in user_roles
 
             # System Managers and Verenigingen Administrators have full access
             if is_system_manager or is_verenigingen_manager:

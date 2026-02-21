@@ -21,6 +21,7 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 
 _module_logger = logging.getLogger(__name__)
@@ -477,8 +478,8 @@ class DuesScheduleCreationService(StatelessService):
                 "User",
                 filters={"enabled": 1, "user_type": "System User"},
                 or_filters=[
-                    ["name", "in", frappe.get_roles("System Manager")],
-                    ["name", "in", frappe.get_roles("Verenigingen Administrator")],
+                    ["name", "in", frappe.get_roles(Roles.SYSTEM_MANAGER)],
+                    ["name", "in", frappe.get_roles(Roles.VERENIGINGEN_ADMIN)],
                 ],
                 pluck="name",
             )

@@ -9,6 +9,8 @@ from dateutil.relativedelta import relativedelta
 from frappe import _
 from frappe.utils import getdate, today, validate_email_address
 
+from verenigingen.utils.constants import Roles
+
 
 def validate_email(email):
     """Validate email format and check if it already exists"""
@@ -317,7 +319,7 @@ def check_application_eligibility(data):
 def debug_application_eligibility():
     """Debug function to test application eligibility validation"""
     # Security check: Only allow debug functions in development or for System Managers
-    if not frappe.conf.get("developer_mode") and "System Manager" not in frappe.get_roles():
+    if not frappe.conf.get("developer_mode") and Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Debug functions are only available in development mode or for System Managers"))
 
     # Test data that should pass

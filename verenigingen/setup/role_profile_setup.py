@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 
 from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -83,15 +84,15 @@ def get_recommended_role_profile(user: str) -> str | None:
 
     # 1. System Administrator
     user_roles = frappe.get_roles(user)
-    if "System Manager" in user_roles or "Administrator" in user_roles:
+    if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
         return "Verenigingen System Administrator"
 
     # 2. Manager roles
-    if "Verenigingen Staff" in user_roles:
+    if Roles.VERENIGINGEN_STAFF in user_roles:
         return "Verenigingen Staff"
 
     # 3. Staff roles
-    if "Verenigingen Staff" in user_roles:
+    if Roles.VERENIGINGEN_STAFF in user_roles:
         # Further check for specific staff roles
         if "Accounts User" in user_roles:
             return "Verenigingen Treasurer"
@@ -250,13 +251,13 @@ def setup_role_profiles_cli():
                 recommended_profile = None
 
                 # System Administrator
-                if "System Manager" in user_roles or "Administrator" in user_roles:
+                if Roles.SYSTEM_MANAGER in user_roles or "Administrator" in user_roles:
                     recommended_profile = "Verenigingen System Administrator"
                 # Manager roles
-                elif "Verenigingen Staff" in user_roles:
+                elif Roles.VERENIGINGEN_STAFF in user_roles:
                     recommended_profile = "Verenigingen Staff"
                 # Staff roles with accounting
-                elif "Verenigingen Staff" in user_roles and "Accounts User" in user_roles:
+                elif Roles.VERENIGINGEN_STAFF in user_roles and "Accounts User" in user_roles:
                     recommended_profile = "Verenigingen Treasurer"
                 # Governance roles
                 elif "Verenigingen Governance Auditor" in user_roles:

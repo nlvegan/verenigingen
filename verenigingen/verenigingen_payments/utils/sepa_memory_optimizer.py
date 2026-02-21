@@ -20,6 +20,7 @@ import psutil
 from frappe import _
 from frappe.utils import add_to_date, flt, get_datetime, now
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import SEPAError, log_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -715,7 +716,7 @@ def force_memory_cleanup() -> Dict[str, Any]:
     Returns:
         Cleanup result
     """
-    if "System Manager" not in frappe.get_roles():
+    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only system managers can force memory cleanup"))
 
     monitor = SEPAMemoryMonitor()

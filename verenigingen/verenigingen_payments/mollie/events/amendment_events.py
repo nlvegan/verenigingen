@@ -6,6 +6,8 @@ Event-driven handlers for syncing Mollie subscriptions when membership amendment
 
 import frappe
 
+from verenigingen.utils.constants import Roles
+
 
 def sync_mollie_subscription_on_amendment_applied(doc, method=None):
     """
@@ -128,7 +130,7 @@ def notify_administrators_of_sync_issue(amendment_doc, sync_result):
         member = frappe.get_doc("Member", membership.member)
 
         # Get administrator emails
-        admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Financial Manager"]
+        admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN, "Verenigingen Financial Manager"]
 
         admin_emails = frappe.get_all(
             "Has Role",

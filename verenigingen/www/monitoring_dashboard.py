@@ -21,6 +21,7 @@ from verenigingen.services.monitoring.compliance_metrics_service import (
 from verenigingen.services.monitoring.monitoring_metrics_service import (
     MonitoringMetricsService,
 )
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     development_only_api,
@@ -34,7 +35,7 @@ def get_context(context):
     """Get context for monitoring dashboard page."""
     # Require System Manager or Verenigingen Administrator permissions
     user_roles = frappe.get_roles()
-    if not ("System Manager" in user_roles or "Verenigingen Administrator" in user_roles):
+    if not (Roles.SYSTEM_MANAGER in user_roles or Roles.VERENIGINGEN_ADMIN in user_roles):
         frappe.throw(
             "Access Denied: System Manager or Verenigingen Administrator role required",
             frappe.PermissionError,

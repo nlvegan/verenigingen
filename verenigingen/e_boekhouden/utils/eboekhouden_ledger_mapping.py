@@ -6,6 +6,7 @@ Maps internal E-Boekhouden ledger IDs to actual account codes
 import frappe
 import requests
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
@@ -240,7 +241,7 @@ def create_ledger_mapping_doctype():
 
         # Add permissions
         doctype.append(
-            "permissions", {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1}
+            "permissions", {"role": Roles.SYSTEM_MANAGER, "read": 1, "write": 1, "create": 1, "delete": 1}
         )
 
         doctype.insert()

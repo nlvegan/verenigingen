@@ -4,6 +4,8 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 
 def execute(filters=None):
     """
@@ -150,7 +152,7 @@ def optimize_all_tables():
     Returns: Count of optimized tables
     """
     # Security check
-    if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+    if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can optimize tables"), frappe.PermissionError)
 
     # Get all table names
@@ -192,7 +194,7 @@ def analyze_all_tables():
     Returns: Count of analyzed tables
     """
     # Security check
-    if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+    if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can analyze tables"), frappe.PermissionError)
 
     # Get all table names

@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+
 # Decimal precision for monetary amounts (2 decimal places)
 DECIMAL_PLACES = Decimal("0.01")
 MIN_MOLLIE_AMOUNT = Decimal("0.01")
@@ -337,9 +339,9 @@ def user_has_any_role(allowed_roles: List[str], user: Optional[str] = None) -> b
         True if user has any of the allowed roles, False otherwise
 
     Example:
-        >>> user_has_any_role(["System Manager", "Administrator"])
+        >>> user_has_any_role([Roles.SYSTEM_MANAGER, "Administrator"])
         True  # If current user has either role
-        >>> user_has_any_role(["Verenigingen Administrator"], "webhook@example.com")
+        >>> user_has_any_role([Roles.VERENIGINGEN_ADMIN], "webhook@example.com")
         False  # If webhook user doesn't have that role
     """
     if user is None:

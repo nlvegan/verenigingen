@@ -14,6 +14,7 @@ from verenigingen.utils.address_matching.dutch_address_normalizer import (
     AddressFingerprintCollisionHandler,
     DutchAddressNormalizer,
 )
+from verenigingen.utils.constants import Roles
 
 
 class OptimizedAddressMatcher:
@@ -451,7 +452,7 @@ def create_address_matching_metrics_doctype():
                 {"fieldname": "cache_hit", "label": "Cache Hit", "fieldtype": "Check", "default": 0},
                 {"fieldname": "timestamp", "label": "Timestamp", "fieldtype": "Datetime", "reqd": 1},
             ],
-            "permissions": [{"role": "System Manager", "read": 1, "write": 1, "delete": 1}],
+            "permissions": [{"role": Roles.SYSTEM_MANAGER, "read": 1, "write": 1, "delete": 1}],
         }
     )
 

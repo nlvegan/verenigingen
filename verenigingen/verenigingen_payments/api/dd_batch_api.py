@@ -624,9 +624,7 @@ def escalate_conflicts(batch_id, conflicts):
 def can_manage_dd_batches():
     """Check if current user can manage direct debit batches"""
     user_roles = frappe.get_roles(frappe.session.user)
-    required_roles = [
-        "System Manager",
-        "Verenigingen Administrator",
+    required_roles = list(Roles.ADMIN_PAIR) + [
         "Accounts Manager",
         "SEPA Administrator",
     ]
@@ -637,9 +635,7 @@ def can_manage_dd_batches():
 def can_create_dd_batches():
     """Check if current user can create direct debit batches"""
     user_roles = frappe.get_roles(frappe.session.user)
-    required_roles = [
-        "System Manager",
-        "Verenigingen Administrator",
+    required_roles = list(Roles.ADMIN_PAIR) + [
         "Accounts Manager",
         "SEPA Administrator",
         "Accounts User",

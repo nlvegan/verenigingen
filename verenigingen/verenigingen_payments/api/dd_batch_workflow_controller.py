@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -302,7 +303,7 @@ def can_user_approve_batch(batch):
     user_roles = frappe.get_roles()
 
     # System Manager can approve anything
-    if "System Manager" in user_roles:
+    if Roles.SYSTEM_MANAGER in user_roles:
         return True
 
     # Check approval level based on batch risk
@@ -311,9 +312,9 @@ def can_user_approve_batch(batch):
     if risk_level == "High":
         return "Finance Manager" in user_roles
     elif risk_level == "Medium":
-        return "Verenigingen Staff" in user_roles or "Finance Manager" in user_roles
+        return Roles.VERENIGINGEN_STAFF in user_roles or "Finance Manager" in user_roles
     else:  # Low risk
-        return "Verenigingen Staff" in user_roles or "Finance Manager" in user_roles
+        return Roles.VERENIGINGEN_STAFF in user_roles or "Finance Manager" in user_roles
 
     return False
 
@@ -380,7 +381,7 @@ def trigger_sepa_generation(batch_name):
 
         # Check user has permission
         user_roles = frappe.get_roles()
-        if "System Manager" not in user_roles and "Finance Manager" not in user_roles:
+        if Roles.SYSTEM_MANAGER not in user_roles and "Finance Manager" not in user_roles:
             frappe.throw(_("You don't have permission to generate SEPA files"))
 
         # Generate SEPA file using existing method
@@ -418,13 +419,13 @@ def get_batches_pending_approval():
         # Determine which batches user can approve
         filters = {"docstatus": 0}
 
-        if "System Manager" in user_roles:
+        if Roles.SYSTEM_MANAGER in user_roles:
             # System Manager can see all draft batches (equivalent to pending approval)
             filters["status"] = ["in", ["Draft", "Generated"]]
         elif "Finance Manager" in user_roles:
             # Finance Manager can see all draft batches
             filters["status"] = ["in", ["Draft", "Generated"]]
-        elif "Verenigingen Staff" in user_roles:
+        elif Roles.VERENIGINGEN_STAFF in user_roles:
             # Verenigingen Staff can only see draft batches
             filters["status"] = "Draft"
         else:

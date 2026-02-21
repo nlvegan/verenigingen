@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
 # Import security framework and OperationResult
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
@@ -412,7 +413,7 @@ def send_payment_plan_request_notification(payment_plan):
         # Get admin users
         admin_users = frappe.get_all(
             "Has Role",
-            filters={"role": ["in", ["System Manager", "Verenigingen Administrator"]]},
+            filters={"role": ["in", list(Roles.ADMIN_PAIR)]},
             fields=["parent"],
             pluck="parent",
         )

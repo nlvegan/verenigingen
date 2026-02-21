@@ -10,6 +10,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import standard_api
 
 
@@ -73,7 +74,7 @@ def notify_chapter_of_overdue_applications(chapter_name, applications):
 def notify_managers_of_overdue_applications(applications):
     """Notify association managers of overdue applications without chapters"""
     # Get all association managers
-    managers = frappe.get_all("Has Role", filters={"role": "Verenigingen Administrator"}, pluck="parent")
+    managers = frappe.get_all("Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN}, pluck="parent")
 
     if managers:
         recipients = [

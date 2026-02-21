@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
@@ -204,7 +205,9 @@ class PaymentRetryManager:
         member = frappe.get_doc("Member", retry_record.member)
 
         # Get admin users
-        admins = frappe.get_all("Has Role", filters={"role": "Verenigingen Staff"}, fields=["parent as user"])
+        admins = frappe.get_all(
+            "Has Role", filters={"role": Roles.VERENIGINGEN_STAFF}, fields=["parent as user"]
+        )
 
         recipients = [admin.user for admin in admins]
 
@@ -215,7 +218,7 @@ class PaymentRetryManager:
             email_service = get_email_service()
 
             context = {
-                "member_name": "Verenigingen Staff",
+                "member_name": Roles.VERENIGINGEN_STAFF,
                 "notification_message": f"Payment collection has failed after {retry_record.retry_count} attempts for member {member.full_name}.",
                 "payment_reference": retry_record.invoice,
                 "amount": f"€{retry_record.original_amount}",

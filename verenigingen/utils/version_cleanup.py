@@ -6,6 +6,7 @@ Secure functions for managing version history storage
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -18,7 +19,7 @@ def clear_all_versions():
     Returns: Statistics about deleted versions
     """
     # Security check - System Manager only
-    if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+    if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can clear version history"), frappe.PermissionError)
 
     # Get statistics before deletion
@@ -134,7 +135,7 @@ def clear_versions_older_than_days(days=90):
     Returns: Statistics about deleted versions
     """
     # Security check - System Manager only
-    if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+    if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can clear version history"), frappe.PermissionError)
 
     # Validate days parameter
@@ -221,7 +222,7 @@ def nuclear_truncate_version_and_deleted_tables(confirm_nuclear_truncate=False, 
     user = frappe.session.user
     if user != "Administrator":
         user_roles = frappe.get_roles()
-        if "Verenigingen Administrator" not in user_roles:
+        if Roles.VERENIGINGEN_ADMIN not in user_roles:
             frappe.throw(
                 _("This operation requires Verenigingen Administrator role."),
                 frappe.PermissionError,
@@ -363,7 +364,7 @@ def clear_versions_by_doctype(doctype, older_than_days=None):
     Returns: Statistics about deleted versions
     """
     # Security check - System Manager only
-    if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+    if frappe.session.user != "Administrator" and Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can clear version history"), frappe.PermissionError)
 
     # Build query

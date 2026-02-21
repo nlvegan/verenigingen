@@ -4,6 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import getdate, now, today
 
 from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -78,7 +79,7 @@ class ExpulsionReportEntry(Document):
         """Send notification to governance team about new expulsion entry"""
         # Get governance team emails (Verenigingen Administrators)
         governance_users = frappe.get_all(
-            "Has Role", filters={"role": "Verenigingen Administrator"}, fields=["parent"]
+            "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN}, fields=["parent"]
         )
 
         governance_emails = []
@@ -175,7 +176,7 @@ class ExpulsionReportEntry(Document):
         """Send notification when expulsion is reversed"""
         # Get governance team emails
         governance_users = frappe.get_all(
-            "Has Role", filters={"role": "Verenigingen Administrator"}, fields=["parent"]
+            "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN}, fields=["parent"]
         )
 
         governance_emails = []

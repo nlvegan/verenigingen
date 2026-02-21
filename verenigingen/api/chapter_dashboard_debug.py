@@ -6,6 +6,7 @@ Extracted from chapter_dashboard_api.py to separate debug/admin tooling from pro
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -2008,7 +2009,7 @@ def test_dashboard_access():
                 "current_user": current_user,
                 "user_roles": user_roles,
                 "is_administrator": "Administrator" in user_roles,
-                "is_system_manager": "System Manager" in user_roles,
+                "is_system_manager": Roles.SYSTEM_MANAGER in user_roles,
             },
             "board_access": {
                 "has_board_access": len(user_chapters) > 0,

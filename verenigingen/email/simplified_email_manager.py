@@ -14,6 +14,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.validation_utilities import get_all_active_records
 from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import CommunicationManager
@@ -364,7 +365,7 @@ def send_organization_newsletter(subject: str, content: str, filters: Dict = Non
         Dict with success status and details
     """
     # Check permissions - only System Manager or Verenigingen Staff
-    if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
+    if not (Roles.SYSTEM_MANAGER in frappe.get_roles() or Roles.VERENIGINGEN_STAFF in frappe.get_roles()):
         frappe.throw(_("You don't have permission to send organization-wide emails"))
 
     # Use a dummy chapter doc for initialization using standardized query

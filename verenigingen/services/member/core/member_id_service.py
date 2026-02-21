@@ -18,6 +18,7 @@ import time
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
 
@@ -144,7 +145,7 @@ def force_assign_member_id(member_doc) -> OperationResult[str]:
         OperationResult[str]: OperationResult with member_id on success
     """
     # Check if user has permission
-    if not frappe.has_permission("Member", "write") or "System Manager" not in frappe.get_roles():
+    if not frappe.has_permission("Member", "write") or Roles.SYSTEM_MANAGER not in frappe.get_roles():
         frappe.throw(_("Only System Managers can force assign member IDs"))
 
     if member_doc.member_id:

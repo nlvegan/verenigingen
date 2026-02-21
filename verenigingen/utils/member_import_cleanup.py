@@ -11,6 +11,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -29,7 +30,7 @@ def validate_cleanup_permissions():
     # Level 2: User must be Administrator or have System Manager role
     if user != "Administrator":
         user_roles = frappe.get_roles()
-        required_roles = {"System Manager", "Verenigingen Administrator"}
+        required_roles = Roles.ADMIN_PAIR
 
         if not any(role in user_roles for role in required_roles):
             frappe.throw(
@@ -1886,7 +1887,7 @@ def _validate_verenigingen_admin_permissions():
         return True
 
     user_roles = frappe.get_roles()
-    if "Verenigingen Administrator" not in user_roles:
+    if Roles.VERENIGINGEN_ADMIN not in user_roles:
         frappe.throw(
             _("This operation requires Verenigingen Administrator role."),
             frappe.PermissionError,

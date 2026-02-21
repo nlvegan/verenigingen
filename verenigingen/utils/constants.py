@@ -5,7 +5,7 @@ This module centralizes commonly used constants to eliminate magic strings
 and provide a single source of truth for configuration values.
 """
 
-from typing import List, Set
+from typing import FrozenSet, List, Set
 
 
 # System roles and permissions
@@ -22,30 +22,36 @@ class Roles:
     CHAPTER_ADMIN = "Chapter Administrator"
     HR_MANAGER = "HR Manager"
 
-    # Role groups for common permission checks
-    ADMIN_ROLES: Set[str] = {SYSTEM_MANAGER, VERENIGINGEN_ADMIN, VERENIGINGEN_STAFF}
-    ADMIN_PAIR: Set[str] = {SYSTEM_MANAGER, VERENIGINGEN_ADMIN}
+    # Role groups for common permission checks (frozenset prevents accidental mutation)
+    ADMIN_ROLES: FrozenSet[str] = frozenset({SYSTEM_MANAGER, VERENIGINGEN_ADMIN, VERENIGINGEN_STAFF})
+    ADMIN_PAIR: FrozenSet[str] = frozenset({SYSTEM_MANAGER, VERENIGINGEN_ADMIN})
 
-    VOLUNTEER_ADMIN_ROLES: Set[str] = {
-        SYSTEM_MANAGER,
-        VERENIGINGEN_ADMIN,
-        VERENIGINGEN_STAFF,
-        VOLUNTEER_MANAGER,
-    }
+    VOLUNTEER_ADMIN_ROLES: FrozenSet[str] = frozenset(
+        {
+            SYSTEM_MANAGER,
+            VERENIGINGEN_ADMIN,
+            VERENIGINGEN_STAFF,
+            VOLUNTEER_MANAGER,
+        }
+    )
 
-    HR_ADMIN_ROLES: Set[str] = {
-        SYSTEM_MANAGER,
-        VERENIGINGEN_ADMIN,
-        VERENIGINGEN_STAFF,
-        HR_MANAGER,
-    }
+    HR_ADMIN_ROLES: FrozenSet[str] = frozenset(
+        {
+            SYSTEM_MANAGER,
+            VERENIGINGEN_ADMIN,
+            VERENIGINGEN_STAFF,
+            HR_MANAGER,
+        }
+    )
 
-    ALL_PRIVILEGED_ROLES: Set[str] = {
-        SYSTEM_MANAGER,
-        VERENIGINGEN_ADMIN,
-        VERENIGINGEN_STAFF,
-        CHAPTER_ADMIN,
-    }
+    ALL_PRIVILEGED_ROLES: FrozenSet[str] = frozenset(
+        {
+            SYSTEM_MANAGER,
+            VERENIGINGEN_ADMIN,
+            VERENIGINGEN_STAFF,
+            CHAPTER_ADMIN,
+        }
+    )
 
 
 # Document statuses
