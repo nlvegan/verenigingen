@@ -86,13 +86,6 @@ repos:
         verbose: true
         fail_fast: true
       # Original validation hooks
-      - id: docfield-checker
-        name: Legacy field reference checker (fallback)
-        entry: python scripts/validation/archived/legacy_field_validator.py
-        language: system
-        pass_filenames: false
-        files: \.py$
-        stages: [manual]
 
       - id: doctype-field-validator
         name: DocType field attribute access validator

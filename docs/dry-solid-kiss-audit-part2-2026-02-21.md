@@ -349,22 +349,31 @@
 | P-C2 | Patch SQL injection (ALTER TABLE) | **FALSE POSITIVE** | Hardcoded column names; DDL can't use parameterized identifiers |
 | P-C3 | Patch SQL injection (CREATE INDEX) | **FALSE POSITIVE** | Hardcoded table/index names; DDL can't use parameterized identifiers |
 
+### Batch 4 — DRY Consolidation & Quick Wins (2026-02-21)
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| BG-H1 | Triple enqueue pattern in `background_jobs.py` | **FIXED** | Extracted `_enqueue_tracked_job()` helper; 3 methods now ~10 lines each vs ~25 |
+| P-C4 | No idempotency guard on financial settings migration | **FIXED** | Added top-level `company_iban` check for instant skip on re-runs |
+| SC-H1 | Dead `docfield-checker` pre-commit hook | **FIXED** | Removed manual-stage hook that called archived `legacy_field_validator.py` |
+| HK-H1 | `e_boekhouden/hooks.py` uses "dt" key | **ALREADY FIXED** | Resolved in HK-C1 cleanup (commit `03f32976`) |
+| OV-H2 | Sales Invoice hooks in two locations | **ALREADY FIXED** | Dead e_boekhouden doc_events removed in HK-C1 cleanup (commit `03f32976`) |
+| BG-H5 | 3 exponential retry implementations | **BY DESIGN** | Documented in `retry_utilities.py` lines 554-570; each has specialized behavior |
+
 ### Remaining Items (Not Yet Addressed)
 
 **P1 remaining:**
-- BG-C2: Job chaining recovery in `account_creation_manager.py` (partially mitigated — tracker comment added)
-- BG-C4: No progress checkpointing in bulk invoice generation (3600s timeout)
-- BG-H1: Triple enqueue pattern not consolidated
+- BG-C2: Job chaining recovery in `account_creation_manager.py` (partially mitigated; needs DocType schema change for full fix)
+- BG-C4: No progress checkpointing in bulk invoice generation (parallel mode already chunked; sequential mode low risk)
 
 **P2 remaining:**
 - T-C1 through T-C4: Test factory and suite consolidation (large scope)
-- SC-H1: 5 overlapping field validators
+- SC-H1: 4 remaining overlapping field validators (need per-validator analysis to safely remove)
 - CSS-H2 through CSS-H6: CSS cleanup items
 
 **P3 (architecture):**
 - JS-C3, JS-H1, JS-H2: Split JS god objects
 - DT-H1: Split Member DocType
-- OV-H2: Consolidate Sales Invoice hooks
 - R-H2, R-H3: Shared report utilities
 
 ---
@@ -388,24 +397,27 @@
 10. ~~Remove dead workflow_action_handlers hook~~ — **FIXED** (HK-H2)
 11. ~~Reduce batch processor frequency~~ — **FIXED** (10s → 30s, BG-H2)
 12. ~~Add batch size limit~~ — **FIXED** (500-per-run cap, BG-H3)
+13. ~~Extract shared enqueue helper~~ — **FIXED** (BG-H1, `_enqueue_tracked_job()`)
+14. ~~Add migration idempotency guard~~ — **FIXED** (P-C4, top-level `company_iban` check)
+15. ~~Remove dead `docfield-checker` hook~~ — **FIXED** (SC-H1 partial)
 
 ### Medium-term (P2) — DRY Consolidation
 
-9. **Consolidate test factories** (T-C1) — create single TestDataFactory with composition, delete 5 duplicates
-10. ~~Delete 98 archived validators~~ — **SKIPPED** (10 still active in pre-commit)
-11. **Consolidate 5 field validators into 2** (SC-H1) — fast pre-commit + thorough pre-push
-12. **Consolidate duplicate test suites** (T-C2, T-C3) — keep _real versions, delete _optimized/_minimal
-13. ~~Clean up critical_operation_rule.json~~ — **FIXED** (21 duplicates removed)
-14. ~~Extract shared CSS variables~~ — **DEFERRED** (design review needed)
+16. **Consolidate test factories** (T-C1) — create single TestDataFactory with composition, delete 5 duplicates
+17. ~~Delete 98 archived validators~~ — **SKIPPED** (10 still active in pre-commit)
+18. **Consolidate 4 remaining field validators** (SC-H1) — needs per-validator analysis
+19. **Consolidate duplicate test suites** (T-C2, T-C3) — keep _real versions, delete _optimized/_minimal
+20. ~~Clean up critical_operation_rule.json~~ — **FIXED** (21 duplicates removed)
+21. ~~Extract shared CSS variables~~ — **DEFERRED** (design review needed)
 
 ### Long-term (P3) — Architecture
 
-15. **Split JS god objects** (JS-C3, JS-H1, JS-H2) — member.js into domain modules
-16. **Adopt Tailwind consistently** (CSS-H1) — migrate custom CSS to utilities
-17. **Split Member DocType** (DT-H1) — extract payment/SEPA/history to linked DocTypes
-18. **Consolidate Sales Invoice hooks** (OV-H2) — single location for all handlers
-19. **Extract shared report utilities** (R-H2, R-H3) — column definitions, chart generation
-20. ~~Add batch size limits to scheduler tasks~~ — **FIXED** (BG-H3, 500-per-run limit)
+22. **Split JS god objects** (JS-C3, JS-H1, JS-H2) — member.js into domain modules
+23. **Adopt Tailwind consistently** (CSS-H1) — migrate custom CSS to utilities
+24. **Split Member DocType** (DT-H1) — extract payment/SEPA/history to linked DocTypes
+25. ~~Consolidate Sales Invoice hooks~~ — **ALREADY FIXED** (OV-H2, resolved in HK-C1 cleanup)
+26. **Extract shared report utilities** (R-H2, R-H3) — column definitions, chart generation
+27. ~~Add batch size limits to scheduler tasks~~ — **FIXED** (BG-H3, 500-per-run limit)
 
 ---
 
@@ -425,6 +437,6 @@
 | 10 | CSS/Styles | 11 files | 3 | 6 | 10 | 5 |
 | 11 | Overrides | 3 patches | 3 | 3 | 2 | 0 |
 | | **Total** | | **37** | **46** | **67** | **43** |
-| | **Resolved** | | **15** | **5** | **0** | **0** |
-| | **False Positive** | | **8** | **0** | **0** | **0** |
-| | **Remaining** | | **14** | **41** | **67** | **43** |
+| | **Resolved** | | **16** | **9** | **0** | **0** |
+| | **False Positive** | | **8** | **1** | **0** | **0** |
+| | **Remaining** | | **13** | **36** | **67** | **43** |

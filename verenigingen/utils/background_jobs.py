@@ -25,76 +25,72 @@ class BackgroundJobManager:
     """Manager for background job operations with status tracking and notifications"""
 
     @staticmethod
+    def _enqueue_tracked_job(
+        *,
+        method: str,
+        job_type: str,
+        job_prefix: str,
+        queue: str = "default",
+        timeout: int = 300,
+        retry: int = 3,
+        enqueue_kwargs: Optional[Dict] = None,
+        status_kwargs: Optional[Dict] = None,
+    ) -> str:
+        """Enqueue a background job with status tracking. Returns job_name."""
+        job_name = f"{job_prefix}_{int(time.time())}"
+
+        frappe.enqueue(
+            method,
+            **(enqueue_kwargs or {}),
+            queue=queue,
+            timeout=timeout,
+            retry=retry,
+            job_name=job_name,
+        )
+
+        BackgroundJobManager.create_job_status_record(
+            job_name=job_name,
+            job_type=job_type,
+            status="Queued",
+            **(status_kwargs or {}),
+        )
+
+        return job_name
+
+    @staticmethod
     def queue_member_payment_history_update(
         member_name: str, payment_entry: str = None, priority: str = "default"
     ) -> str:
-        """
-        Queue member payment history update as background job
-
-        Args:
-            member_name: Name of the member to update
-            payment_entry: Optional payment entry that triggered the update
-            priority: Job priority (default, short, long)
-
-        Returns:
-            Job ID for tracking
-        """
-        job_name = f"payment_history_update_{member_name}_{int(time.time())}"
-
+        """Queue member payment history update as background job"""
         try:
-            # Queue the background job
-            frappe.enqueue(
-                "verenigingen.utils.background_jobs.execute_member_payment_history_update",
-                member_name=member_name,
-                payment_entry=payment_entry,
+            return BackgroundJobManager._enqueue_tracked_job(
+                method="verenigingen.utils.background_jobs.execute_member_payment_history_update",
+                job_type="member_payment_history_update",
+                job_prefix=f"payment_history_update_{member_name}",
                 queue=priority,
                 timeout=300,
                 retry=3,
-                job_name=job_name,
+                enqueue_kwargs={"member_name": member_name, "payment_entry": payment_entry},
+                status_kwargs={"member_name": member_name, "payment_entry": payment_entry},
             )
-
-            # Track job status
-            BackgroundJobManager.create_job_status_record(
-                job_name=job_name,
-                job_type="member_payment_history_update",
-                status="Queued",
-                member_name=member_name,
-                payment_entry=payment_entry,
-            )
-
-            return job_name
-
         except Exception as e:
             frappe.log_error(f"Failed to queue payment history update for {member_name}: {e}")
-            # Fallback to synchronous execution if queueing fails
             return BackgroundJobManager.execute_member_payment_history_update_sync(member_name, payment_entry)
 
     @staticmethod
     def queue_expense_event_processing(expense_doc_name: str, event_type: str) -> str:
         """Queue expense event processing as background job"""
-        job_name = f"expense_event_{event_type}_{expense_doc_name}_{int(time.time())}"
-
         try:
-            frappe.enqueue(
-                "verenigingen.utils.background_jobs.execute_expense_event_processing",
-                expense_doc_name=expense_doc_name,
-                event_type=event_type,
+            return BackgroundJobManager._enqueue_tracked_job(
+                method="verenigingen.utils.background_jobs.execute_expense_event_processing",
+                job_type="expense_event_processing",
+                job_prefix=f"expense_event_{event_type}_{expense_doc_name}",
                 queue="short",
                 timeout=180,
                 retry=2,
-                job_name=job_name,
+                enqueue_kwargs={"expense_doc_name": expense_doc_name, "event_type": event_type},
+                status_kwargs={"reference_doctype": "Expense Claim", "reference_name": expense_doc_name},
             )
-
-            BackgroundJobManager.create_job_status_record(
-                job_name=job_name,
-                job_type="expense_event_processing",
-                status="Queued",
-                reference_doctype="Expense Claim",
-                reference_name=expense_doc_name,
-            )
-
-            return job_name
-
         except Exception as e:
             frappe.log_error(f"Failed to queue expense event processing for {expense_doc_name}: {e}")
             return None
@@ -102,28 +98,17 @@ class BackgroundJobManager:
     @staticmethod
     def queue_donor_auto_creation(payment_doc_name: str) -> str:
         """Queue donor auto creation as background job"""
-        job_name = f"donor_auto_creation_{payment_doc_name}_{int(time.time())}"
-
         try:
-            frappe.enqueue(
-                "verenigingen.utils.background_jobs.execute_donor_auto_creation",
-                payment_doc_name=payment_doc_name,
+            return BackgroundJobManager._enqueue_tracked_job(
+                method="verenigingen.utils.background_jobs.execute_donor_auto_creation",
+                job_type="donor_auto_creation",
+                job_prefix=f"donor_auto_creation_{payment_doc_name}",
                 queue="default",
                 timeout=240,
                 retry=2,
-                job_name=job_name,
+                enqueue_kwargs={"payment_doc_name": payment_doc_name},
+                status_kwargs={"reference_doctype": "Payment Entry", "reference_name": payment_doc_name},
             )
-
-            BackgroundJobManager.create_job_status_record(
-                job_name=job_name,
-                job_type="donor_auto_creation",
-                status="Queued",
-                reference_doctype="Payment Entry",
-                reference_name=payment_doc_name,
-            )
-
-            return job_name
-
         except Exception as e:
             frappe.log_error(f"Failed to queue donor auto creation for {payment_doc_name}: {e}")
             return None

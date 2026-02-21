@@ -22,6 +22,14 @@ def execute():
     frappe.reload_doctype("Verenigingen Payments Settings")
     frappe.reload_doctype("Verenigingen Settings")
 
+    # Fast idempotency check: if target already has company_iban, migration was already done
+    existing_iban = frappe.db.sql(
+        "SELECT value FROM tabSingles WHERE doctype = 'Verenigingen Payments Settings' AND field = 'company_iban'"
+    )
+    if existing_iban and existing_iban[0][0]:
+        frappe.log("Financial settings already migrated (company_iban exists in target)")
+        return
+
     # Fields to migrate
     fields_to_migrate = [
         # Financial Settings
