@@ -27,6 +27,7 @@
   "membership_print_format",
   "inv_print_format",
   "default_item_group",
+  "default_due_date_days",
   "membership_webhook_secret",
   "automate_membership_payment_entries",
   "sepa_settings_tab",
@@ -301,6 +302,14 @@
    "options": "Item Group"
   },
   {
+   "default": "45",
+   "description": "Number of days from coverage period start date to set as invoice due date. Used when no Payment Terms Template is configured.",
+   "fieldname": "default_due_date_days",
+   "fieldtype": "Int",
+   "label": "Default due date (days from coverage start)",
+   "non_negative": 1
+  },
+  {
    "fieldname": "membership_webhook_secret",
    "fieldtype": "Password",
    "label": "Membership Webhook Secret",
@@ -384,7 +393,7 @@
  "icon": "fa fa-cog",
  "issingle": 1,
  "links": [],
- "modified": "2026-02-03 13:32:01.843639",
+ "modified": "2026-02-21 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Payments Settings",
