@@ -31,6 +31,7 @@ from verenigingen.utils.employee_user_link import (
     update_employee_with_user,
     create_employee_for_approved_volunteer
 )
+import unittest
 
 
 class TestEmployeeUserLinkSecurityFixed(EnhancedTestCase):

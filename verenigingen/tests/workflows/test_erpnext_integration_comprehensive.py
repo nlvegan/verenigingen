@@ -9,6 +9,7 @@ from frappe.utils import today, add_days, add_months, flt, nowdate
 from verenigingen.tests.utils.base import VereningingenTestCase
 from decimal import Decimal
 import json
+import unittest
 
 
 class TestERPNextIntegrationComprehensive(VereningingenTestCase):

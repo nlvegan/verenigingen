@@ -19,6 +19,7 @@ from frappe.utils import add_days, add_months, today, getdate, flt
 from decimal import Decimal
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class MemberLifecycleCompleteRealTest(EnhancedTestCase):

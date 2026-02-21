@@ -7,6 +7,7 @@ Tests that all API contracts are maintained and functionality works correctly.
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestRoleProfileAPIContracts(EnhancedTestCase):

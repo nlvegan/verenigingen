@@ -23,6 +23,7 @@ from frappe.utils import today, add_days
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberDoctypePhase3Security(EnhancedTestCase):

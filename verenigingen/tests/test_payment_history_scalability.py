@@ -39,6 +39,7 @@ import platform
 import psutil
 import pytest
 import random
+import sys
 import threading
 import time
 from contextlib import contextmanager

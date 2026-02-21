@@ -10,6 +10,7 @@ import frappe
 from frappe.utils import add_days, add_months, now_datetime, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMembershipTerminationRequest(EnhancedTestCase):

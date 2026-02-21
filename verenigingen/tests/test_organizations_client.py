@@ -10,6 +10,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.organizations_client import OrganizationsClient
 from verenigingen.verenigingen_payments.core.models.organization import Organization
+import unittest
 
 
 class TestOrganizationsClient(EnhancedTestCase):

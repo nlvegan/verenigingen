@@ -17,6 +17,7 @@ import frappe
 from frappe.utils import random_string
 from verenigingen.services.member.account.member_user_account_service import MemberUserAccountService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberUserAccountService(EnhancedTestCase):

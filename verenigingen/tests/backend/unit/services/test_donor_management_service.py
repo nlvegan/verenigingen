@@ -17,6 +17,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from verenigingen.services.member.donor.donor_management_service import DonorManagementService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestDonorManagementService(EnhancedTestCase):

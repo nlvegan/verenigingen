@@ -3,6 +3,7 @@
 
 import sys
 import os
+import unittest
 
 # Add the scripts directory to the path
 scripts_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'scripts', 'testing', 'runners')

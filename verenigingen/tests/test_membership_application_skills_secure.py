@@ -22,6 +22,7 @@ from verenigingen.tests.fixtures.secure_test_data_factory import (
     with_secure_test_data
 )
 from verenigingen.tests.fixtures.field_validator import validate_field
+import unittest
 
 
 class TestMembershipApplicationSkillsSecure(EnhancedTestCase):

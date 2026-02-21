@@ -1,10 +1,10 @@
 """
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Security Penetration Testing for Mollie Backend API
 Tests system security against various attack vectors
 """
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 import base64
 import hashlib
 import hmac
@@ -418,7 +418,7 @@ class TestSecurityPenetration(EnhancedTestCase):
                 pass  # Expected
             
         # Test 2: Permission bypass via API
-        from verenigingen.verenigingen_payments.workflows.financial_dashboard import (
+        from verenigingen.verenigingen_payments.dashboards.financial_dashboard import (
             get_dashboard_data
         )
         

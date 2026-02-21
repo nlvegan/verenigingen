@@ -9,6 +9,7 @@ import frappe
 from unittest.mock import patch, MagicMock
 from verenigingen import auth_hooks
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 
 class TestAuthHooksCriticalSecurity(VereningingenTestCase):

@@ -19,6 +19,7 @@ import frappe
 from frappe.utils import now, today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.services.termination import TerminationExecutionService
+import unittest
 
 
 class TestTerminationExecutionService(EnhancedTestCase):

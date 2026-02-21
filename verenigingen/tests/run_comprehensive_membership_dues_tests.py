@@ -11,6 +11,7 @@ import os
 import frappe
 import time
 from collections import defaultdict
+import unittest
 
 
 def run_comprehensive_membership_dues_tests(test_categories=None, verbose=False):

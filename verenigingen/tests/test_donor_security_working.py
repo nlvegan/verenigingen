@@ -25,6 +25,7 @@ from verenigingen.permissions import (
     has_donor_permission, 
     get_donor_permission_query
 )
+import unittest
 
 
 class TestDonorSecurityWorking(EnhancedTestCase):

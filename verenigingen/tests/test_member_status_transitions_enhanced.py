@@ -7,6 +7,7 @@ Migrated from test_member_status_transitions.py to use EnhancedTestCase
 import frappe
 from frappe.utils import add_days, add_months, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):

@@ -8,6 +8,7 @@ from frappe.utils import add_days, today
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
+import unittest
 
 
 class TestMemberContactRequestIntegration(EnhancedTestCase):

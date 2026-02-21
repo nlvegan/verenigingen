@@ -1,8 +1,9 @@
 """
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Tests for automatic donor creation from payment allocations
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import frappe
 from frappe.utils import flt

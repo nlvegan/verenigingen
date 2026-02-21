@@ -19,6 +19,7 @@ from verenigingen.verenigingen.report.donation_summary.donation_summary import (
     get_columns,
     get_conditions,
 )
+import unittest
 
 
 class TestANBIDonationSummaryReportOptimizedReal(EnhancedTestCase):

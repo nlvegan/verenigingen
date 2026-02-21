@@ -11,6 +11,7 @@ Tests the Python controller methods including minimum period enforcement
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.tests.backend.components.test_membership_utilities import MembershipTestUtilities
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 

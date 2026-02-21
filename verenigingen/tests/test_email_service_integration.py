@@ -30,6 +30,7 @@ from verenigingen.services.communication.compatibility import (
     send_member_notification,
     send_chapter_email,
 )
+import unittest
 
 
 class TestEmailServiceIntegration(EnhancedTestCase):

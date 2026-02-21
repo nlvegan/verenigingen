@@ -37,6 +37,7 @@ from verenigingen.email.automated_campaigns import AutomatedCampaignManager
 from verenigingen.email.analytics_tracker import EmailAnalyticsTracker
 from verenigingen.email.advanced_segmentation import AdvancedSegmentationManager
 from verenigingen.email.validation_utils import validate_email_system_components
+import unittest
 
 
 class TestEmailNewsletterSystemSecurity(EnhancedTestCase):

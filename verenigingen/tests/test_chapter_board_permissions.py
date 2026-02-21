@@ -1,6 +1,5 @@
 """
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Chapter Board Member Permissions Test Suite
 ===========================================
 
@@ -14,6 +13,8 @@ Comprehensive test suite for Chapter Board Member permission system including:
 This test suite validates the complete permission system implementation
 to ensure proper security boundaries and functional correctness.
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import frappe
 import unittest

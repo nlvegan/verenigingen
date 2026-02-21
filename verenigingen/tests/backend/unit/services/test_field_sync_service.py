@@ -17,6 +17,7 @@ import frappe
 from frappe.utils import random_string
 from verenigingen.services.field_sync_service import test_sync_relationship
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestFieldSyncService(EnhancedTestCase):

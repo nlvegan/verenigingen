@@ -392,7 +392,7 @@ class TestPaymentPlanSystem(VereningingenTestCase):
             
     def test_scheduled_overdue_processing(self):
         """Test scheduled processing of overdue installments"""
-        from verenigingen.verenigingen.doctype.payment_plan.payment_plan import process_overdue_installments
+        from verenigingen.verenigingen_payments.doctype.payment_plan.payment_plan import process_overdue_installments
         
         # Create payment plan with overdue installment
         payment_plan = self.create_test_payment_plan()

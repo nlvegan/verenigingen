@@ -6,6 +6,7 @@ from frappe.utils import today
 from unittest.mock import patch
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestChapterMemberBasic(EnhancedTestCase):

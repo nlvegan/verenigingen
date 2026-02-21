@@ -6,6 +6,7 @@ Tests for SEPA mandate validation, usage tracking, and banking integration edge 
 import frappe
 from frappe.utils import add_days, today
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 
 class TestSEPAMandateEdgeCases(VereningingenTestCase):

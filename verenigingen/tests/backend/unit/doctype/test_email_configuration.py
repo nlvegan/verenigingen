@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+import unittest
 
 
 class TestEmailConfigurationValidation(FrappeTestCase):

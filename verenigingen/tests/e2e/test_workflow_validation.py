@@ -1,9 +1,10 @@
 """
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 End-to-End Workflow Validation Tests for Mollie Backend API
 Validates complete business workflows from start to finish
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import json
 from datetime import datetime, timedelta

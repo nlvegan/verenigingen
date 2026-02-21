@@ -15,6 +15,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.services.member.display.member_volunteer_display_service import (
     get_member_volunteer_display_service,
 )
+import unittest
 
 
 def generate_volunteer_details_html(member_doc):

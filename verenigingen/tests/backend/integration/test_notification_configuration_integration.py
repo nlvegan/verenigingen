@@ -17,6 +17,7 @@ from frappe.utils import add_to_date, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.singleton_backup import FlagBackupMixin, singleton_backup
+import unittest
 
 
 class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase):

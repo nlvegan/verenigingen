@@ -14,6 +14,7 @@ Created: 2025-09-11 (converted from debug functions)
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestContributionAmendmentIntegration(EnhancedTestCase):

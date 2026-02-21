@@ -3,6 +3,7 @@ from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.test_data_factory import TestDataFactory
+import unittest
 
 
 class TestMemberIBANHistory(EnhancedTestCase):

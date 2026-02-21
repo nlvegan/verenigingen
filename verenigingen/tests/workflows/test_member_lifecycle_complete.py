@@ -7,6 +7,7 @@ Including chapter transfers, status changes, and financial history preservation
 import frappe
 from frappe.utils import today, add_days, add_years
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 # MemberService import removed - not needed for these tests
 
 

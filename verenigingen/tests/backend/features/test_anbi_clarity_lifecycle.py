@@ -7,6 +7,7 @@ import frappe
 from frappe.utils import today, add_years, add_months
 from verenigingen.tests.fixtures.anbi_test_personas import ANBITestPersonas
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestANBIClarityLifecycle(EnhancedTestCase):

@@ -21,6 +21,7 @@ from verenigingen.services.member.core.member_id_service import (
     force_assign_member_id,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberLifecycleServiceMigration(EnhancedTestCase):

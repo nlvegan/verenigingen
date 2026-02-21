@@ -21,6 +21,7 @@ from verenigingen.api.volunteer_skills import (
     get_skill_gaps_analysis,
     export_skills_data
 )
+import unittest
 
 
 class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):

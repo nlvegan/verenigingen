@@ -13,6 +13,8 @@ from verenigingen.verenigingen.doctype.volunteer.volunteer import (
     get_volunteers_with_filters,
     get_skill_insights
 )
+import unittest
+
 from verenigingen.api.volunteer_skills import (
     get_skills_overview,
     search_volunteers_advanced,

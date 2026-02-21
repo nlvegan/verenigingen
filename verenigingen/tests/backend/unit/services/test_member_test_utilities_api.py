@@ -21,6 +21,7 @@ from verenigingen.services.member.testing.member_test_utilities import (
     test_dues_schedule_query,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberTestUtilitiesAPI(EnhancedTestCase):

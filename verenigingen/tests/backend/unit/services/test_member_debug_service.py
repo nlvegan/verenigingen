@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 from verenigingen.services.member.debug.member_debug_service import MemberDebugService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberDebugService(EnhancedTestCase):

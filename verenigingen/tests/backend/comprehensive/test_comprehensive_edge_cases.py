@@ -83,7 +83,7 @@ def run_security_only():
     print("🔒 Running Security Tests Only...")
 
     try:
-        from verenigingen.tests.test_security_comprehensive import run_security_tests
+        from verenigingen.tests.backend.security.test_security_comprehensive import run_security_tests
 
         return run_security_tests()
     except Exception as e:
@@ -96,9 +96,9 @@ def run_financial_only():
     print("💰 Running Financial Tests Only...")
 
     try:
-        from verenigingen.tests.test_financial_integration_edge_cases import run_financial_edge_case_tests
-        from verenigingen.tests.test_payment_failure_scenarios import run_payment_failure_scenario_tests
-        from verenigingen.tests.test_sepa_mandate_edge_cases import run_sepa_mandate_edge_case_tests
+        from verenigingen.tests.backend.comprehensive.test_financial_integration_edge_cases import run_financial_edge_case_tests
+        from verenigingen.tests.backend.components.test_payment_failure_scenarios import run_payment_failure_scenario_tests
+        from verenigingen.tests.backend.comprehensive.test_sepa_mandate_edge_cases import run_sepa_mandate_edge_case_tests
 
         results = []
         results.append(run_financial_edge_case_tests())
@@ -117,8 +117,8 @@ def run_business_logic_only():
     print("🔄 Running Business Logic Tests Only...")
 
     try:
-        from verenigingen.tests.test_member_status_transitions import run_member_status_transition_tests
-        from verenigingen.tests.test_termination_workflow_edge_cases import (
+        from verenigingen.tests.backend.components.test_member_status_transitions import run_member_status_transition_tests
+        from verenigingen.tests.backend.comprehensive.test_termination_workflow_edge_cases import (
             run_termination_workflow_edge_case_tests,
         )
 
@@ -138,7 +138,7 @@ def run_performance_only():
     print("🚀 Running Performance Tests Only...")
 
     try:
-        from verenigingen.tests.test_performance_edge_cases import run_performance_edge_case_tests
+        from verenigingen.tests.backend.performance.test_performance_edge_cases import run_performance_edge_case_tests
 
         return run_performance_edge_case_tests()
 
@@ -152,7 +152,7 @@ def run_environment_check():
     print("🔍 Running Environment Validation...")
 
     try:
-        from verenigingen.tests.test_environment_validator import validate_test_environment
+        from verenigingen.tests.utils.test_environment_validator import validate_test_environment
 
         return validate_test_environment()
 
@@ -168,14 +168,14 @@ def run_smoke_edge_cases():
     # Quick validation that test modules load correctly
     test_modules = [
         "verenigingen.tests.test_security_comprehensive",
-        "verenigingen.tests.test_financial_integration_edge_cases",
-        "verenigingen.tests.test_sepa_mandate_edge_cases",
-        "verenigingen.tests.test_payment_failure_scenarios",
-        "verenigingen.tests.test_member_status_transitions",
-        "verenigingen.tests.test_termination_workflow_edge_cases",
-        "verenigingen.tests.test_performance_edge_cases",
+        "verenigingen.tests.backend.comprehensive.test_financial_integration_edge_cases",
+        "verenigingen.tests.backend.comprehensive.test_sepa_mandate_edge_cases",
+        "verenigingen.tests.backend.components.test_payment_failure_scenarios",
+        "verenigingen.tests.backend.components.test_member_status_transitions",
+        "verenigingen.tests.backend.comprehensive.test_termination_workflow_edge_cases",
+        "verenigingen.tests.backend.performance.test_performance_edge_cases",
         "verenigingen.tests.test_data_factory",
-        "verenigingen.tests.test_environment_validator",
+        "verenigingen.tests.utils.test_environment_validator",
     ]
 
     success_count = 0

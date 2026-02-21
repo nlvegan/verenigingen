@@ -8,6 +8,7 @@ from frappe.utils import today, add_years, add_months, getdate, flt
 from datetime import datetime
 from decimal import Decimal
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 
 class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):

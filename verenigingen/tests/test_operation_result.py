@@ -10,6 +10,7 @@ Updated: 2026-01-20 - Added tests for new features (from_exception, http_status,
                       OperationResultException, wrap_operation improvements, to_dict nested schema)
 """
 
+import sys
 import unittest
 from typing import List
 

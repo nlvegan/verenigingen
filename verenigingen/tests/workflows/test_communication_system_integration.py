@@ -9,6 +9,7 @@ from frappe.utils import today, add_days, now_datetime, get_datetime
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import json
 from unittest.mock import patch, MagicMock
+import unittest
 
 
 class TestCommunicationSystemIntegration(EnhancedTestCase):

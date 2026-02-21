@@ -21,6 +21,7 @@ from verenigingen.services.payment.sepa_mandate_manager import (
     deactivate_mandates_for_iban_change_api,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestSEPAMandateAPI(EnhancedTestCase):

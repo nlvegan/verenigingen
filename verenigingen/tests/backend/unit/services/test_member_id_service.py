@@ -17,6 +17,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from verenigingen.services.member.identification.member_id_service import MemberIDService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberIDService(EnhancedTestCase):

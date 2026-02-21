@@ -22,6 +22,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.bulk_transaction_importer import BulkTransactionImporter
+import unittest
 
 
 class TestMollieIBANValidationAndExtraction(EnhancedTestCase):

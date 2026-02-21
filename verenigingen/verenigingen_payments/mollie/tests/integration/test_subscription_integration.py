@@ -1,6 +1,4 @@
 """
-
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Phase 4D Priority 1 Demonstration: Payment Gateway Business Logic Mock Elimination
 ================================================================================
 
@@ -50,6 +48,8 @@ BUSINESS IMPACT:
 This transformation demonstrates how Phase 4D principles eliminate inappropriate business logic mocks
 while preserving legitimate infrastructure mocks for external services like SMTP.
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import json
 from decimal import Decimal

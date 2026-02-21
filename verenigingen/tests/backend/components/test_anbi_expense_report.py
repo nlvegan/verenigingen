@@ -27,6 +27,7 @@ from verenigingen.verenigingen.report.anbi_expense_report.anbi_expense_report im
     get_chart,
     get_summary,
 )
+import unittest
 
 
 class TestANBIExpenseReportConstants(FrappeTestCase):

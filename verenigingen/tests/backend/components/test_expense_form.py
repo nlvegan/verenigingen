@@ -115,7 +115,7 @@ class TestExpenseForm(EnhancedTestCase):
         print("\n3. Testing expense claim page access")
         try:
             # Try to access the page context
-            from verenigingen.templates.pages.expense_claim_new import get_context
+            from verenigingen.templates.pages.volunteer.expense_claim_new import get_context
             
             context = {}
             get_context(context)

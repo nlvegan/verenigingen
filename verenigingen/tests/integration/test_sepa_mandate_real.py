@@ -27,6 +27,7 @@ from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestSEPAMandateRealIntegration(EnhancedTestCase):

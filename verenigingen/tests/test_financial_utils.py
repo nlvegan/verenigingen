@@ -23,6 +23,7 @@ from verenigingen.utils.financial_utils import (
     has_outstanding_invoices,
     get_total_outstanding_amount
 )
+import unittest
 
 
 class TestFinancialUtils(EnhancedTestCase):

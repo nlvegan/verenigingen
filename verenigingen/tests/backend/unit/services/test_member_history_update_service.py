@@ -17,6 +17,7 @@ import frappe
 from frappe.utils import random_string, today, add_days
 from verenigingen.services.member.history.member_history_update_service import MemberHistoryUpdateService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberHistoryUpdateService(EnhancedTestCase):

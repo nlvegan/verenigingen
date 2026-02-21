@@ -23,6 +23,7 @@ from verenigingen.services.donation.reporting_service import (
     create_donation_allocation_report,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestDonationReportingAPI(EnhancedTestCase):

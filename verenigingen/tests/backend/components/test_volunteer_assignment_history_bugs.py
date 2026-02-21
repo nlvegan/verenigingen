@@ -19,6 +19,7 @@ import frappe
 from frappe.utils import today, add_days, now
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+import unittest
 
 
 class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):

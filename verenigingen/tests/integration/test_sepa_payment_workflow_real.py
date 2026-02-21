@@ -20,6 +20,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class SEPAPaymentWorkflowRealTest(EnhancedTestCase):

@@ -33,6 +33,7 @@ from verenigingen.permissions import (
     get_donor_permission_query
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestDonorSecurityEnhancedFixed(EnhancedTestCase):

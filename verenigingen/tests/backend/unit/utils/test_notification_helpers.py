@@ -21,6 +21,7 @@ from verenigingen.utils.notification_helpers import (
     notify_administrators,
     send_volunteer_email,
 )
+import unittest
 
 
 class TestSendVolunteerEmail(FrappeTestCase):

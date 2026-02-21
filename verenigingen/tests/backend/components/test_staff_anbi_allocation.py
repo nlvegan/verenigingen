@@ -19,6 +19,7 @@ from verenigingen.verenigingen.doctype.staff_anbi_allocation.staff_anbi_allocati
     StaffANBIAllocation,
     get_anbi_personnel_totals,
 )
+import unittest
 
 
 class TestStaffANBIAllocation(FrappeTestCase):

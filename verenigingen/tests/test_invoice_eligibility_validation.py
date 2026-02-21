@@ -6,6 +6,7 @@ Tests the separation of invoice generation from SEPA mandate validation
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestInvoiceEligibilityValidation(EnhancedTestCase):

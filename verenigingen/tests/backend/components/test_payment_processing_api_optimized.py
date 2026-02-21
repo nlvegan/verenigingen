@@ -7,6 +7,7 @@ from verenigingen.api.payment_processing import (
     get_or_create_customer,
     send_payment_reminder_email,
 )
+import unittest
 
 
 class TestPaymentProcessingAPIOptimized(EnhancedTestCase):

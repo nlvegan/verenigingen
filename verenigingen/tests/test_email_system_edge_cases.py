@@ -28,6 +28,7 @@ from verenigingen.services.communication.compatibility import (
     send_member_notification,
     get_segment_recipients,
 )
+import unittest
 
 
 class TestEmailSystemEdgeCases(EnhancedTestCase):

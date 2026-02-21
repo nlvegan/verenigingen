@@ -9,6 +9,7 @@ from frappe.utils import today, add_days, now_datetime, cint
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from unittest.mock import patch, MagicMock
 import json
+import unittest
 
 
 class TestPortalFunctionalityIntegration(EnhancedTestCase):

@@ -12,6 +12,7 @@ import frappe
 # unittest.TestCase import removed - using EnhancedTestCase
 from frappe.utils import today, now_datetime
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestDonationPortalBehavior(EnhancedTestCase):

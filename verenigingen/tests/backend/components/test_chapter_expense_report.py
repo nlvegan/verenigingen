@@ -10,6 +10,8 @@ from unittest.mock import patch
 import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
 
+import unittest
+
 from verenigingen.verenigingen.report.chapter_expense_report.chapter_expense_report import (
     build_expense_row,
     execute,

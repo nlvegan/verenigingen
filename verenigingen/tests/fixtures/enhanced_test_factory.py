@@ -180,6 +180,7 @@ Version History
 - Added comprehensive document tracking with priority-based cleanup
 """
 
+import json
 import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -189,7 +190,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime, add_days, add_months, getdate
 
-from .field_validator import FieldValidator, validate_field
+from .field_validator import FieldValidationError, FieldValidator, validate_field
 
 
 class MockRolesContext:
@@ -385,13 +386,13 @@ class EnhancedTestDataFactory:
             # Further truncate base name if needed
             excess = len(unique_name) - max_length
             clean_base = clean_base[:-excess] if len(clean_base) > excess else clean_base[:5]
-            unique_name = f"TEST {clean_base} {seq:03d}_{short_timestamp}"
+            unique_name = f"TEST {clean_base} {seq:03d}_{short_deterministic_id}"
         
         # Final collision check if doctype provided
         if doctype and frappe.db.exists(doctype, unique_name):
             collision_seq = self.get_next_sequence(f'collision_{clean_base}')
             # Use even shorter format for collision resolution
-            unique_name = f"TEST {clean_base[:10]} {seq:02d}_{collision_seq:02d}_{short_timestamp}"
+            unique_name = f"TEST {clean_base[:10]} {seq:02d}_{collision_seq:02d}_{short_deterministic_id}"
             
         return unique_name[:max_length]  # Final safety truncation
     

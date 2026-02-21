@@ -15,6 +15,7 @@ from unittest.mock import patch, MagicMock
 
 import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 # Try to import hypothesis for property-based testing
 try:

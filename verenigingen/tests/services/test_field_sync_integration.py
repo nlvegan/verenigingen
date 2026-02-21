@@ -19,6 +19,7 @@ import frappe
 
 from verenigingen.services.field_sync_service import get_sync_config
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestFieldSyncIntegration(EnhancedTestCase):

@@ -32,6 +32,8 @@ from verenigingen.utils.team_role_profile_manager import (
     TEAM_CONFIG,
     _team_manager
 )
+import unittest
+
 from verenigingen.utils.chapter_role_profile_manager import (
     ChapterRoleProfileManager,
     CHAPTER_CONFIG,

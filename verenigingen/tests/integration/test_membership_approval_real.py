@@ -32,6 +32,7 @@ import time
 from verenigingen.api.membership_application_review import approve_membership_application
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
+import unittest
 
 
 class TestMembershipApprovalRealIntegration(EnhancedTestCase):

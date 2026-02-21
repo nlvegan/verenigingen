@@ -9,6 +9,7 @@ from frappe.utils import today, add_days, add_months, get_datetime
 from verenigingen.tests.utils.base import VereningingenTestCase
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import unittest
 
 
 class TestSEPAProcessingPipeline(VereningingenTestCase):

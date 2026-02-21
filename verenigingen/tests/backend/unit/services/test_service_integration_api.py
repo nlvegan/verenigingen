@@ -18,6 +18,7 @@ from verenigingen.services.infrastructure.service_integration import (
     run_service_integration_tests,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestServiceIntegrationAPI(EnhancedTestCase):

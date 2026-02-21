@@ -1,12 +1,13 @@
 """
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Team Member Lifecycle Tests
 
 Integration tests for team member assignment and removal workflows.
 These tests were moved from the Team DocType controller to maintain
 proper separation of concerns.
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import frappe
 from frappe.tests.utils import FrappeTestCase

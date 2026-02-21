@@ -16,6 +16,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 # Import email system components
 from verenigingen.email.simplified_email_manager import SimplifiedEmailManager
 from verenigingen.email.newsletter_templates import NewsletterTemplateManager
+import unittest
 
 
 class TestEmailSystemSmoke(EnhancedTestCase):

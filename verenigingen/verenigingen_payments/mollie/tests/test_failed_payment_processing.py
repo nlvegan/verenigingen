@@ -175,7 +175,7 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
         except ImportError:
             self.skipTest("WebhookWrapperService not available")
 
-        service = WebhookWrapperService()
+        service = WebhookWrapperServiceUnified()
 
         # Create realistic failed payment data
         class FailedPaymentData:
@@ -410,7 +410,7 @@ class TestServiceLayerIntegration(EnhancedTestCase):
         except ImportError:
             self.skipTest("WebhookWrapperService not available")
 
-        service = WebhookWrapperService()
+        service = WebhookWrapperServiceUnified()
 
         # Create realistic payment data that will find our donation
         class ServiceTestPayment:
@@ -457,7 +457,7 @@ class TestServiceLayerIntegration(EnhancedTestCase):
         except ImportError:
             self.skipTest("WebhookWrapperService not available")
 
-        service = WebhookWrapperService()
+        service = WebhookWrapperServiceUnified()
 
         # Test with invalid payment ID
         try:

@@ -20,6 +20,7 @@ from verenigingen.services.communication.email_configuration_service import (
     EmailConfigurationService,
     get_email_configuration_service,
 )
+import unittest
 
 
 class TestEmailConfigurationServiceBasics(FrappeTestCase):

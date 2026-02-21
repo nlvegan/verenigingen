@@ -23,6 +23,7 @@ from verenigingen.utils.payment_utils import (
     get_last_payment_date,
     get_payment_years_for_customer
 )
+import unittest
 
 
 class TestPaymentUtils(EnhancedTestCase):

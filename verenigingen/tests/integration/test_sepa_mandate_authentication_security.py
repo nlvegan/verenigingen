@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+import unittest
 # -*- coding: utf-8 -*-
 """
 SEPA Mandate Authentication Security Integration Tests

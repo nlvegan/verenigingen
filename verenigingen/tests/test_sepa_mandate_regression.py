@@ -7,6 +7,7 @@ Ensures compatibility with existing systems and edge cases
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestSEPAMandateRegression(EnhancedTestCase):

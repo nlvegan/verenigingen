@@ -7,6 +7,7 @@ from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+import unittest
 
 
 class TestApplicationSubmissionValidation(EnhancedTestCase):

@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timedelta
 import hashlib
+import unittest
 
 
 class TestRegressionInfrastructure(VereningingenTestCase):

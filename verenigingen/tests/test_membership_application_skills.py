@@ -6,6 +6,8 @@ import frappe
 from frappe.utils import today, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
+
 from verenigingen.verenigingen.web_form.membership_application import (
     submit_membership_application,
     create_volunteer_application_data,

@@ -15,6 +15,7 @@ from verenigingen.verenigingen.web_form.membership_application import (
     get_proficiency_label,
     approve_membership_application
 )
+import unittest
 
 
 class TestMembershipApplicationSkillsEnhanced(EnhancedTestCase):

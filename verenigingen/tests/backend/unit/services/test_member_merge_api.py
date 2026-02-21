@@ -19,6 +19,7 @@ from verenigingen.services.member_merge_service import (
     execute_merge,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberMergeAPI(EnhancedTestCase):

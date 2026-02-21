@@ -12,6 +12,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
     BusinessRuleError,
     with_enhanced_test_data
 )
+import unittest
 
 
 class TestEnhancedFactory(EnhancedTestCase):

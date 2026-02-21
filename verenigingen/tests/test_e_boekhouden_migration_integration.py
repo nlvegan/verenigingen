@@ -35,6 +35,7 @@ from verenigingen.e_boekhouden.utils.security_helper import (
     batch_insert, cleanup_context, log_migration_activity
 )
 from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
+import unittest
 
 
 class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):

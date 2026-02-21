@@ -4,6 +4,7 @@
 import frappe
 from frappe.utils import now_datetime, add_months, getdate
 from verenigingen.tests.test_utils import BaseTestCase
+import unittest
 
 
 class TestMembershipAnalyticsPermissions(BaseTestCase):

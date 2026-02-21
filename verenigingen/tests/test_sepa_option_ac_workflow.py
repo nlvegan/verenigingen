@@ -7,6 +7,7 @@ Tests the complete daily invoice generation + monthly SEPA batching system
 import frappe
 from frappe.utils import today, getdate, add_days, add_months
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 
 class TestSEPAOptionACWorkflow(VereningingenTestCase):

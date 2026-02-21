@@ -201,7 +201,7 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
 
     def test_notification_system_integration(self):
         """Test that notification system properly handles validation results"""
-        from verenigingen.api.sepa_batch_notifications import handle_automated_batch_validation
+        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import handle_automated_batch_validation
         
         # Create batch with critical errors
         batch = frappe.new_doc("Direct Debit Batch")

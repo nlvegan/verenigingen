@@ -8,6 +8,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestChapterMemberEnhanced(EnhancedTestCase):

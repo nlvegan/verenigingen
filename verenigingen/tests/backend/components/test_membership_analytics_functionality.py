@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from frappe.utils import getdate, add_months, now_datetime, add_days, flt
 from verenigingen.tests.test_utils import BaseTestCase
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+import unittest
 
 
 class TestMembershipAnalyticsFunctionality(BaseTestCase):

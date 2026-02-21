@@ -12,6 +12,7 @@ import frappe
 
 from verenigingen.services.member.chapter import ChapterManagementService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestChapterManagementService(EnhancedTestCase):

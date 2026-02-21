@@ -14,6 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import now_datetime
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestChapterMembershipWorkflow(EnhancedTestCase):

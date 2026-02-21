@@ -7,6 +7,7 @@ Tests the complete lifecycle from member creation through SEPA mandate generatio
 import frappe
 from frappe.utils import today, add_days, add_months
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 
 class TestSEPAMandateLifecycle(VereningingenTestCase):

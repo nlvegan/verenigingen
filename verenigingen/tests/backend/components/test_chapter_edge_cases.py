@@ -1,6 +1,7 @@
 import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 def get_member_primary_chapter(member_name):

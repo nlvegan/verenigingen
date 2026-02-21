@@ -19,6 +19,7 @@ from verenigingen.services.member.testing.member_debug_tools import (
     debug_member_status,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+import unittest
 
 
 class TestMemberDebugToolsAPI(EnhancedTestCase):

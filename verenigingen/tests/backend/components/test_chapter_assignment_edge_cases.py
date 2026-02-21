@@ -2,6 +2,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster, assign_member_to_chapter
+import unittest
 
 
 def get_member_primary_chapter(member_name):

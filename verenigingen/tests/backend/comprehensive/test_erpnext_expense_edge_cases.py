@@ -17,6 +17,7 @@ from verenigingen.utils.volunteer_expense_setup import (
     setup_expense_claim_types,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 
 class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):

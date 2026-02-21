@@ -70,6 +70,8 @@ from verenigingen.utils.member_utils import (
     get_dues_schedule_for_membership_name,
 )
 
+import unittest
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 

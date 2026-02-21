@@ -7,6 +7,7 @@ tracks Member document names that were created via create_test_membership_applic
 """
 
 import frappe
+import unittest
 
 
 class EnhancedTestCleanup:

@@ -1,6 +1,7 @@
 # verenigingen/verenigingen/tests/test_chapter_matching.py
 import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 
 class TestChapterMatching(VereningingenTestCase):

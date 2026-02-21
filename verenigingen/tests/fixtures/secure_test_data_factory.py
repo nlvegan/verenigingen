@@ -315,7 +315,7 @@ class SecureTestDataFactory:
         account_number = f"{self.get_next_sequence('account'):010d}"
         
         try:
-            from verenigingen.utils.iban_validator import generate_test_iban
+            from verenigingen.utils.validation.iban_validator import generate_test_iban
             return generate_test_iban(bank_code, account_number)
         except ImportError:
             # Fallback if IBAN validator not available

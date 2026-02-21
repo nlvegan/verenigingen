@@ -1,9 +1,10 @@
 """
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Comprehensive tests for donor auto-creation functionality with test persona
 Following CLAUDE.md requirements for Frappe ORM compliance and proper test patterns
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import frappe
 from frappe.utils import flt, now, add_days, getdate

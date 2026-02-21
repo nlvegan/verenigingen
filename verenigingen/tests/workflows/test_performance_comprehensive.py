@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import psutil
 import gc
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import unittest
 
 
 class TestPerformanceComprehensive(VereningingenTestCase):

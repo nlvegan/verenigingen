@@ -10,6 +10,7 @@ import frappe
 from pathlib import Path
 from unittest.mock import patch
 from verenigingen.tests.utils.base import VereningingenTestCase
+import unittest
 
 class JavaScriptAPIIntegrationTestCase(VereningingenTestCase):
     """Test JavaScript API integration for common issues"""

@@ -12,6 +12,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.chargebacks_client import ChargebacksClient
 from verenigingen.verenigingen_payments.core.models.chargeback import Chargeback, ChargebackReason
+import unittest
 
 
 class TestChargebacksClient(EnhancedTestCase):

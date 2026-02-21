@@ -2,6 +2,7 @@ import frappe
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.api.payment_processing import get_or_create_customer, send_payment_reminder_email
+import unittest
 
 
 class TestPaymentAPIRealWorking(EnhancedTestCase):

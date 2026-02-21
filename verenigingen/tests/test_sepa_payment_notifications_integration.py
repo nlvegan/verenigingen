@@ -24,6 +24,7 @@ from frappe.utils import add_days, getdate, today, flt
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils.sepa_notifications import SEPAMandateNotificationManager
+import unittest
 
 
 class TestSEPANotificationIntegration(EnhancedTestCase):
