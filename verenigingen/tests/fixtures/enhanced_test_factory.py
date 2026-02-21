@@ -1226,8 +1226,9 @@ class EnhancedTestDataFactory:
             "schedule_name": template_name,
             "billing_frequency": attributes.get("billing_frequency", "Monthly") if attributes else "Monthly",
             "dues_rate": attributes.get("dues_rate", 50.00) if attributes else 50.00,
+            "currency": "EUR",
             "is_template": 1,
-            "status": "Active"
+            "status": "Active",
         }
         
         if attributes:

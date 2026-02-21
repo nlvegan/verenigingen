@@ -861,10 +861,12 @@ class VereningingenTestCase(FrappeTestCase):
             "membership_type": membership_type,
             "dues_rate": 15.00,  # Fixed: was "amount", should be "dues_rate"
             "contribution_mode": "Calculator",
+            "currency": "EUR",
             "status": "Active",
             "auto_generate": 1,
             "minimum_amount": 5.00,
-            "suggested_amount": 15.00}
+            "suggested_amount": 15.00,
+        }
         defaults.update(kwargs)
 
         # Remove deprecated fields if they were passed

@@ -98,7 +98,12 @@ class MemberIDManager:
                     )
                 next_id = initialized_id + 1
             else:
-                next_id = cint(current_id[0].value) + 1
+                stored_id = cint(current_id[0].value)
+                # Self-heal: if counter drifted behind actual data (e.g. CSV import,
+                # manual DB insert, or test data), re-scan MAX(member_id) and use
+                # whichever is higher. Cheap query, runs once per stale counter.
+                actual_max = MemberIDManager._get_max_numeric_member_id()
+                next_id = max(stored_id, actual_max) + 1
 
             # Update to next value atomically
             frappe.db.sql(
@@ -126,24 +131,24 @@ class MemberIDManager:
             return fallback_id
 
     @staticmethod
-    def _initialize_counter():
-        """Initialize the counter from existing data or settings"""
-
-        # Check highest existing member_id (extract numeric part)
-        highest_member = frappe.db.sql(
+    def _get_max_numeric_member_id():
+        """Get the highest numeric member_id currently in the database."""
+        result = frappe.db.sql(
             """
-            SELECT member_id
+            SELECT MAX(CAST(member_id AS UNSIGNED)) as max_id
             FROM `tabMember`
             WHERE member_id IS NOT NULL
             AND member_id REGEXP '^[0-9]+$'
-            ORDER BY CAST(member_id AS UNSIGNED) DESC
-            LIMIT 1
-        """,
-            as_dict=True,
+            """,
         )
+        return cint(result[0][0]) if result and result[0][0] else 0
 
-        if highest_member and highest_member[0].member_id:
-            return cint(highest_member[0].member_id)
+    @staticmethod
+    def _initialize_counter():
+        """Initialize the counter from existing data or settings"""
+        max_id = MemberIDManager._get_max_numeric_member_id()
+        if max_id:
+            return max_id
 
         # Fall back to settings
         settings = frappe.get_single("Verenigingen Settings")
