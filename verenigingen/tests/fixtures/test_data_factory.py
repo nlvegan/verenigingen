@@ -325,6 +325,11 @@ class CoreTestDataFactory:
 
         member = frappe.get_doc({"doctype": "Member", **defaults})
         member.insert(ignore_permissions=True)
+        # Frappe bug: Workflow action processing during on_update renders a print
+        # view via attach_print(), which sets flags.in_print=True on the document.
+        # This causes subsequent save() calls to silently no-op (document.py:531).
+        member.flags.in_print = False
+        member.flags.pop("print_settings", None)
         self.track_doc("Member", member.name)
 
         # Chapter assignment via service layer (with child-table fallback)

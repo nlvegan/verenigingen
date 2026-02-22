@@ -15,15 +15,12 @@ class TestMemberIBANHistory(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up after test"""
-        frappe.db.rollback()
+        super().tearDown()
 
     def test_initial_iban_tracking(self):
         """Test that initial IBAN is tracked when member is created directly (not via application)"""
-        # Create member with IBAN
+        # Create member with IBAN (factory generates unique names)
         member = self.create_test_member(
-            first_name="Test",
-            last_name="IBAN",
-            email="test.iban@example.com",
             iban="NL13TEST0123456789",
             bank_account_name="Test IBAN",
             payment_method="SEPA Direct Debit",
@@ -41,7 +38,7 @@ class TestMemberIBANHistory(EnhancedTestCase):
                 "changed_by": frappe.session.user,
                 "change_reason": "Other"
             })
-            member.save()  # EnhancedTestCase handles permissions
+            member.save()
 
         # Check IBAN history via direct database query
         history_records = frappe.get_all("Member IBAN History", filters={"parent": member.name}, fields=["*"])
@@ -65,9 +62,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
         """Test that IBAN changes are tracked correctly"""
         # Create member with initial IBAN
         member = self.create_test_member(
-            first_name="Change",
-            last_name="Test",
-            email="change.test@example.com",
             iban="NL82MOCK0123456789",
             bank_account_name="Change Test",
             payment_method="SEPA Direct Debit",
@@ -109,9 +103,7 @@ class TestMemberIBANHistory(EnhancedTestCase):
     def test_invalid_iban_rejection(self):
         """Test that invalid IBANs are rejected"""
         # Create valid member
-        member = self.create_test_member(
-            first_name="Invalid", last_name="Test", email="invalid.test@example.com"
-        )
+        member = self.create_test_member()
 
         # Try to set invalid IBAN
         member.iban = "NL00INVALID1234567"
@@ -137,9 +129,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
 
         for idx, (input_iban, expected_format, expected_bic) in enumerate(test_cases):
             member = self.create_test_member(
-                first_name=f"Format{idx}",
-                last_name="Test",
-                email=f"format{idx}@example.com",
                 iban=input_iban,
                 bank_account_name=f"Format Test {idx}",
                 payment_method="SEPA Direct Debit",
@@ -158,9 +147,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
 
         for idx, (iban, expected_bic) in enumerate(dutch_banks):
             member = self.create_test_member(
-                first_name=f"BIC{idx}",
-                last_name="Test",
-                email=f"bic{idx}@example.com",
                 iban=iban,
                 bank_account_name=f"BIC Test {idx}",
                 payment_method="SEPA Direct Debit",
@@ -171,9 +157,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
     def test_iban_history_permissions(self):
         """Test IBAN history is read-only"""
         member = self.create_test_member(
-            first_name="Permission",
-            last_name="Test",
-            email="permission.test@example.com",
             iban="NL13TEST0123456789",
             bank_account_name="Permission Test",
             payment_method="SEPA Direct Debit",
@@ -189,7 +172,7 @@ class TestMemberIBANHistory(EnhancedTestCase):
             "changed_by": frappe.session.user,
             "change_reason": "Other"
         })
-        member.save()  # EnhancedTestCase handles permissions
+        member.save()
 
         # Get the history record
         history_records = frappe.get_all("Member IBAN History", filters={"parent": member.name}, fields=["*"])
@@ -200,9 +183,7 @@ class TestMemberIBANHistory(EnhancedTestCase):
 
     def test_payment_method_validation(self):
         """Test IBAN is required for SEPA Direct Debit"""
-        member = self.create_test_member(
-            first_name="Payment", last_name="Validation", email="payment.validation@example.com"
-        )
+        member = self.create_test_member()
 
         # Set SEPA Direct Debit without IBAN
         member.payment_method = "SEPA Direct Debit"
@@ -215,9 +196,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
     def test_bank_account_name_required(self):
         """Test bank account name is required for SEPA"""
         member = self.create_test_member(
-            first_name="Account",
-            last_name="Name",
-            email="account.name@example.com",
             iban="NL13TEST0123456789",
         )
 
@@ -233,9 +211,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
         """Test warning is shown when IBAN changes with active SEPA"""
         # Create member with SEPA mandate
         member = self.create_test_member(
-            first_name="Mandate",
-            last_name="Warning",
-            email="mandate.warning@example.com",
             iban="NL82MOCK0123456789",
             bank_account_name="Mandate Warning",
             payment_method="SEPA Direct Debit",
@@ -255,9 +230,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
         """Test BIC is automatically updated when IBAN changes to different bank"""
         # Create member with initial IBAN/BIC
         member = self.create_test_member(
-            first_name="BIC",
-            last_name="Update",
-            email="bic.update@example.com",
             iban="NL13TEST0123456789",
             bic="TESTNL2A",
             bank_account_name="BIC Update Test",
@@ -265,7 +237,7 @@ class TestMemberIBANHistory(EnhancedTestCase):
         )
 
         # Verify initial BIC is auto-derived from TEST bank
-        self.assertEqual(member.bic, "TESTNL2A", f"Expected TESTNL2A, got {member.bic}")  # Auto-derived from TEST bank code
+        self.assertEqual(member.bic, "TESTNL2A", f"Expected TESTNL2A, got {member.bic}")
 
         # Change IBAN to different bank
         member.iban = "NL69INGB0123456789"
@@ -280,9 +252,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
         """Test BIC is preserved when IBAN cannot auto-derive BIC (international)"""
         # Create member with international IBAN and manual BIC
         member = self.create_test_member(
-            first_name="International",
-            last_name="Test",
-            email="international.test@example.com",
             iban="DE89370400440532013000",
             bic="DEUTDEFF",
             bank_account_name="International Account",
@@ -302,9 +271,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
         """Test BIC derivation is skipped when IBAN hasn't changed (performance)"""
         # Create member with Dutch IBAN
         member = self.create_test_member(
-            first_name="Performance",
-            last_name="Test",
-            email="performance.test@example.com",
             iban="NL91ABNA0417164300",
             bank_account_name="Performance Test",
         )

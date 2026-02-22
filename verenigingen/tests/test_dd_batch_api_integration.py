@@ -12,9 +12,6 @@ CRITICAL FIX TESTED:
 
 import frappe
 import unittest
-from frappe.tests.utils import FrappeTestCase
-from datetime import datetime, timedelta
-from decimal import Decimal
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 class TestDDBatchAPIIntegration(EnhancedTestCase):
@@ -31,12 +28,8 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
         super().setUp()
         # Enhanced Test Factory handles user context
         
-        # Create test member using enhanced factory
-        self.test_member = self.create_test_member(
-            first_name="Test",
-            last_name="SEPA",
-            email="test.sepa@example.com"
-        )
+        # Create test member using enhanced factory (no hardcoded names to avoid Customer collisions)
+        self.test_member = self.create_test_member()
         
         # Create test SEPA mandate with correct field name
         self.test_mandate = self._create_test_sepa_mandate()
@@ -54,17 +47,17 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
             "member": self.test_member.name,
-            "mandate_id": f"TEST-MANDATE-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}",
+            "mandate_id": f"TEST-MANDATE-{frappe.generate_hash(length=8)}",
             "account_holder_name": f"{self.test_member.first_name} {self.test_member.last_name}",
             "iban": "NL91ABNA0417164300",
             "bic": "ABNANL2A",
             "status": "Active",
+            "scheme": "SEPA",
             "sign_date": frappe.utils.today(),
             "mandate_type": "RCUR"
         })
-        
-        # Enhanced Test Factory handles user permissions
-        mandate.insert()
+
+        mandate.insert(ignore_permissions=True)
             
         return mandate
         
@@ -88,12 +81,7 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
         
     def test_mandate_id_field_reference(self):
         """Test that the mandate_id field is correctly referenced in SQL queries."""
-        # This test verifies the critical fix in dd_batch_api.py:420
-        
-        # Import the API module to check the SQL query
-        from verenigingen.api import dd_batch_api
-        
-        # Check that the get_eligible_invoices function uses mandate_id not mandate_reference
+        # This test verifies that SEPA Mandate's mandate_id field can be queried correctly
         sql_query = """
             SELECT 
                 si.name,
@@ -158,16 +146,6 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
             
     def test_batch_creation_with_fixed_field(self):
         """Test that DD batch creation works with the fixed mandate_id field."""
-        # Simulate creating a DD batch with the fixed field reference
-        
-        batch_data = {
-            "batch_id": f"TEST-BATCH-{frappe.utils.now()}",
-            "collection_date": frappe.utils.add_days(frappe.utils.today(), 5),
-            "total_amount": Decimal("50.00"),
-            "invoice_count": 1,
-            "status": "Draft"
-        }
-        
         # Test that we can query mandates using the correct field
         mandate_query = """
             SELECT 

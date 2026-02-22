@@ -476,6 +476,17 @@ class Member(
 
         get_member_event_emission_service().emit_status_change_events(self)
 
+    def on_change(self):
+        """Runs after all on_update hooks complete (including doc_event hooks).
+
+        Workaround for Frappe bug: process_workflow_actions (a global on_update
+        hook) calls attach_print() which sets flags.in_print=True on the document
+        without ever clearing it. This makes subsequent save() calls silently
+        no-op (document.py:531). Clearing here ensures the document remains saveable.
+        """
+        self.flags.in_print = False
+        self.flags.pop("print_settings", None)
+
     def set_application_status_defaults(self) -> "OperationResult[str]":
         """Set appropriate defaults for application_status based on member type - delegated to member_status_service
 

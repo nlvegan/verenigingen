@@ -44,7 +44,7 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def test_get_member_chapters_with_no_chapters(self):
         """Test getting chapters for member with no chapter affiliations"""
-        member = self.create_test_member(first_name="Test", last_name="Member")
+        member = self.create_test_member()
 
         chapters = self.service.get_member_chapters(member.name)
 
@@ -66,7 +66,7 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def test_get_board_memberships_with_no_volunteer(self):
         """Test board memberships for member without volunteer record"""
-        member = self.create_test_member(first_name="Test", last_name="Member", birth_date="2000-01-01")
+        member = self.create_test_member(birth_date="2000-01-01")
 
         board_memberships = self.service.get_board_memberships(member.name)
 
@@ -75,7 +75,7 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def test_get_board_memberships_with_volunteer_no_board_role(self):
         """Test board memberships for volunteer without board roles"""
-        member = self.create_test_member(first_name="Test", last_name="Member", birth_date="2000-01-01")
+        member = self.create_test_member(birth_date="2000-01-01")
         volunteer = self.create_test_volunteer(member.name)
 
         board_memberships = self.service.get_board_memberships(member.name)
@@ -97,7 +97,7 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def test_get_chapter_names_empty_list(self):
         """Test getting chapter names for member with no chapters"""
-        member = self.create_test_member(first_name="Names", last_name="Test")
+        member = self.create_test_member()
 
         names = self.service.get_chapter_names(member.name)
 
@@ -114,7 +114,7 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def test_get_chapter_display_html_basic(self):
         """Test HTML display generation for member with no chapters"""
-        member = self.create_test_member(first_name="HTML", last_name="Test")
+        member = self.create_test_member()
 
         html = self.service.get_chapter_display_html(member.name)
 
@@ -142,7 +142,7 @@ class TestChapterManagementService(EnhancedTestCase):
             )
             frappe.db.commit()
 
-            member = self.create_test_member(first_name="Test", last_name="Member")
+            member = self.create_test_member()
 
             # Board memberships should return empty when disabled
             board_memberships = self.service.get_board_memberships(member.name)
@@ -157,7 +157,7 @@ class TestChapterManagementService(EnhancedTestCase):
 
     def test_service_respects_permissions(self):
         """Test that service methods respect Frappe permissions"""
-        member = self.create_test_member(first_name="Permission", last_name="Test")
+        member = self.create_test_member()
 
         # These calls should succeed with proper permissions in test context
         chapters = self.service.get_member_chapters(member.name)
