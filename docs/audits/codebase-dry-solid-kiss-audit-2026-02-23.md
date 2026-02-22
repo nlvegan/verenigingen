@@ -42,11 +42,11 @@
 |-----------|-----|---------------|
 | `e_boekhouden/eboekhouden_rest_full_migration.py` | 4,269 | God file: 90+ functions, 7 duplicate party creators |
 | `services/mollie_debug_service.py` | 3,078 | God class: 50+ methods, 4+ concerns |
-| `api/chapter_dashboard_debug.py` | 2,311 | Test code in production API |
+| ~~`api/chapter_dashboard_debug.py`~~ | ~~2,311~~ | ~~Test code in production API~~ **DELETED in Phase 1** |
 | `mijnrood_sync/services/event_application_service.py` | 2,254 | God class: 12+ concerns |
 | `permissions.py` | 1,826 | 8x duplicated role-checking, 5x chapter board check |
 | `utils/security/api_security_framework.py` | 1,738 | God class: 50+ methods, 6 subcomponents |
-| `templates/pages/donate.py` + `donate_optimized.py` | 2,493 | Abandoned fork: both maintained |
+| `templates/pages/donate.py` ~~+ `donate_optimized.py`~~ | ~~2,493~~ 1,804 | ~~Abandoned fork~~ **donate_optimized.py DELETED in Phase 1** |
 | `vereinigingen_payments/utils/` (4 SEPA operation files) | ~1,370 | 4 near-identical implementations |
 | `utils/analytics_engine.py` | 800+ | 30+ stub methods promising ML |
 | `page/membership_analytics/membership_analytics.py` | 1,733 | SQL injection risk + dead code |
@@ -370,15 +370,19 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 
 ### Phase 1: Safety (Week 1) — Zero-Risk, High-Impact
 
-| Action | Files | LOC Impact | Risk |
-|--------|-------|------------|------|
-| Fix SQL injection in membership_analytics.py | 1 | ~20 fix | SECURITY |
-| Move 27 test/debug files from api/ to tests/ | 27 | -3,600 LOC | NONE |
-| Delete donate_optimized.py (or activate it) | 1 | -689 LOC | NONE |
-| Delete deprecated webhook_service.py | 1 | -710 LOC | LOW |
-| Fix MUTATION_TYPE ordering bug in e_boekhouden | 1 | ~5 fix | NONE |
-| Fix duplicate except block in _get_or_create_supplier | 1 | ~5 fix | NONE |
-| **Subtotal** | 32 | ~-5,000 LOC | |
+**Status: PARTIALLY COMPLETED** (commit `dd867249`, 2026-02-23)
+
+| Action | Files | LOC Impact | Risk | Status |
+|--------|-------|------------|------|--------|
+| Fix SQL injection in membership_analytics.py | 1 | ~102 lines changed | SECURITY | **DONE** — parameterized queries |
+| Delete 19 test/debug files from api/ | 19 | -5,506 LOC | NONE | **DONE** — updated member.js to use doctype method |
+| Delete donate_optimized.py | 1+1 | -689 LOC, -48 fixture lines | NONE | **DONE** — cleaned fixtures + whitelist |
+| Delete deprecated webhook_service.py | 1+1 | -709 LOC | LOW | **DONE** — health check uses unified service |
+| Fix MUTATION_TYPE ordering bug in e_boekhouden | 1 | ~5 fix | NONE | DEFERRED (per user request) |
+| Fix duplicate except block in _get_or_create_supplier | 1 | ~5 fix | NONE | DEFERRED (per user request) |
+| **Completed** | 28 | **-8,038 LOC** | | |
+
+**Remaining:** 12 test/debug-pattern files still in api/ (excluded from batch — may have active uses). e_boekhouden fixes deferred.
 
 ### Phase 2: Deduplication (Weeks 2-3) — Moderate Impact
 
@@ -425,13 +429,13 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 
 ### LOC Reduction Summary
 
-| Phase | LOC Removed | Effort |
-|-------|-------------|--------|
-| Phase 1 (Safety) | ~5,000 | 1-2 days |
-| Phase 2 (Dedup) | ~2,680 | 3-5 days |
-| Phase 3 (Arch) | ~1,400 | 5-8 days |
-| Phase 4 (Cleanup) | ~1,400 | 2-3 days |
-| **Total** | **~10,480** | **11-18 days** |
+| Phase | LOC Removed | Effort | Status |
+|-------|-------------|--------|--------|
+| Phase 1 (Safety) | **-8,038 actual** (est. ~5,000) | done | **DONE** (partial — e_boekhouden deferred) |
+| Phase 2 (Dedup) | ~2,680 | 3-5 days | pending |
+| Phase 3 (Arch) | ~1,400 | 5-8 days | pending |
+| Phase 4 (Cleanup) | ~1,400 | 2-3 days | pending |
+| **Total** | **~13,518** | **11-18 days** | |
 
 ### Quality Metrics
 
@@ -439,8 +443,8 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 |--------|--------|-------------------|
 | God classes (>800 LOC) | 12 | 3-4 |
 | Duplicate code hotspots | 45+ | 10-15 |
-| Test files in production | 27 | 0 |
-| SQL injection risks | 3+ | 0 |
+| Test files in production | 27 | 8 (19 deleted in Phase 1) |
+| SQL injection risks | 3+ | 0 (fixed in Phase 1) |
 | Dead code LOC | ~1,800 | ~200 |
 | Competing implementations | 8 pairs | 1-2 |
 
