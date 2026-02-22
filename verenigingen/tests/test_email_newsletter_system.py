@@ -61,6 +61,7 @@ class TestEmailNewsletterSystemSecurity(EnhancedTestCase):
         self.segmentation_manager = AdvancedSegmentationManager()
 
     def create_test_chapter(self):
+        # NOTE: Intentionally local — uses ensure_test_chapter() factory wrapper pattern
         """Create a test chapter with proper region relationship"""
         return self.factory.ensure_test_chapter(
             "TEST Security Chapter",

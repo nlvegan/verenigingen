@@ -799,6 +799,7 @@ class TestVIPImportRobustness(FrappeTestCase):
             self._cleanup_savepoint_test_data(member, test_vip_id)
 
     def _create_test_member(self, first_name, last_name, email):
+        # NOTE: Intentionally local — VIP import domain-specific setup (bulk_member_operations flag)
         """Create a test member for testing."""
         member = frappe.get_doc(
             {

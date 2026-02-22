@@ -38,12 +38,9 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
                 self.track_test_record("Volunteer Interest Category", category)
 
     def create_test_volunteer(self, **kwargs):
-        """Create a test volunteer with default values"""
-        # Use EnhancedTestCase's create_test_volunteer method
-        return super().create_test_volunteer(
-            member_name=self.test_member.name,
-            **kwargs
-        )
+        """Create volunteer defaulting to self.test_member"""
+        kwargs.setdefault("member_name", self.test_member.name)
+        return super().create_test_volunteer(**kwargs)
 
     def test_volunteer_name_edge_cases(self):
         """Test volunteer names with edge cases"""

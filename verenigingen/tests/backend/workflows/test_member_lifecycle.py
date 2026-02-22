@@ -38,7 +38,11 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
         self.test_data_builder = TestDataBuilder()
 
         # Set up test chapter for lifecycle
-        self.test_chapter = self._create_test_chapter()
+        self.test_chapter = self.create_test_chapter(
+            chapter_name="Test Lifecycle Chapter",
+            postal_codes="1000-9999",
+            introduction="Test chapter for lifecycle testing",
+        )
         self.admin_user = TestUserFactory.create_admin_user()
 
     def test_complete_member_lifecycle(self):
@@ -94,34 +98,6 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
 
         # Final validations
         self._validate_complete_lifecycle()
-
-    def _create_test_chapter(self):
-        """Create a test chapter for the lifecycle"""
-        chapter_name = "Test Lifecycle Chapter"
-
-        # Check if chapter already exists
-        if frappe.db.exists("Chapter", chapter_name):
-            chapter = frappe.get_doc("Chapter", chapter_name)
-            self.track_doc("Chapter", chapter.name)
-            return chapter
-
-        # Get the actual test region name (it might be slugified)
-        test_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
-        if not test_region:
-            # Region should be created by base setUp, but just in case
-            raise Exception("Test Region not found. Base setUp may have failed.")
-
-        chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "name": chapter_name,
-                "region": test_region,
-                "postal_codes": "1000-9999",
-                "introduction": "Test chapter for lifecycle testing"}
-        )
-        chapter.insert()
-        self.track_doc("Chapter", chapter.name)
-        return chapter
 
     # Stage 1: Submit Application
     def _stage_1_submit_application(self, context):

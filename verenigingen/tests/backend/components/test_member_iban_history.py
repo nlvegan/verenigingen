@@ -2,17 +2,11 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
 import unittest
 
 
 class TestMemberIBANHistory(EnhancedTestCase):
     """Test Member IBAN history tracking functionality"""
-
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        cls.factory = TestDataFactory()
 
     def setUp(self):
         """Set up test case"""
@@ -22,22 +16,6 @@ class TestMemberIBANHistory(EnhancedTestCase):
     def tearDown(self):
         """Clean up after test"""
         frappe.db.rollback()
-
-    def create_test_member(self, **kwargs):
-        """Helper to create test members"""
-        member_data = {
-            "doctype": "Member",
-            "first_name": kwargs.get("first_name", "Test"),
-            "last_name": kwargs.get("last_name", "Member"),
-            "email": kwargs.get("email", f"test{frappe.utils.random_string(5)}@example.com")}
-        # Add optional fields
-        for field in ["iban", "bic", "bank_account_name", "payment_method"]:
-            if field in kwargs:
-                member_data[field] = kwargs[field]
-
-        member = frappe.get_doc(member_data)
-        member.insert()
-        return member
 
     def test_initial_iban_tracking(self):
         """Test that initial IBAN is tracked when member is created directly (not via application)"""

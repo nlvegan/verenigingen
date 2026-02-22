@@ -9,7 +9,7 @@ Tests the API endpoints that JavaScript calls
 
 
 import frappe
-from frappe.utils import add_days, random_string, today
+from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -54,24 +54,10 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
                 role.insert()
                 self.track_doc("Chapter Role", role.name)
 
-    def _create_test_chapter(self):
-        """Helper to create a test chapter"""
-        return self.test_chapter  # Use the factory-created chapter
-
-    def _create_test_member(self):
-        """Helper to create a test member"""
-        from frappe.utils import random_string
-        unique_id = random_string(8)
-        return self.create_test_member(
-            first_name=f"Test{unique_id[:4]}",
-            last_name=f"Member{unique_id[4:]}",
-            email=f"test.member.{unique_id}@example.com"
-        )
-
     def test_add_board_member_whitelist(self):
         """Test add_board_member method as called from JavaScript"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
         
         # Create volunteer for the member first
         volunteer = self.create_test_volunteer(member=member)
@@ -90,8 +76,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_remove_board_member_whitelist(self):
         """Test remove_board_member method"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
         volunteer = self.create_test_volunteer(member=member)
 
         # First add a board member via API
@@ -112,8 +98,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_transition_board_role_whitelist(self):
         """Test transition_board_role method"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
         volunteer = self.create_test_volunteer(member=member)
 
         # Add board member with initial role via API
@@ -135,12 +121,12 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_bulk_remove_board_members_whitelist(self):
         """Test bulk_remove_board_members method"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Add multiple board members via API
         volunteers = []
         for i in range(3):
-            member = self._create_test_member()
+            member = self.create_test_member()
             volunteer = self.create_test_volunteer(member=member)
             volunteers.append(volunteer.name)
             
@@ -161,12 +147,12 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_bulk_deactivate_board_members_whitelist(self):
         """Test bulk_deactivate_board_members method"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Add board members via API
         volunteers = []
         for i in range(2):
-            member = self._create_test_member()
+            member = self.create_test_member()
             volunteer = self.create_test_volunteer(member=member)
             volunteers.append(volunteer.name)
             
@@ -187,12 +173,12 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_bulk_add_members_whitelist(self):
         """Test bulk_add_members method"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Create multiple members
         member_data_list = []
         for i in range(3):
-            member = self._create_test_member()
+            member = self.create_test_member()
             member_data_list.append({
                 "member_id": member.name,
                 "introduction": f"Test member {i}"
@@ -208,11 +194,11 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_send_chapter_newsletter_whitelist(self):
         """Test send_chapter_newsletter method"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Add members to chapter via API
         for i in range(2):
-            member = self._create_test_member()
+            member = self.create_test_member()
             chapter.add_member(member.name, introduction=f"Test member {i}")
 
         # Test newsletter sending
@@ -227,7 +213,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_validate_postal_codes_whitelist(self):
         """Test validate_postal_codes method"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Add postal codes to the text field (not child table)
         chapter.postal_codes = "1234,5678"
@@ -241,8 +227,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_get_board_memberships_whitelist(self):
         """Test get_board_memberships module function"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
         volunteer = self.create_test_volunteer(member=member)
 
         # Add board membership via API
@@ -263,11 +249,11 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_get_chapter_board_history_whitelist(self):
         """Test get_chapter_board_history function - if available"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Add historical board members via API
         for i in range(3):
-            member = self._create_test_member()
+            member = self.create_test_member()
             volunteer = self.create_test_volunteer(member=member)
             
             # Add via API 
@@ -299,11 +285,11 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_get_chapter_stats_whitelist(self):
         """Test get_chapter_stats function - if available"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Add members and board members via API
         for i in range(5):
-            member = self._create_test_member()
+            member = self.create_test_member()
             # Add member via API
             chapter.add_member(member.name, introduction=f"Test member {i}")
 
@@ -329,7 +315,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_suggest_chapters_for_member_whitelist(self):
         """Test suggest_chapters_for_member function - if available"""
-        member = self._create_test_member()
+        member = self.create_test_member()
         member.postal_code = "1234"
         member.save()
 
@@ -363,8 +349,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_assign_member_to_chapter_whitelist(self):
         """Test assign_member_to_chapter function - if available"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
 
         # Try to assign member to chapter (may not exist or have different signature)
         try:
@@ -381,8 +367,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_join_leave_chapter_whitelist(self):
         """Test join_chapter and leave_chapter functions - if available"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
 
         # Try to join chapter (may not exist)
         try:
@@ -406,8 +392,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_board_member_status_field(self):
         """Test the specific board member status field issue from the report"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
         volunteer = self.create_test_volunteer(member=member)
 
         # Add board member with status field
@@ -431,8 +417,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_permission_checks(self):
         """Test permission checks on whitelisted methods"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
         volunteer = self.create_test_volunteer(member=member)
 
         # Create a non-admin user
@@ -462,7 +448,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_error_handling(self):
         """Test error handling in whitelisted methods"""
-        chapter = self._create_test_chapter()
+        chapter = self.test_chapter
 
         # Test removing non-existent board member
         with self.assertRaises(Exception):
@@ -485,8 +471,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
     def test_data_integrity(self):
         """Test data integrity in chapter operations"""
-        chapter = self._create_test_chapter()
-        member = self._create_test_member()
+        chapter = self.test_chapter
+        member = self.create_test_member()
         volunteer = self.create_test_volunteer(member=member)
 
         # Test duplicate board member prevention

@@ -65,6 +65,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
 
     @classmethod
     def create_test_member(cls):
+        # NOTE: Intentionally local — creates member+user+employee+volunteer orchestration
         """Create test member with user and employee records"""
 
         # Create user

@@ -32,7 +32,11 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
         # Enhanced Test Factory handles user context
         
         # Create test member using enhanced factory
-        self.test_member = self._create_test_member()
+        self.test_member = self.create_test_member(
+            first_name="Test",
+            last_name="SEPA",
+            email="test.sepa@example.com"
+        )
         
         # Create test SEPA mandate with correct field name
         self.test_mandate = self._create_test_sepa_mandate()
@@ -44,16 +48,6 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
         """Clean up test data."""
         # Enhanced Test Factory handles rollback automatically
         super().tearDown()
-        
-    def _create_test_member(self):
-        """Create a test member for SEPA testing."""
-        # Use enhanced factory for proper member creation
-        member = self.create_test_member(
-            first_name="Test",
-            last_name="SEPA",
-            email="test.sepa@example.com"
-        )
-        return member
         
     def _create_test_sepa_mandate(self):
         """Create a test SEPA mandate with the correct mandate_id field."""

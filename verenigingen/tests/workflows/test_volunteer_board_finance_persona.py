@@ -245,14 +245,11 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
             "approved_expense": expense_claim.name
         }
 
-    def create_test_chapter(self, chapter_name=None, city=None, introduction=None):
-        """Create a test chapter for the persona using factory method"""
-        unique_suffix = frappe.generate_hash(length=6)
-        return super().create_test_chapter(
-            chapter_name=chapter_name or f"Finance Test Chapter {unique_suffix}",
-            city=city or "Amsterdam",
-            introduction=introduction or "Test chapter for finance persona testing"
-        )
+    def create_test_chapter(self, **kwargs):
+        """Create a test chapter with finance-persona defaults"""
+        kwargs.setdefault("city", "Amsterdam")
+        kwargs.setdefault("introduction", "Test chapter for finance persona testing")
+        return super().create_test_chapter(**kwargs)
 
     def create_test_membership_type_with_calculator(self):
         """Create a test membership type with calculator contribution mode"""

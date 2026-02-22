@@ -19,6 +19,7 @@ from verenigingen.utils.application_helpers import (
 
 
 def _create_test_member(data=None, application_id=None):
+    # NOTE: Intentionally local — uses create_member_from_application() workflow
     """Helper: create a member via the real function for test setup."""
     if data is None:
         data = {

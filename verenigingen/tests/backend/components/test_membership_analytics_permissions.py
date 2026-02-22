@@ -537,16 +537,11 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
         self.create_chapter_members(self.chapter_b, 15)
     
     def create_test_chapter(self, name):
-        """Create a test chapter"""
-        if not frappe.db.exists("Chapter", name):
-            chapter = frappe.get_doc({
-                "doctype": "Chapter",
-                "chapter_name": name,
-                "is_active": 1
-            })
-            chapter.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
-            return chapter.name
-        return name
+        """Create a test chapter, returns chapter name"""
+        if frappe.db.exists("Chapter", name):
+            return name
+        chapter = super().create_test_chapter(chapter_name=name)
+        return chapter.name
     
     def create_chapter_manager(self, email, chapter):
         """Create a chapter manager user"""

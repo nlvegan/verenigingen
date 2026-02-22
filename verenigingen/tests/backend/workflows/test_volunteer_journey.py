@@ -99,56 +99,6 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
         # Final validations
         self._validate_complete_volunteer_journey()
 
-    def _create_test_chapter(self):
-        """Create a test chapter for the volunteer journey"""
-        chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "name": "Volunteer Test Chapter",
-                "region": "Test Region",
-                "postal_codes": "2000-8999",
-                "introduction": "Test chapter for volunteer journey testing"}
-        )
-        chapter.insert()  # VereningingenTestCase handles permissions
-        self.track_doc("Chapter", chapter.name)
-        return chapter
-
-    def _create_base_member(self):
-        """Create a base member to start the volunteer journey"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "TestVolunteer",
-                "last_name": "Journey",
-                "email": "volunteer.journey@example.com",
-                "contact_number": "+31687654321",
-                "payment_method": "Bank Transfer",
-                "status": "Active",
-                "primary_chapter": self.test_chapter.name}
-        )
-        member.insert()  # VereningingenTestCase handles permissions
-
-        # Add to chapter
-        member.append(
-            "chapter_members",
-            {
-                "chapter": self.test_chapter.name,
-                "chapter_join_date": today(),
-                "enabled": 1,
-                "status": "Active"},
-        )
-        member.save()  # VereningingenTestCase handles permissions
-
-        self.track_doc("Member", member.name)
-
-        # Create user account for the member
-        user = TestUserFactory.create_member_user(
-            email="volunteer.journey@example.com", member_name=member.name
-        )
-        self.track_doc("User", user.name)
-
-        return member
-
     # Stage 1: Member Becomes Volunteer
     def _stage_1_become_volunteer(self, context):
         """Stage 1: Member decides to become a volunteer"""

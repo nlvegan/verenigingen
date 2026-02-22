@@ -77,7 +77,7 @@ class TestMemberPaymentMatcher(EnhancedTestCase):
     def test_finds_member_by_description_pattern(self):
         """Test fallback matching via member ID in description."""
         # Create test member
-        member = self._create_test_member()
+        member = self.create_test_member()
 
         matcher = MemberPaymentMatcher()
 
@@ -105,7 +105,7 @@ class TestMemberPaymentMatcher(EnhancedTestCase):
 
     def test_description_parsing_extracts_correct_pattern(self):
         """Test the member ID regex pattern extraction."""
-        member = self._create_test_member()
+        member = self.create_test_member()
 
         matcher = MemberPaymentMatcher()
 
@@ -289,20 +289,6 @@ class TestMemberPaymentMatcher(EnhancedTestCase):
     # =========================================================================
     # Helper Methods
     # =========================================================================
-
-    def _create_test_member(self, status="Active"):
-        """Create a basic test member."""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": f"Test{frappe.generate_hash(length=6)}",
-                "last_name": "MatcherTest",
-                "email": f"test{frappe.generate_hash(length=6)}@example.com",
-                "status": status,
-            }
-        )
-        member.insert(ignore_permissions=True)
-        return member
 
     def _create_test_member_with_mollie_id(self, customer_id, status="Active"):
         """Create a test member with Mollie customer ID."""

@@ -142,43 +142,22 @@ class TestERPNextIntegrationComplete(EnhancedTestCase):
         
     @classmethod
     def _create_test_member(cls):
-        """Create test member"""
-        member = frappe.get_doc({
-            "doctype": "Member",
-            "first_name": "ERPNext",
-            "last_name": "TestMember",
-            "email": f"erpnext.test.{frappe.utils.random_string(6)}@example.com",
-            "phone": "+31612345678",
-            "status": "Active"
-        })
-        member.insert()
-        
-        # Create customer
-        customer = frappe.get_doc({
-            "doctype": "Customer",
-            "customer_name": member.full_name,
-            "customer_type": "Individual",
-            "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
-        })
-        customer.insert()
-        
-        member.customer = customer.name
-        member.save()
-        
-        return member
-        
+        """Create test member with ERPNext customer"""
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+        factory = CoreTestDataFactory()
+        return factory.create_test_member(
+            first_name="ERPNext",
+            last_name="TestMember",
+            phone="+31612345678",
+            auto_create_customer=True,
+        )
+
     @classmethod
     def _create_test_volunteer(cls):
         """Create test volunteer"""
-        volunteer = frappe.get_doc({
-            "doctype": "Volunteer",
-            "volunteer_name": cls.test_member.full_name,
-            "email": cls.test_member.email,
-            "member": cls.test_member.name,
-            "status": "Active"
-        })
-        volunteer.insert()
-        return volunteer
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+        factory = CoreTestDataFactory()
+        return factory.create_test_volunteer(member=cls.test_member)
         
     def test_sales_invoice_creation_flow(self):
         """Test sales invoice creation (draft mode - full submission requires accounting setup)"""

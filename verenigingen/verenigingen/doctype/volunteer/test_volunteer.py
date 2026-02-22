@@ -45,6 +45,7 @@ class TestVolunteer(EnhancedTestCase):
                 cat_doc.insert()  # EnhancedTestCase handles cleanup via rollback
 
     def create_test_volunteer(self, status="Active"):
+        # NOTE: Intentionally local — populates volunteer-specific child tables (interests, skills)
         """Create a test volunteer record"""
         # Generate unique name to avoid conflicts
         unique_suffix = self.get_unique_suffix()

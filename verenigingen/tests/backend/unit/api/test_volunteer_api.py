@@ -22,6 +22,7 @@ class TestVolunteerWhitelistMethods(VereningingenTestCase):
         super().setUp()
 
     def _create_test_volunteer(self):
+        # NOTE: Intentionally local — orchestrates member->volunteer chaining for API test
         """Helper to create a test volunteer"""
         from frappe.utils import random_string
         unique_id = random_string(8)

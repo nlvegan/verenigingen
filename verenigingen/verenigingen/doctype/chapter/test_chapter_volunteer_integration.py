@@ -102,6 +102,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                 role_doc.insert()  # EnhancedTestCase handles permissions properly
 
     def create_test_chapter(self):
+        # NOTE: Intentionally local — complex multi-doc setup (member+volunteer+board head)
         """Create a test chapter with unique name using UUID"""
         # Create a member for chapter head with unique email
         head_email = f"chapterhead{self.test_id}@example.com"

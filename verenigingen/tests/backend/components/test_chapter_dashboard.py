@@ -33,22 +33,15 @@ class TestChapterDashboard(VereningingenTestCase):
         
     @classmethod
     def _create_test_chapter(cls):
-        """Create a test chapter"""
-        chapter_name = f"Test Dashboard Chapter {frappe.utils.random_string(6)}"
-        
-        if not frappe.db.exists("Chapter", chapter_name):
-            chapter = frappe.get_doc({
-                "doctype": "Chapter",
-                "name": chapter_name,
-                "chapter_name": chapter_name,
-                "short_name": "TDC",
-                "country": "Netherlands",
-                "introduction": "Test chapter for dashboard testing",
-                "published": 1
-            })
-            chapter.insert()  # VereningingenTestCase handles permissions
-            return chapter
-        return frappe.get_doc("Chapter", chapter_name)
+        """Create a test chapter via factory"""
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+        factory = CoreTestDataFactory()
+        return factory.create_test_chapter(
+            short_name="TDC",
+            country="Netherlands",
+            introduction="Test chapter for dashboard testing",
+            published=1,
+        )
         
     @classmethod
     def _create_test_members(cls):

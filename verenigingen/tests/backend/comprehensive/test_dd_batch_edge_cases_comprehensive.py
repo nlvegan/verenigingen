@@ -46,6 +46,7 @@ class TestDDMemberIdentityEdgeCases(FrappeTestCase):
         self.test_prefix = f"TEST-{self.unique_id}"
 
     def create_test_member(self, first_name, last_name, email, iban=None, member_id=None):
+        # NOTE: Intentionally local — appends to self.test_records for custom cleanup list
         """Helper to create test members"""
         if not member_id:
             member_id = f"{first_name.lower()}.{last_name.lower()}.{self.unique_id}@test.com"

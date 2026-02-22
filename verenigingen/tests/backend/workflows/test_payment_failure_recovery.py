@@ -40,7 +40,11 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
         self.erpnext_infra = self.ensure_erpnext_infrastructure()
 
         # Create test environment with proper permissions
-        self.test_chapter = self._create_test_chapter()
+        self.test_chapter = self.create_test_chapter(
+            chapter_name="Payment Test Chapter",
+            postal_codes="3000-7999",
+            introduction="Test chapter for payment failure testing",
+        )
 
     def test_payment_failure_recovery_workflow(self):
         """Test the complete payment failure and recovery workflow"""
@@ -79,36 +83,6 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
 
         # Final validations
         self._validate_complete_payment_recovery()
-
-    def _create_test_chapter(self):
-        """Create a test chapter for payment testing
-
-        Note: Uses ignore_permissions for test fixture setup (standard Frappe test pattern).
-        """
-        from frappe.utils import random_string
-        region_suffix = random_string(6).lower()
-        region_name = f"Payment Test Region {region_suffix}"
-
-        region = frappe.get_doc({
-            "doctype": "Region",
-            "region_name": region_name,
-            "region_code": f"PT{region_suffix[:3].upper()}",
-        })
-        region.insert(ignore_permissions=True)
-        self.track_doc("Region", region.name)
-
-        chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "name": f"Payment Test Chapter {region_suffix}",
-                "region": region.name,
-                "postal_codes": "3000-7999",
-                "introduction": "Test chapter for payment failure testing",
-            }
-        )
-        chapter.insert(ignore_permissions=True)
-        self.track_doc("Chapter", chapter.name)
-        return chapter
 
     # Stage 1: Create Member with SEPA Mandate
     def _stage_1_create_member_sepa(self, context):

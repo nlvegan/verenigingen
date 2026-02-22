@@ -28,20 +28,8 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
         frappe.db.rollback()
 
     def create_test_member(self, **kwargs):
-        """Helper to create test members"""
-        member_data = {
-            "doctype": "Member",
-            "first_name": kwargs.get("first_name", "Test"),
-            "last_name": kwargs.get("last_name", "Member"),
-            "email": kwargs.get("email", f"test{frappe.utils.random_string(5)}@example.com")}
-        # Add optional fields
-        for field in ["iban", "bic", "bank_account_name", "payment_method"]:
-            if field in kwargs:
-                member_data[field] = kwargs[field]
-
-        member = frappe.get_doc(member_data)
-        member.insert()
-        return member
+        """Delegate to CoreTestDataFactory"""
+        return self.factory.create_test_member(**kwargs)
 
     def create_test_membership(self, **kwargs):
         """Helper to create test memberships"""

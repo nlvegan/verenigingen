@@ -41,18 +41,6 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             membership_type.insert(ignore_permissions=True)
             frappe.db.commit()
 
-    def _create_test_chapter(self, name=None):
-        """Create a test chapter for use in tests."""
-        chapter_name = name or f"Test Chapter {int(now_datetime().timestamp())}"
-        chapter = frappe.get_doc({
-            "doctype": "Chapter",
-            "name": chapter_name,
-            "status": "Active",
-        })
-        chapter.insert(ignore_permissions=True)
-        frappe.db.commit()
-        return chapter
-
     def test_member_approval_no_attribute_error(self):
         """
         Test that member approval doesn't throw AttributeError for chapter_assignments.
@@ -960,8 +948,8 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         )
 
         # Create second chapter
-        second_chapter = self._create_test_chapter(
-            f"Test Chapter 2 {int(now_datetime().timestamp())}"
+        second_chapter = self.create_test_chapter(
+            chapter_name=f"Test Chapter 2 {int(now_datetime().timestamp())}"
         )
         second_chapter_name = second_chapter.name
 
