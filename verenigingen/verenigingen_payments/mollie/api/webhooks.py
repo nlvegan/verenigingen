@@ -10,7 +10,6 @@ from frappe import _
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 from ..exceptions import MollieSecurityError, MollieWebhookError
-from ..services.webhook_service import WebhookService
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -93,10 +92,11 @@ def webhook_health_check():
 
         # Check webhook service
         try:
-            webhook_service = WebhookService()
+            from ..services.webhook_wrapper_service_unified import get_unified_webhook_service
+
+            webhook_service = get_unified_webhook_service()
             health_status["services"] = {
                 "webhook_service": "available",
-                "client_available": "available" if webhook_service.client else "unavailable",
             }
         except Exception as e:
             health_status["services"] = {"webhook_service": "error", "error": str(e)}

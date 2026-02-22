@@ -3137,31 +3137,15 @@ window.update_other_members_at_address = function (frm, force_refresh = false) {
 		return;
 	}
 
-	// Call backend method to get other members at same address
-	frappe.call({
-		method: 'verenigingen.api.member_management_debug.get_address_members_html_api',
-		args: {
-			member_id: frm.doc.name
-		},
+	// Call doctype whitelisted method to get other members at same address
+	frm.call({
+		method: 'get_address_members_html',
 		callback(r) {
-			// console.log('Address detection response:', r);
-
 			if (r.message) {
-				// console.log('API response structure:', Object.keys(r.message));
-
-				// Handle OperationResult response format
-				// Now returns: { success: true, data: { html: "..." }, timestamp: "..." }
-				let html_content = null;
-				if (r.message.success && r.message.data && r.message.data.html) {
-					html_content = r.message.data.html;
-				} else if (r.message.success && r.message.html) {
-					// Legacy format fallback
-					html_content = r.message.html;
-				} else if (r.message.html) {
-					html_content = r.message.html;
-				} else if (typeof r.message === 'string') {
-					html_content = r.message;
-				}
+				// The doctype method returns a plain HTML string
+				let html_content = typeof r.message === 'string'
+					? r.message
+					: (r.message.html || null);
 
 				if (html_content) {
 					// console.log('Got HTML content from API:', html_content.substring(0, 100) + '...');

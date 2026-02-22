@@ -808,13 +808,15 @@ def get_segmentation_data(year, period="year", filters=None):
     year = int(year)
 
     # Apply filters to base query
-    filter_conditions = build_filter_conditions(filters)
+    filter_conditions, filter_params = build_filter_conditions(filters)
 
     segmentation = {
         "by_chapter": get_chapter_segmentation(year, filter_conditions),
         "chapter_growth_over_time": get_chapter_growth_over_time(year),
-        "by_age": get_age_segmentation(year, filter_conditions),
-        "volunteer_participation_by_chapter": get_volunteer_participation_by_chapter(year, filter_conditions),
+        "by_age": get_age_segmentation(year, filter_conditions, filter_params),
+        "volunteer_participation_by_chapter": get_volunteer_participation_by_chapter(
+            year, filter_conditions, filter_params
+        ),
         "by_join_year": get_join_year_segmentation(year, filter_conditions),
     }
 
@@ -822,18 +824,26 @@ def get_segmentation_data(year, period="year", filters=None):
 
 
 def build_filter_conditions(filters):
-    """Build SQL conditions from filters"""
+    """Build SQL conditions from filters.
+
+    Returns:
+        tuple: (conditions_string, params_list) where conditions_string uses %s placeholders
+               and params_list contains the corresponding parameter values.
+    """
     conditions = []
+    params = []
 
     if filters.get("chapter"):
         conditions.append(
-            f"EXISTS (SELECT 1 FROM `tabChapter Member` cm JOIN `tabChapter` c ON c.name = cm.parent WHERE cm.member = m.name AND c.name = '{filters['chapter']}' AND cm.status = 'Active')"
+            "EXISTS (SELECT 1 FROM `tabChapter Member` cm JOIN `tabChapter` c ON c.name = cm.parent WHERE cm.member = m.name AND c.name = %s AND cm.status = 'Active')"
         )
+        params.append(filters["chapter"])
 
     if filters.get("membership_type"):
         conditions.append(
-            f"EXISTS (SELECT 1 FROM `tabMembership` ms WHERE ms.member = m.name AND ms.membership_type = '{filters['membership_type']}' AND ms.status = 'Active')"
+            "EXISTS (SELECT 1 FROM `tabMembership` ms WHERE ms.member = m.name AND ms.membership_type = %s AND ms.status = 'Active')"
         )
+        params.append(filters["membership_type"])
 
     if filters.get("age_group"):
         age_condition = get_age_group_condition(filters["age_group"])
@@ -845,7 +855,8 @@ def build_filter_conditions(filters):
             f"EXISTS (SELECT 1 FROM `tabAddress` a WHERE a.name = m.primary_address AND {get_region_condition(filters['region'])})"
         )
 
-    return " AND " + " AND ".join(conditions) if conditions else ""
+    filter_conditions = " AND " + " AND ".join(conditions) if conditions else ""
+    return (filter_conditions, params)
 
 
 def get_age_group_condition(age_group):
@@ -992,7 +1003,7 @@ def get_region_segmentation(year, filter_conditions):
     return results
 
 
-def get_age_segmentation(year, filter_conditions):
+def get_age_segmentation(year, filter_conditions, filter_params=None):
     """Get member distribution by age group for a specific year
 
     Age is calculated as of the end of the specified year.
@@ -1008,19 +1019,19 @@ def get_age_segmentation(year, filter_conditions):
     query = f"""
         SELECT
             CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 15 THEN '<15'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 15 AND 20 THEN '15-20'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 21 AND 25 THEN '21-25'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 26 AND 30 THEN '26-30'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 31 AND 35 THEN '31-35'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 36 AND 40 THEN '36-40'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 41 AND 45 THEN '41-45'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 46 AND 50 THEN '46-50'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 51 AND 55 THEN '51-55'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 56 AND 60 THEN '56-60'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 61 AND 65 THEN '61-65'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 66 AND 70 THEN '66-70'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') > 70 THEN '>70'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) < 15 THEN '<15'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 15 AND 20 THEN '15-20'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 21 AND 25 THEN '21-25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 26 AND 30 THEN '26-30'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 31 AND 35 THEN '31-35'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 36 AND 40 THEN '36-40'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 41 AND 45 THEN '41-45'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 46 AND 50 THEN '46-50'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 51 AND 55 THEN '51-55'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 56 AND 60 THEN '56-60'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 61 AND 65 THEN '61-65'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 66 AND 70 THEN '66-70'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) > 70 THEN '>70'
                 ELSE 'Unknown'
             END as name,
             COUNT(*) as total_members,
@@ -1030,30 +1041,38 @@ def get_age_segmentation(year, filter_conditions):
                  WHERE ms.member = m.name AND ms.status = 'Active'
                  LIMIT 1), 0)) as avg_fee
         FROM `tabMember` m
-        WHERE m.member_since <= '{year_end}'
-            AND (m.member_end_date IS NULL OR m.member_end_date >= '{year_start}')
+        WHERE m.member_since <= %s
+            AND (m.member_end_date IS NULL OR m.member_end_date >= %s)
             AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
             AND birth_date IS NOT NULL {filter_conditions}
         GROUP BY
             CASE
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') < 15 THEN '<15'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 15 AND 20 THEN '15-20'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 21 AND 25 THEN '21-25'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 26 AND 30 THEN '26-30'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 31 AND 35 THEN '31-35'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 36 AND 40 THEN '36-40'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 41 AND 45 THEN '41-45'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 46 AND 50 THEN '46-50'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 51 AND 55 THEN '51-55'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 56 AND 60 THEN '56-60'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 61 AND 65 THEN '61-65'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') BETWEEN 66 AND 70 THEN '66-70'
-                WHEN TIMESTAMPDIFF(YEAR, birth_date, '{year_end}') > 70 THEN '>70'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) < 15 THEN '<15'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 15 AND 20 THEN '15-20'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 21 AND 25 THEN '21-25'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 26 AND 30 THEN '26-30'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 31 AND 35 THEN '31-35'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 36 AND 40 THEN '36-40'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 41 AND 45 THEN '41-45'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 46 AND 50 THEN '46-50'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 51 AND 55 THEN '51-55'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 56 AND 60 THEN '56-60'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 61 AND 65 THEN '61-65'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) BETWEEN 66 AND 70 THEN '66-70'
+                WHEN TIMESTAMPDIFF(YEAR, birth_date, %s) > 70 THEN '>70'
                 ELSE 'Unknown'
             END
     """
 
-    results = frappe.db.sql(query, as_dict=True)
+    # Build params: 13 year_end refs in SELECT CASE + year_end + year_start in WHERE + 13 year_end refs in GROUP BY CASE
+    query_params = (
+        [year_end] * 13  # SELECT CASE branches
+        + [year_end, year_start]  # WHERE clause date bounds
+        + list(filter_params or [])  # User-supplied filter params
+        + [year_end] * 13  # GROUP BY CASE branches
+    )
+
+    results = frappe.db.sql(query, tuple(query_params), as_dict=True)
 
     # Sort results in the proper age order
     age_order = [
@@ -1077,7 +1096,7 @@ def get_age_segmentation(year, filter_conditions):
     return results
 
 
-def get_volunteer_participation_by_chapter(year, filter_conditions):
+def get_volunteer_participation_by_chapter(year, filter_conditions, filter_params=None):
     """Get volunteer participation breakdown by chapter"""
     year = int(year)
     year_start = f"{year}-01-01"
@@ -1092,14 +1111,15 @@ def get_volunteer_participation_by_chapter(year, filter_conditions):
         FROM `tabMember` m
         LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
         LEFT JOIN `tabVolunteer` v ON v.member = m.name AND v.status = 'Active'
-        WHERE m.member_since <= '{year_end}'
-            AND (m.member_end_date IS NULL OR m.member_end_date >= '{year_start}')
+        WHERE m.member_since <= %s
+            AND (m.member_end_date IS NULL OR m.member_end_date >= %s)
             AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased') {filter_conditions}
         GROUP BY COALESCE(cm.parent, 'No Chapter')
         ORDER BY total_members DESC
     """
 
-    results = frappe.db.sql(query, as_dict=True)
+    query_params = [year_end, year_start] + list(filter_params or [])
+    results = frappe.db.sql(query, tuple(query_params), as_dict=True)
     return results
 
 

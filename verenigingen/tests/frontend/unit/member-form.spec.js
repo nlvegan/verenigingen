@@ -372,10 +372,9 @@ describe('Member Form', () => {
         = require('./member').updateOtherMembersAtAddress;
 			await updateOtherMembersAtAddress(frm);
 
-			expect(frappe.call).toHaveBeenCalledWith(
+			expect(frm.call).toHaveBeenCalledWith(
 				expect.objectContaining({
-					method: expect.stringContaining('get_address_members_html_api'),
-					args: { member_id: 'MEM-001' }
+					method: 'get_address_members_html',
 				})
 			);
 			expect(frm.set_value).toHaveBeenCalled();

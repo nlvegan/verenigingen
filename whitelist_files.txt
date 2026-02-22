@@ -165,8 +165,6 @@
 ./verenigingen/api/fix_workspace_links.py
 ./verenigingen/api/full_migration_summary.py
 ./verenigingen/api/generate_invoice_for_schedule.py
-./verenigingen/api/generate_test_applications.py
-./verenigingen/api/generate_test_members.py
 ./verenigingen/api/generate_test_membership_types.py
 ./verenigingen/api/generic_report_tester.py
 ./verenigingen/api/get_unreconciled_payments.py
@@ -228,20 +226,8 @@
 ./verenigingen/api/team_admin_utilities.py
 ./verenigingen/api/team_management.py
 ./verenigingen/api/termination_api.py
-./verenigingen/api/test_audit_routing.py
-./verenigingen/api/test_coverage_fields.py
-./verenigingen/api/test_donation_controller.py
-./verenigingen/api/test_dues_schedule_report.py
-./verenigingen/api/test_expense_fix.py
-./verenigingen/api/test_financial_history_fix.py
-./verenigingen/api/test_incremental_edge_cases.py
-./verenigingen/api/test_incremental_update_final.py
-./verenigingen/api/test_member_portal_coverage.py
 ./verenigingen/api/test_mollie_integration.py
-./verenigingen/api/test_monitoring.py
 ./verenigingen/api/test_phase3_service.py
-./verenigingen/api/test_refresh_reliability.py
-./verenigingen/api/test_template_fixes.py
 ./verenigingen/api/unified_security_monitoring.py
 ./verenigingen/api/update_prepare_system_button.py
 ./verenigingen/api/validate_coverage_report.py
@@ -329,7 +315,6 @@
 ./verenigingen/templates/pages/chapter_dashboard.py
 ./verenigingen/templates/pages/contact_request.py
 ./verenigingen/templates/pages/donate.py
-./verenigingen/templates/pages/donate_optimized.py
 ./verenigingen/templates/pages/dues_schedule_admin.py
 ./verenigingen/templates/pages/financial_dashboard.py
 ./verenigingen/templates/pages/install_email_templates.py
