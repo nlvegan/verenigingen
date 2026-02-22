@@ -39,100 +39,37 @@ edge_cases = factory.create_edge_case_data()
 stress_data = factory.create_stress_test_data(scale="large")
 ```
 
-Migration Considerations
------------------------
-**Important**: This factory is being phased out in favor of EnhancedTestDataFactory
-for new tests. Key differences:
-
-- **Legacy Factory**: Uses ignore_permissions=True (security bypass)
-- **Enhanced Factory**: Uses proper permissions and validation
-- **Legacy Factory**: Optimized for speed and volume
 Cleanup and Resource Management
 ------------------------------
-The factory includes comprehensive cleanup capabilities:
-
 - **Dependency Tracking**: Tracks all created records for cleanup
 - **Reverse Order Cleanup**: Deletes records in reverse dependency order
 - **Context Manager Support**: Automatic cleanup when used as context manager
 - **Manual Cleanup**: Explicit cleanup() method for fine-grained control
 
-Test Scenario Capabilities
---------------------------
-1. **Complete Business Scenarios**: Full member lifecycle with all relationships
-2. **Edge Case Data**: Extreme values and boundary conditions
-3. **Conflict Scenarios**: Data designed to trigger validation errors
-4. **Status Distribution**: Realistic distributions of entity statuses
-5. **Team Management**: Complex team structures with role hierarchies
-6. **Billing Scenarios**: Various billing frequency and amount combinations
-
-Integration with Testing Infrastructure
---------------------------------------
-The factory integrates with:
-
-- Frappe's permission system (though bypassed for speed)
-- Faker library for realistic data generation
-- Test cleanup mechanisms
-- Performance measurement tools
-- Bulk testing frameworks
-
-IBAN and Banking Test Data
---------------------------
-Includes sophisticated banking test data generation:
-
-- **Valid IBAN Generation**: Creates IBANs with proper MOD-97 checksums
-- **BIC Derivation**: Generates corresponding BIC codes
-- **Test Bank Codes**: Uses reserved bank codes (TEST, MOCK, DEMO)
-- **SEPA Compliance**: Creates SEPA-compliant mandate structures
-
-Security Considerations
-----------------------
-**Warning**: This factory uses security bypasses for performance:
-
-- `ignore_permissions=True` bypasses Frappe's permission system
-- `force=True` bypasses deletion constraints
-- Test data may not respect production security rules
-
-**Recommendations**:
-- Use only in isolated test environments
-- Do not use patterns from this factory in production code
-- Migrate to EnhancedTestDataFactory for security-conscious testing
-
-Maintenance and Evolution
-------------------------
-**Current Status**: Legacy but maintained for compatibility
-**Future Direction**: Gradual migration to EnhancedTestDataFactory
-**Deprecation Timeline**: No immediate deprecation planned due to performance needs
-
-**Maintenance Guidelines**:
-- Bug fixes only - no new features
-- Performance optimizations acceptable
-- Security improvements encouraged
-- Documentation updates as needed
-
-Testing and Quality Assurance
------------------------------
-The factory includes self-testing capabilities:
-
-- Validation of generated IBAN checksums
-- Verification of relationship consistency
-- Edge case scenario validation
-- Performance benchmarking support
-
-Version History
---------------
-- Phase 4.3: Created during factory method streamlining
-- Enhanced with scenario builders and edge case support
-- Added team role management and SEPA integration
-- Improved cleanup mechanisms and context manager support
+Note: Uses ``ignore_permissions=True`` for speed. For schema-validated
+creation with proper permissions, use ``EnhancedTestDataFactory`` which
+delegates core entity creation to this class.
 """
 
 import random
-from datetime import datetime, date
-from typing import Dict, List, Optional, Any
+from datetime import datetime
+from typing import Dict
 
 import frappe
-from frappe.utils import add_days, random_string, today, flt
+from frappe.utils import add_days, random_string, today, flt, getdate
 from faker import Faker
+
+# Deterministic name pools for reproducible test data (Dutch-flavored)
+_FIRST_NAMES = [
+    "Adam", "Eva", "Jan", "Maria", "Pieter", "Anna", "Willem", "Sophie",
+    "Daan", "Emma", "Lucas", "Lotte", "Sem", "Julia", "Finn", "Saar",
+    "Jesse", "Noor", "Milan", "Tess",
+]
+_LAST_NAMES = [
+    "De Vries", "Jansen", "Van Dijk", "Bakker", "Visser", "Smit", "Meijer",
+    "De Boer", "Mulder", "De Groot", "Bos", "Vos", "Peters", "Hendriks",
+    "Van Leeuwen", "Dekker", "Brouwer", "De Wit", "Dijkstra", "Vermeer",
+]
 
 
 class CoreTestDataFactory:
@@ -145,15 +82,20 @@ class CoreTestDataFactory:
     def __init__(self, cleanup_on_exit=True, seed=None):
         """Initialize factory with optional seed for reproducible data"""
         self.cleanup_on_exit = cleanup_on_exit
+        self.seed = seed or int(datetime.now().timestamp())
         self.created_records = []
-        self.test_run_id = f"{random_string(8)}-{int(datetime.now().timestamp())}"
-        
-        # Initialize Faker with seed for reproducible data
+        # Use microsecond timestamp for run-unique ID (independent of seed)
+        self.test_run_id = f"{int(datetime.now().timestamp() * 1000000) % 100000000}"
+
+        # Deterministic sequence counters (replaces Faker for core entity creation)
+        self._sequence_counters: Dict[str, int] = {}
+
+        # Keep Faker for scenario builders / PaymentHistoryTestFactory
         self.fake = Faker()
         if seed:
             Faker.seed(seed)
             random.seed(seed)
-        
+
         # Cache for frequently used test data
         self._test_chapters = None
         self._test_membership_types = None
@@ -178,30 +120,122 @@ class CoreTestDataFactory:
         """Track a created record for cleanup"""
         self.created_records.append({"doctype": doctype, "name": name})
 
+    # --- Deterministic Generation Helpers ---
+
+    def _get_next_sequence(self, prefix: str) -> int:
+        """Get next sequence number for a given prefix (deterministic)."""
+        self._sequence_counters[prefix] = self._sequence_counters.get(prefix, 0) + 1
+        return self._sequence_counters[prefix]
+
+    def _generate_name(self, name_type: str = "first") -> str:
+        """Deterministic name generation cycling through Dutch name pools.
+
+        Last names include test_run_id suffix to prevent Customer name collisions
+        across factory instances (Customer uses full_name as primary key).
+        """
+        names = _FIRST_NAMES if name_type == "first" else _LAST_NAMES
+        idx = self._get_next_sequence(f"name_{name_type}") - 1
+        base_name = names[idx % len(names)]
+        if name_type == "last":
+            return f"{base_name}-{self.test_run_id[-5:]}"
+        return base_name
+
+    def _generate_email(self, purpose: str = "member") -> str:
+        """Email generation with run-unique component to prevent collisions."""
+        seq = self._get_next_sequence(f"email_{purpose}")
+        return f"test-{purpose}-{seq:04d}-{self.test_run_id}@test.invalid"
+
+    def _generate_member_id(self) -> str:
+        """Generate explicit member_id to avoid autoname counter collisions.
+
+        Uses microsecond timestamp + sequence for uniqueness across factory
+        instances even when they share the same seed.
+        """
+        seq = self._get_next_sequence("member_id")
+        microsec = int(datetime.now().timestamp() * 1000000) % 1000000
+        return f"TEST{microsec:06d}{seq:03d}"
+
+    def _validate_fields(self, doctype: str, data: dict) -> dict:
+        """Validate field names exist in DocType meta. Raises on unknown fields.
+
+        Only called when validate_fields=True is passed to create methods.
+        """
+        meta = frappe.get_meta(doctype)
+        valid_fields = {f.fieldname for f in meta.fields}
+        # Standard fields always valid
+        valid_fields |= {
+            "doctype", "name", "owner", "docstatus", "modified", "modified_by",
+            "creation", "idx", "parent", "parentfield", "parenttype",
+        }
+        unknown = set(data.keys()) - valid_fields
+        if unknown:
+            raise ValueError(f"Unknown fields for {doctype}: {unknown}")
+        return data
+
+    def _create_customer_for_member(self, member):
+        """Create ERPNext Customer + Address for a member (opt-in via auto_create_customer)."""
+        if not member.customer:
+            original_in_test = getattr(frappe.local, "in_test", False)
+            frappe.local.in_test = True
+            try:
+                member.create_customer()
+                member.reload()
+            finally:
+                frappe.local.in_test = original_in_test
+
+        if member.customer:
+            self._create_customer_address(member)
+
+    def _create_customer_address(self, member):
+        """Create Address linked to the member's Customer if none exists."""
+        existing = frappe.get_all(
+            "Address",
+            fields=["name"],
+            filters=[
+                ["Dynamic Link", "link_doctype", "=", "Customer"],
+                ["Dynamic Link", "link_name", "=", member.customer],
+            ],
+            limit=1,
+        )
+        if existing:
+            return
+
+        address = frappe.new_doc("Address")
+        address.address_title = f"{member.first_name} {member.last_name} - Test Address"
+        address.address_line1 = getattr(member, "address_line_1", None) or "Test Street 123"
+        address.city = getattr(member, "city", None) or "Amsterdam"
+        address.pincode = getattr(member, "postal_code", None) or "1234 AB"
+        address.country = "Netherlands"
+        address.is_primary_address = 1
+        address.append("links", {
+            "link_doctype": "Customer",
+            "link_name": member.customer,
+        })
+        address.insert(ignore_permissions=True)
+        self.track_doc("Address", address.name)
+
     # HELPER METHOD: Region Creation
     def create_test_region(self, **kwargs):
         """Create a test region required for chapter creation"""
-        region_name = f"Test Region {self.fake.state()} - {self.test_run_id}"
-        region_code = f"TR{''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=2))}"
-        
-        # Ensure region code is unique
-        counter = 1
-        base_code = region_code
+        seq = self._get_next_sequence("region")
+        region_name = f"Test Region {seq} - {self.test_run_id}"
+        region_code = f"TR{seq}"
+
+        # Ensure region code is unique and fits 2-5 char validation
+        region_code = region_code[:5]
         while frappe.db.exists("Region", {"region_code": region_code}):
-            region_code = f"{base_code}{counter}"
-            counter += 1
-        
+            seq = self._get_next_sequence("region_collision")
+            region_code = f"TR{seq}"[:5]
+
         defaults = {
             "region_name": region_name,
             "region_code": region_code,
             "country": "Netherlands",
             "is_active": 1,
             "description": f"Test region created for automated testing - {self.test_run_id}",
-            "preferred_language": "Dutch",
-            "time_zone": "Europe/Amsterdam"
         }
         defaults.update(kwargs)
-        
+
         region = frappe.get_doc({"doctype": "Region", **defaults})
         region.insert(ignore_permissions=True)
         self.track_doc("Region", region.name)
@@ -222,26 +256,31 @@ class CoreTestDataFactory:
         return self._test_region
 
     # CORE METHOD 1: Chapter Creation
-    def create_test_chapter(self, **kwargs):
-        """Create a single test chapter with intelligent defaults"""
-        # Generate unique chapter name for Frappe's prompt autoname
-        chapter_name = f"Test Chapter {self.fake.city()} - {self.test_run_id}"
-        
-        # Ensure we have a test region available
+    def create_test_chapter(self, *, validate_fields=False, **kwargs):
+        """Create a single test chapter with deterministic defaults.
+
+        Args:
+            validate_fields: If True, validates kwargs against DocType schema.
+            **kwargs: Field overrides for the Chapter document.
+        """
+        seq = self._get_next_sequence("chapter")
+        chapter_name = f"Test Chapter {seq} - {self.test_run_id}"
+
         test_region = self.get_or_create_test_region()
-        
+
         defaults = {
             "chapter_name": chapter_name,
-            "region": test_region.name,  # Use actual test region
-            "postal_codes": "1000-1099",  # Use valid Dutch postal code range for testing
+            "region": test_region.name,
+            "postal_codes": f"{1000 + (seq % 9000):04d}-{1000 + (seq % 9000) + 99:04d}",
             "introduction": f"Test chapter created for automated testing - {self.test_run_id}",
-            "email": self.fake.email(),
-            "phone": self.fake.phone_number()[:15]  # Frappe field limit
+            "email": self._generate_email("chapter"),
         }
         defaults.update(kwargs)
-        
+
+        if validate_fields:
+            self._validate_fields("Chapter", defaults)
+
         chapter = frappe.get_doc({"doctype": "Chapter", **defaults})
-        # Set explicit name for prompt autoname doctype
         chapter.name = chapter_name
         chapter.insert(ignore_permissions=True)
         self.track_doc("Chapter", chapter.name)
@@ -252,42 +291,69 @@ class CoreTestDataFactory:
         return [self.create_test_chapter(**kwargs) for _ in range(count)]
 
     # CORE METHOD 2: Member Creation
-    def create_test_member(self, chapter=None, **kwargs):
-        """Create a single test member with intelligent defaults"""
+    def create_test_member(self, chapter=None, *, auto_create_customer=False, validate_fields=False, **kwargs):
+        """Create a single test member with deterministic defaults.
+
+        Args:
+            chapter: Chapter name or doc to assign member to (via ChapterMembershipManager).
+                     Pass None to auto-create a default chapter. Pass False to skip chapter assignment.
+            auto_create_customer: If True, also creates ERPNext Customer + Address.
+            validate_fields: If True, validates kwargs against DocType schema.
+            **kwargs: Field overrides for the Member document.
+        """
         if chapter is None:
             chapter = self.get_or_create_test_chapter()
-        
+
+        # Deterministic defaults (replaces Faker)
+        seq = self._get_next_sequence("member")
         defaults = {
-            "first_name": self.fake.first_name(),
-            "last_name": self.fake.last_name(),
-            "email": self.fake.email(),
-            "birth_date": self.fake.date_of_birth(minimum_age=18, maximum_age=80),
-            "phone": self.fake.phone_number()[:15],
+            "first_name": self._generate_name("first"),
+            "last_name": self._generate_name("last"),
+            "email": self._generate_email("member"),
+            "member_id": self._generate_member_id(),
+            "birth_date": add_days(today(), -random.randint(6570, 25550)),  # 18-70 years
             "status": "Active",
-            # Address fields
-            "address_line_1": self.fake.street_address(),
-            "city": self.fake.city(),
-            "postal_code": self.fake.zipcode(),
-            "country": "Netherlands"
+            "address_line_1": f"Teststraat {seq}",
+            "city": "Amsterdam",
+            "postal_code": f"{1000 + (seq % 9000):04d} AB",
+            "country": "Netherlands",
         }
         defaults.update(kwargs)
-        
+
+        if validate_fields:
+            self._validate_fields("Member", defaults)
+
         member = frappe.get_doc({"doctype": "Member", **defaults})
         member.insert(ignore_permissions=True)
         self.track_doc("Member", member.name)
-        
-        # Create chapter membership relationship
+
+        # Chapter assignment via service layer (with child-table fallback)
         if chapter:
-            chapter_name = chapter.name if hasattr(chapter, 'name') else chapter
-            chapter_doc = frappe.get_doc("Chapter", chapter_name)
-            chapter_doc.append("members", {
-                "member": member.name,
-                "enabled": 1,
-                "chapter_join_date": frappe.utils.today(),
-                "status": "Active"
-            })
-            chapter_doc.save(ignore_permissions=True)
-        
+            chapter_name = chapter.name if hasattr(chapter, "name") else chapter
+            try:
+                from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+                ChapterMembershipManager.assign_member_to_chapter(
+                    member_id=member.name,
+                    chapter_name=chapter_name,
+                    reason="Test data creation",
+                    assigned_by="Administrator",
+                )
+                member.reload()
+            except Exception:
+                # Fallback: direct child table append (for tests without Verenigingen Settings)
+                chapter_doc = frappe.get_doc("Chapter", chapter_name)
+                chapter_doc.append("members", {
+                    "member": member.name,
+                    "enabled": 1,
+                    "chapter_join_date": today(),
+                    "status": "Active",
+                })
+                chapter_doc.save(ignore_permissions=True)
+
+        # Opt-in customer creation for ERPNext integration tests
+        if auto_create_customer:
+            self._create_customer_for_member(member)
+
         return member
 
     def create_test_members(self, count: int = 10, chapters=None, **kwargs):
@@ -374,12 +440,14 @@ class CoreTestDataFactory:
         if not role_profile:
             role_profile = frappe.db.get_value("Role Profile", {}, "name")
 
+        seq = self._get_next_sequence("membership_type")
+        amounts = [25, 50, 75, 100, 150, 200]
         defaults = {
-            "membership_type_name": f"Test Type {self.fake.word().title()} - {self.test_run_id}",
-            "minimum_amount": flt(self.fake.random_int(min=25, max=200)),
+            "membership_type_name": f"Test Type {seq} - {self.test_run_id}",
+            "minimum_amount": flt(amounts[(seq - 1) % len(amounts)]),
             "is_active": 1,
             "billing_period": "Annual",
-            "role_profile": role_profile
+            "role_profile": role_profile,
         }
         defaults.update(kwargs)
 
@@ -389,21 +457,35 @@ class CoreTestDataFactory:
         return membership_type
 
     # CORE METHOD 5: Volunteer Creation
-    def create_test_volunteer(self, member=None, **kwargs):
-        """Create test volunteer with intelligent defaults"""
+    def create_test_volunteer(self, *, member=None, validate_fields=False, **kwargs):
+        """Create test volunteer with deterministic defaults.
+
+        Args:
+            member: Member doc or name. Auto-created if None.
+            validate_fields: If True, validates kwargs against DocType schema.
+            **kwargs: Field overrides for the Volunteer document.
+        """
         if member is None:
             member = self.create_test_member()
-        
+
+        member_name = member.name if hasattr(member, "name") else member
+        if hasattr(member, "first_name"):
+            vol_name = f"{member.first_name} {member.last_name}"
+        else:
+            vol_name = f"{self._generate_name('first')} {self._generate_name('last')}"
+
         defaults = {
-            "member": member.name if hasattr(member, 'name') else member,
-            "volunteer_name": f"{member.first_name} {member.last_name}" if hasattr(member, 'first_name') else self.fake.name(),
-            "email": self.fake.email(),
+            "member": member_name,
+            "volunteer_name": vol_name,
+            "email": self._generate_email("volunteer"),
             "status": "Active",
             "start_date": today(),
-            "skills": self.fake.sentence(nb_words=3)
         }
         defaults.update(kwargs)
-        
+
+        if validate_fields:
+            self._validate_fields("Volunteer", defaults)
+
         volunteer = frappe.get_doc({"doctype": "Volunteer", **defaults})
         volunteer.insert(ignore_permissions=True)
         self.track_doc("Volunteer", volunteer.name)
@@ -411,8 +493,9 @@ class CoreTestDataFactory:
 
     # CORE METHOD: Team Creation with Team Role Support
     def create_test_team(self, **kwargs):
-        """Create test team with intelligent defaults"""
-        team_name = f"Test Team {self.fake.company()} - {self.test_run_id}"
+        """Create test team with deterministic defaults"""
+        seq = self._get_next_sequence("team")
+        team_name = f"Test Team {seq} - {self.test_run_id}"
         
         defaults = {
             "team_name": team_name,
@@ -556,26 +639,30 @@ class CoreTestDataFactory:
 
     # UTILITY METHODS (Enhanced)
     def generate_test_iban(self, bank_code: str = None) -> str:
-        """Generate valid test IBAN with proper checksum"""
+        """Generate valid test IBAN with deterministic sequential generation.
+
+        Delegates to iban_validator.generate_test_iban() with inline MOD-97 fallback.
+        """
+        bank_codes = ["TEST", "MOCK", "DEMO"]
         if bank_code is None:
-            bank_code = random.choice(["TEST", "MOCK", "DEMO"])
-        
-        # Generate account number
-        account_number = f"{random.randint(1000000000, 9999999999)}"
-        
-        # Calculate MOD-97 checksum for valid IBAN
-        temp_iban = f"NL00{bank_code}{account_number}"
-        
-        # MOD-97 calculation
-        numeric_string = ""
-        for char in temp_iban[4:] + "NL00":
-            if char.isdigit():
-                numeric_string += char
-            else:
-                numeric_string += str(ord(char) - ord('A') + 10)
-        
-        checksum = 98 - (int(numeric_string) % 97)
-        return f"NL{checksum:02d}{bank_code}{account_number}"
+            bank_code = bank_codes[self._get_next_sequence("bank") % len(bank_codes)]
+
+        account_number = f"{self._get_next_sequence('account'):010d}"
+
+        try:
+            from verenigingen.utils.validation.iban_validator import generate_test_iban
+            return generate_test_iban(bank_code, account_number)
+        except ImportError:
+            # Inline MOD-97 fallback if iban_validator not available
+            temp_iban = f"NL00{bank_code}{account_number}"
+            numeric_string = ""
+            for char in temp_iban[4:] + "NL00":
+                if char.isdigit():
+                    numeric_string += char
+                else:
+                    numeric_string += str(ord(char) - ord("A") + 10)
+            checksum = 98 - (int(numeric_string) % 97)
+            return f"NL{checksum:02d}{bank_code}{account_number}"
 
     def derive_bic_from_test_iban(self, iban: str) -> str:
         """Derive BIC from test IBAN"""

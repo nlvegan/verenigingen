@@ -313,7 +313,11 @@ class EnhancedTestDataFactory:
         
         # ISOLATION ENHANCEMENT: Track created documents for cleanup
         self.created_documents = []
-        
+
+        # Delegate core entity creation to CoreTestDataFactory
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+        self.core = CoreTestDataFactory(cleanup_on_exit=False, seed=seed)
+
     def get_next_sequence(self, prefix: str) -> int:
         """Get next sequence number for deterministic data"""
         self.sequence_counters[prefix] = self.sequence_counters.get(prefix, 0) + 1
@@ -558,141 +562,74 @@ class EnhancedTestDataFactory:
         return data
         
     def create_member(self, **kwargs):
-        """Create member with business rule and field validation"""
+        """Create member with business rule and field validation.
+
+        Delegates core entity creation to CoreTestDataFactory while preserving
+        Enhanced-specific field validation, business rules, and post-processing.
+        """
         # Ensure test flag is set to bypass rate limiting
-        if not hasattr(frappe, 'flags'):
+        if not hasattr(frappe, "flags"):
             frappe.flags = frappe._dict()
         frappe.flags.in_test = True
-        # Fields that might be custom, runtime, or handled separately (like addresses)
-        skip_validation_fields = {
-            'chapter', 'suspension_reason', 'termination_reason',
-            'termination_date', 'join_date',
-            # Address fields - not on Member, handled via Address DocType
-            'address_line1', 'city', 'pincode', 'postal_code', 'country',
-            # Student fields - might not exist in all configurations
-            'is_student', 'student_id',
-            # Volunteer fields - stored in application data, not on Member DocType
-            'volunteer_availability', 'volunteer_skills', 'volunteer_availability_time',
-            'volunteer_experience_level', 'volunteer_areas', 'volunteer_skill_level',
-            'volunteer_comments'
-        }
 
-        # Validate fields exist in Member doctype
+        # --- Enhanced pre-processing: field validation ---
+        skip_validation_fields = {
+            "chapter", "suspension_reason", "termination_reason",
+            "termination_date", "join_date",
+            "address_line1", "city", "pincode", "postal_code", "country",
+            "is_student", "student_id",
+            "volunteer_availability", "volunteer_skills", "volunteer_availability_time",
+            "volunteer_experience_level", "volunteer_areas", "volunteer_skill_level",
+            "volunteer_comments",
+        }
         for field in kwargs.keys():
             if field not in skip_validation_fields:
                 self.validate_field_exists("Member", field)
-            
-        # Set intelligent defaults - include unique suffix in last_name to prevent Customer name collisions
-        test_name_parts = self.generate_test_name("Member").split()
-        # test_name_parts is like ["TEST", "Adam", "Lee", "001123456"]
-        # We need the suffix (index 3+) appended to last_name for unique Customer names
-        unique_suffix = test_name_parts[3] if len(test_name_parts) > 3 else str(self.get_next_sequence('member'))
-        defaults = {
-            "first_name": test_name_parts[1] if len(test_name_parts) > 1 else "Test",
-            "last_name": f"{test_name_parts[2] if len(test_name_parts) > 2 else 'Member'}{unique_suffix}",  # Include suffix for unique Customer name
-            "email": self.generate_test_email("member"),
-            "birth_date": add_days(getdate(), -random.randint(6570, 25550)),  # 18-70 years old (validated via AgeValidator)
-            "status": "Active",
-            "contact_number": self.generate_test_phone(),
-            "member_id": self._generate_unique_test_member_id()  # Ensure unique member ID for tests
-        }
 
-        # Merge with provided kwargs
-        data = {**defaults, **kwargs}
+        # --- Enhanced pre-processing: unique naming for Customer collision prevention ---
+        unique_suffix = str(self.get_next_sequence("member_unique"))
+        if "last_name" in kwargs and unique_suffix not in kwargs["last_name"]:
+            kwargs["last_name"] = f"{kwargs['last_name']}{unique_suffix}"
+        if "email" in kwargs:
+            email = kwargs["email"]
+            if "@" in email and not any(c.isdigit() for c in email.split("@")[0][-5:]):
+                local, domain = email.rsplit("@", 1)
+                kwargs["email"] = f"{local}.{unique_suffix}@{domain}"
 
-        # IMPORTANT: Ensure unique last_name for Customer creation
-        # Customer name is derived from first_name + last_name, so duplicates cause IntegrityError
-        # If test provides a last_name, append unique suffix to prevent collisions
-        if 'last_name' in kwargs and unique_suffix not in data['last_name']:
-            data['last_name'] = f"{data['last_name']}{unique_suffix}"
+        # --- Enhanced pre-processing: business rule validation ---
+        kwargs = self.validate_member_business_rules(kwargs)
 
-        # Also ensure unique email to prevent duplicate Contact errors
-        if 'email' in kwargs:
-            # Add suffix before @ if not already unique-looking
-            email = data['email']
-            if '@' in email and not any(char.isdigit() for char in email.split('@')[0][-5:]):
-                local, domain = email.rsplit('@', 1)
-                data['email'] = f"{local}.{unique_suffix}@{domain}"
+        # Extract chapter (handled by Core's ChapterMembershipManager)
+        chapter = kwargs.pop("chapter", None)
 
-        # Validate business rules
-        data = self.validate_member_business_rules(data)
-        
-        # Validate required fields using meta
+        # --- Delegate to CoreTestDataFactory ---
         try:
-            meta = frappe.get_meta("Member")
-            for field in meta.fields:
-                if field.reqd and field.fieldname not in data:
-                    if field.fieldtype == "Data":
-                        data[field.fieldname] = f"Test-{field.fieldname}"
-                    elif field.fieldtype == "Select" and field.options:
-                        data[field.fieldname] = field.options.split("\n")[0]
-        except (frappe.DoesNotExistError, AttributeError) as e:
-            frappe.log_error(f"Failed to get Member meta for field validation: {e}", "EnhancedTestFactory")
-            # Continue without meta validation - let document validation catch issues
-        
-        try:
-            member = frappe.get_doc({
-                "doctype": "Member",
-                **data
-            })
-            
-            # Insert using Administrator for tests (required for member creation)
-            current_user = frappe.session.user
-            try:
-                frappe.set_user("Administrator")
-                member.insert()
-
-                # Track for cleanup in tearDown
-                self.track_document("Member", member.name, priority=5)
-
-                # Create Customer and Address for invoice generation (infrastructure setup)
-                if not member.customer:
-                    # Set test flag to bypass rate limiting during test data creation
-                    original_in_test = getattr(frappe.local, 'in_test', False)
-                    frappe.local.in_test = True
-                    try:
-                        member.create_customer()
-                        member.reload()  # Reload to get customer field
-                    finally:
-                        frappe.local.in_test = original_in_test
-                
-                # Create Customer Address if missing (required for invoice generation)
-                if member.customer and not self._has_customer_address(member.customer):
-                    self._create_customer_address(member)
-
-                # Create Member Address if address fields were provided
-                if any(key in kwargs for key in ['address_line1', 'city', 'pincode', 'postal_code']):
-                    member_address = self.create_address(
-                        address_line1=kwargs.get('address_line1'),
-                        city=kwargs.get('city'),
-                        pincode=kwargs.get('pincode') or kwargs.get('postal_code'),
-                        link_doctype="Member",
-                        link_name=member.name,
-                        address_title=f"{member.full_name} - Address"
-                    )
-                    # Link to member's primary_address field
-                    member.primary_address = member_address.name
-                    member.save()
-
-                # Assign to chapter if chapter was provided
-                if 'chapter' in kwargs and kwargs['chapter']:
-                    from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
-                    ChapterMembershipManager.assign_member_to_chapter(
-                        member_id=member.name,
-                        chapter_name=kwargs['chapter'],
-                        reason="Test data creation",
-                        assigned_by=frappe.session.user
-                    )
-                    member.reload()
-
-                return member
-            finally:
-                frappe.set_user(current_user)
+            member = self.core.create_test_member(
+                chapter=chapter or False,  # False = skip auto-chapter in Core
+                auto_create_customer=True,
+                **kwargs,
+            )
         except BusinessRuleError:
-            # Re-raise BusinessRuleError as-is for tests that expect it
             raise
         except Exception as e:
             raise Exception(f"Failed to create member: {e}")
+
+        # --- Enhanced post-processing: Member Address if address fields provided ---
+        if any(key in kwargs for key in ["address_line1", "city", "pincode", "postal_code"]):
+            member_address = self.create_address(
+                address_line1=kwargs.get("address_line1"),
+                city=kwargs.get("city"),
+                pincode=kwargs.get("pincode") or kwargs.get("postal_code"),
+                link_doctype="Member",
+                link_name=member.name,
+                address_title=f"{member.full_name} - Address",
+            )
+            member.primary_address = member_address.name
+            member.save()
+
+        # Track in Enhanced's own cleanup system
+        self.track_document("Member", member.name, priority=5)
+        return member
     
     def _has_customer_address(self, customer_name):
         """Check if customer has an address"""
@@ -740,215 +677,78 @@ class EnhancedTestDataFactory:
         )
             
     def create_volunteer(self, member_name: str = None, **kwargs):
-        """Create volunteer with business rule and field validation"""
+        """Create volunteer with field validation and business rules.
+
+        Delegates core entity creation to CoreTestDataFactory while preserving
+        Enhanced-specific field validation, _exact_name/_exact_email controls,
+        and business rule enforcement.
+        """
         # Create member if not provided
         if not member_name:
             member = self.create_member()
             member_name = member.name
-            
-        # Validate fields (skip control parameters starting with _)
+
+        # Enhanced field validation (skip control parameters starting with _)
         for field in kwargs.keys():
-            if not field.startswith('_'):  # Skip control parameters like _exact_name
+            if not field.startswith("_"):
                 self.validate_field_exists("Volunteer", field)
-            
-        # Set intelligent defaults with forced uniqueness
-        base_volunteer_name = self.generate_test_name("Verenigingen Volunteer")
-        defaults = {
-            "volunteer_name": self.force_unique_name(base_volunteer_name, "Volunteer"),
-            "email": self.generate_test_email("volunteer"),
-            "member": member_name,
-            "status": "Active",
-            "start_date": getdate()
-        }
-        
-        data = {**defaults, **kwargs}
-        
-        # QCE FIX: Apply unique naming to volunteer_name if provided to prevent test conflicts
-        # But allow tests to specify exact values with _exact_name suffix
-        if "volunteer_name" in kwargs:
-            if kwargs.get("_exact_name", False):
-                # Allow exact volunteer name for specific test requirements
-                data["volunteer_name"] = kwargs["volunteer_name"]
-            else:
-                data["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"], "Volunteer")
-            
-        # QCE FIX: Apply unique email generation if email provided to prevent test conflicts
-        # Unless _exact_email=True is specified (needed when email must match User account)
-        if "email" in kwargs:
-            if kwargs.get("_exact_email", False):
-                # Allow exact email for specific test requirements (e.g., matching User accounts)
-                data["email"] = kwargs["email"]
-            else:
-                # Extract purpose from provided email and make it unique
-                purpose = "volunteer"
-                if "@" in kwargs["email"]:
-                    local_part = kwargs["email"].split("@")[0]
-                    purpose = local_part.replace(".", "_").replace("-", "_")
-                # Truncate purpose to keep email length reasonable
-                purpose = purpose[:30] if len(purpose) > 30 else purpose
-                seq = self.get_next_sequence(f'email_{purpose}')
-                # Add timestamp and PID for uniqueness across parallel test jobs
-                import time
-                import os
-                timestamp = int(time.time() * 1000000) % 100000000
-                pid = os.getpid() % 10000
-                data["email"] = f"{purpose}_{seq}_{pid}_{timestamp}@example.com"
-        
-        # Remove control parameters before validation
-        clean_data = {k: v for k, v in data.items() if not k.startswith('_')}
 
-        # Validate business rules
-        clean_data = self.validate_volunteer_business_rules(clean_data)
-        # Validate required fields using meta
-        try:
-            meta = frappe.get_meta("Volunteer")
-            for field in meta.fields:
-                if field.reqd and field.fieldname not in clean_data:
-                    if field.fieldtype == "Data":
-                        clean_data[field.fieldname] = f"Test-{field.fieldname}"
-                    elif field.fieldtype == "Select" and field.options:
-                        clean_data[field.fieldname] = field.options.split("\n")[0]
-        except (frappe.DoesNotExistError, AttributeError) as e:
-            frappe.log_error(f"Failed to get Volunteer meta for field validation: {e}", "EnhancedTestFactory")
-            # Continue without meta validation - let document validation catch issues
+        # _exact_name / _exact_email control: force uniqueness unless caller opts out
+        if "volunteer_name" in kwargs and not kwargs.pop("_exact_name", False):
+            kwargs["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"], "Volunteer")
+        if "email" in kwargs and not kwargs.pop("_exact_email", False):
+            seq = self.get_next_sequence("vol_email_unique")
+            local = kwargs["email"].split("@")[0] if "@" in kwargs["email"] else "vol"
+            kwargs["email"] = f"{local[:30]}_{seq}@test.invalid"
+
+        # Remove remaining control parameters before passing to Core
+        clean_kwargs = {k: v for k, v in kwargs.items() if not k.startswith("_")}
+
+        # Enhanced business rule validation
+        clean_kwargs["member"] = member_name
+        clean_kwargs = self.validate_volunteer_business_rules(clean_kwargs)
+        # Remove member so it can be passed as keyword arg to Core
+        member_for_core = clean_kwargs.pop("member")
+
+        # Set flags to skip automatic account creation during tests
+        frappe.flags.skip_volunteer_account_creation = True
 
         try:
-            # Set flags to skip automatic account creation during tests
-            frappe.flags.skip_volunteer_account_creation = True
-
-            # Ensure proper user context for volunteer creation
-            self.ensure_test_user_has_role("Verenigingen Administrator")
-
-            volunteer = frappe.get_doc({
-                "doctype": "Volunteer",
-                **clean_data
-            })
-
-            # Insert without bypassing permissions - validates proper role configuration
-            volunteer.insert()
-            self.track_document("Volunteer", volunteer.name)
-            return volunteer
+            volunteer = self.core.create_test_volunteer(member=member_for_core, **clean_kwargs)
         except BusinessRuleError:
-            # Re-raise BusinessRuleError as-is for tests that expect it
             raise
         except Exception as e:
-            # Enhanced debugging for volunteer creation failures
-            error_details = []
-            error_details.append(f"Volunteer creation failed: {str(e)}")
-            error_details.append(f"Data provided: {clean_data}")
-            if hasattr(e, '__traceback__'):
-                import traceback
-                error_details.append(f"Full traceback: {traceback.format_exc()}")
-
-            full_error = "\n".join(error_details)
-            print(f"DEBUG: {full_error}")  # Debug output
             raise Exception(f"Failed to create volunteer: {e}")
+
+        self.track_document("Volunteer", volunteer.name)
+        return volunteer
             
     def create_chapter(self, **kwargs):
-        """Create chapter with validation"""
+        """Create chapter with field validation, delegating to CoreTestDataFactory.
+
+        Preserves Enhanced-specific region-existence checks and field validation.
+        """
+        # Enhanced field validation
         for field in kwargs.keys():
             self.validate_field_exists("Chapter", field)
-            
-        # Create or find region before setting defaults
-        region_name = kwargs.get('region') if kwargs else None
-        if not region_name:
-            # Always use simple test region names to avoid link validation issues
-            # Faker state names like "North Dakota" can cause problems in tests
-            region_name = f"TestRegion-{self.get_next_sequence('region')}"
-        
-        # Ensure region exists - only create if missing to avoid duplicate infrastructure
-        # Region uses autoname field:region_name which converts "Test Region" to "test-region"
-        # WHY dual-check: Region autoname converts display name to URL-friendly format.
-        # We check both the autoname result (test-region) and original name (Test Region)
-        # because callers may use either format. This prevents duplicate entry errors.
-        region_autoname = region_name.lower().replace(" ", "-")
-        if not frappe.db.exists("Region", region_autoname) and not frappe.db.exists("Region", region_name):
-            try:
-                # Generate unique region code - keep trying until we find one that doesn't exist
-                import time
-                base_code = region_name[:2].upper()
-                region_code = None
-                max_attempts = 10
 
-                for attempt in range(max_attempts):
-                    # Use timestamp-based suffix for uniqueness
-                    suffix = str(int(time.time() * 1000))[-3:]
-                    test_code = f"{base_code}{suffix}"
+        # Ensure region exists if caller provided one
+        region_name = kwargs.get("region")
+        if region_name:
+            region_autoname = region_name.lower().replace(" ", "-")
+            if not frappe.db.exists("Region", region_autoname) and not frappe.db.exists("Region", region_name):
+                region_doc = self.core.create_test_region(region_name=region_name)
+                self.track_document("Region", region_doc.name, priority=1)
+                kwargs["region"] = region_doc.name
 
-                    # Check if this code already exists
-                    if not frappe.db.exists("Region", {"region_code": test_code}):
-                        region_code = test_code
-                        break
-
-                    # Wait a tiny bit to get a different timestamp
-                    time.sleep(0.001)
-
-                if not region_code:
-                    # Fallback: use random suffix if all attempts failed
-                    import random
-                    region_code = f"{base_code}{random.randint(100, 999)}"
-
-                test_region = frappe.get_doc({
-                    "doctype": "Region",
-                    "region_name": region_name,
-                    "region_code": region_code
-                })
-                test_admin = self.ensure_test_admin_user()
-                current_user = frappe.session.user
-                try:
-                    frappe.set_user(test_admin.email)
-                    test_region.insert()
-                    # Priority 1: Infrastructure - deleted first during cleanup before dependent Chapters
-                    self.track_document("Region", test_region.name, priority=1)
-                finally:
-                    frappe.set_user(current_user)
-            except Exception as e:
-                # Truncate region_name to avoid Error Log title length limit
-                short_region = region_name[:30] + "..." if len(region_name) > 30 else region_name
-                frappe.log_error(f"Region create fail: {short_region}, {str(e)[:70]}", "ETF Region")
-                # Re-raise to fail fast - don't continue if region creation fails
-                raise Exception(f"Failed to create required Region '{region_name}': {e}")
-
-        # Generate unique chapter name based on timestamp
-        import time
-        unique_suffix = str(int(time.time() * 1000))[-10:]  # Last 10 digits for more uniqueness
-        
-        defaults = {
-            "name": f"TEST-Chapter-{unique_suffix}",
-            "region": region_autoname,  # Use autoname version (test-region not Test Region)
-            "postal_codes": f"{1000 + self.get_next_sequence('postal'):04d}",
-            "contact_email": f"chapter{unique_suffix}@test.invalid",
-            "introduction": f"Test chapter created by EnhancedTestDataFactory - {self.test_run_id}"
-        }
-        
-        data = {**defaults, **kwargs}
-        # Validate required fields using meta
+        # Delegate to Core
         try:
-            meta = frappe.get_meta("Chapter")
-            for field in meta.fields:
-                if field.reqd and field.fieldname not in data:
-                    if field.fieldtype == "Data":
-                        data[field.fieldname] = f"Test-{field.fieldname}"
-                    elif field.fieldtype == "Select" and field.options:
-                        data[field.fieldname] = field.options.split("\n")[0]
-        except (frappe.DoesNotExistError, AttributeError) as e:
-            frappe.log_error(f"Failed to get Chapter meta for field validation: {e}", "EnhancedTestFactory")
-            # Continue without meta validation - let document validation catch issues
-        
-        try:
-            chapter = frappe.get_doc({
-                "doctype": "Chapter",
-                **data
-            })
-            
-            chapter.insert(ignore_permissions=True)  # OK in factory method
-
-            # Track for cleanup in tearDown
-            self.track_document("Chapter", chapter.name, priority=4)
-
-            return chapter
+            chapter = self.core.create_test_chapter(**kwargs)
         except Exception as e:
             raise Exception(f"Failed to create chapter: {e}")
+
+        self.track_document("Chapter", chapter.name, priority=4)
+        return chapter
             
     def create_volunteer_skill(self, volunteer_name: str, skill_data: Dict[str, Any]):
         """Create volunteer skill with validation"""
@@ -1041,22 +841,9 @@ class EnhancedTestDataFactory:
         return base_data
         
     def create_test_iban(self, bank_code: str = None) -> str:
-        """Generate deterministic test IBAN"""
-        if not bank_code:
-            # Use deterministic selection instead of random
-            bank_codes = ["TEST", "MOCK", "DEMO"]
-            bank_code = bank_codes[self.get_next_sequence('bank') % len(bank_codes)]
-            
-        # Generate deterministic account number
-        account_number = f"{self.get_next_sequence('account'):010d}"
-        
-        try:
-            from verenigingen.utils.validation.iban_validator import generate_test_iban
-            return generate_test_iban(bank_code, account_number)
-        except ImportError:
-            # Fallback if IBAN validator not available
-            return f"NL{self.get_next_sequence('fallback_iban'):02d}{bank_code}0{account_number[:10]}"
-    
+        """Generate deterministic test IBAN — delegates to Core."""
+        return self.core.generate_test_iban(bank_code)
+
     def ensure_test_chapter(self, chapter_name: str, attributes: dict = None) -> frappe._dict:
         """Ensure a test chapter exists, create if not"""
         if frappe.db.exists("Chapter", chapter_name):
