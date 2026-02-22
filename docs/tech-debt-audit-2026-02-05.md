@@ -947,33 +947,17 @@ Pattern: compare old vs new doc → detect changes → update history
 
 ## 9. Consolidation Roadmap
 
-### Phase 1: Quick Wins (1-2 days, ~195 LOC reduction)
+### Phase 1: Quick Wins — COMPLETED (2026-02-05)
 
-| Task | LOC Saved | Complexity |
-|------|-----------|-----------|
-| Remove `ChapterMixin.handle_chapter_assignment()` dead code | 3 | Trivial |
-| Remove FinancialMixin placeholder methods | 36 | Trivial |
-| Extract `ServiceDelegationMixin` | 80 | Low |
-| Create `VerenigingenSettingsCache` for shared settings | 15 | Low |
-| Extract `HistoryEntryBuilder` from ExpenseMixin | 60 | Medium |
+~195 LOC reduction achieved: dead code removed, placeholder methods deleted.
 
-### Phase 2: Notification Consolidation (3-4 days, ~200 LOC reduction)
+### Phase 2: Notification Consolidation — COMPLETED (2026-02-06)
 
-| Task | LOC Saved | Complexity |
-|------|-----------|-----------|
-| Remove notifications from BoardManager → delegate to CommunicationManager | 92 | Medium |
-| Remove notifications from MemberManager → delegate to CommunicationManager | 100 | Medium |
-| Update all call sites | — | Medium |
+~265 LOC reduction: Board/MemberManager notifications consolidated into CommunicationManager.
 
-### Phase 3: Volunteer & History Consolidation (3-5 days, ~750 LOC reduction)
+### Phase 3: Volunteer & History Consolidation — COMPLETED (2026-02-07)
 
-| Task | LOC Saved | Complexity |
-|------|-----------|-----------|
-| Remove volunteer ops from BoardManager → delegate to VolunteerIntegrationManager | 52 | Low |
-| Create `BaseHistoryManager` | +120 (new) | Medium |
-| Migrate AssignmentHistoryManager to base class | ~291 | Medium |
-| Migrate ChapterMembershipHistoryManager to base class | ~435 | Medium |
-| Refactor IbanHistoryManager to class-based | ~112 | Medium |
+~254 net LOC reduction: BaseHistoryManager created, volunteer delegation consolidated, IBAN cleanup.
 
 ### Phase 4: PaymentMixin Refactoring (5-7 days, ~280 LOC reduction)
 
@@ -1160,5 +1144,17 @@ verenigingen/doctype/chapter_membership_history/chapter_membership_history.py (1
 
 ---
 
-*Report generated 2026-02-05 by Claude Code tech debt audit.*
+### Test Factory Consolidation — COMPLETED (2026-02-22)
+
+Separate initiative across 3 phases + bugfix:
+- Phase 1 (commit `614f356e`): Renamed factory, deleted orphans, absorbed SecureTestDataFactory (-1,500 LOC)
+- Phase 2 (commit `1ffda7ff`): CoreTestDataFactory enhanced with deterministic generation (-126 LOC)
+- Phase 3 (commit `8209e167`): Shadow factory migration — eliminated 28 shadow methods across 23 files (-715 LOC)
+- Bugfix (commit `f74d8b99`): Fixed `flags.in_print` pollution + DuplicateEntryError — 31 additional test failures resolved
+
+Design doc: `docs/plans/2026-02-21-test-factory-consolidation-design.md`
+
+---
+
+*Report generated 2026-02-05 by Claude Code tech debt audit. Last updated 2026-02-23.*
 *Reviewed: 50+ files, ~14,000 LOC across 5 DocTypes, 6 mixins, 5 managers, 5 validators, and 15+ history files.*
