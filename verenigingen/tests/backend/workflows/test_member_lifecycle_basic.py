@@ -7,9 +7,12 @@ Basic Member Lifecycle Test
 Tests the core member journey without complex dependencies
 """
 
+import time
+
 import frappe
+from frappe.utils import add_days, add_months, today
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from frappe.utils import add_days, add_months, today, random_string
 
 
 class TestMemberLifecycleBasic(EnhancedTestCase):
@@ -31,7 +34,8 @@ class TestMemberLifecycleBasic(EnhancedTestCase):
         
         # Stage 1: Create Member
         print("\n📝 Stage 1: Create Member")
-        test_id = random_string(8)
+        # Use timestamp for uniqueness (random is seeded by EnhancedTestCase)
+        test_id = f"{int(time.time() * 1000000) % 100000000}"
         
         # Use existing chapter or skip chapter assignment
         existing_chapters = frappe.get_all("Chapter", limit=1)
@@ -70,7 +74,7 @@ class TestMemberLifecycleBasic(EnhancedTestCase):
             "first_name": member.first_name,
             "last_name": member.last_name,
             "enabled": 1,
-            "new_password": random_string(10),
+            "new_password": f"TestPass{test_id}!",
             "send_welcome_email": 0
         })
         # Add role if it exists

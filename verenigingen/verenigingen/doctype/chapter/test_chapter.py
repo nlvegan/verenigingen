@@ -1,8 +1,7 @@
 # Copyright (c) 2017, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import random
-import string
+import time
 
 import frappe
 from frappe.utils import getdate, today
@@ -15,20 +14,18 @@ class TestChapter(EnhancedTestCase):
         """Set up test data"""
         super().setUp()  # EnhancedTestCase handles permissions and cleanup
 
-        # Generate unique identifier for test class
-        self.base_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        # Generate unique identifier for test class using timestamp (not random,
+        # because EnhancedTestCase seeds random before each test method)
+        self.base_id = f"{int(time.time() * 1000000) % 100000000}"
 
         # Create test data using Enhanced Test Factory
         self.create_test_prerequisites()
 
     def get_unique_id(self):
         """Get a unique identifier for each test method call"""
-        import time
-
-        # Use timestamp + random to ensure uniqueness even if random seed is fixed
-        timestamp = str(int(time.time() * 1000000) % 1000000)  # Last 6 digits of microseconds
-        rand_suffix = random.randint(100, 999)
-        return f"{self.base_id}-{timestamp}-{rand_suffix}"
+        # Use timestamp for uniqueness (random is seeded by EnhancedTestCase)
+        timestamp = str(int(time.time() * 1000000) % 1000000)
+        return f"{self.base_id}-{timestamp}"
 
     def tearDown(self):
         """Clean up test data"""
@@ -90,6 +87,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter for unit tests",
                 "published": 1,
                 "chapter_head": self.test_member.name,
@@ -132,6 +130,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
                 "postal_codes": "1000-1999, 2000, 3000-3099",
             }
@@ -151,6 +150,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
                 "chapter_head": self.test_member.name,
             }
@@ -201,6 +201,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
             }
         )
@@ -264,6 +265,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter Board {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter for board member status",
             }
         )
@@ -296,6 +298,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
             }
         )
@@ -319,6 +322,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
                 "email": f"chapter{unique_id}@example.org",
                 "phone": "+31612345678",
@@ -341,6 +345,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
                 "published": 0,
             }
@@ -366,6 +371,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
                 "city": "Amsterdam",
                 "state": "North Holland",
@@ -388,6 +394,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
                 "postal_codes": "1000-1999",
             }
@@ -415,6 +422,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
             }
         )
@@ -438,6 +446,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
             }
         )
@@ -461,7 +470,10 @@ class TestChapter(EnhancedTestCase):
 
         # Add members to chapter roster (new structure without member_name)
         for member in members:
-            chapter.append("members", {"member": member.name, "chapter_join_date": today(), "enabled": 1})
+            chapter.append(
+                "members",
+                {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
+            )
 
         chapter.save()  # EnhancedTestCase handles permissions
         chapter.reload()
@@ -493,6 +505,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter",
             }
         )
@@ -574,6 +587,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test BoardManager {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter for BoardManager",
             }
         )
@@ -649,6 +663,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,  # Use test region created in setUp
+                "status": "Active",
                 "introduction": "Test chapter for searching",
                 "published": 1,
                 "postal_codes": "1000-1999",
@@ -680,6 +695,7 @@ class TestChapter(EnhancedTestCase):
                     "doctype": "Chapter",
                     "name": f"Empty Test {unique_id}",
                     "region": "",  # Empty required field
+                    "status": "Active",
                     "introduction": "Test chapter",
                 }
             )
@@ -695,6 +711,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Long Text Test {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": long_text,
             }
         )
@@ -715,6 +732,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Delete Test {unique_id}",
                 "region": self.test_region,
+                "status": "Active",
                 "introduction": "Test chapter for deletion",
             }
         )
@@ -762,6 +780,7 @@ class TestChapter(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter {unique_id}",
                 "region": self.test_region,  # Use test region created in setUp
+                "status": "Active",
                 "introduction": "Test chapter",
                 "postal_codes": "1000-1999,2500,3000-3099",
                 "address": "123 Test Street\n1234 AB Test City\nNetherlands",
