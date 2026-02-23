@@ -999,70 +999,49 @@ def _get_or_create_generic_supplier(description, debug_info):
     return _get_or_create_generic_party("Supplier", description, debug_info)
 
 
-def _get_or_create_company_as_customer(company, debug_info):
+def _get_or_create_company_party(party_type, company, debug_info):
     """
-    Get or create the company as a customer for internal transactions.
+    Get or create the company as a customer or supplier for internal transactions.
 
     Uses centralized BankTransactionParser for party creation to ensure
     consistent matching and creation logic across the codebase.
+
+    Args:
+        party_type: "Customer" or "Supplier"
+        company: Company name
+        debug_info: List to append debug messages to
     """
     try:
         from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
 
-        # Use the company name as customer name
-        customer_name = f"{company} (Internal)"
+        party_label = party_type.lower()
+        internal_name = f"{company} (Internal)"
 
-        # Use centralized party creation
         parser = BankTransactionParser()
         party_name, created = parser.find_or_create_party(
-            party_name=customer_name,
-            party_type="Customer",
+            party_name=internal_name,
+            party_type=party_type,
             iban=None,
         )
 
-        if created:
-            debug_info.append(f"Created company customer: {party_name}")
-        else:
-            debug_info.append(f"Found existing company customer: {party_name}")
+        action = "Created" if created else "Found existing"
+        debug_info.append(f"{action} company {party_label}: {party_name}")
 
         return party_name
 
     except Exception as e:
-        debug_info.append(f"Error creating company customer: {str(e)}")
+        debug_info.append(f"Error creating company {party_type.lower()}: {str(e)}")
         return None
+
+
+def _get_or_create_company_as_customer(company, debug_info):
+    """Get or create the company as a customer for internal transactions."""
+    return _get_or_create_company_party("Customer", company, debug_info)
 
 
 def _get_or_create_company_as_supplier(company, debug_info):
-    """
-    Get or create the company as a supplier for internal transactions.
-
-    Uses centralized BankTransactionParser for party creation to ensure
-    consistent matching and creation logic across the codebase.
-    """
-    try:
-        from verenigingen.e_boekhouden.utils.bank_transaction_parser import BankTransactionParser
-
-        # Use the company name as supplier name
-        supplier_name = f"{company} (Internal)"
-
-        # Use centralized party creation
-        parser = BankTransactionParser()
-        party_name, created = parser.find_or_create_party(
-            party_name=supplier_name,
-            party_type="Supplier",
-            iban=None,
-        )
-
-        if created:
-            debug_info.append(f"Created company supplier: {party_name}")
-        else:
-            debug_info.append(f"Found existing company supplier: {party_name}")
-
-        return party_name
-
-    except Exception as e:
-        debug_info.append(f"Error creating company supplier: {str(e)}")
-        return None
+    """Get or create the company as a supplier for internal transactions."""
+    return _get_or_create_company_party("Supplier", company, debug_info)
 
 
 @frappe.whitelist()
@@ -2222,35 +2201,38 @@ def _consolidate_mixed_invoice_if_needed(invoice, cost_center, company, debug_in
         )
 
 
-def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
-    """Create Sales Invoice with ALL available fields from detailed mutation data"""
+def _setup_invoice_common(doc, mutation_detail, company, debug_info):
+    """Set up common fields shared between sales and purchase invoices.
+
+    Handles: company, posting_date, currency, payment terms, remarks,
+    credit note detection, custom tracking fields.
+
+    Args:
+        doc: The invoice document (Sales Invoice or Purchase Invoice)
+        mutation_detail: eBoekhouden mutation data
+        company: Company name
+        debug_info: Debug message list
+
+    Returns:
+        tuple: (is_credit_note, effective_total_amount) or None if credit note detection fails
+    """
     from frappe.utils import add_days
 
     from .invoice_helpers import get_or_create_payment_terms
-    from .party_resolver import resolve_customer
 
     mutation_id = mutation_detail.get("id")
     description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
-    relation_id = mutation_detail.get("relationId")
     invoice_number = mutation_detail.get("invoiceNumber")
 
-    debug_info.append(f"Creating Sales Invoice for mutation {mutation_id}")
-
-    si = frappe.new_doc("Sales Invoice")
-
     # Basic fields
-    si.company = company
-    si.posting_date = mutation_detail.get("date")
-    si.set_posting_time = 1
+    doc.company = company
+    doc.posting_date = mutation_detail.get("date")
+    doc.set_posting_time = 1
 
-    # Customer - properly resolved
-    customer = resolve_customer(relation_id, debug_info)
-    si.customer = customer
-
-    # Currency - use company's default currency
+    # Currency
     company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
-    si.currency = company_currency
-    si.conversion_rate = 1.0
+    doc.currency = company_currency
+    doc.conversion_rate = 1.0
 
     # Payment terms and due date
     payment_days = mutation_detail.get("Betalingstermijn", 30)
@@ -2258,77 +2240,108 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
         try:
             payment_terms = get_or_create_payment_terms(payment_days)
             if payment_terms:
-                si.payment_terms_template = payment_terms
-                si.due_date = add_days(si.posting_date, payment_days)
-            else:
-                # Fallback: just set due date without payment terms template
-                si.due_date = add_days(si.posting_date, payment_days)
+                doc.payment_terms_template = payment_terms
+            doc.due_date = add_days(doc.posting_date, payment_days)
         except Exception as e:
             debug_info.append(f"Warning: Failed to create payment terms for {payment_days} days: {str(e)}")
-            # Fallback: just set due date without payment terms template
-            si.due_date = add_days(si.posting_date, payment_days)
-
-    # References
-    if mutation_detail.get("Referentie"):
-        si.po_no = mutation_detail.get("Referentie")
+            doc.due_date = add_days(doc.posting_date, payment_days)
 
     # Description
-    si.remarks = description
+    doc.remarks = description
 
-    # Check for credit notes and handle negative amounts (improved detection)
+    # Credit note detection
     credit_note_result = _detect_credit_note_improved(mutation_detail, debug_info)
     if credit_note_result is None:
         debug_info.append("ERROR: Credit note detection returned None - skipping invoice creation")
         return None
 
     is_credit_note, effective_total_amount = credit_note_result
-    si.is_return = is_credit_note
+    doc.is_return = is_credit_note
 
     if is_credit_note:
         debug_info.append(
             f"Processing as credit note (effective amount: {effective_total_amount}), will convert amounts to positive"
         )
 
-    # Set receivable account based on eBoekhouden ledgerID (proper SSoT approach)
+    # Custom tracking fields
+    doc.eboekhouden_mutation_nr = str(mutation_id)
+    if invoice_number:
+        doc.eboekhouden_invoice_number = invoice_number
+
+    return is_credit_note, effective_total_amount
+
+
+def _save_and_submit_invoice(doc, company, debug_info):
+    """Save and submit an invoice with fiscal year handling.
+
+    Args:
+        doc: The invoice document (Sales Invoice or Purchase Invoice)
+        company: Company name
+        debug_info: Debug message list
+    """
+    invoice_type = doc.doctype
+
+    try:
+        doc.save()
+        debug_info.append(f"Saved {invoice_type} draft: {doc.name}")
+    except Exception as save_error:
+        debug_info.append(f"ERROR: Failed to save {invoice_type}: {str(save_error)}")
+        raise
+
+    from .invoice_helpers import ensure_fiscal_year_exists
+
+    try:
+        ensure_fiscal_year_exists(doc.posting_date, company, debug_info)
+    except Exception as fy_error:
+        debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
+
+    try:
+        doc.submit()
+        debug_info.append(f"Submitted {invoice_type}: {doc.name}")
+    except Exception as submit_error:
+        debug_info.append(f"ERROR: Failed to submit {invoice_type} {doc.name}: {str(submit_error)}")
+        debug_info.append(f"Submit error type: {type(submit_error).__name__}")
+        raise
+
+    debug_info.append(f"Created enhanced {invoice_type} {doc.name} with {len(doc.items)} line items")
+
+
+def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
+    """Create Sales Invoice with ALL available fields from detailed mutation data"""
+    from .party_resolver import resolve_customer
+
+    mutation_id = mutation_detail.get("id")
+    description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
+    invoice_number = mutation_detail.get("invoiceNumber")
+    relation_id = mutation_detail.get("relationId")
+
+    debug_info.append(f"Creating Sales Invoice for mutation {mutation_id}")
+
+    si = frappe.new_doc("Sales Invoice")
+
+    # Common setup (company, currency, payment terms, credit note detection, tracking fields)
+    result = _setup_invoice_common(si, mutation_detail, company, debug_info)
+    if result is None:
+        return None
+    is_credit_note, _effective_total_amount = result
+
+    # Sales-specific fields
+    customer = resolve_customer(relation_id, debug_info)
+    si.customer = customer
+
+    if mutation_detail.get("Referentie"):
+        si.po_no = mutation_detail.get("Referentie")
+
     receivable_account = _resolve_receivable_account(mutation_detail, company, debug_info)
     if receivable_account:
         si.debit_to = receivable_account
-
-    # Custom tracking fields
-    si.eboekhouden_mutation_nr = str(mutation_id)
-    if invoice_number:
-        si.eboekhouden_invoice_number = invoice_number
 
     # Process line items, handle credit notes, and consolidate mixed invoices
     _process_invoice_line_items(
         si, mutation_detail, cost_center, is_credit_note, invoice_number, description, company, debug_info
     )
 
-    try:
-        si.save()
-        debug_info.append(f"Saved Sales Invoice draft: {si.name}")
-    except Exception as save_error:
-        debug_info.append(f"ERROR: Failed to save Sales Invoice: {str(save_error)}")
-        raise
-
-    # Ensure fiscal year exists before submission
-    from .invoice_helpers import ensure_fiscal_year_exists
-
-    try:
-        ensure_fiscal_year_exists(si.posting_date, company, debug_info)
-    except Exception as fy_error:
-        debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
-        # Continue anyway - the submit() will give a clearer error message
-
-    try:
-        si.submit()
-        debug_info.append(f"Submitted Sales Invoice: {si.name}")
-    except Exception as submit_error:
-        debug_info.append(f"ERROR: Failed to submit Sales Invoice {si.name}: {str(submit_error)}")
-        debug_info.append(f"Submit error type: {type(submit_error).__name__}")
-        raise
-
-    debug_info.append(f"Created enhanced Sales Invoice {si.name} with {len(si.items)} line items")
+    _save_and_submit_invoice(si, company, debug_info)
     return si
 
 
@@ -2836,109 +2849,46 @@ def _consolidate_purchase_invoice_and_save(invoice, cost_center, company, debug_
 
 def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     """Create Purchase Invoice with ALL available fields from detailed mutation data"""
-    from frappe.utils import add_days
-
-    from .invoice_helpers import get_or_create_payment_terms
     from .party_resolver import resolve_supplier
 
     mutation_id = mutation_detail.get("id")
-    description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
-    relation_id = mutation_detail.get("relationId")
     invoice_number = mutation_detail.get("invoiceNumber")
+    relation_id = mutation_detail.get("relationId")
 
     debug_info.append(f"Creating Purchase Invoice for mutation {mutation_id}")
 
     pi = frappe.new_doc("Purchase Invoice")
 
-    # Basic fields
-    pi.company = company
-    pi.posting_date = mutation_detail.get("date")
-    pi.set_posting_time = 1
+    # Common setup (company, currency, payment terms, credit note detection, tracking fields)
+    result = _setup_invoice_common(pi, mutation_detail, company, debug_info)
+    if result is None:
+        return None
+    is_credit_note, effective_total_amount = result
 
-    # Supplier - properly resolved
+    # Purchase-specific fields
     supplier = resolve_supplier(relation_id, debug_info)
     pi.supplier = supplier
 
-    # Currency - use company's default currency
-    company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
-    pi.currency = company_currency
-    pi.conversion_rate = 1.0
-
-    # Payment terms and due date
-    payment_days = mutation_detail.get("Betalingstermijn", 30)
-    if payment_days:
-        try:
-            payment_terms = get_or_create_payment_terms(payment_days)
-            if payment_terms:
-                pi.payment_terms_template = payment_terms
-                pi.due_date = add_days(pi.posting_date, payment_days)
-            else:
-                # Fallback: just set due date without payment terms template
-                pi.due_date = add_days(pi.posting_date, payment_days)
-        except Exception as e:
-            debug_info.append(f"Warning: Failed to create payment terms for {payment_days} days: {str(e)}")
-            # Fallback: just set due date without payment terms template
-            pi.due_date = add_days(pi.posting_date, payment_days)
-
-    # Bill number and references
     if invoice_number:
         pi.bill_no = invoice_number
     if mutation_detail.get("Referentie"):
         pi.supplier_invoice_no = mutation_detail.get("Referentie")
 
-    # Description
-    pi.remarks = description
-
-    # Credit note detection with parallel validation against new classifier
-    credit_note_result = _detect_credit_note_improved(mutation_detail, debug_info)
-    if credit_note_result is None:
-        debug_info.append("ERROR: Credit note detection returned None - skipping invoice creation")
-        return None
-
-    is_credit_note, effective_total_amount = credit_note_result
+    # Parallel credit note validation (purchase only)
     _run_parallel_credit_note_validation(
         mutation_id, mutation_detail, is_credit_note, effective_total_amount, debug_info
     )
-    pi.is_return = is_credit_note
 
-    if is_credit_note:
-        debug_info.append(
-            f"Processing as credit note (effective amount: {effective_total_amount}), will convert amounts to positive"
-        )
-
-    # Set payable account based on eBoekhouden ledgerID
     payable_account = _resolve_payable_account(mutation_detail, company, debug_info)
     if payable_account:
         pi.credit_to = payable_account
 
-    # Custom tracking fields
-    pi.eboekhouden_mutation_nr = str(mutation_id)
-    if invoice_number:
-        pi.eboekhouden_invoice_number = invoice_number
-
-    # Process line items, handle credit notes, consolidate mixed invoices, and save
+    # Process line items, handle credit notes, and consolidate mixed invoices
     _process_purchase_invoice_line_items(
         pi, mutation_detail, cost_center, is_credit_note, company, debug_info
     )
 
-    # Ensure fiscal year exists before submission (all paths)
-    from .invoice_helpers import ensure_fiscal_year_exists
-
-    try:
-        ensure_fiscal_year_exists(pi.posting_date, company, debug_info)
-    except Exception as fy_error:
-        debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
-        # Continue anyway - the submit() will give a clearer error message
-
-    try:
-        pi.submit()
-        debug_info.append(f"Submitted Purchase Invoice: {pi.name}")
-    except Exception as submit_error:
-        debug_info.append(f"ERROR: Failed to submit Purchase Invoice {pi.name}: {str(submit_error)}")
-        debug_info.append(f"Submit error type: {type(submit_error).__name__}")
-        raise
-
-    debug_info.append(f"Created enhanced Purchase Invoice {pi.name} with {len(pi.items)} line items")
+    _save_and_submit_invoice(pi, company, debug_info)
     return pi
 
 
