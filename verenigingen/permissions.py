@@ -335,6 +335,24 @@ def _is_member_in_chapters(member_name, chapter_names):
     return bool(result)
 
 
+def _has_admin_access(user_roles, admin_role_set=None):
+    """Check if user has any admin role.
+
+    Centralizes the admin role check pattern used across 13+ permission functions.
+
+    Args:
+        user_roles: List of role names for the user (from frappe.get_roles())
+        admin_role_set: Specific admin role set to check against.
+            Defaults to Roles.ADMIN_ROLES if not provided.
+
+    Returns:
+        True if user has at least one admin role
+    """
+    if admin_role_set is None:
+        admin_role_set = Roles.ADMIN_ROLES
+    return any(role in user_roles for role in admin_role_set)
+
+
 def _check_chapter_board_access(user, target_member_name):
     """Check if user has chapter board access to the target member.
 
@@ -382,9 +400,7 @@ def has_member_permission(doc, user=None, permission_type=None):
     user_roles = frappe.get_roles(user)
 
     # Admin roles always have access
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
-        frappe.logger().debug(f"User {user} has admin role, granting access")
+    if _has_admin_access(user_roles):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
@@ -476,9 +492,7 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
     user_roles = frappe.get_roles(user)
 
     # Admin roles always have access
-    admin_roles = Roles.VOLUNTEER_ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
-        frappe.logger().debug(f"User {user} has admin role, granting access")
+    if _has_admin_access(user_roles, Roles.VOLUNTEER_ADMIN_ROLES):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
@@ -559,9 +573,7 @@ def has_membership_permission(doc, user=None, permission_type=None):
     )
 
     # Admin roles always have access
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        frappe.logger().debug(f"User {user} has admin role, granting access")
+    if _has_admin_access(frappe.get_roles(user)):
         return True
 
     # Other permission checks would go here
@@ -588,9 +600,7 @@ def has_donor_permission(doc, user=None, permission_type=None):
     frappe.logger().debug(f"Checking Donor permissions for user {user} with roles {user_roles}")
 
     # Admin roles always have access (org-wide)
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
-        frappe.logger().debug(f"User {user} has admin role, granting access to donor")
+    if _has_admin_access(user_roles):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
@@ -666,8 +676,7 @@ def get_donor_permission_query(user):
     user_roles = frappe.get_roles(user)
 
     # Admin roles get access to all records (org-wide)
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in admin_roles for role in user_roles):
+    if _has_admin_access(user_roles):
         return ""  # No filter needed
 
     conditions = []
@@ -718,8 +727,7 @@ def has_donation_permission(doc, user=None, permission_type=None):
     user_roles = frappe.get_roles(user)
 
     # Admin roles always have access (org-wide)
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
+    if _has_admin_access(user_roles):
         return True
 
     # Service accounts (webhooks, background jobs) defer to standard Frappe DocPerm
@@ -781,8 +789,7 @@ def get_donation_permission_query(user):
     user_roles = frappe.get_roles(user)
 
     # Admin roles get access to all records (org-wide)
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in admin_roles for role in user_roles):
+    if _has_admin_access(user_roles):
         return ""  # No filter needed
 
     conditions = []
@@ -835,8 +842,7 @@ def has_address_permission(doc, user=None, permission_type=None):
     user_roles = frappe.get_roles(user)
 
     # Admin roles always have access
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
+    if _has_admin_access(user_roles):
         return True
 
     # Handle both doc object and string (address name)
@@ -900,8 +906,7 @@ def get_address_permission_query(user):
     user_roles = frappe.get_roles(user)
 
     # Admin roles see all
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
+    if _has_admin_access(user_roles):
         return ""
 
     conditions = []
@@ -982,9 +987,7 @@ def get_member_permission_query(user):
     user_roles = frappe.get_roles(user)
 
     # Admin roles see all members
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
-        frappe.logger().debug(f"User {user} has admin role, granting full access")
+    if _has_admin_access(user_roles):
         return ""
 
     conditions = []
@@ -1059,8 +1062,7 @@ def get_employee_permission_query(user):
     user_roles = frappe.get_roles(user)
 
     # Admin roles see all employees
-    admin_roles = Roles.HR_ADMIN_ROLES | {"HR User"}
-    if any(role in user_roles for role in admin_roles):
+    if _has_admin_access(user_roles, Roles.HR_ADMIN_ROLES | {"HR User"}):
         return ""
 
     # Chapter Board Members can only see employees for members in their chapters
@@ -1192,10 +1194,8 @@ def can_terminate_member(member_name, user=None):
         user = frappe.session.user
 
     # System managers and Association managers always can
-    admin_roles = Roles.ADMIN_PAIR
     user_roles = frappe.get_roles(user)
-    if any(role in user_roles for role in admin_roles):
-        frappe.logger().debug(f"User {user} has admin role, granting termination access")
+    if _has_admin_access(user_roles, Roles.ADMIN_PAIR):
         return True
 
     # Get the member being terminated
@@ -1266,9 +1266,8 @@ def can_access_termination_functions(user=None):
         user = frappe.session.user
 
     # System managers and Association managers always can
-    admin_roles = Roles.ADMIN_PAIR
     user_roles = frappe.get_roles(user)
-    if any(role in user_roles for role in admin_roles):
+    if _has_admin_access(user_roles, Roles.ADMIN_PAIR):
         return True
 
     # Check if user is a board member of any chapter
@@ -1298,8 +1297,7 @@ def get_chapter_member_permission_query(user):
         user = frappe.session.user
 
     # Admin roles get full access
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    if _has_admin_access(frappe.get_roles(user)):
         return ""
 
     # Allow users to see Chapter Member records for:
@@ -1346,8 +1344,7 @@ def get_termination_permission_query(user):
         user = frappe.session.user
 
     # Admin roles get full access
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    if _has_admin_access(frappe.get_roles(user)):
         return ""
 
     # Board members get filtered access based on their chapters
@@ -1410,9 +1407,7 @@ def has_membership_termination_request_permission(doc, user=None, permission_typ
     user_roles = frappe.get_roles(user)
 
     # Admin roles always have access
-    admin_roles = Roles.ADMIN_ROLES
-    if any(role in user_roles for role in admin_roles):
-        frappe.logger().debug(f"User {user} has admin role, granting access")
+    if _has_admin_access(user_roles):
         return True
 
     # Get the member being terminated
@@ -1614,16 +1609,14 @@ def get_volunteer_permission_query(user):
         user = frappe.session.user
 
     # Admin roles get full access
-    admin_roles = Roles.VOLUNTEER_ADMIN_ROLES
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    user_roles = frappe.get_roles(user)
+    if _has_admin_access(user_roles, Roles.VOLUNTEER_ADMIN_ROLES):
         return ""
 
     # Get requesting user's member record
     requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
-
-    user_roles = frappe.get_roles(user)
 
     # Board members and team leaders get expanded access
     management_roles = [
@@ -1696,8 +1689,7 @@ def get_team_member_permission_query(user):
         user = frappe.session.user
 
     # Admin roles get full access
-    admin_roles = Roles.VOLUNTEER_ADMIN_ROLES
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    if _has_admin_access(frappe.get_roles(user), Roles.VOLUNTEER_ADMIN_ROLES):
         return ""
 
     # Get requesting user's member and volunteer records
@@ -1742,10 +1734,9 @@ def has_expense_claim_permission(doc, user=None, permission_type=None):
         user = frappe.session.user
 
     user_roles = frappe.get_roles(user)
-    admin_roles = Roles.HR_ADMIN_ROLES
 
     # Admin roles can see all
-    if any(role in user_roles for role in admin_roles):
+    if _has_admin_access(user_roles, Roles.HR_ADMIN_ROLES):
         return True
 
     # Get expense claim chapter
@@ -1791,10 +1782,9 @@ def get_expense_claim_permission_query(user):
         user = frappe.session.user
 
     user_roles = frappe.get_roles(user)
-    admin_roles = Roles.HR_ADMIN_ROLES
 
     # Admin roles see all
-    if any(role in user_roles for role in admin_roles):
+    if _has_admin_access(user_roles, Roles.HR_ADMIN_ROLES):
         return ""
 
     conditions = []
