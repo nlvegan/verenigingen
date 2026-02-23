@@ -113,17 +113,9 @@
 
 **Recommendation:** Delete `webhook_service.py`, keep only UnifiedWebhookWrapperService + GenericWebhookService. Saving: 500+ LOC.
 
-### 3.3 Four Near-Identical SEPA Operation Managers
+### 3.3 Four Near-Identical SEPA Operation Managers — RESOLVED
 
-**Files:**
-- `utils/frappe_native_sepa_operations.py` (~300 LOC)
-- `utils/frappe_native_sepa_operations_optimized.py` (~350 LOC)
-- `utils/sepa_operations_bulk_true.py` (518 LOC)
-- `utils/sepa_operations_simple.py` (~200 LOC)
-
-**DRY violation:** 70%+ code overlap: all implement `process_bulk_operations()`, permission validation, operation grouping, finalization.
-
-**Recommendation:** Consolidate into single `SEPAOperationProcessor` with pluggable strategy. Saving: 800-1,200 LOC.
+**Status:** DELETED. All 4 files were a design exploration spike (single commit `2dbea04e`) with zero production callers. Deleted all 10 files (4 managers + 3 tests + 3 comparison utilities) totaling 3,439 LOC. Also cleaned 4 whitelist_files.txt entries and 5 fixture entries. Saving: **-3,439 LOC**.
 
 ### 3.4 `permissions.py` God File (1,826 LOC)
 
@@ -342,7 +334,7 @@ These files demonstrate excellent design — use as reference:
 The codebase has a recurring pattern of creating "improved" or "fixed" versions of files alongside originals:
 - `donate.py` / `donate_optimized.py`
 - `stock_migration.py` / `stock_migration_fixed.py` / `stock_migration_warehouse_fix.py`
-- `frappe_native_sepa_operations.py` / `..._optimized.py`
+- ~~`frappe_native_sepa_operations.py` / `..._optimized.py`~~ (DELETED)
 - `webhook_service.py` / `generic_webhook_service.py` / `unified_...`
 
 **Root cause:** No deprecation/migration discipline. New versions created without removing old ones.

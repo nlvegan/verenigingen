@@ -552,9 +552,6 @@
 ./verenigingen/utils/security/security_monitoring.py
 ./verenigingen/utils/security_audit_script.py
 ./verenigingen/utils/security_decorators.py
-./verenigingen/utils/sepa_baseline_test.py
-./verenigingen/utils/sepa_optimization_comparison.py
-./verenigingen/utils/sepa_three_way_comparison.py
 ./verenigingen/utils/services/sepa_service.py
 ./verenigingen/utils/session_cleanup.py
 ./verenigingen/utils/session_cleanup_enhanced.py
@@ -656,7 +653,6 @@
 ./verenigingen/verenigingen_payments/utils/bank_specific_validator.py
 ./verenigingen/verenigingen_payments/utils/batch_performance_optimizer.py
 ./verenigingen/verenigingen_payments/utils/financial_error_handler.py
-./verenigingen/verenigingen_payments/utils/frappe_native_sepa_operations.py
 ./verenigingen/verenigingen_payments/utils/payment_gateways.py
 ./verenigingen/verenigingen_payments/utils/secure_webhook_handler.py
 ./verenigingen/verenigingen_payments/utils/sepa_admin_reporting.py
