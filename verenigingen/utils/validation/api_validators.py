@@ -22,10 +22,8 @@ class APIValidator:
     """API input validation and sanitization utilities"""
 
     # Common regex patterns
-    EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
     PHONE_PATTERN = re.compile(r"^\+?[\d\s\-\(\)]{7,20}$")
     DUTCH_POSTAL_CODE_PATTERN = re.compile(r"^\d{4}[A-Z]{2}$")
-    IBAN_PATTERN = re.compile(r"^[A-Z]{2}\d{2}[A-Z0-9]{4}\d{10}$")
 
     # Safe characters for different field types
     SAFE_NAME_CHARS = re.compile(r"^[a-zA-Z\s\-\'\.]+$")
@@ -34,7 +32,9 @@ class APIValidator:
     @classmethod
     def validate_email(cls, email: str, required: bool = True) -> Optional[str]:
         """
-        Validate and normalize email address
+        Validate and normalize email address.
+
+        Delegates to Frappe's built-in email validation for comprehensive checks.
 
         Args:
             email: Email address to validate
@@ -51,16 +51,15 @@ class APIValidator:
                 raise ValidationError("Email address is required")
             return None
 
-        # Normalize email
         email = email.strip().lower()
 
-        # Check length
         max_length = ConfigManager.get("max_email_length", 254)
         if len(email) > max_length:
             raise ValidationError(f"Email address too long (max {max_length} characters)")
 
-        # Validate format
-        if not cls.EMAIL_PATTERN.match(email):
+        from frappe.utils import validate_email_address
+
+        if not validate_email_address(email):
             raise ValidationError("Invalid email address format")
 
         return email
@@ -169,7 +168,9 @@ class APIValidator:
     @classmethod
     def validate_iban(cls, iban: str, required: bool = False) -> Optional[str]:
         """
-        Validate IBAN format
+        Validate IBAN format with full MOD-97 checksum verification.
+
+        Delegates to the canonical iban_validator for thorough validation.
 
         Args:
             iban: IBAN to validate
@@ -186,16 +187,13 @@ class APIValidator:
                 raise ValidationError("IBAN is required")
             return None
 
-        # Normalize IBAN
-        iban = iban.upper().replace(" ", "")
+        from verenigingen.utils.validation.iban_validator import validate_iban as canonical_validate_iban
 
-        # Check basic format
-        if not cls.IBAN_PATTERN.match(iban):
-            raise ValidationError("Invalid IBAN format")
+        result = canonical_validate_iban(iban)
+        if not result.get("valid"):
+            raise ValidationError(result.get("message", "Invalid IBAN format"))
 
-        # For more thorough validation, could implement MOD-97 check here
-
-        return iban
+        return iban.upper().replace(" ", "")
 
     @classmethod
     def validate_amount(
