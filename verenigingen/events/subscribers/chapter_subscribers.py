@@ -26,18 +26,15 @@ def handle_board_role_assignments(event_name, event_data, is_bulk_import=False, 
         role = event_data.get("role")
         old_role = event_data.get("old_role")
 
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
+
         if not chapter_name or not volunteer:
             frappe.logger("events").warning("Missing chapter or volunteer in board role assignment event")
             return
 
-        # Check if chapter exists before trying to load it
-        if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger("events").warning(
-                f"Cannot handle board role assignment - Chapter {chapter_name} not yet committed to database"
-            )
+        chapter = get_doc_if_exists("Chapter", chapter_name, "board role assignment")
+        if not chapter:
             return
-
-        chapter = frappe.get_doc("Chapter", chapter_name)
 
         # All board changes (add, remove, role change) require role profile recalculation
         _sync_board_role_profile(volunteer)
@@ -69,14 +66,11 @@ def handle_board_notifications(event_name, event_data, is_bulk_import=False, **k
         if not chapter_name or not volunteer:
             return
 
-        # Check if chapter exists before trying to load it
-        if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger("events").warning(
-                f"Cannot send board notifications - Chapter {chapter_name} not yet committed to database"
-            )
-            return
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
 
-        chapter = frappe.get_doc("Chapter", chapter_name)
+        chapter = get_doc_if_exists("Chapter", chapter_name, "board notifications")
+        if not chapter:
+            return
 
         # Send notifications based on action
         # NOTE: "added" and "removed" notifications are handled directly by
@@ -110,14 +104,11 @@ def handle_volunteer_sync(event_name, event_data, is_bulk_import=False, **kwargs
         if not chapter_name or not volunteer:
             return
 
-        # Check if chapter exists before trying to load it
-        if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger("events").warning(
-                f"Cannot sync volunteer system - Chapter {chapter_name} not yet committed to database"
-            )
-            return
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
 
-        chapter = frappe.get_doc("Chapter", chapter_name)
+        chapter = get_doc_if_exists("Chapter", chapter_name, "volunteer sync")
+        if not chapter:
+            return
 
         # Use the chapter's volunteer integration manager
         if action in ["added", "removed", "role_changed"]:
@@ -156,13 +147,10 @@ def handle_membership_notifications(event_name, event_data, is_bulk_import=False
             )
             return
 
-        # Check if chapter exists before trying to load it
-        # This handles race conditions during chapter auto-creation in CSV imports
-        if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger("events").warning(
-                f"Cannot send membership notification - Chapter {chapter_name} not yet committed to database. "
-                "This can happen during bulk imports with auto-created chapters."
-            )
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
+
+        chapter = get_doc_if_exists("Chapter", chapter_name, "membership notification")
+        if not chapter:
             return
 
         chapter = frappe.get_doc("Chapter", chapter_name)
@@ -275,14 +263,11 @@ def handle_settings_notifications(event_name, event_data, is_bulk_import=False, 
         if not chapter_name or not changed_fields:
             return
 
-        # Check if chapter exists before trying to load it
-        if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger("events").warning(
-                f"Cannot send settings notifications - Chapter {chapter_name} not yet committed to database"
-            )
-            return
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
 
-        chapter = frappe.get_doc("Chapter", chapter_name)
+        chapter = get_doc_if_exists("Chapter", chapter_name, "settings notifications")
+        if not chapter:
+            return
 
         # Notify board members about significant setting changes
         important_fields = ["published", "enable_board_role_specific_profiles", "default_board_role_profile"]
@@ -562,14 +547,11 @@ def _send_settings_change_notification(chapter, changed_fields):
 def _update_chapter_permissions(chapter_name):
     """Update chapter permissions based on new settings"""
     try:
-        # Check if chapter exists before trying to load it
-        if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger("events").warning(
-                f"Cannot update chapter permissions - Chapter {chapter_name} not yet committed to database"
-            )
-            return
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
 
-        chapter = frappe.get_doc("Chapter", chapter_name)
+        chapter = get_doc_if_exists("Chapter", chapter_name, "chapter permissions")
+        if not chapter:
+            return
 
         # Update board member role profiles based on new settings
         for board_member in chapter.board_members or []:
@@ -594,11 +576,10 @@ def _update_chapter_website(chapter_name):
         frappe.cache().delete_keys(f"website_*{chapter_name}*")
         frappe.cache().delete_keys("chapters_*")
 
-        # Check if chapter exists before trying to load it
-        if not frappe.db.exists("Chapter", chapter_name):
-            frappe.logger("events").warning(
-                f"Cannot update chapter website - Chapter {chapter_name} not yet committed to database"
-            )
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
+
+        chapter = get_doc_if_exists("Chapter", chapter_name, "chapter website update")
+        if not chapter:
             return
 
         # Trigger website rebuild if needed

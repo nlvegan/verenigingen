@@ -26,9 +26,10 @@ def handle_status_change_notifications(event_name, event_data, is_bulk_import=Fa
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists, should_skip_for_bulk
+
         # Skip notifications during bulk imports
-        # Check BOTH the parameter (reliable cross-process) AND flags (backwards compatibility)
-        if is_bulk_import or frappe.flags.in_import or frappe.flags.in_bulk_import:
+        if should_skip_for_bulk(is_bulk_import):
             return
 
         member_name = event_data.get("member")
@@ -40,14 +41,9 @@ def handle_status_change_notifications(event_name, event_data, is_bulk_import=Fa
             frappe.logger("events").warning("No member name in status change notification event")
             return
 
-        # Check if member still exists before attempting to send notifications
-        if not frappe.db.exists("Member", member_name):
-            frappe.logger("events").warning(
-                f"Cannot send status change notification - Member {member_name} no longer exists"
-            )
+        member = get_doc_if_exists("Member", member_name, "status change notification")
+        if not member:
             return
-
-        member = frappe.get_doc("Member", member_name)
 
         # Send approval notification for application status changes
         if status_type == "application" and new_status == "Approved":
@@ -83,9 +79,10 @@ def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=Fal
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists, should_skip_for_bulk
+
         # Skip during bulk imports
-        # Check BOTH the parameter (reliable cross-process) AND flags (backwards compatibility)
-        if is_bulk_import or frappe.flags.in_import or frappe.flags.in_bulk_import:
+        if should_skip_for_bulk(is_bulk_import):
             return
 
         # Skip during bulk operations - chapter assignment is handled in bulk
@@ -99,14 +96,9 @@ def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=Fal
         if not member_name:
             return
 
-        # Check if member still exists before attempting to update chapter assignments
-        if not frappe.db.exists("Member", member_name):
-            frappe.logger("events").warning(
-                f"Cannot update chapter assignments - Member {member_name} no longer exists"
-            )
+        member = get_doc_if_exists("Member", member_name, "chapter assignment update")
+        if not member:
             return
-
-        member = frappe.get_doc("Member", member_name)
 
         # Update chapter assignments based on new status
         if new_status == "Approved":
@@ -137,8 +129,10 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists, should_skip_for_bulk
+
         # Skip during bulk imports
-        if is_bulk_import:
+        if should_skip_for_bulk(is_bulk_import):
             return
         member_name = event_data.get("member")
         old_status = event_data.get("old_status")
@@ -147,14 +141,9 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
         if not member_name:
             return
 
-        # Check if member still exists before attempting to send lifecycle notifications
-        if not frappe.db.exists("Member", member_name):
-            frappe.logger("events").warning(
-                f"Cannot send lifecycle notification - Member {member_name} no longer exists"
-            )
+        member = get_doc_if_exists("Member", member_name, "lifecycle notification")
+        if not member:
             return
-
-        member = frappe.get_doc("Member", member_name)
 
         # Send lifecycle-specific notifications
         if new_status == "Suspended":
@@ -187,8 +176,10 @@ def handle_user_account_updates(event_name, event_data, is_bulk_import=False, **
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists, should_skip_for_bulk
+
         # Skip during bulk imports - user accounts are handled separately in batch
-        if is_bulk_import:
+        if should_skip_for_bulk(is_bulk_import):
             return
         member_name = event_data.get("member")
         old_status = event_data.get("old_status")
@@ -204,14 +195,9 @@ def handle_user_account_updates(event_name, event_data, is_bulk_import=False, **
             )
             return
 
-        # Check if member still exists before attempting to update user account
-        if not frappe.db.exists("Member", member_name):
-            frappe.logger("events").warning(
-                f"Cannot update user account - Member {member_name} no longer exists"
-            )
+        member = get_doc_if_exists("Member", member_name, "user account update")
+        if not member:
             return
-
-        member = frappe.get_doc("Member", member_name)
 
         # Update user account based on member status
         if hasattr(member, "user") and member.user:
