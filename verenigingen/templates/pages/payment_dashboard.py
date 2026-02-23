@@ -5,7 +5,7 @@ from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_current_user_member_name, get_member_customer
+from verenigingen.utils.member_utils import get_current_user_member_name, get_member_customer, require_login
 
 
 def get_current_dues_schedule(member):
@@ -173,9 +173,7 @@ def get_notification_settings(member):
 
 
 def get_context(context):
-    # Check if user is logged in
-    if frappe.session.user == "Guest":
-        frappe.throw(_("You need to be logged in to access this page"), frappe.PermissionError)
+    require_login()
 
     # Check if user has appropriate permissions
     is_member = frappe.db.exists("Has Role", {"parent": frappe.session.user, "role": "Verenigingen Member"})

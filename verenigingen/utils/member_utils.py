@@ -14,6 +14,12 @@ from frappe import _
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 
 
+def require_login():
+    """Throw PermissionError if the current user is not logged in (Guest)."""
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+
+
 def _validate_member_fields(fields: List[str]) -> List[str]:
     """
     Validate that fields exist in the Member DocType.

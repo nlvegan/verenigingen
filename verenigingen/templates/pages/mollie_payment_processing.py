@@ -8,6 +8,7 @@ from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     user_has_any_role,
@@ -18,10 +19,7 @@ from verenigingen.verenigingen_payments.services.mollie_configuration_service im
 
 def get_context(context):
     """Get context for Mollie payment processing page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    require_login()
 
     # Check permissions - only administrators and staff
     if not has_payment_processing_access():

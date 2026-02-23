@@ -1,15 +1,13 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def get_context(context):
     """Get context for volunteer skills browse page - restricted to chapter board members"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the skills directory"), frappe.PermissionError)
+    require_login()
 
     context["no_cache"] = 1
     context["show_sidebar"] = True

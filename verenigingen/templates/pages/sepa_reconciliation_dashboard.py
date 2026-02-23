@@ -6,14 +6,12 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.member_utils import require_login
 
 
 def get_context(context):
     """Get context for SEPA reconciliation dashboard"""
-
-    # Require login and appropriate permissions
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    require_login()
 
     # Check user permissions for banking functions
     if not frappe.has_permission("Bank Transaction", "read"):

@@ -6,16 +6,13 @@ Allows members to submit contact requests which integrate with CRM
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_current_user_member_name, require_login
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def get_context(context):
     """Get context for contact request page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    require_login()
 
     context.no_cache = 1
     context.show_sidebar = False
@@ -95,11 +92,6 @@ def get_recent_contact_requests(member_name, limit=5):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def submit_contact_request():
     """Handle contact request form submission"""
-
-    # Validate user access
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Authentication required"))
-
     # Get form data
     data = frappe.form_dict
 

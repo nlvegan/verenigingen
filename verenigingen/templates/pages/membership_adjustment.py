@@ -320,9 +320,6 @@ def can_member_adjust_fee(member, settings):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def submit_fee_adjustment_request(new_amount, reason="", effective_date=None):
     """Submit a fee adjustment request from member portal"""
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login"), frappe.PermissionError)
-
     # Get member using standardized utility
     member = get_current_user_member_name()
     if not member:
@@ -543,9 +540,6 @@ def create_new_dues_schedule(member, new_amount, reason):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_fee_calculation_info():
     """Get fee calculation information for member"""
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login"), frappe.PermissionError)
-
     # Get member using standardized utility
     member = get_current_user_member_name()
     if not member:
@@ -678,9 +672,6 @@ def get_member_fee_history(member_name):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_available_membership_types():
     """Get available membership types for the member to switch to"""
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login"), frappe.PermissionError)
-
     # Get member using standardized utility
     member = get_current_user_member_name()
     if not member:
@@ -742,9 +733,6 @@ def submit_membership_type_change_request(
     Note: effective_date parameter is ignored - type changes always take effect
     at the end of the current billing period (next_invoice_date on dues schedule).
     """
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login"), frappe.PermissionError)
-
     # Get member using standardized utility
     member = get_current_user_member_name()
     if not member:

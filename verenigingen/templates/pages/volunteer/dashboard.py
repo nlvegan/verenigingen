@@ -2,13 +2,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, today
 
+from verenigingen.utils.member_utils import require_login
+
 
 def get_context(context):
     """Get context for volunteer dashboard page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the volunteer dashboard"), frappe.PermissionError)
+    require_login()
 
     context.no_cache = 1
     context.show_sidebar = False

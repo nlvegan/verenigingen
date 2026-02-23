@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_current_user_member_name, require_login
 
 
 def get_context(context):
@@ -10,9 +10,7 @@ def get_context(context):
     # DEBUG: Log that this function is being called
     frappe.log_error("get_context() called for expense_claim_new", "Debug expense_claim_new")
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the expense claim form"), frappe.PermissionError)
+    require_login()
 
     context.no_cache = 1
     context.show_sidebar = True

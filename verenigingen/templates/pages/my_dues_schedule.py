@@ -282,11 +282,6 @@ def get_next_payment(member):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def export_schedule():
     """Export dues schedule as CSV via Frappe response download."""
-
-    # Check if user is logged in
-    if frappe.session.user == "Guest":
-        frappe.throw(_("You need to be logged in to export schedule"), frappe.PermissionError)
-
     # Get current user's member record
     member = get_current_user_member_name_required()
 
@@ -311,11 +306,6 @@ def export_schedule():
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_details(date):
     """Get payment details for a specific date"""
-
-    # Check if user is logged in
-    if frappe.session.user == "Guest":
-        frappe.throw(_("You need to be logged in to view payment details"), frappe.PermissionError)
-
     # Get current user's member record
     member = get_current_user_member_name_required()
 
@@ -335,11 +325,6 @@ def get_payment_details(date):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def update_notification_settings(email_notifications: str = None, auto_renewal: str = None):
     """Update notification settings for current user's dues schedule"""
-
-    # Check if user is logged in
-    if frappe.session.user == "Guest":
-        frappe.throw(_("You need to be logged in to update settings"), frappe.PermissionError)
-
     # Get current user's member record
     member = get_current_user_member_name_required()
 

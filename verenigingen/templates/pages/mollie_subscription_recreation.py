@@ -16,6 +16,7 @@ from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     SecurityLevel,
@@ -34,10 +35,7 @@ CANCELLATION_POLL_MAX_DELAY = 3.0  # Maximum delay for exponential backoff
 
 def get_context(context):
     """Get context for Mollie subscription recreation page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    require_login()
 
     # Check permissions - only administrators
     if not has_admin_access():

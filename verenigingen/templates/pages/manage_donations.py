@@ -13,6 +13,7 @@ from verenigingen.utils.member_utils import (
     get_current_user_member_name,
     get_current_user_member_name_required,
     get_member_name_for_user,
+    require_login,
     validate_member_ownership,
 )
 
@@ -23,10 +24,7 @@ from verenigingen.utils.validation_utilities import DateRangeValidator
 
 def get_context(context):
     """Get context for manage donations page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    require_login()
 
     context.no_cache = 1
     context.show_sidebar = True

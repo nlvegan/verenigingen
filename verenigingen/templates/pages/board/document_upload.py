@@ -12,6 +12,7 @@ from frappe import _
 
 from verenigingen.services.document.document_portal_service import get_document_portal_service
 from verenigingen.utils.document_categories import get_category_icon, get_document_category_options
+from verenigingen.utils.member_utils import require_login
 
 
 def get_context(context):
@@ -24,9 +25,7 @@ def get_context(context):
     - Document categories
     - Error handling for users without proper access
     """
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the document upload portal"), frappe.PermissionError)
+    require_login()
 
     context.no_cache = 1
     context.show_sidebar = False

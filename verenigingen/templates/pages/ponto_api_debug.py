@@ -6,17 +6,15 @@ Administrative interface for debugging Ponto API and creating payment links
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.settings_utils import get_payments_settings
-from verenigingen.utils.constants import Roles
 
 
 def get_context(context):
     """Get context for Ponto API debug page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    require_login()
 
     # Check permissions - only administrators
     if not has_ponto_debug_access():

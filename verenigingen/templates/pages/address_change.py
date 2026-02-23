@@ -132,10 +132,6 @@ def get_context(context):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def update_member_address(address_data):
     """Update member's address with the provided data"""
-
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login"), frappe.PermissionError)
-
     # Get member record using standardized utility
     member_name = get_current_user_member_name()
     if not member_name:
@@ -322,10 +318,6 @@ def update_member_address(address_data):
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_current_address():
     """Get current address for the logged-in member"""
-
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login"), frappe.PermissionError)
-
     # Get member record using standardized utility
     member_name = get_current_user_member_name()
     if not member_name:

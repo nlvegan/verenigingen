@@ -12,16 +12,14 @@ from verenigingen.utils.member_utils import (
     get_current_user_member_name,
     get_member_customer,
     get_volunteer_for_member,
+    require_login,
 )
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
 def get_context(context):
     """Get context for member portal landing page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the member portal"), frappe.PermissionError)
+    require_login()
 
     context.no_cache = 1
     context.show_sidebar = False

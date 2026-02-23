@@ -10,7 +10,7 @@ URL: /volunteer-portal/expense_claim_new
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_current_user_member_name, require_login
 
 # Import centralized utilities
 from verenigingen.utils.volunteer_expense_portal_utils import (
@@ -23,9 +23,7 @@ from verenigingen.utils.volunteer_expense_portal_utils import (
 
 def get_context(context):
     """Get context for multi-item expense claim page."""
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the expense claim form"), frappe.PermissionError)
+    require_login()
 
     context.no_cache = 1
     context.show_sidebar = True

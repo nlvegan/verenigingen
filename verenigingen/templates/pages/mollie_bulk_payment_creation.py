@@ -16,6 +16,7 @@ from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Configuration constants
@@ -26,10 +27,7 @@ MAX_PAYMENTS_PAYLOAD_SIZE = 100 * 1024  # 100KB for base64 payload
 
 def get_context(context):
     """Get context for Mollie bulk payment creation page"""
-
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    require_login()
 
     # Check permissions - only administrators
     if not has_admin_access():
