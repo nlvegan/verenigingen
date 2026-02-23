@@ -388,17 +388,20 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 
 ### Phase 2: Deduplication (Weeks 2-3) — Moderate Impact
 
-| Action | Files | LOC Impact | Risk |
-|--------|-------|------------|------|
-| Consolidate 4 SEPA operation managers → 1 | 4 | -800 LOC | LOW |
-| Extract permission checker base in permissions.py | 1 | -400 LOC | LOW |
-| Consolidate IBAN/email validation to single source | 4+ | -200 LOC | LOW |
-| Merge duplicate party creation in e_boekhouden | 1 | -150 LOC | LOW |
-| Merge sales/purchase invoice creation | 1 | -150 LOC | LOW |
-| Create `@require_login()` decorator for templates | 25 | -600 LOC | LOW |
-| Consolidate event subscriber boilerplate | 3 | -200 LOC | LOW |
-| Replace 40 state transition methods with table | 1 | -180 LOC | LOW |
-| **Subtotal** | 40+ | ~-2,680 LOC | |
+| Action | Files | LOC Impact | Risk | Status |
+|--------|-------|------------|------|--------|
+| Consolidate 4 SEPA operation managers → 1 | 4 | -800 LOC | LOW | Deferred |
+| Extract permission checker base in permissions.py | 1 | -10 LOC | LOW | **DONE** (commit `9a43c148`) |
+| Consolidate IBAN/email validation to single source | 1 | -15 LOC | LOW | **DONE** (commit `3ce87488`) |
+| Merge duplicate party creation in e_boekhouden | 1 | -30 LOC | LOW | **DONE** (commit `a6806569`) |
+| Merge sales/purchase invoice creation | 1 | -20 LOC | LOW | **DONE** (commit `a6806569`) |
+| Create `@require_login()` decorator for templates | 25 | -600 LOC | LOW | Deferred |
+| Consolidate event subscriber boilerplate | 3 | -5 LOC | LOW | **DONE** (commit `9bcd7584`) |
+| Replace 40 state transition methods with table | 1 | -180 LOC | LOW | Skipped (already well-designed) |
+| **Completed** | 6 | **-50 LOC** | | |
+| **Remaining** | 29+ | ~-1,580 LOC | | |
+
+**Phase 2 Notes:** Actual LOC savings are lower than original estimates because DRY consolidation replaces inline code with shared helpers (which themselves take lines). The main benefit is maintainability — 5 shared functions now centralize logic previously duplicated across 20+ call sites. SEPA consolidation and template decorator deferred to separate sessions.
 
 ### Phase 3: Architecture (Weeks 3-5) — Higher Impact, More Risk
 
