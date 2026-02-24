@@ -32,7 +32,6 @@ def validate_monitoring_components():
         ("Alert Manager", "verenigingen.utils.alert_manager", "AlertManager"),
         ("Resource Monitor", "verenigingen.utils.resource_monitor", "ResourceMonitor"),
         ("Analytics Engine", "verenigingen.utils.analytics_engine", "AnalyticsEngine"),
-        ("Performance Optimizer", "verenigingen.utils.performance_optimizer", "PerformanceOptimizer")
     ]
     
     for name, module_path, class_name in modules:
@@ -175,22 +174,6 @@ def test_monitoring_functionality():
             print("  ✗ Analytics returned unexpected format")
     except Exception as e:
         print(f"  ✗ Analytics test failed: {str(e)}")
-    
-    # Test 4: Performance optimization
-    print("\n4. Testing Performance Optimizer...")
-    tests_total += 1
-    try:
-        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
-        po = PerformanceOptimizer()
-        
-        analysis = po.analyze_performance()
-        if analysis:
-            print("  ✓ Performance analysis completed")
-            tests_passed += 1
-        else:
-            print("  ✗ Performance analysis returned empty")
-    except Exception as e:
-        print(f"  ✗ Performance optimizer test failed: {str(e)}")
     
     # Summary
     print("\n" + "=" * 60)

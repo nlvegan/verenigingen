@@ -170,7 +170,6 @@ class TestValidator:
         test_imports = [
             ("verenigingen.verenigingen_payments.core.security.encryption_handler", "EncryptionHandler"),
             ("verenigingen.verenigingen_payments.core.security.webhook_validator", "WebhookValidator"),
-            ("verenigingen.verenigingen_payments.core.resilience.circuit_breaker", "CircuitBreaker"),
             ("verenigingen.verenigingen_payments.core.resilience.rate_limiter", "RateLimiter"),
             ("verenigingen.verenigingen_payments.core.resilience.retry_policy", "RetryPolicy"),
             ("verenigingen.verenigingen_payments.core.compliance.financial_validator", "FinancialValidator"),
@@ -240,16 +239,6 @@ class TestValidator:
         print_header("VALIDATING API PATTERNS")
 
         try:
-            # Test circuit breaker pattern
-            from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import (
-                CircuitBreaker,
-                CircuitState,
-            )
-
-            breaker = CircuitBreaker(failure_threshold=3, timeout=1)
-            assert breaker.state == CircuitState.CLOSED
-            print_success("Circuit Breaker pattern validated")
-
             # Test rate limiter
             from verenigingen.verenigingen_payments.core.resilience.rate_limiter import RateLimiter
 

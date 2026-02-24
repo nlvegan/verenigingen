@@ -51,14 +51,6 @@ def test_monitoring():
         print("   ✗ Analytics Engine: Not found")
         results.append(("Analytics Engine", False))
     
-    try:
-        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
-        print("   ✓ Performance Optimizer: Found")
-        results.append(("Performance Optimizer", True))
-    except:
-        print("   ✗ Performance Optimizer: Not found")
-        results.append(("Performance Optimizer", False))
-    
     # Test 3: Basic functionality test
     print("\n3. Testing Basic Functionality...")
     

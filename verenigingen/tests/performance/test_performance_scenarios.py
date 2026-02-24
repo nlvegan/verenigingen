@@ -18,7 +18,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
-from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import CircuitBreaker
 from verenigingen.verenigingen_payments.core.resilience.rate_limiter import TokenBucketRateLimiter as RateLimiter
 from verenigingen.verenigingen_payments.dashboards.financial_dashboard import FinancialDashboard
 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
@@ -305,57 +304,6 @@ class TestPerformanceScenarios(EnhancedTestCase):
             "avg_time": avg_request_time,
             "max_time": max_request_time,
             "effective_rate": effective_rate
-        })
-    
-    def test_circuit_breaker_performance(self):
-        """Test circuit breaker performance during failures"""
-        
-        breaker = CircuitBreaker(
-            failure_threshold=5,
-            timeout=1.0,
-            expected_exception=Exception
-        )
-        
-        # Simulate mixed success/failure pattern
-        num_requests = 1000
-        results = []
-        
-        def failing_operation():
-            if random.random() < 0.3:  # 30% failure rate
-                raise Exception("Simulated failure")
-            return "success"
-        
-        start_time = time.time()
-        
-        for i in range(num_requests):
-            try:
-                with breaker:
-                    result = failing_operation()
-                    results.append(("success", time.time()))
-            except Exception:
-                results.append(("failure", time.time()))
-        
-        elapsed = time.time() - start_time
-        
-        # Analyze circuit breaker behavior
-        success_count = sum(1 for r in results if r[0] == "success")
-        failure_count = sum(1 for r in results if r[0] == "failure")
-        
-        # Circuit breaker should prevent cascading failures
-        self.assertLess(
-            elapsed,
-            num_requests * 0.01,  # Should be much faster than linear
-            "Circuit breaker not preventing cascading failures"
-        )
-        
-        # Record results
-        self.performance_results.append({
-            "test": "circuit_breaker",
-            "total_requests": num_requests,
-            "successes": success_count,
-            "failures": failure_count,
-            "elapsed": elapsed,
-            "requests_per_second": num_requests / elapsed
         })
     
     def test_concurrent_api_calls(self):

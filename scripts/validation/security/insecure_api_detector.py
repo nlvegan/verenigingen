@@ -180,8 +180,6 @@ class InsecureAPIDetector:
     # Whitelist for known secure APIs or exceptions
     WHITELIST_FUNCTIONS = {
         # Add specific functions that are intentionally excluded
-        'get_security_framework_status',  # Security framework status
-        'analyze_api_security_status',    # Security analysis
         'get_mt940_import_url',          # Simple URL getter
     }
 

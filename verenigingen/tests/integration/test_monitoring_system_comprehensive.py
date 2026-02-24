@@ -230,7 +230,7 @@ class MonitoringSystemTestRunner:
         print("\nPHASE 3: Analytics Engine and Performance Testing")
         print("-" * 50)
 
-        results = {"analytics_engine": {}, "performance_optimizer": {}, "advanced_features": {}}
+        results = {"analytics_engine": {}, "advanced_features": {}}
 
         # Test Analytics Engine
         try:
@@ -263,33 +263,6 @@ class MonitoringSystemTestRunner:
         except Exception as e:
             results["analytics_engine"]["error"] = str(e)
             print(f"  Analytics Engine: {str(e)}")
-
-        # Test Performance Optimizer
-        try:
-            from verenigingen.utils.performance_optimizer import PerformanceOptimizer
-
-            po = PerformanceOptimizer()
-
-            # Test performance analysis
-            analysis = po.analyze_performance()
-            results["performance_optimizer"]["analysis"] = "PASS" if analysis else "FAIL"
-            print("  Performance Optimizer: Analysis completed")
-
-            # Test optimization recommendations
-            recommendations = po.get_optimization_recommendations()
-            results["performance_optimizer"]["recommendations"] = (
-                "PASS" if isinstance(recommendations, list) else "FAIL"
-            )
-            print(f"  Performance Optimizer: Recommendations ({len(recommendations)})")
-
-            # Test resource optimization
-            resource_opts = po.optimize_resource_usage()
-            results["performance_optimizer"]["resource_optimization"] = "PASS" if resource_opts else "FAIL"
-            print("  Performance Optimizer: Resource optimization")
-
-        except Exception as e:
-            results["performance_optimizer"]["error"] = str(e)
-            print(f"  Performance Optimizer: {str(e)}")
 
         # Test Advanced Features
         try:

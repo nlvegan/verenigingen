@@ -199,52 +199,37 @@ def test_phase2_components():
     return results
 
 def test_phase3_components():
-    """Test Analytics Engine and Performance Optimizer"""
+    """Test Analytics Engine and compliance monitoring"""
     results = {
         "analytics_engine": {},
-        "performance_optimizer": {},
         "compliance_monitoring": {},
         "documentation": {}
     }
-    
+
     try:
         # Test Analytics Engine
         print("Testing Analytics Engine...")
         from verenigingen.utils.analytics_engine import AnalyticsEngine
-        
+
         analytics = AnalyticsEngine()
-        
+
         # Test error pattern analysis
         patterns = analytics.analyze_error_patterns(days=7)
         results["analytics_engine"]["error_patterns"] = "PASS" if patterns else "FAIL"
-        
+
         # Test performance metrics
         perf_metrics = analytics.get_performance_metrics(hours=24)
         results["analytics_engine"]["performance_metrics"] = "PASS" if perf_metrics else "FAIL"
-        
+
         # Test compliance score
         compliance = analytics.calculate_compliance_score()
         results["analytics_engine"]["compliance_score"] = "PASS" if isinstance(compliance, (int, float)) else "FAIL"
-        
-        # Test Performance Optimizer
-        print("Testing Performance Optimizer...")
-        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
-        
-        optimizer = PerformanceOptimizer()
-        
-        # Test performance analysis
-        analysis = optimizer.analyze_performance()
-        results["performance_optimizer"]["analysis"] = "PASS" if analysis else "FAIL"
-        
-        # Test optimization recommendations
-        recommendations = optimizer.get_optimization_recommendations()
-        results["performance_optimizer"]["recommendations"] = "PASS" if isinstance(recommendations, list) else "FAIL"
-        
+
         # Test compliance monitoring enhancements
         print("Testing Compliance Monitoring...")
         compliance_metrics = analytics.get_compliance_metrics()
         results["compliance_monitoring"]["metrics"] = "PASS" if compliance_metrics else "FAIL"
-        
+
         # Check documentation
         print("Checking Documentation...")
         docs_exist = all([
@@ -253,11 +238,11 @@ def test_phase3_components():
             frappe.db.exists("File", {"file_name": "analytics_api_reference.md"})
         ])
         results["documentation"]["files_exist"] = "PASS" if docs_exist else "WARNING: Some docs missing"
-        
+
     except Exception as e:
         results["error"] = str(e)
         results["status"] = "FAIL"
-    
+
     return results
 
 def test_integration():

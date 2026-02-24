@@ -117,17 +117,6 @@ def generate_monitoring_test_data():
     print(f"  ✓ Performance metrics calculated")
     print(f"  ✓ Compliance score: {compliance_score}")
     
-    # 6. Test performance optimizer
-    print("\n6. Testing performance optimizer...")
-    from verenigingen.utils.performance_optimizer import PerformanceOptimizer
-    optimizer = PerformanceOptimizer()
-    
-    analysis = optimizer.analyze_performance()
-    recommendations = optimizer.get_optimization_recommendations()
-    
-    print(f"  ✓ Performance analysis complete")
-    print(f"  ✓ Generated {len(recommendations)} optimization recommendations")
-    
     print("\n" + "="*60)
     print("Test data generation complete!")
     print("You can now run the comprehensive test suite.")
@@ -139,8 +128,7 @@ def generate_monitoring_test_data():
             "errors_created": len(error_types),
             "audit_logs_created": len(audit_actions),
             "system_alerts_created": len(alert_types),
-            "analytics_processed": True,
-            "performance_analyzed": True
+            "analytics_processed": True
         }
     }
 

@@ -4,33 +4,27 @@
 """
 Shared Resilience Patterns for PSP Integrations
 
-This module provides production-grade resilience patterns used across all Payment
-Service Provider integrations. These patterns help protect against:
-
-- Transient API failures (retry with exponential backoff)
-- Cascading failures (circuit breaker)
-- Thundering herd problems (jitter)
+This module provides resilience patterns used across all Payment Service Provider
+integrations. The primary protection is retry with exponential backoff and jitter.
 
 Usage:
     from verenigingen.verenigingen_payments.core.resilience import (
         RetryConfig,
-        CircuitBreakerConfig,
         with_retry,
-        with_circuit_breaker,
     )
 
-    # Use decorators for simple cases
     @with_retry(RetryConfig(max_attempts=3))
-    @with_circuit_breaker(CircuitBreakerConfig())
     def call_external_api():
         ...
+
+Note: ``with_circuit_breaker`` and ``CircuitBreakerConfig`` are still exported for
+backwards compatibility but are no-ops. Use ``@with_retry`` for resilience.
 """
 
 import functools
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from .circuit_breaker import CircuitBreaker, CircuitBreakerOpenException
 from .retry_policy import ExponentialBackoffRetry, RetryStrategy
 
 
@@ -53,10 +47,6 @@ class CircuitBreakerConfig:
     failure_threshold: int = 5
     recovery_timeout: int = 60
     success_threshold: int = 3
-
-
-# Global circuit breaker registry for decorator usage
-_circuit_breakers: dict = {}
 
 
 def with_retry(
@@ -135,8 +125,6 @@ __all__ = [
     "with_retry",
     "with_circuit_breaker",
     # Underlying implementations for advanced usage
-    "CircuitBreaker",
-    "CircuitBreakerOpenException",
     "ExponentialBackoffRetry",
     "RetryStrategy",
 ]

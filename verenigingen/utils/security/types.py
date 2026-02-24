@@ -183,7 +183,6 @@ class SecurityProfile:
     # Note: Authorization is now handled via ROLE_PROFILE_SECURITY_MAPPING in authorization_policy.py
     # The required_roles field was removed as it was unused dead code
     required_permissions: List[str] = field(default_factory=list)
-    requires_csrf: bool = True
     requires_audit: bool = True
     input_validation: bool = True
     ip_restrictions: bool = False

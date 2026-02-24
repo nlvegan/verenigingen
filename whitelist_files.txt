@@ -524,7 +524,6 @@
 ./verenigingen/utils/performance_event_handlers.py
 ./verenigingen/utils/performance_integration.py
 ./verenigingen/utils/performance_integration_safe.py
-./verenigingen/utils/performance_optimizer.py
 ./verenigingen/utils/performance_test_20250801.py
 ./verenigingen/utils/performance_testing.py
 ./verenigingen/utils/permission_security_validator.py

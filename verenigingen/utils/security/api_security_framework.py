@@ -14,42 +14,28 @@ Architecture:
 - Comprehensive audit trails
 """
 
-import json
 import time
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List
 
 import frappe
 from frappe import _
-from frappe.utils import cstr
 
-from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import (
     PermissionError as VPermissionError,
     ValidationError as VValidationError,
-    log_error,
 )
 from verenigingen.utils.security.audit_emitter import AuditEmitter, get_audit_emitter
 from verenigingen.utils.security.authorization_engine import (
     AuthorizationEngine,
     get_authorization_engine,
 )
-from verenigingen.utils.security.authorization_policy import (
-    AuthorizationPolicy,
-    get_authorization_policy,
-)
-from verenigingen.utils.security.client_ip import get_client_ip
-
-# Lazy import to avoid circular dependency - get_auth_manager imported when needed
-# NOTE: CSRFProtection removed - Frappe handles CSRF validation natively in auth.py
+from verenigingen.utils.security.authorization_policy import get_authorization_policy
 from verenigingen.utils.security.environment_validator import (
     EnvironmentValidator,
     get_environment_validator,
 )
-from verenigingen.utils.security.frappe_whitelist_adapter import (
-    FrappeWhitelistAdapter,
-    get_frappe_whitelist_adapter,
-)
+from verenigingen.utils.security.frappe_whitelist_adapter import get_frappe_whitelist_adapter
 from verenigingen.utils.security.input_validator import InputValidator, get_input_validator
 from verenigingen.utils.security.rate_limit_engine import (
     RateLimitEngine,
@@ -68,10 +54,6 @@ from verenigingen.utils.security.types import (
     SecurityLevel,
     SecurityProfile,
 )
-from verenigingen.utils.validation.api_validators import APIValidator
-
-# FrappeWhitelistAdapter is now imported from frappe_whitelist_adapter.py (Phase 3 refactoring)
-# SecurityProfile is imported from types.py for better modularity
 
 
 class APISecurityFramework:
@@ -88,7 +70,6 @@ class APISecurityFramework:
     SECURITY_PROFILES = {
         SecurityLevel.CRITICAL: SecurityProfile(
             level=SecurityLevel.CRITICAL,
-            requires_csrf=True,
             requires_audit=True,
             input_validation=True,
             ip_restrictions=True,
@@ -98,7 +79,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.HIGH: SecurityProfile(
             level=SecurityLevel.HIGH,
-            requires_csrf=True,
             requires_audit=True,
             input_validation=True,
             ip_restrictions=False,
@@ -108,7 +88,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.MEDIUM: SecurityProfile(
             level=SecurityLevel.MEDIUM,
-            requires_csrf=False,  # Most read operations
             requires_audit=False,  # Reduce audit volume - only audit critical/high operations
             input_validation=True,
             ip_restrictions=False,
@@ -118,7 +97,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.LOW: SecurityProfile(
             level=SecurityLevel.LOW,
-            requires_csrf=False,
             requires_audit=False,  # No audit logging for low security operations
             input_validation=True,
             ip_restrictions=False,
@@ -130,7 +108,6 @@ class APISecurityFramework:
         ),
         SecurityLevel.PUBLIC: SecurityProfile(
             level=SecurityLevel.PUBLIC,
-            requires_csrf=False,
             requires_audit=False,
             input_validation=True,
             ip_restrictions=False,
@@ -208,41 +185,6 @@ class APISecurityFramework:
 
             self.audit_logger = get_audit_logger()
         return self.audit_logger
-
-    def _safe_has_csrf_header(self) -> bool:
-        """Safely check for CSRF headers, handling cases where there's no request context"""
-        try:
-            return bool(
-                frappe.get_request_header("X-Frappe-CSRF-Token") or frappe.get_request_header("X-CSRF-Token")
-            )
-        except (RuntimeError, AttributeError):
-            return False
-
-    def _is_api_key_authentication(self) -> bool:
-        """Check if the current request is using API key authentication"""
-        try:
-            auth_header = frappe.get_request_header("Authorization")
-            # SECURITY: Only log presence and type, never log token content
-            has_header = bool(auth_header)
-            is_token_auth = has_header and auth_header.startswith("token ")
-            frappe.logger("verenigingen.api_security").debug(
-                f"API key detection: header_present={has_header}, is_token_auth={is_token_auth}"
-            )
-            return is_token_auth
-        except (RuntimeError, AttributeError) as e:
-            frappe.logger("verenigingen.api_security").debug(f"API key detection error: {type(e).__name__}")
-            return False
-
-    def _get_client_ip(self) -> str:
-        """
-        Get client IP address with trusted proxy support.
-
-        Uses centralized client_ip module which:
-        - Handles X-Forwarded-For when behind trusted proxies
-        - Prevents IP spoofing by validating proxy chain
-        - Gracefully handles test environments
-        """
-        return get_client_ip()
 
     # NOTE: _get_cor_config was removed in Phase 2 refactoring.
     # COR config is now fetched by RateLimitEngine._get_cor_config()
@@ -518,38 +460,6 @@ class APISecurityFramework:
             # In production, return generic message
             raise VPermissionError(_("Access denied. You do not have permission for this operation."))
 
-    # Headers that are safe to log (no secrets, tokens, or PII)
-    SAFE_HEADERS_FOR_LOGGING = frozenset(
-        [
-            "content-type",
-            "content-length",
-            "accept",
-            "accept-encoding",
-            "accept-language",
-            "user-agent",
-            "host",
-            "origin",
-            "referer",
-            "x-requested-with",
-        ]
-    )
-
-    def _get_safe_headers_for_logging(self) -> dict:
-        """
-        Extract only safe headers for logging.
-
-        SECURITY: Never log Authorization, Cookie, X-Frappe-CSRF-Token, or other
-        headers that may contain secrets, tokens, or session identifiers.
-        """
-        if not frappe.request or not hasattr(frappe.request, "headers"):
-            return {}
-
-        safe_headers = {}
-        for header_name, header_value in frappe.request.headers:
-            if header_name.lower() in self.SAFE_HEADERS_FOR_LOGGING:
-                safe_headers[header_name] = header_value
-        return safe_headers
-
     def validate_request_method(self, profile: SecurityProfile) -> bool:
         """Validate HTTP method is allowed"""
         if not frappe.request:
@@ -593,30 +503,6 @@ class APISecurityFramework:
             except ValueError:
                 pass  # Invalid content-length header
 
-        return True
-
-    def validate_csrf_token(
-        self, profile: SecurityProfile, func: Callable = None, csrf_exempt: bool = False
-    ) -> bool:
-        """
-        Validate CSRF token if required.
-
-        NOTE: Frappe Framework automatically validates CSRF tokens for all
-        POST/PUT/DELETE/PATCH requests in frappe/auth.py. This method exists
-        for interface compatibility but delegates entirely to Frappe's native
-        protection. See: https://frappeframework.com/docs/user/en/api/rest
-
-        Args:
-            profile: Security profile for the endpoint (unused - Frappe handles this)
-            func: The function being decorated (unused)
-            csrf_exempt: If True, skip validation (unused - Frappe handles exemptions)
-
-        Returns:
-            True - Frappe handles CSRF validation natively
-        """
-        # Frappe validates CSRF automatically for state-changing methods.
-        # Custom validation was redundant and added 11 skip conditions that
-        # Frappe already handles. Removed in security simplification.
         return True
 
     def validate_rate_limits(
@@ -690,14 +576,6 @@ class APISecurityFramework:
             return kwargs
 
         return self.input_validator.validate(operation_type=operation_type, **kwargs)
-
-    def _validate_dict_input(self, data: Dict[str, Any], max_length: int = 500) -> Dict[str, Any]:
-        """Validate dictionary input data. Delegates to InputValidator."""
-        return self.input_validator.validate_dict(data, max_length)
-
-    def _validate_list_input(self, data: List[Any], max_length: int = 500) -> List[Any]:
-        """Validate list input data. Delegates to InputValidator."""
-        return self.input_validator.validate_list(data, max_length)
 
     def _validate_self_service_access(self, implicit_allowed: bool = False, **kwargs) -> bool:
         """
@@ -882,8 +760,6 @@ def api_security_framework(
     self_service_only: bool = False,
     self_service_implicit_allowed: bool = False,
     max_request_size: int = None,
-    csrf_exempt: bool = False,
-    csrf_exempt_reason: str = None,
 ):
     """
     Comprehensive API Security Decorator
@@ -905,16 +781,6 @@ def api_security_framework(
         def my_secure_api_function(param1, param2):
             return {"result": "success"}
 
-    CSRF Exemption (use sparingly):
-        @frappe.whitelist()
-        @api_security_framework(
-            security_level=SecurityLevel.HIGH,
-            csrf_exempt=True,
-            csrf_exempt_reason="Called internally during membership workflow"
-        )
-        def internal_workflow_function(...):
-            ...
-
     Args:
         security_level: Override security classification
         operation_type: Type of operation for automatic classification
@@ -926,19 +792,7 @@ def api_security_framework(
         self_service_only: If True, users can only access their own data
         self_service_implicit_allowed: If True with self_service_only, allows operations
             without explicit member parameter (defaults to current user's member)
-        csrf_exempt: If True, skip CSRF validation (use only for internal workflow calls)
-        csrf_exempt_reason: Required explanation when csrf_exempt=True (for audit trail)
     """
-    # Validate csrf_exempt usage
-    if csrf_exempt and not csrf_exempt_reason:
-        import warnings
-
-        warnings.warn(
-            f"csrf_exempt=True used without csrf_exempt_reason. "
-            f"Always document why CSRF exemption is needed for security audit trail.",
-            UserWarning,
-            stacklevel=2,
-        )
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
@@ -964,7 +818,7 @@ def api_security_framework(
                 framework.validate_authentication(profile)
                 framework.validate_request_method(profile)
                 framework.validate_request_size(profile)
-                framework.validate_csrf_token(profile, func, csrf_exempt=csrf_exempt)
+                # NOTE: CSRF validation handled natively by Frappe (auth.py)
 
                 # Rate limiting
                 operation_key = f"{func.__module__}.{func.__name__}"
@@ -1400,134 +1254,6 @@ def development_only_api(
     )
 
 
-# API endpoint classification and migration utilities
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def analyze_api_security_status():
-    """
-    Analyze current API security status across all endpoints
-
-    Returns comprehensive report of security coverage and recommendations
-    """
-    # Require admin permission
-    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
-        frappe.throw(_("Only System Managers can access security analysis"), frappe.PermissionError)
-
-    try:
-        framework = get_security_framework()
-
-        # Scan all API files
-        import importlib
-        import inspect
-        import os
-
-        api_path = os.path.join(frappe.get_app_path("verenigingen"), "api")
-        analysis = {
-            "total_endpoints": 0,
-            "secured_endpoints": 0,
-            "unsecured_endpoints": 0,
-            "security_levels": {level.value: 0 for level in SecurityLevel},
-            "recommendations": [],
-            "endpoints_by_file": {},
-        }
-
-        for root, dirs, files in os.walk(api_path):
-            for file in files:
-                if file.endswith(".py") and not file.startswith("__"):
-                    module_path = f"verenigingen.api.{file[:-3]}"
-                    try:
-                        module = importlib.import_module(module_path)
-                        file_endpoints = []
-
-                        for name, func in inspect.getmembers(module, inspect.isfunction):
-                            if hasattr(func, "__wrapped__") or name.startswith("_"):
-                                continue
-
-                            # Check if function has @frappe.whitelist()
-                            if hasattr(func, "allow_guest") or "@frappe.whitelist" in str(func):
-                                analysis["total_endpoints"] += 1
-
-                                # Check if security-protected
-                                if hasattr(func, "_security_protected"):
-                                    analysis["secured_endpoints"] += 1
-                                    level = getattr(func, "_security_level", SecurityLevel.MEDIUM)
-                                    analysis["security_levels"][level.value] += 1
-                                else:
-                                    analysis["unsecured_endpoints"] += 1
-                                    # Classify for recommendation
-                                    suggested_level = framework.classify_endpoint(func)
-                                    analysis["recommendations"].append(
-                                        {
-                                            "function": f"{module_path}.{name}",
-                                            "suggested_level": suggested_level.value,
-                                            "reason": "Unprotected API endpoint",
-                                        }
-                                    )
-
-                                file_endpoints.append(
-                                    {
-                                        "name": name,
-                                        "secured": hasattr(func, "_security_protected"),
-                                        "level": getattr(func, "_security_level", None),
-                                    }
-                                )
-
-                        if file_endpoints:
-                            analysis["endpoints_by_file"][file] = file_endpoints
-
-                    except Exception as e:
-                        frappe.log_error(f"Failed to analyze module {module_path}: {str(e)}")
-
-        return {
-            "success": True,
-            "analysis": analysis,
-            "summary": {
-                "security_coverage": (
-                    round((analysis["secured_endpoints"] / analysis["total_endpoints"]) * 100, 1)
-                    if analysis["total_endpoints"] > 0
-                    else 0
-                ),
-                "high_priority_endpoints": len(
-                    [r for r in analysis["recommendations"] if r["suggested_level"] in ["critical", "high"]]
-                ),
-                "total_recommendations": len(analysis["recommendations"]),
-            },
-        }
-
-    except Exception as e:
-        log_error(e, module="verenigingen.utils.security.api_security_framework")
-        return {"success": False, "error": str(e)}
-
-
-# Environment-Aware Decorator Shortcuts
-
-
-def staging_and_dev_api(
-    operation_type: OperationType = OperationType.UTILITY,
-    security_level: SecurityLevel = SecurityLevel.MEDIUM,
-):
-    """Decorator for staging and development APIs (testing, validation)"""
-    return api_security_framework(
-        security_level=security_level,
-        operation_type=operation_type,
-        audit_level="standard",
-        allowed_environments=[EnvironmentLevel.STAGING, EnvironmentLevel.DEVELOPMENT],
-    )
-
-
-def non_production_api(
-    operation_type: OperationType = OperationType.ADMIN,
-    security_level: SecurityLevel = SecurityLevel.HIGH,
-):
-    """Decorator for non-production APIs (dangerous admin functions)"""
-    return api_security_framework(
-        security_level=security_level,
-        operation_type=operation_type,
-        audit_level="detailed",
-        allowed_environments=[EnvironmentLevel.STAGING, EnvironmentLevel.DEVELOPMENT],
-    )
-
-
 def webhook_api(
     operation_type: OperationType = OperationType.FINANCIAL,
 ):
@@ -1541,197 +1267,4 @@ def webhook_api(
         security_level=SecurityLevel.MEDIUM,  # Medium security - not admin level
         operation_type=operation_type,
         audit_level="standard",
-    )
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def get_security_framework_status():
-    """Get current security framework configuration and status"""
-    # Require admin permission
-    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
-        frappe.throw(_("Only System Managers can access framework status"), frappe.PermissionError)
-
-    try:
-        framework = get_security_framework()
-
-        return {
-            "success": True,
-            "framework_version": "1.1.0",
-            "current_environment": framework.get_current_environment().value,
-            "security_levels": [level.value for level in SecurityLevel],
-            "operation_types": [op.value for op in OperationType],
-            "environment_levels": [env.value for env in EnvironmentLevel],
-            "default_profiles": {
-                level.value: {
-                    "requires_csrf": profile.requires_csrf,
-                    "requires_audit": profile.requires_audit,
-                    "max_request_size": profile.max_request_size,
-                }
-                for level, profile in framework.SECURITY_PROFILES.items()
-            },
-            "components_status": {
-                "audit_logger": framework.audit_logger is not None,
-                "auth_manager": framework.auth_manager is not None,
-                "cor_rate_limiting": True,  # Now using COR-based rate limiting
-                "csrf_protection": True,  # Using Frappe's native CSRF (auth.py)
-            },
-        }
-
-    except Exception as e:
-        log_error(e, module="verenigingen.utils.security.api_security_framework")
-        return {"success": False, "error": str(e)}
-
-
-def validate_deployment_environment():
-    """
-    Validate environment configuration and log for operational visibility.
-
-    This function ensures the security framework correctly detects the deployment
-    environment and provides operational visibility for production deployments.
-    """
-    try:
-        framework = get_security_framework()
-        detected_env = framework.get_current_environment()
-
-        # Log for operational visibility
-        frappe.logger().info(f"Security Framework: Environment detected as {detected_env.value}")
-
-        # Check for explicit environment expectation
-        expected = frappe.conf.get("expected_environment")
-        if expected:
-            expected_normalized = expected.lower()
-            if expected_normalized != detected_env.value:
-                frappe.logger().warning(
-                    f"Environment mismatch detected: "
-                    f"Expected '{expected}', but detected '{detected_env.value}'. "
-                    f"This may indicate configuration issues."
-                )
-            else:
-                frappe.logger().info(
-                    f"Environment validation passed: {detected_env.value} matches expected configuration"
-                )
-
-        # Log security implications
-        if detected_env == EnvironmentLevel.DEVELOPMENT:
-            frappe.logger().info("Security Framework: Development mode - debug functions enabled")
-        elif detected_env == EnvironmentLevel.PRODUCTION:
-            frappe.logger().info("Security Framework: Production mode - debug functions restricted")
-        else:
-            frappe.logger().info(
-                f"Security Framework: {detected_env.value} mode - intermediate security level"
-            )
-
-        # Log configuration sources
-        config_sources = []
-        if frappe.conf.get("developer_mode", False):
-            config_sources.append("developer_mode=True")
-        if frappe.conf.get("deployment_environment"):
-            config_sources.append(f"deployment_environment={frappe.conf.get('deployment_environment')}")
-        if frappe.conf.get("environment"):
-            config_sources.append(f"environment={frappe.conf.get('environment')}")
-
-        if config_sources:
-            frappe.logger().debug(f"Environment detection sources: {', '.join(config_sources)}")
-        else:
-            frappe.logger().debug("Environment detection: Using secure default (PRODUCTION)")
-
-        return {
-            "detected_environment": detected_env.value,
-            "expected_environment": expected,
-            "validation_passed": not expected or expected.lower() == detected_env.value,
-            "config_sources": config_sources,
-        }
-
-    except Exception as e:
-        frappe.logger().error(f"Environment validation failed: {str(e)}")
-        # Don't fail startup on validation error, but log it
-        return {"detected_environment": "unknown", "validation_passed": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def get_user_security_profile_analysis(email: str = None):
-    """
-    Analyze user's security profile and access levels (admin/debugging utility)
-
-    Args:
-        email: User email to analyze (defaults to current user)
-
-    Returns:
-        Dict containing user's role profiles, security levels, and access analysis
-    """
-    # Require System Manager permission
-    if Roles.SYSTEM_MANAGER not in frappe.get_roles():
-        frappe.throw(_("Only System Managers can access security profile analysis"), frappe.PermissionError)
-
-    try:
-        if not email:
-            email = frappe.session.user
-
-        framework = get_security_framework()
-
-        # Get user's role profiles
-        user_role_profiles = framework._get_user_role_profiles(email)
-        user_individual_roles = frappe.get_roles(email)
-
-        # Analyze security level access
-        security_level_access = {}
-        for level in SecurityLevel:
-            has_access = framework._validate_role_profile_access(level, email)
-            granting_profiles = []
-
-            for profile in user_role_profiles:
-                if framework._role_profile_grants_access(profile, level):
-                    granting_profiles.append(profile)
-
-            security_level_access[level.value] = {
-                "has_access": has_access,
-                "granting_profiles": granting_profiles,
-            }
-
-        # Operation type analysis
-        operation_type_access = {}
-        for op_type, security_level in framework.OPERATION_SECURITY_MAPPING.items():
-            has_access = framework._validate_role_profile_access(security_level, email)
-            operation_type_access[op_type.value] = {
-                "required_security_level": security_level.value,
-                "has_access": has_access,
-            }
-
-        return {
-            "success": True,
-            "user_email": email,
-            "role_profiles": user_role_profiles,
-            "individual_roles": user_individual_roles,
-            "security_level_access": security_level_access,
-            "operation_type_access": operation_type_access,
-            "role_profile_mappings": dict(framework.ROLE_PROFILE_SECURITY_MAPPING),
-            "analysis_timestamp": frappe.utils.now(),
-        }
-
-    except Exception as e:
-        log_error(e, module="verenigingen.utils.security.api_security_framework")
-        return {"success": False, "error": str(e)}
-
-
-def setup_api_security_framework():
-    """Setup API security framework during app initialization"""
-    # Initialize global framework
-    global _security_framework
-    _security_framework = APISecurityFramework()
-
-    # Validate environment configuration
-    env_validation = validate_deployment_environment()
-
-    # Log setup completion with environment info
-    _security_framework._get_audit_logger().log_event(
-        "api_security_framework_initialized",
-        AuditSeverity.INFO,
-        details={
-            "security_levels": [level.value for level in SecurityLevel],
-            "operation_types": [op.value for op in OperationType],
-            "components_loaded": True,
-            "environment_validation": env_validation,
-        },
     )

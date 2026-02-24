@@ -69,43 +69,9 @@ def test_mollie_connector():
         return False
 
 
-def test_circuit_breaker():
-    """Test circuit breaker resilience pattern"""
-    print("\n2. Testing Circuit Breaker...")
-
-    try:
-        from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import (
-            CircuitBreaker,
-            CircuitState,
-        )
-
-        # Create breaker
-        breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=1, success_threshold=1)
-
-        assert breaker.state == CircuitState.CLOSED
-        print("   ✓ Circuit starts CLOSED")
-
-        # Test failures
-        for _ in range(2):
-            try:
-                breaker.call(lambda: 1 / 0)
-            except:
-                pass
-
-        assert breaker.state == CircuitState.OPEN
-        print("   ✓ Circuit opens after failures")
-
-        print("   ✅ Circuit Breaker tests PASSED")
-        return True
-
-    except Exception as e:
-        print(f"   ❌ FAILED: {str(e)}")
-        return False
-
-
 def test_rate_limiter():
     """Test token bucket rate limiter"""
-    print("\n3. Testing Rate Limiter...")
+    print("\n2. Testing Rate Limiter...")
 
     try:
         from verenigingen.verenigingen_payments.core.resilience.rate_limiter import TokenBucketRateLimiter
@@ -137,7 +103,7 @@ def test_rate_limiter():
 
 def test_encryption():
     """Test encryption handler"""
-    print("\n4. Testing Encryption...")
+    print("\n3. Testing Encryption...")
 
     try:
         # Mock frappe.conf for encryption key storage
@@ -169,7 +135,7 @@ def test_encryption():
 
 def test_webhook_validation():
     """Test webhook signature validation"""
-    print("\n5. Testing Webhook Validation...")
+    print("\n4. Testing Webhook Validation...")
 
     try:
         from cryptography.fernet import Fernet
@@ -225,7 +191,6 @@ def main():
 
     results = {
         "Mollie Connector": test_mollie_connector(),
-        "Circuit Breaker": test_circuit_breaker(),
         "Rate Limiter": test_rate_limiter(),
         "Encryption": test_encryption(),
         "Webhook Validation": test_webhook_validation(),

@@ -265,32 +265,11 @@ def test_mollie_connector():
 
 
 def test_resilience_patterns():
-    """Test resilience patterns (circuit breaker, rate limiter, retry)"""
+    """Test resilience patterns (rate limiter, retry)"""
     try:
-        from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import (
-            CircuitBreaker, CircuitState
-        )
         from verenigingen.verenigingen_payments.core.resilience.rate_limiter import TokenBucketRateLimiter as RateLimiter
         from verenigingen.verenigingen_payments.core.resilience.retry_policy import ExponentialBackoffRetry as RetryPolicy
-        
-        # Test Circuit Breaker
-        breaker = CircuitBreaker(
-            failure_threshold=3,
-            recovery_timeout=1,
-            success_threshold=2
-        )
-        
-        assert breaker.state == CircuitState.CLOSED, "Should start in CLOSED state"
-        
-        # Simulate failures
-        for _ in range(3):
-            try:
-                breaker.call(lambda: 1/0)  # Will fail
-            except:
-                pass
-        
-        assert breaker.state == CircuitState.OPEN, "Should be OPEN after failures"
-        
+
         # Test Rate Limiter
         limiter = RateLimiter(max_tokens=20, refill_rate=10, refill_period=1.0)
         

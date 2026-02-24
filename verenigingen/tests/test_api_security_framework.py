@@ -78,14 +78,13 @@ class TestAPISecurityFramework(VereningingenTestCase):
         """Test security profile settings"""
 
         critical_profile = self.framework.get_security_profile(SecurityLevel.CRITICAL)
-        self.assertTrue(critical_profile.requires_csrf)
         self.assertTrue(critical_profile.requires_audit)
         self.assertTrue(critical_profile.ip_restrictions)
         # Note: Authorization is now handled via ROLE_PROFILE_SECURITY_MAPPING
         # in authorization_policy.py, not via required_roles on profiles
 
         public_profile = self.framework.get_security_profile(SecurityLevel.PUBLIC)
-        self.assertFalse(public_profile.requires_csrf)
+        self.assertFalse(public_profile.requires_audit)
 
     def test_authentication_validation(self):
         """Test authentication validation logic"""

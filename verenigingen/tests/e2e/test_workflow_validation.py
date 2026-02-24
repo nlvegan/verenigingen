@@ -515,43 +515,6 @@ class TestE2EWorkflowValidation(EnhancedTestCase):
         self.assertGreater(failed, 0)
         print(f"✓ Processed {processed} webhooks despite {failed} failures")
         
-        # Scenario 4: Circuit breaker activation and recovery
-        print("Testing circuit breaker recovery...")
-        from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import CircuitBreaker
-        
-        breaker = CircuitBreaker(failure_threshold=3, timeout=0.5)
-        
-        def failing_operation():
-            raise Exception("Service unavailable")
-        
-        # Trip the circuit breaker
-        for _ in range(3):
-            try:
-                with breaker:
-                    failing_operation()
-            except Exception:
-                pass
-        
-        self.assertEqual(breaker.state.value, "open")
-        print("✓ Circuit breaker opened after failures")
-        
-        # Wait for timeout
-        import time
-        time.sleep(0.6)
-        
-        # Should transition to half-open
-        with patch.object(breaker, '_do_call') as mock_call:
-            mock_call.return_value = "success"
-            
-            try:
-                with breaker:
-                    result = "recovered"
-            except Exception:
-                result = None
-        
-        self.assertEqual(result, "recovered")
-        print("✓ Circuit breaker recovered")
-        
         print("✅ Error recovery workflow validated!")
         return True
     

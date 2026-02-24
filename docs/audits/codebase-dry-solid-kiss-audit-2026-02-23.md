@@ -401,7 +401,7 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 |--------|-------|------------|------|
 | Split e_boekhouden_rest_full_migration.py into 6 modules | 1→6 | -500 LOC | MEDIUM |
 | Split MollieDebugService into 4 focused services | 1→4 | -300 LOC | MEDIUM |
-| Split APISecurityFramework god class | 1→4 | -200 LOC | MEDIUM |
+| ~~Split APISecurityFramework god class~~ | 1 | **-459 LOC** | **RESOLVED** — dead code removed (6 dead methods, 3 dev-only endpoints, 4 dead standalone functions, no-op CSRF, unused imports). Class remains as facade. |
 | Extract business logic from template get_context() | 10+ | -400 LOC | MEDIUM |
 | Standardize API response pattern (OperationResult) | 100+ | 0 (refactor) | MEDIUM |
 | Move WorkspaceHealthManager to services/ | 1 | 0 (move) | LOW |
@@ -409,16 +409,16 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 
 ### Phase 4: Cleanup (Weeks 5-6) — Polish
 
-| Action | Files | LOC Impact | Risk |
-|--------|-------|------------|------|
-| Delete analytics_engine.py stub methods | 1 | -400 LOC | LOW |
-| Delete performance_optimizer.py stubs | 1 | -300 LOC | LOW |
-| Consolidate duplicate authorization logic | 3 | -200 LOC | LOW |
-| Remove deprecated CircuitBreaker | 1 | -100 LOC | NONE |
-| Delete dead code functions | 5+ | -200 LOC | NONE |
-| Standardize error codes across API | 20+ | 0 (refactor) | LOW |
-| Consolidate settings loading pattern | 15 | -200 LOC | LOW |
-| **Subtotal** | 46+ | ~-1,400 LOC | |
+| Action | Files | LOC Impact | Risk | Status |
+|--------|-------|------------|------|--------|
+| Delete analytics_engine.py stub methods | 1 | -400 LOC | LOW | SKIPPED (only ~50 LOC stubs, rest actively used) |
+| Delete performance_optimizer.py stubs | 1 | **-1,146 LOC actual** | LOW | **DONE** (entire file had zero production callers) |
+| Consolidate duplicate authorization logic | 3 | -200 LOC | LOW | SKIPPED (intentional layered architecture) |
+| Remove deprecated CircuitBreaker | 1 | **-409 LOC actual** | NONE | **DONE** (pass-through decorator in __init__.py kept for compat) |
+| Delete dead code functions | 5+ | -200 LOC | NONE | |
+| Standardize error codes across API | 20+ | 0 (refactor) | LOW | |
+| Consolidate settings loading pattern | 15 | -200 LOC | LOW | |
+| **Subtotal** | 46+ | ~-1,400 LOC | | |
 
 ---
 
@@ -429,10 +429,10 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 | Phase | LOC Removed | Effort | Status |
 |-------|-------------|--------|--------|
 | Phase 1 (Safety) | **-10,353 actual** (est. ~5,000) | done | **DONE** (e_boekhouden deferred) |
-| Phase 2 (Dedup) | ~2,680 | 3-5 days | pending |
-| Phase 3 (Arch) | ~1,400 | 5-8 days | pending |
-| Phase 4 (Cleanup) | ~1,400 | 2-3 days | pending |
-| **Total** | **~15,833** | **11-18 days** | |
+| Phase 2 (Dedup) | **-3,654 actual** (est. ~2,680) | done | **DONE** |
+| Phase 3 (Arch) | **-459 actual** (est. ~1,400) | done | **DONE** (APISecurityFramework dead code; split/response pattern skipped) |
+| Phase 4 (Cleanup) | **-1,555 actual** (est. ~1,400) | done | **DONE** (performance_optimizer + circuit_breaker; analytics/auth skipped) |
+| **Total actual** | **-16,021** | | |
 
 ### Quality Metrics
 

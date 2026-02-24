@@ -35,10 +35,7 @@ def validate_performance_infrastructure():
     }
     
     try:
-        # Test 1: Performance Optimizer
-        results["components"]["performance_optimizer"] = validate_performance_optimizer()
-        
-        # Test 2: Performance Dashboard  
+        # Test 1: Performance Dashboard  
         results["components"]["performance_dashboard"] = validate_performance_dashboard()
         
         # Test 3: Alert Manager
@@ -73,49 +70,6 @@ def validate_performance_infrastructure():
         results["overall_status"] = "CRITICAL_FAILURE" 
         results["error"] = str(e)
         return results
-
-
-def validate_performance_optimizer():
-    """Validate PerformanceOptimizer is operational"""
-    try:
-        # Try to import and initialize
-        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
-        
-        optimizer = PerformanceOptimizer()
-        
-        # Test baseline capture capability
-        start_time = time.time()
-        baseline = optimizer._capture_baseline_metrics() if hasattr(optimizer, '_capture_baseline_metrics') else {}
-        capture_time = time.time() - start_time
-        
-        # Test optimization suggestions
-        suggestions = optimizer.get_optimization_suggestions() if hasattr(optimizer, 'get_optimization_suggestions') else []
-        
-        return {
-            "status": "OPERATIONAL",
-            "baseline_capture_time": capture_time,
-            "baseline_metrics_count": len(baseline.get("metrics", {})),
-            "optimization_suggestions_count": len(suggestions),
-            "capabilities": {
-                "baseline_capture": hasattr(optimizer, '_capture_baseline_metrics'),
-                "optimization_suggestions": hasattr(optimizer, 'get_optimization_suggestions'),
-                "query_optimization": hasattr(optimizer, 'optimize_queries'),
-                "cache_optimization": hasattr(optimizer, 'optimize_caching')
-            }
-        }
-        
-    except ImportError as e:
-        return {
-            "status": "MISSING", 
-            "error": f"PerformanceOptimizer not found: {e}",
-            "critical": True
-        }
-    except Exception as e:
-        return {
-            "status": "FAILED", 
-            "error": str(e),
-            "critical": True
-        }
 
 
 def validate_performance_dashboard():
@@ -474,8 +428,7 @@ def calculate_readiness_score(components: Dict) -> int:
     """Calculate overall readiness score from component validation results"""
     total_score = 0
     component_weights = {
-        "performance_optimizer": 20,     # Critical for optimizations
-        "performance_dashboard": 15,     # Important for monitoring
+        "performance_dashboard": 20,     # Important for monitoring
         "alert_manager": 10,            # Nice to have
         "background_jobs": 20,          # Critical for job coordination
         "security_integration": 25,     # Critical for compliance
@@ -538,12 +491,6 @@ def generate_recommendations(components: Dict) -> tuple:
             recommendations.append(f"Optimize {component_name} for better Phase 5A performance")
             
     # Add specific recommendations based on capabilities
-    perf_optimizer = components.get("performance_optimizer", {})
-    if perf_optimizer.get("status") == "OPERATIONAL":
-        capabilities = perf_optimizer.get("capabilities", {})
-        if not capabilities.get("baseline_capture"):
-            recommendations.append("Enable baseline capture in PerformanceOptimizer for trend analysis")
-            
     dashboard = components.get("performance_dashboard", {})
     if dashboard.get("status") == "OPERATIONAL":
         health_checks = dashboard.get("health_checks_count", 0)

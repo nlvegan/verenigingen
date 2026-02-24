@@ -6,11 +6,12 @@ to ensure proper security level mapping and self-service operations.
 """
 
 import unittest
+
 import frappe
 
-from verenigingen.utils.security.api_security_framework import APISecurityFramework
-from verenigingen.utils.security.types import SecurityLevel, OperationType
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.api_security_framework import APISecurityFramework
+from verenigingen.utils.security.types import OperationType, SecurityLevel
 
 
 class TestRoleProfileIntegration(EnhancedTestCase):
@@ -155,14 +156,12 @@ class TestRoleProfileIntegration(EnhancedTestCase):
         # This ensures existing role-based access still works by checking for validate_authentication method
         self.assertTrue(hasattr(self.framework, 'validate_authentication'))
 
-    def test_security_profile_analysis_available(self):
-        """Test that security profile analysis function exists for debugging"""
-        # Import should work
-        try:
-            from verenigingen.utils.security.api_security_framework import get_user_security_profile_analysis
-            self.assertTrue(callable(get_user_security_profile_analysis))
-        except ImportError:
-            self.fail("Security profile analysis function not available")
+    def test_security_framework_available(self):
+        """Test that security framework is available"""
+        from verenigingen.utils.security.api_security_framework import get_security_framework
+
+        framework = get_security_framework()
+        self.assertIsNotNone(framework)
 
 
 class TestSelfServiceOperations(EnhancedTestCase):
