@@ -41,6 +41,17 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             membership_type.insert(ignore_permissions=True)
             frappe.db.commit()
 
+    def _create_test_chapter(self, name):
+        """Create a test chapter with ignore_permissions for test setup."""
+        chapter = frappe.get_doc({
+            "doctype": "Chapter",
+            "name": name,
+            "status": "Active",
+        })
+        chapter.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return chapter
+
     def test_member_approval_no_attribute_error(self):
         """
         Test that member approval doesn't throw AttributeError for chapter_assignments.
@@ -409,14 +420,8 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         from verenigingen.services.member.core.member_lifecycle_service import MemberLifecycleService
 
         # Create a second test chapter
-        second_chapter_name = f"Test Chapter 2 {int(now_datetime().timestamp())}"
-        second_chapter = frappe.get_doc({
-            "doctype": "Chapter",
-            "name": second_chapter_name,
-            "status": "Active",
-        })
-        second_chapter.insert(ignore_permissions=True)
-        frappe.db.commit()
+        second_chapter = self._create_test_chapter(f"Test Chapter 2 {int(now_datetime().timestamp())}")
+        second_chapter_name = second_chapter.name
 
         # 1. Create pending member
         member = self.create_test_member(

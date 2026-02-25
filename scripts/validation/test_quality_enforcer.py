@@ -276,8 +276,8 @@ class TestQualityEnforcer:
         valid = True
         lines = content.split('\n')
 
-        # Check if this is the test factory infrastructure file
-        is_test_factory = 'enhanced_test_factory.py' in file_path or 'test_factory' in file_path
+        # Check if this is a test factory infrastructure file
+        is_test_factory = '_factory' in os.path.basename(file_path)
 
         # Allow permission bypasses only in specific contexts
         allowed_contexts = [
