@@ -134,7 +134,7 @@ class TestMemberPaymentMatcher(EnhancedTestCase):
     def test_includes_terminated_members(self):
         """Test that Terminated members are included for bookkeeping."""
         member = self._create_test_member_with_mollie_id(
-            "cst_terminated", status="Terminated"
+            "cst_terminated", status="Quit"
         )
 
         matcher = MemberPaymentMatcher()
@@ -147,7 +147,7 @@ class TestMemberPaymentMatcher(EnhancedTestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result["name"], member.name)
-        self.assertEqual(result["status"], "Terminated")
+        self.assertEqual(result["status"], "Quit")
 
     def test_includes_deceased_members(self):
         """Test that Deceased members are included for bookkeeping."""
@@ -188,7 +188,7 @@ class TestMemberPaymentMatcher(EnhancedTestCase):
         # Create members with different statuses
         active = self._create_test_member_with_mollie_id("cst_active1", status="Active")
         terminated = self._create_test_member_with_mollie_id(
-            "cst_term1", status="Terminated"
+            "cst_term1", status="Quit"
         )
 
         matcher = MemberPaymentMatcher()

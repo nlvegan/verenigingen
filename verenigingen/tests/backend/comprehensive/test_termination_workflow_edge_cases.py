@@ -551,7 +551,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         updated_sepa = frappe.get_doc("SEPA Mandate", sepa_mandate.name)
 
         # Membership should be cancelled
-        self.assertIn(updated_membership.status, ["Cancelled", "Terminated"])
+        self.assertIn(updated_membership.status, ["Cancelled", "Quit"])
 
         # SEPA mandate should be cancelled
         self.assertIn(updated_sepa.status, ["Cancelled", "Inactive"])
@@ -627,7 +627,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
 
             # Should handle gracefully or detect conflict
             final_member = frappe.get_doc("Member", self.member1.name)
-            self.assertIn(final_member.status, ["Terminated", "Suspended"])
+            self.assertIn(final_member.status, ["Quit", "Suspended"])
 
         except Exception:
             # Conflict detection is acceptable

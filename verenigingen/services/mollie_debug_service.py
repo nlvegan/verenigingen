@@ -2310,7 +2310,7 @@ class MollieDebugService(StatelessService):
         for terminated/banned/suspended members.
 
         This function:
-        1. Finds all members with status in ('Terminated', 'Banned', 'Suspended')
+        1. Finds all members with status in ('Quit', 'Banned', 'Suspended')
         2. For each member with a mollie_customer_id:
            a. Queries Mollie for customer data
            b. Retrieves subscription information
@@ -2348,7 +2348,7 @@ class MollieDebugService(StatelessService):
             members = frappe.get_all(
                 "Member",
                 filters={
-                    "status": ["in", ["Terminated", "Banned", "Suspended"]],
+                    "status": ["in", ["Quit", "Banned", "Suspended"]],
                     "mollie_customer_id": ["!=", ""],
                 },
                 fields=["name", "full_name", "status", "mollie_customer_id", "mollie_subscription_id"],

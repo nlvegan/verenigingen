@@ -152,9 +152,9 @@ class TestMemberLifecycleBasic(EnhancedTestCase):
         print("✅ Member reactivated")
         
         # Terminate member
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()  # Enhanced Test Factory handles permissions
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
         print("✅ Member terminated")
         
         print("\n🎉 Basic Member Lifecycle Test Complete!")

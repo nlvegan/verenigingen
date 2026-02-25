@@ -156,7 +156,7 @@ class Membership:
     STATUS_ACTIVE = "Active"
     STATUS_INACTIVE = "Inactive"
     STATUS_SUSPENDED = "Suspended"
-    STATUS_TERMINATED = "Terminated"
+    STATUS_TERMINATED = "Quit"
 
 
 # Volunteer system constants

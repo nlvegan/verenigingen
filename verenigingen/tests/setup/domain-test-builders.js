@@ -216,7 +216,7 @@ class AssociationControllerTestBuilder {
 					'Pending',
 					'Active',
 					'Inactive',
-					'Terminated',
+					'Quit',
 					'Suspended'
 				];
 

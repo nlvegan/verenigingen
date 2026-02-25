@@ -110,7 +110,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         member = frappe.get_doc("Member", self.test_member_name)
 
         # Test each termination status
-        termination_statuses = ["Deceased", "Banned", "Suspended", "Terminated", "Expired"]
+        termination_statuses = ["Deceased", "Banned", "Suspended", "Quit", "Expired"]
 
         for status in termination_statuses:
             # Set member to termination status

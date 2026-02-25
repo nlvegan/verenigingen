@@ -582,14 +582,14 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
         
         # First try direct status change to Terminated
         try:
-            member.status = "Terminated"
+            member.status = "Quit"
             if hasattr(member, 'termination_reason'):
                 member.termination_reason = "Voluntary resignation"
             if hasattr(member, 'termination_date'):
                 member.termination_date = today()
             member.save()
             member.reload()
-            if member.status == "Terminated":
+            if member.status == "Quit":
                 terminated = True
         except:
             pass
@@ -612,7 +612,7 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
         
         # Verify termination or inactive status
         if terminated:
-            self.assertIn(member.status, ["Terminated", "Inactive"])
+            self.assertIn(member.status, ["Quit", "Inactive"])
             if hasattr(member, 'termination_date') and member.termination_date:
                 self.assertIsNotNone(member.termination_date)
             print(f"✅ Member terminated with status: {member.status}")
@@ -623,7 +623,7 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
         # Check if volunteer record was deactivated
         volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, ["name", "status"], as_dict=True)
         if volunteer:
-            if volunteer.status in ["Inactive", "Terminated"]:
+            if volunteer.status in ["Inactive", "Quit"]:
                 print("✅ Volunteer record deactivated")
             else:
                 print(f"ℹ️  Volunteer record remains {volunteer.status} (automatic deactivation may not be implemented)")

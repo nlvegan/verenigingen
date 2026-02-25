@@ -141,13 +141,13 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         
         # Retroactively terminate membership (e.g., discovered eligibility issue)
         retroactive_termination_date = add_days(today(), -20)  # 20 days ago
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = retroactive_termination_date
         member.termination_reason = "Retroactive termination - eligibility review"
         member.save()
         
         # Validate retroactive effects
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
         self.assertTrue(getdate(member.termination_date) < getdate(today()))
         
         # Historical invoice should be flagged for review
@@ -168,13 +168,13 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         member1.save()
         
         # Second update: Try to terminate (should handle conflict)
-        member2.status = "Terminated"
+        member2.status = "Quit"
         member2.termination_reason = "Concurrent termination attempt"
         
         # In real implementation, this might trigger version conflict handling
         # For test, just verify final state is consistent
         member.reload()
-        self.assertIn(member.status, ["Suspended", "Terminated"])  # One of the states should win
+        self.assertIn(member.status, ["Suspended", "Quit"])  # One of the states should win
         
     # Status-Dependent Business Logic Tests
     
@@ -184,7 +184,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         
         # Define status billing rules
         billing_eligible_statuses = ["Active", "Current", "Grace Period"]
-        non_billing_statuses = ["Suspended", "Terminated", "Quit", "Expelled", "Deceased"]
+        non_billing_statuses = ["Suspended", "Quit", "Quit", "Expelled", "Deceased"]
         
         # Test eligible statuses
         for status in billing_eligible_statuses:
@@ -213,7 +213,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
             {"status": "Active", "portal_access": True, "voting_rights": True, "event_access": True},
             {"status": "Suspended", "portal_access": True, "voting_rights": False, "event_access": False},
             {"status": "Grace Period", "portal_access": True, "voting_rights": True, "event_access": True},
-            {"status": "Terminated", "portal_access": False, "voting_rights": False, "event_access": False},
+            {"status": "Quit", "portal_access": False, "voting_rights": False, "event_access": False},
             {"status": "Quit", "portal_access": False, "voting_rights": False, "event_access": False},
         ]
         
@@ -270,7 +270,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         original_mandate_status = mandate.status
         
         # Test Case 1: Termination should cancel mandate
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
         
@@ -303,7 +303,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         # In real implementation, dues schedule might be paused automatically
         
         # Test Case 2: Termination should cancel dues schedule
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
         
@@ -335,11 +335,11 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         status_change_notifications.extend(notifications)
         
         # Test Case 3: Termination notifications
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
         
-        notifications = self.get_status_change_notifications(member, "Terminated")
+        notifications = self.get_status_change_notifications(member, "Quit")
         status_change_notifications.extend(notifications)
         
         # Validate notifications were created
@@ -356,7 +356,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         mandate = frappe.get_doc("SEPA Mandate", {"party": member.customer})
         
         # Test Case 1: Member termination should cascade to related records
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
         
@@ -416,7 +416,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         status_changes = [
             {"status": "Suspended", "reason": "Payment issues", "date": today()},
             {"status": "Active", "reason": "Payment resolved", "date": add_days(today(), 30)},
-            {"status": "Terminated", "reason": "Member request", "date": add_days(today(), 60)},
+            {"status": "Quit", "reason": "Member request", "date": add_days(today(), 60)},
         ]
         
         for change in status_changes:
@@ -424,7 +424,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
             if change["status"] == "Suspended":
                 member.suspension_reason = change["reason"]
                 member.suspension_date = change["date"]
-            elif change["status"] == "Terminated":
+            elif change["status"] == "Quit":
                 member.termination_reason = change["reason"]
                 member.termination_date = change["date"]
             member.save()
@@ -520,7 +520,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         original_status = member.status
         
         # Perform erroneous status change
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_reason = "Administrative error"
         member.termination_date = today()
         member.save()
@@ -541,22 +541,22 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
     
     def is_member_eligible_for_billing(self, member):
         """Check if member is eligible for billing based on status"""
-        non_billing_statuses = ["Suspended", "Terminated", "Quit", "Expelled", "Deceased", "Honorary", "Lifetime"]
+        non_billing_statuses = ["Suspended", "Quit", "Quit", "Expelled", "Deceased", "Honorary", "Lifetime"]
         return member.status not in non_billing_statuses
         
     def check_portal_access(self, member):
         """Check if member has portal access based on status"""
-        no_access_statuses = ["Terminated", "Quit", "Expelled", "Deceased"]
+        no_access_statuses = ["Quit", "Quit", "Expelled", "Deceased"]
         return member.status not in no_access_statuses
         
     def check_voting_rights(self, member):
         """Check if member has voting rights based on status"""
-        no_voting_statuses = ["Suspended", "Terminated", "Quit", "Expelled", "Deceased", "Grace Period"]
+        no_voting_statuses = ["Suspended", "Quit", "Quit", "Expelled", "Deceased", "Grace Period"]
         return member.status not in no_voting_statuses
         
     def check_event_access(self, member):
         """Check if member has event access based on status"""
-        no_event_statuses = ["Suspended", "Terminated", "Quit", "Expelled", "Deceased"]
+        no_event_statuses = ["Suspended", "Quit", "Quit", "Expelled", "Deceased"]
         return member.status not in no_event_statuses
         
     def calculate_dues_amount(self, member, base_amount):
@@ -584,7 +584,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         })
         
         # Admin notification for certain statuses
-        if new_status in ["Suspended", "Terminated"]:
+        if new_status in ["Suspended", "Quit"]:
             notifications.append({
                 "recipient": "admin@example.com",
                 "type": "admin",
@@ -602,7 +602,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         dues_schedule = frappe.get_value("Membership Dues Schedule", {"member": member.name})
         if dues_schedule:
             schedule_doc = frappe.get_doc("Membership Dues Schedule", dues_schedule)
-            if member.status in ["Terminated", "Quit"] and schedule_doc.status == "Active":
+            if member.status in ["Quit", "Quit"] and schedule_doc.status == "Active":
                 issues.append("Member terminated but dues schedule still active")
         
         # Check member vs SEPA mandate consistency

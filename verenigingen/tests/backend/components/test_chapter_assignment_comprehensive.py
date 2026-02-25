@@ -641,7 +641,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         
     def get_chapter_member_count(self, chapter_name):
         """Get member count for chapter"""
-        return frappe.db.count("Member", {"chapter": chapter_name, "status": ["!=", "Terminated"]})
+        return frappe.db.count("Member", {"chapter": chapter_name, "status": ["!=", "Quit"]})
         
     def get_chapter_members_by_status(self, chapter_name, status):
         """Get chapter members by status"""

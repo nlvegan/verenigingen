@@ -268,7 +268,7 @@ class BulkInvoiceGenerationService(StatefulService):
         )
 
         # Filter by member status
-        ineligible_statuses = ["Terminated", "Expelled", "Deceased", "Quit"]
+        ineligible_statuses = ["Quit", "Expelled", "Deceased", "Quit"]
         eligible_for_processing = []
 
         for schedule_data in all_schedules:

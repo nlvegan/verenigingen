@@ -24,7 +24,7 @@ class ExtendedTestDataFactory(TestDataFactory):
     def _load_test_patterns(self):
         """Load common test data patterns"""
         return {
-            "member_statuses": ["Active", "Inactive", "Pending", "Suspended", "Terminated"],
+            "member_statuses": ["Active", "Inactive", "Pending", "Suspended", "Quit"],
             "volunteer_skills": ["Event Planning", "Marketing", "Finance", "IT Support", 
                                 "Communication", "Fundraising", "Teaching", "Cooking"],
             "expense_categories": ["Travel", "Materials", "Food", "Equipment", 
@@ -66,7 +66,7 @@ class ExtendedTestDataFactory(TestDataFactory):
             "new_member": {"status": "Active", "join_date": base_date},
             "active": {"status": "Active", "join_date": add_months(base_date, -12)},
             "lapsed": {"status": "Inactive", "last_payment": add_months(base_date, -6)},
-            "terminated": {"status": "Terminated", "termination_date": base_date}
+            "terminated": {"status": "Quit", "termination_date": base_date}
         }
         
         data.update(stage_config.get(stage, {}))

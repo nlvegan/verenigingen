@@ -378,7 +378,7 @@ class TestMemberBusinessRulesIntegration(EnhancedTestCase):
     def test_status_field_validation_real_logic(self):
         """Test status field validation with real business logic"""
         
-        valid_statuses = ["Active", "Suspended", "Terminated"]  # Remove Pending - may default to Active
+        valid_statuses = ["Active", "Suspended", "Quit"]  # Remove Pending - may default to Active
         
         for status in valid_statuses:
             with self.subTest(status=status):
@@ -395,7 +395,7 @@ class TestMemberBusinessRulesIntegration(EnhancedTestCase):
                 self.assertIsNotNone(member.name)
                 member.reload()
                 # Test that status is one of the valid options (may have been modified by business logic)
-                self.assertIn(member.status, ["Pending", "Active", "Suspended", "Terminated"])
+                self.assertIn(member.status, ["Pending", "Active", "Suspended", "Quit"])
     
     def test_email_uniqueness_real_validation(self):
         """Test email uniqueness with real validation logic"""

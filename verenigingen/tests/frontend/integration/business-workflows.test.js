@@ -537,11 +537,11 @@ describe('Business Workflows - Integration Test Suite', () => {
 			// Step 4: Close membership
 			const membershipClosure
         = await terminationWorkflow.closeMembership(membership);
-			expect(membershipClosure.status).toBe('Terminated');
+			expect(membershipClosure.status).toBe('Quit');
 
 			// Step 5: Update member status
 			const memberUpdate = await terminationWorkflow.updateMemberStatus(member);
-			expect(memberUpdate.status).toBe('Terminated');
+			expect(memberUpdate.status).toBe('Quit');
 
 			// Step 6: Process final settlement
 			const settlement
@@ -826,11 +826,11 @@ describe('Business Workflows - Integration Test Suite', () => {
 		}
 
 		async closeMembership(membership) {
-			return { ...membership, status: 'Terminated' };
+			return { ...membership, status: 'Quit' };
 		}
 
 		async updateMemberStatus(member) {
-			return { ...member, status: 'Terminated' };
+			return { ...member, status: 'Quit' };
 		}
 
 		async processFinalSettlement(member) {

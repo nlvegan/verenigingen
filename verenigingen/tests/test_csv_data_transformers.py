@@ -68,7 +68,7 @@ class TestCSVDataTransformers(FrappeTestCase):
         self.assertEqual(convert_membership_type("lid"), "Standard")
         self.assertEqual(convert_membership_type("aspirant"), "Aspirant")
         self.assertEqual(convert_membership_type("overleden"), "Deceased")
-        self.assertEqual(convert_membership_type("opgezegd"), "Terminated")
+        self.assertEqual(convert_membership_type("opgezegd"), "Quit")
         self.assertEqual(convert_membership_type("geroyeerd"), "Expelled")
         self.assertEqual(convert_membership_type("dubbel"), "Duplicate")
 
@@ -77,7 +77,7 @@ class TestCSVDataTransformers(FrappeTestCase):
         self.assertEqual(convert_membership_type("Lid"), "Standard")
 
         # Legacy types
-        self.assertEqual(convert_membership_type("uitgeschreven"), "Terminated")
+        self.assertEqual(convert_membership_type("uitgeschreven"), "Quit")
         self.assertEqual(convert_membership_type("geschorst"), "Suspended")
 
         # Unknown types return original

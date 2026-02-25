@@ -104,13 +104,13 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         member.reload()
 
         # Transition to terminated
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_reason = "Voluntary resignation"
         member.termination_date = today()
         member.save()
 
         # Verify status change
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
         self.assertIsNotNone(member.termination_date)
 
         # Verify membership status - check if cascade happened
@@ -119,7 +119,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # If still Active, cascade not implemented; if Draft, cascade happened (needs review)
         self.assertIn(
             updated_membership.status,
-            ["Active", "Draft", "Terminated", "Cancelled"],
+            ["Active", "Draft", "Quit", "Cancelled"],
             f"Membership status after member termination should be a valid cascade state, got: {updated_membership.status}"
         )
 
@@ -130,10 +130,10 @@ class TestMemberStatusTransitions(VereningingenTestCase):
     def test_terminated_to_active_prevention(self):
         """Test Terminated → Active transition behavior"""
         member = self.create_test_member(
-            first_name="Terminated",
+            first_name="Quit",
             last_name="Member",
             email="terminated.test.status@test.com",
-            status="Terminated"
+            status="Quit"
         )
 
         # Attempt transition from Terminated to Active
@@ -163,12 +163,12 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Attempt transition from Pending to Terminated
         # Current implementation may or may not enforce this restriction
         try:
-            member.status = "Terminated"
+            member.status = "Quit"
             member.termination_reason = "Test termination"
             member.termination_date = today()
             member.save()
             # If save succeeds, the restriction is not enforced
-            self.assertEqual(member.status, "Terminated")
+            self.assertEqual(member.status, "Quit")
         except frappe.ValidationError:
             # If ValidationError is raised, restriction is enforced
             pass
@@ -232,13 +232,13 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # Second user tries to terminate (should handle conflict)
         try:
-            member2.status = "Terminated"
+            member2.status = "Quit"
             member2.termination_reason = "Second reason"
             member2.save()
 
             # Should handle gracefully or detect conflict
             final_member = frappe.get_doc("Member", member.name)
-            self.assertIn(final_member.status, ["Suspended", "Terminated"])
+            self.assertIn(final_member.status, ["Suspended", "Quit"])
 
         except Exception:
             # Conflict detection is acceptable
@@ -272,11 +272,11 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Test terminated without required fields
         try:
             member.reload()
-            member.status = "Terminated"
+            member.status = "Quit"
             # Missing termination_reason and termination_date
             member.save()
             # If save succeeds, these fields are not strictly required
-            self.assertEqual(member.status, "Terminated")
+            self.assertEqual(member.status, "Quit")
         except frappe.ValidationError:
             # If ValidationError, these fields are required
             pass
@@ -295,12 +295,12 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Test future termination date - implementation may or may not validate this
         try:
             member.reload()
-            member.status = "Terminated"
+            member.status = "Quit"
             member.termination_reason = "Test"
             member.termination_date = add_days(today(), 30)  # Future date
             member.save()
             # If save succeeds, future dates are allowed
-            self.assertEqual(member.status, "Terminated")
+            self.assertEqual(member.status, "Quit")
             # Reset for next test
             member.reload()
             member.status = "Active"
@@ -313,12 +313,12 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         if hasattr(member, "join_date") and member.join_date:
             try:
                 member.reload()
-                member.status = "Terminated"
+                member.status = "Quit"
                 member.termination_reason = "Test"
                 member.termination_date = add_days(member.join_date, -1)  # Before join
                 member.save()
                 # If save succeeds, date validation is not enforced
-                self.assertEqual(member.status, "Terminated")
+                self.assertEqual(member.status, "Quit")
             except frappe.ValidationError:
                 # If ValidationError, date validation is enforced
                 pass
@@ -363,7 +363,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # Terminate member
         member.reload()  # Prevent TimestampMismatchError
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_reason = "Test termination"
         member.termination_date = today()
         member.save()
@@ -375,7 +375,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
             # May also be Suspended/Pending from previous cascade step
             self.assertIn(
                 updated_membership.status,
-                ["Active", "Draft", "Suspended", "Pending", "Terminated", "Cancelled"],
+                ["Active", "Draft", "Suspended", "Pending", "Quit", "Cancelled"],
                 f"Membership {membership.name} status after member termination should be valid cascade state"
             )
 
@@ -407,14 +407,14 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # Terminate member
         member.reload()  # Prevent TimestampMismatchError
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_reason = "Test termination"
         member.termination_date = today()
         member.save()
 
         # Check volunteer termination
         updated_volunteer = frappe.get_doc("Volunteer", volunteer.name)
-        self.assertIn(updated_volunteer.status, ["Active", "Inactive", "Terminated"])
+        self.assertIn(updated_volunteer.status, ["Active", "Inactive", "Quit"])
 
         # Cleanup handled automatically by VereningingenTestCase
     # ===== AUDIT TRAIL VALIDATION =====

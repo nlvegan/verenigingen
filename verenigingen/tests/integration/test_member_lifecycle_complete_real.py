@@ -562,7 +562,7 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         # 5. Update member status
         # Reload to avoid timestamp mismatch from membership/chapter updates
         terminating_member.reload()
-        terminating_member.status = "Terminated"
+        terminating_member.status = "Quit"
         terminating_member.termination_date = termination_date
         terminating_member.termination_reason = termination_request.termination_reason
         terminating_member.save()
@@ -572,7 +572,7 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
 
         # Verify complete termination
         terminating_member.reload()
-        self.assertEqual(terminating_member.status, "Terminated")
+        self.assertEqual(terminating_member.status, "Quit")
         self.assertEqual(terminating_member.termination_date, termination_date)
         self.assertEqual(terminating_member.termination_reason, termination_request.termination_reason)
         

@@ -141,7 +141,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
             termination.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
             
             # Update member status
-            frappe.db.set_value("Member", member.name, "status", "Terminated")
+            frappe.db.set_value("Member", member.name, "status", "Quit")
     
     def create_test_invoices(self):
         """Create test invoices for revenue calculations"""

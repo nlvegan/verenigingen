@@ -154,7 +154,7 @@ class TestEligibilityChecker(EnhancedTestCase):
     def test_test_mode_bypasses_checks(self):
         """Test that test mode allows generation regardless of other issues"""
         # Arrange - set member to Terminated (normally blocks generation)
-        self.member.status = "Terminated"
+        self.member.status = "Quit"
         self.member.save()
         frappe.db.commit()
 
@@ -178,7 +178,7 @@ class TestEligibilityChecker(EnhancedTestCase):
     def test_terminated_member_blocked(self):
         """Test that terminated members cannot be billed"""
         # Arrange
-        self.member.status = "Terminated"
+        self.member.status = "Quit"
         self.member.save()
         frappe.db.commit()
 
@@ -190,8 +190,8 @@ class TestEligibilityChecker(EnhancedTestCase):
         # Assert
         self.assertFalse(result.can_generate)
         self.assertEqual(result.category, "member_status")
-        self.assertIn("Terminated", result.reason)
-        self.assertEqual(result.metadata.get("member_status"), "Terminated")
+        self.assertIn("Quit", result.reason)
+        self.assertEqual(result.metadata.get("member_status"), "Quit")
 
     def test_banned_member_blocked(self):
         """Test that banned members cannot be billed"""

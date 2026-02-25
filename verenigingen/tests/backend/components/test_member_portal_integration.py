@@ -49,7 +49,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         portal_access_scenarios = [
             {"status": "Active", "should_have_access": True, "features": ["dashboard", "profile", "payments", "events"]},
             {"status": "Suspended", "should_have_access": True, "features": ["dashboard", "profile"], "restricted": ["payments", "events"]},
-            {"status": "Terminated", "should_have_access": False, "features": [], "restricted": ["dashboard", "profile", "payments", "events"]},
+            {"status": "Quit", "should_have_access": False, "features": [], "restricted": ["dashboard", "profile", "payments", "events"]},
             {"status": "Expired", "should_have_access": False, "features": [], "restricted": ["dashboard", "profile", "payments", "events"]},
             {"status": "Banned", "should_have_access": False, "features": [], "restricted": ["dashboard", "profile", "payments", "events"]},
             {"status": "Deceased", "should_have_access": False, "features": [], "restricted": ["dashboard", "profile", "payments", "events"]},
@@ -143,7 +143,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         self.assertTrue(payment_features.get("can_view_payment_history"))
         
         # Test Terminated member payment features
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         payment_features = self.get_payment_portal_features(member)
@@ -177,7 +177,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         self.assertTrue(profile_permissions.get("can_update_communication_preferences"))  # Can update for notifications
         
         # Terminated member - no editing
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         profile_permissions = self.get_profile_editing_permissions(member)
@@ -250,7 +250,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         self.assertFalse(volunteer_access.get("can_access_volunteer_resources"))
         
         # Terminated member - no volunteer access
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         volunteer_access = self.get_volunteer_portal_access(member)
@@ -287,7 +287,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         self.assertIn("payment_reminders", comm_options.get("forced_types", []))
         
         # Terminated member - minimal communication
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         comm_options = self.get_communication_options(member)
@@ -306,10 +306,10 @@ class TestMemberPortalIntegration(EnhancedTestCase):
             {"status": "Suspended", "type": "newsletter", "should_deliver": False},
             {"status": "Suspended", "type": "payment_reminder", "should_deliver": True},
             {"status": "Suspended", "type": "event_invitation", "should_deliver": False},
-            {"status": "Terminated", "type": "newsletter", "should_deliver": False},
-            {"status": "Terminated", "type": "payment_reminder", "should_deliver": False},
-            {"status": "Terminated", "type": "event_invitation", "should_deliver": False},
-            {"status": "Terminated", "type": "administrative_notice", "should_deliver": True},
+            {"status": "Quit", "type": "newsletter", "should_deliver": False},
+            {"status": "Quit", "type": "payment_reminder", "should_deliver": False},
+            {"status": "Quit", "type": "event_invitation", "should_deliver": False},
+            {"status": "Quit", "type": "administrative_notice", "should_deliver": True},
         ]
         
         for scenario in notification_scenarios:
@@ -376,7 +376,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         self.assertIn("restricted_access", updated_session.get("permissions", []))
         
         # Change status to terminated
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         # Session should be invalidated
@@ -416,7 +416,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         self.assertFalse(data_access.get("can_export_data"))
         
         # Terminated member - no data access via portal
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         data_access = self.get_member_data_access_permissions(member)
@@ -429,7 +429,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
     
     def check_portal_access(self, member):
         """Check if member has basic portal access"""
-        if member.status in ["Terminated", "Quit", "Expelled", "Deceased"]:
+        if member.status in ["Quit", "Quit", "Expelled", "Deceased"]:
             return False
         return True
         
@@ -580,7 +580,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         elif member.status == "Suspended":
             options["available_types"] = ["administrative_updates"]
             options["forced_types"] = ["payment_reminders"]
-        elif member.status == "Terminated":
+        elif member.status == "Quit":
             options["forced_types"] = ["termination_updates"]
             
         return options
@@ -590,7 +590,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         delivery_rules = {
             "Active": ["newsletter", "payment_reminder", "event_invitation", "administrative_notice"],
             "Suspended": ["payment_reminder", "administrative_notice"],
-            "Terminated": ["administrative_notice"],
+            "Quit": ["administrative_notice"],
             "Expired": ["administrative_notice"],
             "Banned": ["administrative_notice"],
             "Deceased": []
@@ -626,7 +626,7 @@ class TestMemberPortalIntegration(EnhancedTestCase):
         
     def simulate_portal_request_after_status_change(self, member, original_session):
         """Simulate portal request after status change"""
-        if member.status in ["Terminated", "Quit", "Expelled", "Deceased"]:
+        if member.status in ["Quit", "Quit", "Expelled", "Deceased"]:
             return {
                 "valid_session": False,
                 "termination_reason": ["status_termination"]

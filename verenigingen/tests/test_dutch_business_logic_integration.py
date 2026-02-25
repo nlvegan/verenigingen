@@ -558,12 +558,12 @@ class TestDutchMembershipLifecycle(EnhancedTestCase):
         self.assertEqual(member.status, "Active")
         
         # Test termination notification (real trigger)
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
         
         # Real notification logic may have triggered
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
 
 
 class TestDutchDataPrivacyCompliance(EnhancedTestCase):
@@ -576,7 +576,7 @@ class TestDutchDataPrivacyCompliance(EnhancedTestCase):
         member = self.create_test_member(
             first_name="GDPR",
             last_name="RetentionTest",
-            status="Terminated"
+            status="Quit"
         )
         
         member.termination_date = add_days(today(), -400)  # Terminated over 1 year ago
@@ -1086,13 +1086,13 @@ class TestComplexDutchBusinessWorkflows(EnhancedTestCase):
         
         # Initiate termination workflow
         active_member.reload()  # Refresh to avoid timestamp mismatch
-        active_member.status = "Terminated"
+        active_member.status = "Quit"
         # In real business workflow, termination_date would be set automatically
         active_member.save()
         
         # Validate termination workflow
         active_member.reload()
-        self.assertEqual(active_member.status, "Terminated")
+        self.assertEqual(active_member.status, "Quit")
         
         # Test mandate status should be managed by business logic
         mandate.reload()
@@ -1102,7 +1102,7 @@ class TestComplexDutchBusinessWorkflows(EnhancedTestCase):
         
         # Validate data retention compliance (GDPR-style)
         terminated_member = frappe.get_doc("Member", active_member.name)
-        self.assertEqual(terminated_member.status, "Terminated")
+        self.assertEqual(terminated_member.status, "Quit")
         # Personal data should still be accessible for compliance period
         self.assertIsNotNone(terminated_member.email)
         self.assertIsNotNone(terminated_member.full_name)

@@ -114,7 +114,7 @@ frappe.listview_settings['Member'] = {
 			Suspended: ['dark grey', 'Account Suspended'],
 			Banned: ['purple', 'Permanently Banned'],
 			Deceased: ['purple', 'Deceased'],
-			Terminated: ['red', 'Membership Terminated']
+			Quit: ['red', 'Membership Quit']
 		};
 
 		// Get indicator for main status

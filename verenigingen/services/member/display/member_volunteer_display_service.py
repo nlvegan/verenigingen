@@ -187,7 +187,7 @@ class MemberVolunteerDisplayService(StatelessService):
                         "Active": "success",
                         "Completed": "secondary",
                         "Suspended": "warning",
-                        "Terminated": "danger",
+                        "Quit": "danger",
                     }.get(assignment.status, "secondary")
 
                     # Create organization link (if reference doctype is a valid DocType)

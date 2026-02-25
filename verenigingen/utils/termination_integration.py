@@ -422,16 +422,16 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         # Map termination types to valid member status values
         # Note: Suspension has its own separate workflow - this is TERMINATION
         status_mapping = {
-            "Voluntary": "Terminated",  # Member chose to leave
-            "Non-payment": "Terminated",  # Termination for non-payment
+            "Voluntary": "Quit",  # Member chose to leave
+            "Non-payment": "Quit",  # Termination for non-payment
             "Deceased": "Deceased",  # Special status for deceased members
-            "Policy Violation": "Terminated",  # Terminated for policy violation
-            "Disciplinary Action": "Terminated",  # Terminated for disciplinary reasons
+            "Policy Violation": "Quit",  # Terminated for policy violation
+            "Disciplinary Action": "Quit",  # Terminated for disciplinary reasons
             "Expulsion": "Banned",  # Permanent ban from organization
-            "Administrative": "Terminated",  # Administrative termination
+            "Administrative": "Quit",  # Administrative termination
         }
 
-        target_status = status_mapping.get(termination_type, "Terminated")
+        target_status = status_mapping.get(termination_type, "Quit")
 
         # Update member status
         if hasattr(member, "status"):
@@ -454,7 +454,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
 
         # CRITICAL: Set flag to prevent status being overridden by Membership hooks
         # When Membership.cancel() triggers member.save(), this flag prevents the status
-        # from being changed from "Deceased" to "Terminated" by membership validation logic
+        # from being changed from "Deceased" to "Quit" by membership validation logic
         member._termination_in_progress = True
         member._termination_final_status = target_status
 
@@ -463,7 +463,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         member_result = secure_document_operation(
             operation="save",
             doc=member,
-            justification=f"Update member {member_name} termination status to {status_mapping.get(termination_type, 'Terminated')}",
+            justification=f"Update member {member_name} termination status to {status_mapping.get(termination_type, 'Quit')}",
             required_permissions=["Member:write"],
         )
 
@@ -471,7 +471,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
             # Handle concurrency - reload and retry once
             try:
                 member.reload()
-                target_status = status_mapping.get(termination_type, "Terminated")
+                target_status = status_mapping.get(termination_type, "Quit")
 
                 # Only update if status not already set (may have succeeded despite error)
                 if member.status != target_status:
@@ -580,7 +580,7 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
 
     Updates both:
     1. Chapter Member child table (on Chapter doc) - sets enabled=0, status='Inactive'
-    2. Member.chapter_membership_history (via ChapterMembershipHistoryManager) - sets end_date, status='Terminated'
+    2. Member.chapter_membership_history (via ChapterMembershipHistoryManager) - sets end_date, status='Quit'
 
     Note: Chapter Member doesn't have a chapter_leave_date field - leave tracking is handled
     via Member.chapter_membership_history.end_date instead.
@@ -1291,7 +1291,7 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                 elif termination_type in ["Policy Violation", "Disciplinary Action", "Expulsion"]:
                     employee_doc.status = "Left"
                     employee_doc.relieving_date = termination_date
-                    employee_doc.reason_for_leaving = "Terminated"
+                    employee_doc.reason_for_leaving = "Quit"
                 else:
                     employee_doc.status = "Left"
                     employee_doc.relieving_date = termination_date

@@ -199,7 +199,7 @@ class MollieSyncService(StatelessService):
                 # CRITICAL: Active subscriptions on terminated/banned/deceased members
                 # These represent potential ongoing charges that need manual intervention
                 if customer.custom_mollie_subscription_id and member.status in [
-                    "Terminated",
+                    "Quit",
                     "Banned",
                     "Deceased",
                 ]:

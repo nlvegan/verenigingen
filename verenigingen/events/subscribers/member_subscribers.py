@@ -103,7 +103,7 @@ def handle_chapter_assignment_updates(event_name, event_data, is_bulk_import=Fal
         # Update chapter assignments based on new status
         if new_status == "Approved":
             _assign_member_to_chapter(member)
-        elif new_status in ["Suspended", "Terminated"]:
+        elif new_status in ["Suspended", "Quit"]:
             _update_chapter_membership_status(member, new_status)
 
         frappe.logger("events").info(f"Updated chapter assignments for {member_name}")
@@ -148,7 +148,7 @@ def handle_lifecycle_notifications(event_name, event_data, is_bulk_import=False,
         # Send lifecycle-specific notifications
         if new_status == "Suspended":
             _send_member_status_notification(member, "suspension")
-        elif new_status == "Terminated":
+        elif new_status == "Quit":
             _send_member_status_notification(member, "termination")
         elif new_status == "Active" and old_status in ["Suspended", "Inactive"]:
             _send_member_status_notification(member, "reactivation")
@@ -204,7 +204,7 @@ def handle_user_account_updates(event_name, event_data, is_bulk_import=False, **
             user_doc = frappe.get_doc("User", member.user)
 
             # Only update if there's an actual change
-            if new_status in ["Suspended", "Terminated"] and user_doc.enabled == 1:
+            if new_status in ["Suspended", "Quit"] and user_doc.enabled == 1:
                 user_doc.enabled = 0
                 user_doc.save()
             elif new_status == "Active" and user_doc.enabled == 0:

@@ -120,7 +120,7 @@ class TestVolunteerMemberIntegration(EnhancedTestCase):
         self.assertEqual(volunteer_status, "Restricted")  # Cannot take new assignments
         
         # Test ineligible statuses
-        ineligible_statuses = ["Suspended", "Terminated", "Quit", "Expelled", "Deceased"]
+        ineligible_statuses = ["Suspended", "Quit", "Quit", "Expelled", "Deceased"]
         for status in ineligible_statuses:
             with self.subTest(status=status):
                 member.status = status
@@ -346,7 +346,7 @@ class TestVolunteerMemberIntegration(EnhancedTestCase):
         self.assertFalse(portal_access.get("can_access_resources"))  # Limited resources
         
         # Terminated member - no access
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         portal_access = self.get_volunteer_portal_access(volunteer.name)
@@ -371,8 +371,8 @@ class TestVolunteerMemberIntegration(EnhancedTestCase):
             {"status": "Suspended", "comm_type": "team_announcements", "should_receive": False},
             {"status": "Grace Period", "comm_type": "volunteer_opportunities", "should_receive": False},
             {"status": "Grace Period", "comm_type": "assignment_updates", "should_receive": True},
-            {"status": "Terminated", "comm_type": "volunteer_opportunities", "should_receive": False},
-            {"status": "Terminated", "comm_type": "assignment_updates", "should_receive": False},
+            {"status": "Quit", "comm_type": "volunteer_opportunities", "should_receive": False},
+            {"status": "Quit", "comm_type": "assignment_updates", "should_receive": False},
         ]
         
         for scenario in communication_scenarios:
@@ -513,7 +513,7 @@ class TestVolunteerMemberIntegration(EnhancedTestCase):
         volunteer = frappe.get_doc("Volunteer", volunteer_name)
         member = frappe.get_doc("Member", volunteer.member)
         
-        ineligible_statuses = ["Suspended", "Terminated", "Quit", "Expelled", "Deceased"]
+        ineligible_statuses = ["Suspended", "Quit", "Quit", "Expelled", "Deceased"]
         return member.status not in ineligible_statuses
         
     def get_recommended_volunteer_status(self, member):
@@ -523,7 +523,7 @@ class TestVolunteerMemberIntegration(EnhancedTestCase):
             "Current": "Active", 
             "Grace Period": "Restricted",
             "Suspended": "Inactive",
-            "Terminated": "Inactive",
+            "Quit": "Inactive",
             "Quit": "Inactive",
             "Expelled": "Inactive",
             "Deceased": "Inactive"
@@ -645,7 +645,7 @@ class TestVolunteerMemberIntegration(EnhancedTestCase):
                 "can_view_assignments": True,
                 "can_submit_expenses": True
             })
-        elif member.status in ["Terminated", "Quit", "Expelled", "Deceased"]:
+        elif member.status in ["Quit", "Quit", "Expelled", "Deceased"]:
             pass  # All remain False
         
         return access

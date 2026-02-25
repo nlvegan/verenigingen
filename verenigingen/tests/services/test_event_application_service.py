@@ -593,7 +593,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
         """When member is already Terminated, returns skip success."""
         mock_frappe._ = frappe._
         member_doc = MagicMock()
-        member_doc.status = "Terminated"
+        member_doc.status = "Quit"
         mock_frappe.get_doc.return_value = member_doc
 
         changed_fields = self._make_status_change(1, 3)  # active → terminated
@@ -962,7 +962,7 @@ class TestEnsureMollieData(EnhancedTestCase):
         """Terminated member with subscription_id gets status='cancelled'."""
         mock_frappe._ = frappe._
         member_doc = MagicMock()
-        member_doc.status = "Terminated"
+        member_doc.status = "Quit"
         mock_frappe.get_doc.return_value = member_doc
 
         with patch(
@@ -991,7 +991,7 @@ class TestEnsureMollieData(EnhancedTestCase):
         """Member without subscription_id gets status=None (no transition)."""
         mock_frappe._ = frappe._
         member_doc = MagicMock()
-        member_doc.status = "Terminated"
+        member_doc.status = "Quit"
         mock_frappe.get_doc.return_value = member_doc
 
         with patch(
@@ -1046,7 +1046,7 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
     def test_skips_when_member_not_active(self, mock_frappe):
         """Returns None when member status is not Active."""
         member_doc = MagicMock()
-        member_doc.status = "Terminated"
+        member_doc.status = "Quit"
         mock_frappe.get_doc.return_value = member_doc
 
         result = self.service._ensure_membership_and_dues(

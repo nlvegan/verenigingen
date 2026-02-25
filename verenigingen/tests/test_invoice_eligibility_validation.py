@@ -176,10 +176,10 @@ class TestInvoiceEligibilityValidation(EnhancedTestCase):
         """
         # Create terminated member
         member = self.create_test_member(
-            first_name="Terminated",
+            first_name="Quit",
             last_name="TestMember",
             email=f"terminated.{frappe.generate_hash(length=6)}@example.com",
-            status="Terminated"
+            status="Quit"
         )
 
         # Create membership (would be terminated but keep simple for test)
@@ -379,10 +379,10 @@ class TestInvoiceEligibilityValidation(EnhancedTestCase):
         
         # 3. Terminated member (should not get invoice)
         terminated_member = self.create_test_member(
-            first_name="Terminated",
+            first_name="Quit",
             last_name="BulkTest",
             email=f"terminated.bulk.{frappe.generate_hash(length=6)}@example.com",
-            status="Terminated"
+            status="Quit"
         )
         self.create_test_membership(member=terminated_member.name, membership_type="Test Membership")
         

@@ -344,7 +344,7 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
                 # Perform status transition
                 member.reload()
                 member.status = to_status
-                if to_status == "Terminated":
+                if to_status == "Quit":
                     member.membership_end_date = frappe.utils.today()
                 member.save()
 

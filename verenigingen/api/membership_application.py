@@ -580,7 +580,7 @@ def _handle_existing_member(existing_member, data):
         return "update", None
 
     # Scenario 3: Terminated member - check termination type
-    if status == "Terminated":
+    if status == "Quit":
         termination_result = frappe.db.get_value(
             "Membership Termination Request",
             {"member": member_name, "status": "Executed"},

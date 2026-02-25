@@ -356,7 +356,7 @@ const API_SCHEMAS = {
 				},
 				status: {
 					type: 'string',
-					enum: ['Pending', 'Active', 'Suspended', 'Terminated']
+					enum: ['Pending', 'Active', 'Suspended', 'Quit']
 				},
 				member_since: { type: 'string', format: 'date' },
 				next_invoice_date: { type: 'string', format: 'date' },
@@ -403,7 +403,7 @@ const API_SCHEMAS = {
     				enum: ['Monthly', 'Quarterly', 'Semi-annually', 'Annually']
     			},
     			next_invoice_date: { type: 'string', format: 'date' },
-    			status: { type: 'string', enum: ['Active', 'Paused', 'Terminated'] },
+    			status: { type: 'string', enum: ['Active', 'Paused', 'Quit'] },
     			payment_method: {
     				type: 'string',
     				enum: ['SEPA Direct Debit', 'Mollie', 'Manual']
@@ -423,7 +423,7 @@ const API_SCHEMAS = {
 				},
 				new_status: {
 					type: 'string',
-					enum: ['Active', 'Suspended', 'Terminated', 'Pending']
+					enum: ['Active', 'Suspended', 'Quit', 'Pending']
 				},
 				reason: { type: 'string', maxLength: 500 },
 				effective_date: { type: 'string', format: 'date' },
@@ -647,7 +647,7 @@ const API_SCHEMAS = {
     			},
     			next_invoice_date: { type: 'string', format: 'date' },
     			annual_amount: { type: 'number', minimum: 0 },
-    			status: { type: 'string', enum: ['Active', 'Paused', 'Terminated'] }
+    			status: { type: 'string', enum: ['Active', 'Paused', 'Quit'] }
     		},
     		required: ['success', 'schedule_id', 'next_invoice_date']
     	}

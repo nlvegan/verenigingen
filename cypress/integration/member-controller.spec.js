@@ -178,7 +178,7 @@ describe("Member JavaScript Controller Tests", () => {
         "Active",
         "Inactive",
         "Suspended",
-        "Terminated",
+        "Quit",
       ];
       cy.wrap(statuses).each((status, index) => {
         if (index === 0) {
@@ -197,7 +197,7 @@ describe("Member JavaScript Controller Tests", () => {
               if (status === "Suspended" && frm.fields_dict.suspension_reason) {
                 expect(frm.fields_dict.suspension_reason).to.exist;
               }
-              if (status === "Terminated" && frm.fields_dict.termination_date) {
+              if (status === "Quit" && frm.fields_dict.termination_date) {
                 expect(frm.fields_dict.termination_date).to.exist;
               }
             });
@@ -476,7 +476,7 @@ describe("Member JavaScript Controller Tests", () => {
       cy.save_frappe_doc();
 
       // Test termination workflow
-      cy.fill_frappe_field("status", "Terminated", { fieldtype: "Select" });
+      cy.fill_frappe_field("status", "Quit", { fieldtype: "Select" });
       cy.fill_frappe_field("termination_reason", "Voluntary", {
         fieldtype: "Select",
       });

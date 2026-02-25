@@ -200,7 +200,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
         """Test IBAN history is preserved after member termination"""
         # Create member with IBAN history
         member = self.create_test_member(
-            first_name="Terminated",
+            first_name="Quit",
             last_name="Member",
             email="terminated.member@example.com",
             iban="NL82MOCK0123456789",

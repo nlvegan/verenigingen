@@ -591,13 +591,13 @@ class QueryBuilder:
         "Member": {
             "status_field": "status",
             "active_values": ["Active"],
-            "inactive_values": ["Inactive", "Suspended", "Terminated"],
+            "inactive_values": ["Inactive", "Suspended", "Quit"],
             "uses_docstatus": False,
         },
         "Volunteer": {
             "status_field": "status",
             "active_values": ["Active"],
-            "inactive_values": ["Inactive", "Suspended", "Terminated"],
+            "inactive_values": ["Inactive", "Suspended", "Quit"],
             "uses_docstatus": False,
         },
         "Team": {
@@ -616,7 +616,7 @@ class QueryBuilder:
         "Membership": {
             "status_field": "status",
             "active_values": ["Active"],
-            "inactive_values": ["Expired", "Terminated", "Cancelled"],
+            "inactive_values": ["Expired", "Quit", "Cancelled"],
             "uses_docstatus": True,
         },
         "SEPA Mandate": {

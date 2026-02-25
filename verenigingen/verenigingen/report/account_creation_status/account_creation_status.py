@@ -329,7 +329,7 @@ def get_summary_data():
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership` mem WHERE mem.member = `tabMember`.name AND mem.docstatus = 1) THEN 1 ELSE 0 END) as with_membership,
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership Dues Schedule` mds WHERE mds.member = `tabMember`.name) THEN 1 ELSE 0 END) as with_dues_schedule
         FROM `tabMember`
-        WHERE status NOT IN ('Terminated', 'Banned', 'Deceased')
+        WHERE status NOT IN ('Quit', 'Banned', 'Deceased')
         """,
         as_dict=1,
     )[0]
@@ -377,7 +377,7 @@ def get_summary_data():
             INNER JOIN `tabChapter Member` cm ON cm.member = m.name
             WHERE cm.enabled = 1
                 AND cm.status = 'Active'
-                AND m.status NOT IN ('Terminated', 'Banned', 'Deceased')
+                AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
         ) as unique_members
         """,
         as_dict=1,
@@ -416,7 +416,7 @@ def get_summary_data():
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership` mem WHERE mem.member = `tabMember`.name AND mem.docstatus = 1) THEN 1 ELSE 0 END) as members_with_membership,
             SUM(CASE WHEN EXISTS (SELECT 1 FROM `tabMembership Dues Schedule` mds WHERE mds.member = `tabMember`.name) THEN 1 ELSE 0 END) as members_with_dues_schedule
         FROM `tabMember`
-        WHERE status NOT IN ('Terminated', 'Banned', 'Deceased')
+        WHERE status NOT IN ('Quit', 'Banned', 'Deceased')
         """,
         as_dict=1,
     )[0]

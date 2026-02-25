@@ -384,9 +384,9 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         """Test business rules for chapter members"""
         # Test that terminated members cannot be added
         terminated_member = self.create_test_member(
-            first_name="Terminated",
+            first_name="Quit",
             last_name="Member",
-            status="Terminated"
+            status="Quit"
         )
         
         # Attempt to add terminated member

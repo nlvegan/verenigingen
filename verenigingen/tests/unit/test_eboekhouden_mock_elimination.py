@@ -213,7 +213,7 @@ class TestEBoekhoudenMockElimination(EnhancedTestCase):
             # This should be prevented by real business rules
             if invoice.outstanding_amount > 0:
                 # Member cannot be terminated with outstanding payments
-                member.status = "Terminated"
+                member.status = "Quit"
                 member.save()
                 
                 # If this succeeds, real system allows it (business decision)

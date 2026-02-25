@@ -222,12 +222,12 @@ describe('Workflow Transitions', () => {
 					coolingOffPeriod: 14 // days
 				},
 				'Non-payment': {
-					steps: ['Initiated', 'Warning Sent', 'Final Notice', 'Terminated'],
+					steps: ['Initiated', 'Warning Sent', 'Final Notice', 'Quit'],
 					requiresApproval: true,
 					coolingOffPeriod: 30
 				},
 				Disciplinary: {
-					steps: ['Investigation', 'Review', 'Decision', 'Terminated'],
+					steps: ['Investigation', 'Review', 'Decision', 'Quit'],
 					requiresApproval: true,
 					coolingOffPeriod: 0
 				}
@@ -650,18 +650,18 @@ describe('Workflow Transitions', () => {
 
 		it('should enforce valid state transitions', () => {
 			const membershipWorkflow = new WorkflowStateMachine({
-				states: ['Draft', 'Active', 'Suspended', 'Terminated'],
+				states: ['Draft', 'Active', 'Suspended', 'Quit'],
 				initialState: 'Draft',
 				transitions: {
 					Draft: ['Active'],
-					Active: ['Suspended', 'Terminated'],
-					Suspended: ['Active', 'Terminated'],
-					Terminated: []
+					Active: ['Suspended', 'Quit'],
+					Suspended: ['Active', 'Quit'],
+					Quit: []
 				}
 			});
 
 			expect(membershipWorkflow.canTransitionTo('Active')).toBe(true);
-			expect(membershipWorkflow.canTransitionTo('Terminated')).toBe(false);
+			expect(membershipWorkflow.canTransitionTo('Quit')).toBe(false);
 
 			membershipWorkflow.transition('Active');
 			expect(membershipWorkflow.currentState).toBe('Active');

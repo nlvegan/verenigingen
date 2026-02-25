@@ -658,7 +658,7 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
 
         Verifies that disable_chapter_memberships_safe() updates both:
         1. Chapter Member child table (on Chapter doc)
-        2. Member.chapter_membership_history (end_date and status='Terminated')
+        2. Member.chapter_membership_history (end_date and status='Quit')
         """
         from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
@@ -724,8 +724,8 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
 
         self.assertEqual(len(final_history), 1, "Should still have 1 history entry (updated, not duplicated)")
         self.assertEqual(
-            final_history[0].status, "Terminated",
-            "History status should be 'Terminated' after termination. "
+            final_history[0].status, "Quit",
+            "History status should be 'Quit' after termination. "
             "The termination code should use ChapterMembershipHistoryManager.terminate_chapter_membership()."
         )
         self.assertIsNotNone(
@@ -788,8 +788,8 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         ]
         self.assertEqual(len(final_history), 1, "Should still have 1 history entry")
         self.assertEqual(
-            final_history[0].status, "Terminated",
-            "Pending history should be set to 'Terminated', not left as 'Pending'. "
+            final_history[0].status, "Quit",
+            "Pending history should be set to 'Quit', not left as 'Pending'. "
             "terminate_chapter_membership() should handle both Active and Pending statuses."
         )
 
@@ -932,7 +932,7 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         self.assertEqual(len(final_history), 1, "Should still have 1 history entry (updated)")
         self.assertEqual(
             final_history[0].status,
-            "Terminated",
+            "Quit",
             "History should be Terminated after rejection",
         )
         self.assertIsNotNone(final_history[0].end_date, "History end_date should be set")
@@ -998,7 +998,7 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             self.assertEqual(len(history), 1, f"Should have 1 history entry for {chapter_name}")
             self.assertEqual(
                 history[0].status,
-                "Terminated",
+                "Quit",
                 f"History for {chapter_name} should be Terminated",
             )
 

@@ -224,10 +224,10 @@ class TestMemberPermissions(EnhancedTestCase):
         """Chapter board members should not see terminated members from other chapters"""
         # Create terminated member in chapter2
         terminated_member = self.create_test_member(
-            first_name="Terminated",
+            first_name="Quit",
             last_name="Member",
             birth_date="1993-01-01",
-            status="Terminated"
+            status="Quit"
         )
 
         self.create_test_chapter_member(
@@ -264,7 +264,7 @@ class TestMemberPermissions(EnhancedTestCase):
         condition = get_member_permission_query(self.board_member_user.name)
 
         # Condition should filter out Terminated members
-        self.assertIn("Terminated", condition)
+        self.assertIn("Quit", condition)
         self.assertIn("NOT IN", condition)
 
 

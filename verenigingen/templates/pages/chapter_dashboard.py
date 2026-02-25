@@ -1013,7 +1013,7 @@ def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:
             if rcj.enabled == 0:
                 # Member left the chapter - check if they quit the org or just moved chapters
                 member_status = rcj.get("member_status")
-                if member_status in ("Terminated", "Suspended", "Banned", "Deceased"):
+                if member_status in ("Quit", "Suspended", "Banned", "Deceased"):
                     # Member quit/left the organization entirely
                     activity_desc = f"{full_name} quit the organization"
                     if rcj.leave_reason:

@@ -268,7 +268,7 @@ class TestMemberLifecycleMockElimination(EnhancedTestCase):
             ("Application Pending", "Active"),
             ("Active", "Suspended"),
             ("Suspended", "Active"),
-            ("Active", "Terminated")
+            ("Active", "Quit")
         ]
         
         current_status = member.status
@@ -300,8 +300,8 @@ class TestMemberLifecycleMockElimination(EnhancedTestCase):
                     
         # Test invalid status transitions
         invalid_transitions = [
-            ("Terminated", "Active"),  # Usually not allowed
-            ("Application Pending", "Terminated")  # Skip approval process
+            ("Quit", "Active"),  # Usually not allowed
+            ("Application Pending", "Quit")  # Skip approval process
         ]
         
         for from_status, to_status in invalid_transitions:

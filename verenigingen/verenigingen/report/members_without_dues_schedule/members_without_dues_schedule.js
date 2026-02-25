@@ -13,7 +13,7 @@
  * - Enable bulk remediation of schedule issues
  *
  * KEY FEATURES:
- * - Multi-status filtering (Active, Pending, Suspended, Terminated members)
+ * - Multi-status filtering (Active, Pending, Suspended, Quit members)
  * - Problem-focused filtering to highlight critical issues
  * - Critical issue detection (>7 days overdue)
  * - Enhanced visual indicators with color-coded severity levels
@@ -59,10 +59,10 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 	filters: [
 		{
 			fieldname: 'include_terminated',
-			label: __('Include Terminated Members'),
+			label: __('Include Quit Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Include members with status \'Terminated\''
+			description: 'Include members with status \'Quit\''
 		},
 		{
 			fieldname: 'include_suspended',
@@ -83,7 +83,7 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 			fieldname: 'member_status',
 			label: __('Member Status'),
 			fieldtype: 'Select',
-			options: '\nActive\nPending\nSuspended\nTerminated',
+			options: '\nActive\nPending\nSuspended\nQuit',
 			description: 'Filter by specific member status (optional)'
 		},
 		{
@@ -107,7 +107,7 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 
 		// Color code member status
 		if (column.fieldname === 'member_status') {
-			if (value === 'Terminated') {
+			if (value === 'Quit') {
 				value = `<span style="color: red; font-weight: bold;">${value}</span>`;
 			} else if (value === 'Suspended') {
 				value = `<span style="color: orange; font-weight: bold;">${value}</span>`;

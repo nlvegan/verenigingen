@@ -66,7 +66,7 @@ def get_data(filters):
             customer,
             email
         FROM `tabMember`
-        WHERE status = 'Terminated'
+        WHERE status = 'Quit'
         AND (member_end_date IS NULL OR member_end_date = '')
         ORDER BY full_name
     """,
@@ -301,7 +301,7 @@ def apply_suggestion(member_id, suggested_date):
     member = frappe.get_doc("Member", member_id)
 
     # Verify member is terminated and has no end date
-    if member.status != "Terminated":
+    if member.status != "Quit":
         frappe.throw(_("Member must have Terminated status"))
 
     if member.member_end_date:
@@ -331,7 +331,7 @@ def apply_all_suggestions():
         """
         SELECT name
         FROM `tabMember`
-        WHERE status = 'Terminated'
+        WHERE status = 'Quit'
         AND (member_end_date IS NULL OR member_end_date = '')
     """,
         as_dict=True,

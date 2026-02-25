@@ -41,9 +41,9 @@ class TestMemberLifecycleProductionIssues(EnhancedTestCase):
         
         # DISCOVERED: "Application Pending" is not a valid Member status
         # VALID STATUSES (from Member.json line 508): 
-        # "Pending", "Active", "Rejected", "Expired", "Suspended", "Banned", "Deceased", "Terminated"
+        # "Pending", "Active", "Rejected", "Expired", "Suspended", "Banned", "Deceased", "Quit"
         
-        valid_statuses = ["Pending", "Active", "Rejected", "Expired", "Suspended", "Banned", "Deceased", "Terminated"]
+        valid_statuses = ["Pending", "Active", "Rejected", "Expired", "Suspended", "Banned", "Deceased", "Quit"]
         
         print(f"🔍 Production Issue #1: Member Status Validation")
         print(f"   ❌ Invalid: 'Application Pending' (used in original mocked tests)")

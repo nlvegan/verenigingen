@@ -12,14 +12,14 @@
  * - Support member retention and re-engagement campaigns
  *
  * REPORT CAPABILITIES:
- * - Filter by member status (Active, Pending, Suspended, Terminated)
+ * - Filter by member status (Active, Pending, Suspended, Quit)
  * - Include/exclude terminated and suspended members
  * - Optional dues schedule information for payment tracking
  * - Color-coded status indicators for quick visual assessment
  * - Chapter-based filtering (disabled due to computed HTML fields)
  *
  * STATUS INDICATORS:
- * - Red: Terminated members, cancelled memberships, critical overdue payments
+ * - Red: Quit members, cancelled memberships, critical overdue payments
  * - Orange: Suspended members, expired memberships, minor overdue payments
  * - Blue: Pending members awaiting activation
  * - Green: Active dues schedules
@@ -43,10 +43,10 @@ frappe.query_reports['Members Without Active Memberships'] = {
 	filters: [
 		{
 			fieldname: 'include_terminated',
-			label: __('Include Terminated/Banned Members'),
+			label: __('Include Quit/Banned Members'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Include members with status \'Terminated\' or \'Banned\' (Note: Rejected and Deceased members are always excluded)'
+			description: 'Include members with status \'Quit\' or \'Banned\' (Note: Rejected and Deceased members are always excluded)'
 		},
 		{
 			fieldname: 'include_suspended',
@@ -59,7 +59,7 @@ frappe.query_reports['Members Without Active Memberships'] = {
 			fieldname: 'member_status',
 			label: __('Member Status'),
 			fieldtype: 'Select',
-			options: '\nActive\nPending\nExpired\nSuspended\nTerminated',
+			options: '\nActive\nPending\nExpired\nSuspended\nQuit',
 			description: 'Filter by specific member status (overrides include/exclude filters above)'
 		},
 		{
@@ -84,7 +84,7 @@ frappe.query_reports['Members Without Active Memberships'] = {
 
 		// Color code based on member status and last membership status
 		if (column.fieldname === 'member_status') {
-			if (value === 'Terminated') {
+			if (value === 'Quit') {
 				value = `<span style="color: red;">${value}</span>`;
 			} else if (value === 'Suspended') {
 				value = `<span style="color: orange;">${value}</span>`;

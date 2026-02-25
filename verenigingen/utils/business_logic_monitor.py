@@ -373,7 +373,7 @@ class BusinessLogicMonitor:
             old_members = frappe.db.count(
                 "Member",
                 filters={
-                    "status": "Terminated",
+                    "status": "Quit",
                     "termination_date": ["<", frappe.utils.add_years(frappe.utils.today(), -7)],
                 },
             )

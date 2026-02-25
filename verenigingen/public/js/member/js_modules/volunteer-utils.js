@@ -188,7 +188,7 @@ function get_status_class(status) {
 		Active: 'badge-success',
 		Inactive: 'badge-secondary',
 		'On Hold': 'badge-warning',
-		Terminated: 'badge-danger'
+		Quit: 'badge-danger'
 	};
 	return classes[status] || 'badge-secondary';
 }

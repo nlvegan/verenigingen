@@ -65,7 +65,7 @@ frappe.ui.form.on('Customer', {
 						const status_color
               = member.status === 'Active'
               	? 'green'
-              	: member.status === 'Terminated'
+              	: member.status === 'Quit'
               		? 'red'
               		: 'orange';
 

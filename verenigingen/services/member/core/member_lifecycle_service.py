@@ -366,7 +366,7 @@ class MemberLifecycleService(StatelessService):
 
                     elif member.application_status == "Rejected" and member.status != "Rejected":
                         # Don't override status if member was terminated
-                        if member.status not in ["Terminated", "Suspended"]:
+                        if member.status not in ["Quit", "Suspended"]:
                             member.status = "Rejected"
                             changes_made.append("Set status to Rejected (application rejected)")
             else:
@@ -408,7 +408,7 @@ class MemberLifecycleService(StatelessService):
             "Active": "green",
             "Inactive": "gray",
             "Suspended": "orange",
-            "Terminated": "red",
+            "Quit": "red",
             "Pending": "blue",
             "Rejected": "red",
             "Application": "blue",

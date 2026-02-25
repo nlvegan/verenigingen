@@ -920,7 +920,7 @@ class CoreTestDataFactory:
             status_ratios = {
                 "Active": 0.70,      # 70% active
                 "Suspended": 0.15,   # 15% suspended
-                "Terminated": 0.10,  # 10% terminated
+                "Quit": 0.10,  # 10% terminated
                 "Pending": 0.05      # 5% pending
             }
         

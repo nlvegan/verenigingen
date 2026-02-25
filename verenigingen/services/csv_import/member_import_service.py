@@ -88,9 +88,9 @@ class MemberImportService(StatelessService):
         "aspirant": ("Active", True),
         "overleden": ("Deceased", False),
         "deceased": ("Deceased", False),
-        "opgezegd": ("Terminated", False),
-        "terminated": ("Terminated", False),
-        "uitgeschreven": ("Terminated", False),
+        "opgezegd": ("Quit", False),
+        "terminated": ("Quit", False),
+        "uitgeschreven": ("Quit", False),
         "geroyeerd": ("Banned", False),
         "expelled": ("Banned", False),
         "dubbel": ("Rejected", False),
@@ -125,7 +125,7 @@ class MemberImportService(StatelessService):
 
         Returns:
             Tuple of (status, is_aspirant) where:
-            - status: Member status ('Active', 'Terminated', 'Deceased', etc.)
+            - status: Member status ('Active', 'Quit', 'Deceased', etc.)
             - is_aspirant: Boolean indicating if member is aspirant
         """
         if not membership_type:
@@ -657,7 +657,7 @@ class MemberImportService(StatelessService):
         """Get termination reason based on membership type."""
         reason_map = {
             "opgezegd": "Resigned",
-            "terminated": "Terminated",
+            "terminated": "Quit",
             "uitgeschreven": "Unregistered",
             "geroyeerd": "Expelled",
             "expelled": "Expelled",

@@ -109,13 +109,13 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
 
         # Stage 7: Termination Process
         member.reload()  # Reload before termination
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.termination_reason = "Member request - lifecycle test completion"
         member.save()
         
         member.reload()
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
         self.assertEqual(member.termination_date, today())
         self.assertIsNotNone(member.termination_reason)
 
@@ -154,13 +154,13 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
         self.assertEqual(member.reactivation_date, today())
 
         # Test termination
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.termination_reason = "Member voluntary termination"
         member.save()
 
         member.reload()
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
         self.assertIsNotNone(member.termination_reason)
 
     def test_member_payment_lifecycle(self):
@@ -321,14 +321,14 @@ class TestMemberLifecycleEdgeCases(VereningingenTestCase):
         """Test rapid member status changes"""
         member = self.test_member
 
-        status_sequence = ["Active", "Suspended", "Active", "Terminated"]
+        status_sequence = ["Active", "Suspended", "Active", "Quit"]
 
         for status in status_sequence:
             member.reload()  # Reload before each modification
             member.status = status
             if status == "Suspended":
                 member.suspension_date = today()
-            elif status == "Terminated":
+            elif status == "Quit":
                 member.termination_date = today()
 
             member.save()
@@ -381,7 +381,7 @@ class TestMemberLifecycleEdgeCases(VereningingenTestCase):
         # Test termination rollback
         member.reload()  # Reload before modification
         original_status = member.status
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
 
@@ -410,14 +410,14 @@ class TestMemberLifecycleBusinessRules(VereningingenTestCase):
 
         # Test that terminated members can't be reactivated directly
         member.reload()  # Reload before modification
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
 
         # In a real system, this might require special approval process
         # For testing, we verify the state was set correctly
         member.reload()
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
     
     def test_member_payment_obligations(self):
         """Test payment obligations throughout member lifecycle"""

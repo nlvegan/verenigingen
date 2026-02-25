@@ -297,7 +297,7 @@ class MijnRoodEventApplicationService(StatefulService):
 
         return None
 
-    _TERMINAL_STATUSES = frozenset(("Terminated", "Banned", "Deceased"))
+    _TERMINAL_STATUSES = frozenset(("Quit", "Banned", "Deceased"))
 
     def _ensure_mollie_data(self, member_name: str, row_data: dict) -> Optional[str]:
         """Sync Mollie customer/subscription IDs to Member and Customer records.
@@ -1092,7 +1092,7 @@ class MijnRoodEventApplicationService(StatefulService):
         member_doc = frappe.get_doc("Member", member_name)
 
         # Skip if member is already in a terminal state
-        if member_doc.status in ("Terminated", "Banned", "Deceased"):
+        if member_doc.status in ("Quit", "Banned", "Deceased"):
             return {
                 "success": True,
                 "message": _("Member {0} already has status {1}, skipping termination").format(

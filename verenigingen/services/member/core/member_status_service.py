@@ -172,7 +172,7 @@ def get_member_status_color(status):
         "Lapsed": "secondary",
         "Pending": "info",
         "Suspended": "warning",
-        "Terminated": "danger",
+        "Quit": "danger",
         "Rejected": "danger",
     }
     return status_colors.get(status, "secondary")
@@ -194,9 +194,9 @@ def validate_status_transition(member_doc, new_status):
     allowed_transitions = {
         "": ["Active", "Pending"],
         "Pending": ["Active", "Rejected", "Suspended"],
-        "Active": ["Suspended", "Terminated"],
-        "Suspended": ["Active", "Terminated"],
-        "Terminated": [],  # Terminal state
+        "Active": ["Suspended", "Quit"],
+        "Suspended": ["Active", "Quit"],
+        "Quit": [],  # Terminal state
         "Rejected": [],  # Terminal state
     }
 

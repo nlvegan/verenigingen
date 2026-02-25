@@ -78,7 +78,7 @@ def test_suspension_functions():
         print("• Preserves original member status for restoration")
         print("• Memberships remain active (only access is suspended)")
         print("• Team memberships require manual restoration")
-        print("• Uses 'Suspended' status vs 'Terminated' status")
+        print("• Uses 'Suspended' status vs 'Quit' status")
 
         return True
 

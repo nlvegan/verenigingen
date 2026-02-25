@@ -48,7 +48,7 @@
  *
  * **Test Scenarios**:
  * - Membership application submission with complete data
- * - Member status updates (Active, Terminated, Suspended)
+ * - Member status updates (Active, Quit, Suspended)
  * - Parameter validation and data structure consistency
  * - Response handling and success confirmation
  *

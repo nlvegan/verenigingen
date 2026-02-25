@@ -4956,7 +4956,7 @@ class EnhancedTestCase(FrappeTestCase):
     def transition_member_status(self, member, new_status):
         """Transition member status with business rule validation"""
         member.status = new_status
-        if new_status == "Terminated":
+        if new_status == "Quit":
             member.membership_end_date = frappe.utils.today()
         member.save()
 

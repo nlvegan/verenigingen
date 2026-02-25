@@ -1007,7 +1007,7 @@ def get_member_permission_query(user):
                             JOIN `tabMember` m ON m.name = cm.member
                             WHERE cm.parent IN ({','.join(chapter_names)})
                               AND cm.status = 'Active'
-                              AND m.status NOT IN ('Terminated', 'Banned', 'Deceased')
+                              AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
                         ))
                     """
                     conditions.append(chapters_condition)
@@ -1080,7 +1080,7 @@ def get_employee_permission_query(user):
                             JOIN `tabChapter Member` cm ON cm.member = m.name
                             WHERE cm.parent IN ({','.join(chapter_names)})
                               AND cm.status = 'Active'
-                              AND m.status NOT IN ('Terminated', 'Banned', 'Deceased')
+                              AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
                               AND m.employee IS NOT NULL
                         ))
                     """

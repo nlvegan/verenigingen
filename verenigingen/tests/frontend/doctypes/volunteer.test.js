@@ -581,7 +581,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 
 			const memberStatusChanges = [
 				{ new_status: 'Inactive', volunteer_action: 'suspend' },
-				{ new_status: 'Terminated', volunteer_action: 'deactivate' },
+				{ new_status: 'Quit', volunteer_action: 'deactivate' },
 				{ new_status: 'Suspended', volunteer_action: 'pause' }
 			];
 
@@ -997,7 +997,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 	const handleMemberStatusChange = jest.fn((volunteer, newMemberStatus) => {
 		const statusActions = {
 			Inactive: 'suspend',
-			Terminated: 'deactivate',
+			Quit: 'deactivate',
 			Suspended: 'pause'
 		};
 

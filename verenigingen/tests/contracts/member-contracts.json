@@ -84,7 +84,7 @@
           },
           "status": {
             "type": "string",
-            "enum": ["Pending", "Active", "Suspended", "Terminated"]
+            "enum": ["Pending", "Active", "Suspended", "Quit"]
           },
           "member_since": {
             "type": "string",
@@ -122,7 +122,7 @@
           },
           "new_status": {
             "type": "string",
-            "enum": ["Active", "Suspended", "Terminated", "Pending"]
+            "enum": ["Active", "Suspended", "Quit", "Pending"]
           },
           "reason": {
             "type": "string",
@@ -135,7 +135,7 @@
           "termination_type": {
             "type": "string",
             "enum": ["voluntary", "involuntary", "deceased", "duplicate"],
-            "description": "Required when status is 'Terminated'"
+            "description": "Required when status is 'Quit'"
           }
         }
       },
@@ -241,7 +241,7 @@
           },
           "status": {
             "type": "string",
-            "enum": ["Active", "Paused", "Terminated"]
+            "enum": ["Active", "Paused", "Quit"]
           }
         }
       }

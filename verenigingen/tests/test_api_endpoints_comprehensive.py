@@ -134,7 +134,7 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
         valid_transitions = [
             ("Active", "Suspended", "Temporary suspension"),
             ("Suspended", "Active", "Reactivation after suspension"),
-            ("Active", "Terminated", "Voluntary termination")
+            ("Active", "Quit", "Voluntary termination")
         ]
 
         for from_status, to_status, reason in valid_transitions:
@@ -158,17 +158,17 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
                 self.assertEqual(member.status, to_status)
 
                 # Verify business rule application
-                if to_status == "Terminated":
+                if to_status == "Quit":
                     self.assertIsNotNone(member.membership_end_date)
 
                     # Verify dues schedule deactivation
                     dues_schedule.reload()
-                    self.assertIn(dues_schedule.status, ["Inactive", "Terminated"])
+                    self.assertIn(dues_schedule.status, ["Inactive", "Quit"])
 
         # Test invalid transitions
         invalid_transitions = [
-            ("Terminated", "Active", "Cannot reactivate terminated member"),
-            ("Terminated", "Suspended", "Cannot suspend terminated member")
+            ("Quit", "Active", "Cannot reactivate terminated member"),
+            ("Quit", "Suspended", "Cannot suspend terminated member")
         ]
 
         for from_status, to_status, expected_error in invalid_transitions:

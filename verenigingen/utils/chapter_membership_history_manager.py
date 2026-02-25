@@ -161,7 +161,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
             if target:
                 original_status = target.status
                 target.end_date = end_date
-                target.status = "Terminated"
+                target.status = "Quit"
                 if reason:
                     target.reason = reason
                 frappe.logger().info(
@@ -181,7 +181,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
             if fallback:
                 original_status = fallback.status
                 fallback.end_date = end_date
-                fallback.status = "Terminated"
+                fallback.status = "Quit"
                 if reason:
                     fallback.reason = reason
                 frappe.logger().info(
@@ -194,7 +194,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
             terminated = find_entry_by_criteria(
                 member.chapter_membership_history,
                 fallback_criteria,
-                status_values=["Terminated", "Completed"],
+                status_values=["Quit", "Completed"],
             )
             if terminated:
                 frappe.logger().info(
@@ -341,7 +341,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
 
             if target:
                 target.end_date = end_date
-                target.status = "Terminated"
+                target.status = "Quit"
                 target.reason = reason
                 frappe.logger().info(
                     f"Terminated membership history for member {member_id}: {assignment_type} at {chapter_name}"
@@ -350,7 +350,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
 
             # Check if already terminated (idempotency)
             terminated = find_entry_by_criteria(
-                member.chapter_membership_history, criteria, status_values=["Terminated"]
+                member.chapter_membership_history, criteria, status_values=["Quit"]
             )
             if terminated:
                 frappe.logger().info(
@@ -408,7 +408,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
                 [m for m in membership_history if hasattr(m, "status") and m.status == "Completed"]
             )
             terminated_memberships = len(
-                [m for m in membership_history if hasattr(m, "status") and m.status == "Terminated"]
+                [m for m in membership_history if hasattr(m, "status") and m.status == "Quit"]
             )
 
             # Get unique chapters the member has been associated with

@@ -128,7 +128,7 @@ def get_data(filters):
 
         # Conditionally exclude Terminated and Banned based on include_terminated filter
         if not filters.get("include_terminated"):
-            excluded_statuses.extend(["'Terminated'", "'Banned'"])
+            excluded_statuses.extend(["'Quit'", "'Banned'"])
 
         # Conditionally exclude Suspended based on include_suspended filter
         if not filters.get("include_suspended"):
@@ -198,7 +198,7 @@ def get_data(filters):
                 WHEN m.status = 'Active' THEN 1
                 WHEN m.status = 'Pending' THEN 2
                 WHEN m.status = 'Suspended' THEN 3
-                WHEN m.status = 'Terminated' THEN 4
+                WHEN m.status = 'Quit' THEN 4
                 ELSE 5
             END,
             CASE WHEN last_membership.end_date IS NULL THEN 1 ELSE 0 END,

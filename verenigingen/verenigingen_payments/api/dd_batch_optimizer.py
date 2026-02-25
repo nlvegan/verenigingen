@@ -147,7 +147,7 @@ def get_eligible_invoices_for_batching():
             AND mem.customer IS NOT NULL
             AND sm.mandate_id IS NOT NULL
             -- ⚠️ CRITICAL VALIDATION: Exclude terminated/inactive members
-            AND mem.status NOT IN ('Terminated', 'Expelled', 'Deceased', 'Suspended', 'Quit')
+            AND mem.status NOT IN ('Quit', 'Expelled', 'Deceased', 'Suspended', 'Quit')
             AND m.status = 'Active'
             -- Exclude invoices already in batches
             AND si.name NOT IN (
@@ -197,7 +197,7 @@ def validate_member_eligibility_for_billing(invoice_data):
     try:
         # Check member status
         member_status = invoice_data.get("member_status")
-        if member_status in ["Terminated", "Expelled", "Deceased", "Suspended", "Quit"]:
+        if member_status in ["Quit", "Expelled", "Deceased", "Suspended", "Quit"]:
             frappe.log_error(
                 f"Attempted to bill terminated member: {member_name} (status: {member_status})",
                 "Member Status Validation",
@@ -280,7 +280,7 @@ def validate_all_pending_invoices():
 
         for invoice in pending_invoices:
             # Check for terminated members
-            if invoice["member_status"] in ["Terminated", "Expelled", "Deceased", "Suspended", "Quit"]:
+            if invoice["member_status"] in ["Quit", "Expelled", "Deceased", "Suspended", "Quit"]:
                 results["terminated_members"].append(
                     {
                         "invoice": invoice["invoice"],

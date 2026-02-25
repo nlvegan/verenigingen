@@ -140,7 +140,7 @@ class TestMemberStatusNotificationServiceSendNotification(unittest.TestCase):
         mock_get_mollie.return_value = mock_mollie_config
 
         self.service.send_status_change_notification(
-            mock_member, "Active", "Terminated"
+            mock_member, "Active", "Quit"
         )
 
         call_kwargs = mock_email_service.send_templated_email.call_args[1]
@@ -200,7 +200,7 @@ class TestMemberStatusNotificationServiceConfig(unittest.TestCase):
 
     def test_terminated_config(self):
         """Test notification config for Terminated status"""
-        config = self.service._get_notification_config("Active", "Terminated")
+        config = self.service._get_notification_config("Active", "Quit")
 
         self.assertEqual(config["notification_key"], "member_terminated")
         self.assertEqual(config["subject"], "Membership Terminated")

@@ -96,7 +96,7 @@ class TestMemberImportService(FrappeTestCase):
         service = get_member_import_service()
         status, is_aspirant = service.determine_member_status("opgezegd")
 
-        self.assertEqual(status, "Terminated")
+        self.assertEqual(status, "Quit")
         self.assertFalse(is_aspirant)
 
     def test_determine_member_status_banned(self):
@@ -286,7 +286,7 @@ class TestMemberImportService(FrappeTestCase):
 
         service.update_member_fields(member, row_data, "TEST-IMPORT-001")
 
-        self.assertEqual(member.status, "Terminated")
+        self.assertEqual(member.status, "Quit")
         self.assertTrue(hasattr(member, "_pending_termination_data"))
 
     # ============================================================

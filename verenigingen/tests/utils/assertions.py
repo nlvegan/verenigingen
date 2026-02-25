@@ -191,7 +191,7 @@ class AssertionHelpers:
         """Assert that a member termination is completed"""
         member = frappe.get_doc("Member", member_name)
 
-        if member.status != "Terminated":
+        if member.status != "Quit":
             raise AssertionError(f"Member {member_name} is not terminated (status: {member.status})")
 
         # Check for termination request with audit entries

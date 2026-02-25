@@ -314,7 +314,7 @@ class TestPersonas:
             builder.with_chapter("Rotterdam Test Chapter", postal_codes="3000-3099")
             .with_member(
                 first_name="Tom",
-                last_name="Terminated",
+                last_name="Quit",
                 email="tom.terminated@test.com",
                 contact_number="+31676543210",
                 birth_date=add_days(today(), -365 * 45),  # 45 years old
@@ -341,7 +341,7 @@ class TestPersonas:
         member.reload()  # Ensure we have latest version to avoid timestamp mismatch
         member.termination_reason = "Non-payment"
         member.termination_date = today()
-        member.status = "Terminated"  # Valid status option
+        member.status = "Quit"  # Valid status option
         member.save()
 
         return test_data

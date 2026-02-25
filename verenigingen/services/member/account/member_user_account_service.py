@@ -561,7 +561,7 @@ class MemberUserAccountService(StatelessService):
             # - "" (empty): New members without status set yet
             # - None: Members where status field is not set (defensive)
             #
-            # Rejected statuses include: "Suspended", "Terminated", "Pending", etc.
+            # Rejected statuses include: "Suspended", "Quit", "Pending", etc.
             # This prevents creating portal access for members who shouldn't have it.
             #
             # Logic migrated from deprecated member_account_service.py with empty status

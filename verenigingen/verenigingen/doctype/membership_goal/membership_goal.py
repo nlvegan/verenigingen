@@ -151,7 +151,7 @@ class MembershipGoal(Document):
         """Calculate member retention rate as percentage"""
         # Get members at start of period
         start_members = frappe.db.count(
-            "Member", filters={"member_since": ["<", self.start_date], "status": ["!=", "Terminated"]}
+            "Member", filters={"member_since": ["<", self.start_date], "status": ["!=", "Quit"]}
         )
 
         if start_members == 0:

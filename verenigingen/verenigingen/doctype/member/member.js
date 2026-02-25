@@ -2048,7 +2048,7 @@ function update_termination_status_html(frm, status) {
 		const display_date = term_data.termination_date || term_data.execution_date;
 		html += `
             <div class="alert alert-danger">
-                <h5><i class="fa fa-exclamation-triangle"></i> Membership Terminated</h5>
+                <h5><i class="fa fa-exclamation-triangle"></i> Membership Quit</h5>
                 <p><strong>Termination Type:</strong> ${term_data.termination_type}</p>
                 <p><strong>Termination Date:</strong> ${display_date}</p>
                 <p><strong>Request:</strong> <a href="/app/membership-termination-request/${term_data.name}">${term_data.name}</a></p>
@@ -2109,11 +2109,11 @@ function add_termination_dashboard_indicators(frm, status) {
 			// Format date to show only date and time up to minute (no seconds/microseconds)
 			const display_date = frappe.datetime.str_to_user(raw_date);
 			frm.dashboard.add_indicator(
-				__('Terminated on {0}', [display_date]),
+				__('Quit on {0}', [display_date]),
 				'red'
 			);
 		} else {
-			frm.dashboard.add_indicator(__('Membership Terminated'), 'red');
+			frm.dashboard.add_indicator(__('Membership Quit'), 'red');
 		}
 		frm._termination_indicators_added = true;
 	} else if (status.pending_requests && status.pending_requests.length > 0) {

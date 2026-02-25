@@ -15,7 +15,7 @@
  * - Multi-chapter membership tracking
  *
  * Display Enhancements:
- * - Color-coded status indicators (Active, Completed, Terminated)
+ * - Color-coded status indicators (Active, Completed, Quit)
  * - Chapter statistics with counts and percentages
  * - Unique chapter association tracking
  * - Membership duration calculations
@@ -61,7 +61,7 @@ function enhance_chapter_history_table(frm) {
 		'status'
 	).get_query = function () {
 		return {
-			filters: [['name', 'in', ['Active', 'Completed', 'Terminated']]]
+			filters: [['name', 'in', ['Active', 'Completed', 'Quit']]]
 		};
 	};
 
@@ -77,7 +77,7 @@ function enhance_chapter_history_table(frm) {
 				status_cell.addClass('text-success font-weight-bold');
 			} else if (status === 'Completed') {
 				status_cell.addClass('text-primary');
-			} else if (status === 'Terminated') {
+			} else if (status === 'Quit') {
 				status_cell.addClass('text-danger');
 			}
 		});
@@ -100,7 +100,7 @@ function add_chapter_history_insights(frm) {
 		(h) => h.status === 'Completed'
 	).length;
 	const terminated_count = frm.doc.chapter_membership_history.filter(
-		(h) => h.status === 'Terminated'
+		(h) => h.status === 'Quit'
 	).length;
 
 	// Get unique chapters
@@ -120,7 +120,7 @@ function add_chapter_history_insights(frm) {
                     <span class="text-primary font-weight-bold">${completed_count}</span> ${__('Completed')}
                 </div>
                 <div class="col-md-4">
-                    <span class="text-danger font-weight-bold">${terminated_count}</span> ${__('Terminated')}
+                    <span class="text-danger font-weight-bold">${terminated_count}</span> ${__('Quit')}
                 </div>
             </div>
             <div style="margin-top: 10px;">

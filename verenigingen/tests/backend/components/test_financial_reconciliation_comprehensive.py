@@ -93,7 +93,7 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         
         # Member terminates
         termination_date = today()
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = termination_date
         member.termination_reason = "Relocation"
         member.save()
@@ -130,7 +130,7 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
             outstanding_invoices.append(invoice)
         
         # Member terminates
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = today()
         member.save()
         
@@ -177,7 +177,7 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         )
         
         # Apply retroactive termination
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = retroactive_date
         member.termination_reason = "Retroactive termination - eligibility review"
         member.save()
@@ -388,7 +388,7 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
             scheduled_transactions.append(transaction)
         
         # Cancel SEPA mandate due to member termination
-        member.status = "Terminated"
+        member.status = "Quit"
         member.save()
         
         mandate.status = "Cancelled"
@@ -459,7 +459,7 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         # Member terminates after 2 months
         termination_date = add_months(today(), 2)
         
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = termination_date
         member.save()
         
@@ -502,7 +502,7 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         )
         
         # Member terminates mid-period
-        member.status = "Terminated"
+        member.status = "Quit"
         member.termination_date = termination_date
         member.save()
         

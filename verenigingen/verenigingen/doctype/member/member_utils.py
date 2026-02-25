@@ -546,7 +546,7 @@ def update_termination_status_display(doc, method=None):
     Update member status and member_end_date based on termination request.
 
     Note: This function only updates fields that exist in the Member DocType:
-    - status: The main member status ("Terminated", "Deceased", "Banned", etc.)
+    - status: The main member status ("Quit", "Deceased", "Banned", etc.)
     - member_end_date: Date when membership ended
 
     Termination metadata is stored in Membership Termination Request records,
@@ -582,7 +582,7 @@ def update_termination_status_display(doc, method=None):
             "Deceased": "Deceased",
             "Expulsion": "Banned",
         }
-        target_status = status_mapping.get(term_data.termination_type, "Terminated")
+        target_status = status_mapping.get(term_data.termination_type, "Quit")
 
         # Update status if not already set correctly
         if member.status != target_status:

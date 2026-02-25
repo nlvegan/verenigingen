@@ -52,7 +52,7 @@ class AccountCreationService(StatelessService):
     VALID_ACCOUNT_STATUSES = ["Active", "Pending", "Suspended"]
 
     # Member statuses that should never get user accounts
-    INVALID_ACCOUNT_STATUSES = ["Terminated", "Banned", "Deceased", "Rejected"]
+    INVALID_ACCOUNT_STATUSES = ["Quit", "Banned", "Deceased", "Rejected"]
 
     def __init__(self):
         """Initialize the Account Creation Service."""

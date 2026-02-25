@@ -506,7 +506,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Pending\nActive\nRejected\nExpired\nSuspended\nBanned\nDeceased\nTerminated",
+   "options": "Pending\nActive\nRejected\nExpired\nSuspended\nBanned\nDeceased\nQuit",
    "read_only": 1
   },
   {
@@ -1128,7 +1128,7 @@
   },
   {
    "color": "Orange",
-   "title": "Terminated"
+   "title": "Quit"
   }
  ],
  "title_field": "full_name",

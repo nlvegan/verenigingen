@@ -171,7 +171,7 @@ describe('Real Member Controller', () => {
 		});
 
 		it('should handle different member statuses without errors', () => {
-			const statuses = ['Active', 'Inactive', 'Pending', 'Terminated'];
+			const statuses = ['Active', 'Inactive', 'Pending', 'Quit'];
 
 			statuses.forEach((status) => {
 				frm.doc.status = status;
@@ -328,7 +328,7 @@ describe('Real Member Controller', () => {
 				{ from: 'Pending', to: 'Active' },
 				{ from: 'Active', to: 'Inactive' },
 				{ from: 'Inactive', to: 'Active' },
-				{ from: 'Active', to: 'Terminated' }
+				{ from: 'Active', to: 'Quit' }
 			];
 
 			statusTransitions.forEach((transition) => {

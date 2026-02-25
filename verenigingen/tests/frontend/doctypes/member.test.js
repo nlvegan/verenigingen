@@ -115,7 +115,7 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 		test('should display member status indicators properly', () => {
 			// Arrange
 			const terminatedMember = testFactory.createMemberData({
-				status: 'Terminated'
+				status: 'Quit'
 			});
 			mockFrm.doc = terminatedMember;
 
@@ -125,7 +125,7 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.dashboard.add_indicator).toHaveBeenCalledWith(
-				expect.stringContaining('Terminated'),
+				expect.stringContaining('Quit'),
 				'red'
 			);
 		});
@@ -773,8 +773,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 				frm.add_custom_button('Full Action', () => {});
 				frm.toggle_display('tussenvoegsel', !!frm.doc.tussenvoegsel);
 
-				if (frm.doc.status === 'Terminated') {
-					frm.dashboard.add_indicator('Terminated', 'red');
+				if (frm.doc.status === 'Quit') {
+					frm.dashboard.add_indicator('Quit', 'red');
 				}
 			}
 		});

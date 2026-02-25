@@ -658,13 +658,13 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
         with self.as_user(self.admin_user.name):
             # Terminate member
             member = frappe.get_doc("Member", member_name)
-            member.status = "Terminated"
+            member.status = "Quit"
             # Clear application_status to prevent sync_status_fields from changing it back
             member.application_status = ""
             member.add_comment("Comment", "Lifecycle test completion - member terminated")
             member.save()
 
-            self.state_manager.record_state("Member", member_name, "Terminated")
+            self.state_manager.record_state("Member", member_name, "Quit")
 
         return {"termination_completed": True}
 
@@ -676,7 +676,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
         # Member should be inactive/terminated
         self.assertIn(
             member.status,
-            ["Inactive", "Terminated"],
+            ["Inactive", "Quit"],
             f"Member status is {member.status}, expected Inactive or Terminated",
         )
 
@@ -696,4 +696,4 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
         member_name = workflow_context.get("member_name")
         if member_name:
             final_member_state = self.state_manager.get_state("Member", member_name)
-            self.assertEqual(final_member_state, "Terminated", "Member should be in terminated state")
+            self.assertEqual(final_member_state, "Quit", "Member should be in terminated state")

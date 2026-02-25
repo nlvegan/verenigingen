@@ -1241,7 +1241,7 @@ Cypress.Commands.add("verifyTerminationAuditTrail", (requestName, expectedAction
 /**
  * Check if member status is terminated
  */
-Cypress.Commands.add("verifyMemberTerminated", (memberName) => {
+Cypress.Commands.add("verifyMemberQuit", (memberName) => {
   return cy.window().then((win) => {
     return win.frappe.call({
       method: "frappe.client.get_value",
@@ -1251,8 +1251,8 @@ Cypress.Commands.add("verifyMemberTerminated", (memberName) => {
         fieldname: "status"
       }
     }).then((r) => {
-      expect(r.message.status).to.equal("Terminated");
-      cy.log(`Verified member ${memberName} is terminated`);
+      expect(r.message.status).to.equal("Quit");
+      cy.log(`Verified member ${memberName} is quit`);
     });
   });
 });

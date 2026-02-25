@@ -38,7 +38,7 @@ class MemberStatusNotificationService(StatelessService):
             "subject": "Membership Suspended",
             "message": "Your membership has been temporarily suspended. Please contact us for more information.",
         },
-        "Terminated": {
+        "Quit": {
             "notification_key": "member_terminated",
             "subject": "Membership Terminated",
             "message": "Your membership has been terminated. Thank you for being part of our community.",

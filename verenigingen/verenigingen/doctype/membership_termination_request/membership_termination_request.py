@@ -218,7 +218,7 @@ class MembershipTerminationRequest(Document):
 
         member_status = frappe.db.get_value("Member", self.member, "status")
         # Allow termination of Expired members (formal closure), but not already Terminated/Banned/Deceased
-        if member_status in ["Terminated", "Banned", "Deceased"]:
+        if member_status in ["Quit", "Banned", "Deceased"]:
             frappe.throw(_("Cannot terminate member with status: {0}").format(member_status))
 
         # Validate commitment period for voluntary terminations
@@ -575,7 +575,7 @@ def initiate_disciplinary_termination(member, reason, evidence=None, reporter=No
 
         # Check if member exists and is active
         member_doc = frappe.get_doc("Member", member)
-        if member_doc.membership_status in ["Terminated", "Suspended"]:
+        if member_doc.membership_status in ["Quit", "Suspended"]:
             frappe.throw(_("Member is already terminated or suspended"))
 
         # Check if there's already a pending disciplinary request

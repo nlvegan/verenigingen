@@ -208,7 +208,7 @@ class AlertManager:
             member_changes = frappe.db.count(
                 "Member",
                 {
-                    "status": ("in", ["Terminated", "Expelled"]),
+                    "status": ("in", ["Quit", "Expelled"]),
                     "modified": (">=", add_to_date(now(), days=-1)),
                 },
             )
@@ -247,7 +247,7 @@ class AlertManager:
         try:
             # Check for members without customer records
             members_without_customers = frappe.db.count(
-                "Member", {"customer": ("is", "not set"), "status": ("!=", "Terminated")}
+                "Member", {"customer": ("is", "not set"), "status": ("!=", "Quit")}
             )
 
             if members_without_customers > 10:

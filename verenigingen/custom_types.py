@@ -16,7 +16,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
 # Common field types
-MemberStatus = Literal["Pending", "Active", "Inactive", "Suspended", "Terminated"]
+MemberStatus = Literal["Pending", "Active", "Inactive", "Suspended", "Quit"]
 PaymentMethod = Literal["SEPA Direct Debit", "Bank Transfer", "Credit Card", "Cash"]
 MembershipType = Literal["Regular", "Student", "Senior", "Family", "Honorary"]
 SubscriptionStatus = Literal["active", "canceled", "suspended", "pending", "past_due"]

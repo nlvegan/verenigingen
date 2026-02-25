@@ -288,7 +288,7 @@ class TestUpdateScheduleDates(EnhancedTestCase):
             last_name="Test",
             email=f"terminatedmember.test.{frappe.generate_hash(length=6)}@test.com",
         )
-        test_member.status = "Terminated"
+        test_member.status = "Quit"
         test_member.next_invoice_date = "2025-01-01"
         test_member.save()
 

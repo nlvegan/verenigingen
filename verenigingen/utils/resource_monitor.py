@@ -281,7 +281,7 @@ class ResourceMonitor:
                 ),
                 "active_total": frappe.db.count("Member", {"status": "Active"}),
                 "terminated_today": frappe.db.count(
-                    "Member", {"status": "Terminated", "modified": (">=", frappe.utils.today())}
+                    "Member", {"status": "Quit", "modified": (">=", frappe.utils.today())}
                 ),
             }
         except:

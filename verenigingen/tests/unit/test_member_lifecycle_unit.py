@@ -267,10 +267,10 @@ class MemberLifecycleUnitTest(EnhancedTestCase):
         # Define valid status transitions
         valid_transitions = {
             "Application Pending": ["Active", "Rejected", "Withdrawn"],
-            "Active": ["Suspended", "Terminated", "On Hold"],
-            "Suspended": ["Active", "Terminated"],
-            "On Hold": ["Active", "Terminated"],
-            "Terminated": [],  # No transitions from terminated
+            "Active": ["Suspended", "Quit", "On Hold"],
+            "Suspended": ["Active", "Quit"],
+            "On Hold": ["Active", "Quit"],
+            "Quit": [],  # No transitions from terminated
             "Rejected": [],    # No transitions from rejected
             "Withdrawn": []    # No transitions from withdrawn
         }
@@ -297,7 +297,7 @@ class MemberLifecycleUnitTest(EnhancedTestCase):
                 
         # Test invalid transitions
         invalid_transitions = [
-            ("Terminated", "Active"),  # Cannot reactivate terminated member
+            ("Quit", "Active"),  # Cannot reactivate terminated member
             ("Rejected", "Active"),    # Cannot activate rejected application
             ("Active", "Application Pending")  # Cannot go back to pending
         ]

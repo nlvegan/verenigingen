@@ -96,7 +96,7 @@ class TerminationMixin:
             term_data = executed_termination[0]
 
             if hasattr(self, "termination_status"):
-                self.termination_status = "Terminated"
+                self.termination_status = "Quit"
 
             if hasattr(self, "termination_date"):
                 self.termination_date = term_data.execution_date or term_data.termination_date
@@ -107,8 +107,8 @@ class TerminationMixin:
             if hasattr(self, "termination_request"):
                 self.termination_request = term_data.name
 
-            if hasattr(self, "status") and self.status != "Terminated":
-                self.status = "Terminated"
+            if hasattr(self, "status") and self.status != "Quit":
+                self.status = "Quit"
 
             if hasattr(self, "termination_notes"):
                 self.termination_notes = (

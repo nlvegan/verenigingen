@@ -202,10 +202,10 @@ def convert_membership_type(membership_type: str) -> str:
         "lid": "Standard",  # Active regular member
         "aspirant": "Aspirant",  # Candidate/provisional member
         "overleden": "Deceased",  # Deceased member
-        "opgezegd": "Terminated",  # Voluntarily cancelled membership
+        "opgezegd": "Quit",  # Voluntarily cancelled membership
         "geroyeerd": "Expelled",  # Expelled/banned from organization
         "dubbel": "Duplicate",  # Duplicate entry (should be rejected)
-        "uitgeschreven": "Terminated",  # Unsubscribed/left voluntarily (legacy)
+        "uitgeschreven": "Quit",  # Unsubscribed/left voluntarily (legacy)
         "geschorst": "Suspended",  # Suspended (legacy)
     }
 

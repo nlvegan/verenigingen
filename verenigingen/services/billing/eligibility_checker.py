@@ -256,7 +256,7 @@ class EligibilityChecker(StatelessService):
         Returns:
             EligibilityResult indicating if member status allows billing
         """
-        ineligible_statuses = ["Terminated", "Banned", "Deceased"]
+        ineligible_statuses = ["Quit", "Banned", "Deceased"]
 
         if member_doc.status in ineligible_statuses:
             # Aggregate blocked members for batch reporting

@@ -40,7 +40,7 @@ class MonitoringMetricsService:
                 "members": {
                     "active": frappe.db.count("Member", {"status": "Active"}),
                     "pending": frappe.db.count("Member", {"status": "Pending"}),
-                    "terminated": frappe.db.count("Member", {"status": "Terminated"}),
+                    "terminated": frappe.db.count("Member", {"status": "Quit"}),
                     "total": frappe.db.count("Member"),
                 },
                 "volunteers": {

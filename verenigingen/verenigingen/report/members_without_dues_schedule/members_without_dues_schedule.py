@@ -54,7 +54,7 @@ def get_data(filters=None):
 
         # Always exclude Terminated unless explicitly included
         if not filters.get("include_terminated"):
-            excluded_statuses.append("Terminated")
+            excluded_statuses.append("Quit")
 
         # Always exclude Suspended unless explicitly included
         if not filters.get("include_suspended"):

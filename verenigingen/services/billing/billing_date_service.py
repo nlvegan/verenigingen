@@ -136,7 +136,7 @@ class BillingDateService(StatelessService):
             self.logger.warning(f"Member {schedule_doc.member} not found, skipping next_invoice_date update")
             return
 
-        if member_status in ["Deceased", "Banned", "Terminated"]:
+        if member_status in ["Deceased", "Banned", "Quit"]:
             self.logger.debug(
                 f"Skipping member date update for {schedule_doc.member} - status: {member_status}"
             )

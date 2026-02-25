@@ -121,7 +121,7 @@ def get_summary_metrics(year, period="year", filters=None):
         "Member",
         filters={
             "member_end_date": ["between", [start_date, end_date]],
-            "status": ["in", ["Terminated", "Banned", "Suspended"]],
+            "status": ["in", ["Quit", "Banned", "Suspended"]],
         },
     )
 
@@ -504,7 +504,7 @@ def get_growth_trend(year, period="year", filters=None):
                 "Member",
                 filters={
                     "member_end_date": ["between", [start_date, end_date]],
-                    "status": ["in", ["Terminated", "Banned", "Suspended"]],
+                    "status": ["in", ["Quit", "Banned", "Suspended"]],
                 },
             )
 
@@ -765,7 +765,7 @@ def calculate_retention_rate(year):
     end_date = f"{year}-12-31"
 
     members_at_start = frappe.db.count(
-        "Member", filters={"member_since": ["<", start_date], "status": ["!=", "Terminated"]}
+        "Member", filters={"member_since": ["<", start_date], "status": ["!=", "Quit"]}
     )
 
     if members_at_start == 0:
@@ -776,7 +776,7 @@ def calculate_retention_rate(year):
         "Member",
         filters={
             "member_end_date": ["between", [start_date, end_date]],
-            "status": ["in", ["Terminated", "Banned", "Suspended"]],
+            "status": ["in", ["Quit", "Banned", "Suspended"]],
         },
     )
 
@@ -936,7 +936,7 @@ def get_chapter_segmentation(year, filter_conditions):
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
+        .where(Member.status.notin(["Rejected", "Quit", "Banned", "Deceased"]))
         .groupby(Chapter.name)
     )
 
@@ -993,7 +993,7 @@ def get_region_segmentation(year, filter_conditions):
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
+        .where(Member.status.notin(["Rejected", "Quit", "Banned", "Deceased"]))
         .groupby(region_case)
     )
 
@@ -1043,7 +1043,7 @@ def get_age_segmentation(year, filter_conditions, filter_params=None):
         FROM `tabMember` m
         WHERE m.member_since <= %s
             AND (m.member_end_date IS NULL OR m.member_end_date >= %s)
-            AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
+            AND m.status NOT IN ('Rejected', 'Quit', 'Banned', 'Deceased')
             AND birth_date IS NOT NULL {filter_conditions}
         GROUP BY
             CASE
@@ -1113,7 +1113,7 @@ def get_volunteer_participation_by_chapter(year, filter_conditions, filter_param
         LEFT JOIN `tabVolunteer` v ON v.member = m.name AND v.status = 'Active'
         WHERE m.member_since <= %s
             AND (m.member_end_date IS NULL OR m.member_end_date >= %s)
-            AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased') {filter_conditions}
+            AND m.status NOT IN ('Rejected', 'Quit', 'Banned', 'Deceased') {filter_conditions}
         GROUP BY COALESCE(cm.parent, 'No Chapter')
         ORDER BY total_members DESC
     """
@@ -1148,7 +1148,7 @@ def get_payment_method_segmentation(year, filter_conditions):
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
+        .where(Member.status.notin(["Rejected", "Quit", "Banned", "Deceased"]))
         .groupby(Member.payment_method)
     )
 
@@ -1203,7 +1203,7 @@ def get_join_year_segmentation(year, filter_conditions):
         )
         .where(Member.member_since <= year_end)
         .where((Member.member_end_date.isnull()) | (Member.member_end_date >= year_start))
-        .where(Member.status.notin(["Rejected", "Terminated", "Banned", "Deceased"]))
+        .where(Member.status.notin(["Rejected", "Quit", "Banned", "Deceased"]))
         .where(Member.member_since.isnotnull())
         .groupby(join_year)
     )
@@ -1248,7 +1248,7 @@ def get_chapter_growth_over_time(year):
             FROM `tabMember` m
             LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
             WHERE m.member_since <= %s
-                AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
+                AND m.status NOT IN ('Rejected', 'Quit', 'Banned', 'Deceased')
             GROUP BY COALESCE(cm.parent, 'No Chapter')
             HAVING MIN(m.member_since) IS NOT NULL
             ORDER BY chapter_name
@@ -1304,7 +1304,7 @@ def get_chapter_growth_over_time(year):
                 ) as dates
                 LEFT JOIN `tabMember` m ON m.member_since <= dates.month_end
                     AND (m.member_end_date IS NULL OR m.member_end_date > dates.month_end)
-                    AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
+                    AND m.status NOT IN ('Rejected', 'Quit', 'Banned', 'Deceased')
                     AND NOT EXISTS (
                         SELECT 1 FROM `tabChapter Member` cm
                         WHERE cm.member = m.name AND cm.enabled = 1
@@ -1342,7 +1342,7 @@ def get_chapter_growth_over_time(year):
                 ) as dates
                 LEFT JOIN `tabMember` m ON m.member_since <= dates.month_end
                     AND (m.member_end_date IS NULL OR m.member_end_date > dates.month_end)
-                    AND m.status NOT IN ('Rejected', 'Terminated', 'Banned', 'Deceased')
+                    AND m.status NOT IN ('Rejected', 'Quit', 'Banned', 'Deceased')
                 LEFT JOIN `tabChapter Member` cm ON cm.member = m.name
                     AND cm.parent = %s
                     AND cm.enabled = 1

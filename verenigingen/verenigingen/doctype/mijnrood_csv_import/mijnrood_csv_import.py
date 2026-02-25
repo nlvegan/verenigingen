@@ -1389,7 +1389,7 @@ class MijnroodCSVImport(Document):
                 return
 
             # Skip if member is already in a terminal state (Terminated, Banned)
-            if member_doc.status in ["Terminated", "Banned"]:
+            if member_doc.status in ["Quit", "Banned"]:
                 frappe.logger().info(
                     f"Member {member_doc.name} already has status {member_doc.status}, skipping termination request"
                 )
