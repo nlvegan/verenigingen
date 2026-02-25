@@ -372,11 +372,11 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 | Delete donate_optimized.py | 1+1 | -689 LOC, -48 fixture lines | NONE | **DONE** — cleaned fixtures + whitelist |
 | Delete deprecated webhook_service.py | 1+1 | -709 LOC | LOW | **DONE** — health check uses unified service |
 | Clean orphaned fixture entries | 1 | -168 lines (10 entries) | NONE | **DONE** |
-| Fix MUTATION_TYPE ordering bug in e_boekhouden | 1 | ~5 fix | NONE | DEFERRED (per user request) |
-| Fix duplicate except block in _get_or_create_supplier | 1 | ~5 fix | NONE | DEFERRED (per user request) |
+| Fix MUTATION_TYPE ordering bug in e_boekhouden | 1+1 | ~5 fix | NONE | **DONE** (commit `f313cd4f`) — SINGULAR dict swapped 1↔2; import_manager comments fixed |
+| Fix duplicate except block in _get_or_create_supplier | 1 | -3 LOC | NONE | **DONE** (commit `f313cd4f`) — unreachable second except removed |
 | **Completed** | 41 | **-10,353 LOC** | | |
 
-**Remaining:** `simple_measurement_test.py` kept in api/ (has production import from `performance_convenience.py`). e_boekhouden fixes deferred.
+**Remaining:** `simple_measurement_test.py` kept in api/ (has production import from `performance_convenience.py`).
 
 ### Phase 2: Deduplication (Weeks 2-3) — Moderate Impact
 
@@ -417,7 +417,7 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 | Remove deprecated CircuitBreaker | 1 | **-409 LOC actual** | NONE | **DONE** (pass-through decorator in __init__.py kept for compat) |
 | Delete dead code functions | 25 | **-4,983 LOC actual** | NONE | **DONE** (65 dead functions across 25 files; 4 files deleted, 21 surgically edited; 51 fixture entries + 22 unused imports cleaned) |
 | Standardize error codes across API | 20+ | 0 (refactor) | LOW | |
-| Consolidate settings loading pattern | 15 | -200 LOC | LOW | |
+| Consolidate settings loading pattern | 7+1 | **-10 LOC actual** | LOW | **DONE** (commit `f313cd4f`) — 3 helpers in settings_utils.py; 7 templates consolidated; 7 unused imports cleaned |
 | **Subtotal** | 46+ | ~-1,400 LOC | | |
 
 ---
@@ -428,11 +428,12 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 
 | Phase | LOC Removed | Effort | Status |
 |-------|-------------|--------|--------|
-| Phase 1 (Safety) | **-10,353 actual** (est. ~5,000) | done | **DONE** (e_boekhouden deferred) |
+| Phase 1 (Safety) | **-10,353 actual** (est. ~5,000) | done | **DONE** |
 | Phase 2 (Dedup) | **-3,654 actual** (est. ~2,680) | done | **DONE** |
 | Phase 3 (Arch) | **-459 actual** (est. ~1,400) | done | **DONE** (APISecurityFramework dead code; split/response pattern skipped) |
-| Phase 4 (Cleanup) | **-6,538 actual** (est. ~1,400) | done | **DONE** (performance_optimizer + circuit_breaker + 65 dead API functions; analytics/auth skipped) |
-| **Total actual** | **-21,004** | | |
+| Phase 4 (Cleanup) | **-6,548 actual** (est. ~1,400) | done | **DONE** (performance_optimizer + circuit_breaker + 65 dead API functions + settings consolidation; analytics/auth skipped) |
+| Phase 5 (Bugs) | **-10 actual** | done | **DONE** (MUTATION_TYPE fix + duplicate except + import_manager comments) |
+| **Total actual** | **-21,014** | | |
 
 ### Quality Metrics
 
