@@ -12,6 +12,7 @@ from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.settings_utils import populate_income_calculator_context
 
 # Default fallback fee amount in EUR
 DEFAULT_STANDARD_FEE = 15.0
@@ -91,13 +92,7 @@ def get_context(context):
     context.member_contact_email = get_member_contact_email()
 
     # Get calculator settings for the infobox
-    context.enable_income_calculator = getattr(verenigingen_settings, "enable_income_calculator", 0)
-    context.income_percentage_rate = getattr(verenigingen_settings, "income_percentage_rate", 0.5)
-    context.calculator_description = getattr(
-        verenigingen_settings,
-        "calculator_description",
-        "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.",
-    )
+    populate_income_calculator_context(context, verenigingen_settings)
 
     # Get maximum fee multiplier setting
     context.maximum_fee_multiplier = getattr(verenigingen_settings, "maximum_fee_multiplier", 10)

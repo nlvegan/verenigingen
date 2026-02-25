@@ -18,6 +18,7 @@ from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.settings_utils import populate_mollie_context
 
 # Configuration constants
 MAX_CSV_SIZE = 1024 * 1024  # 1MB limit for CSV uploads
@@ -38,15 +39,7 @@ def get_context(context):
     context.title = _("Mollie Bulk Payment Creation")
 
     # Get Mollie settings info
-    try:
-        mollie_settings = frappe.get_single("Mollie Settings")
-        context.mollie_configured = bool(mollie_settings.test_secret_key or mollie_settings.live_secret_key)
-        context.test_mode = mollie_settings.test_mode
-        context.api_key_type = "test" if mollie_settings.test_mode else "live"
-    except Exception:
-        context.mollie_configured = False
-        context.test_mode = True
-        context.api_key_type = "unknown"
+    populate_mollie_context(context)
 
     return context
 

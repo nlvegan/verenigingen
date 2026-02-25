@@ -49,7 +49,7 @@ class EBoekhoudenImportManager:
         Args:
             from_date: Start date for import
             to_date: End date for import
-            mutation_types: List of mutation types to import (1=Sales, 2=Purchase, etc)
+            mutation_types: List of mutation types to import (1=Purchase, 2=Sales, etc)
         """
         results = {"deleted": 0, "imported": 0, "updated": 0, "failed": 0, "errors": [], "log": []}
 
@@ -144,7 +144,7 @@ class EBoekhoudenImportManager:
         iterator = EBoekhoudenRESTIterator()
 
         if not mutation_types:
-            mutation_types = [1, 2, 3, 4]  # Sales, Purchase, Payments
+            mutation_types = [1, 2, 3, 4]  # Purchase Invoices, Sales Invoices, Payments
 
         for mutation_type in mutation_types:
             try:

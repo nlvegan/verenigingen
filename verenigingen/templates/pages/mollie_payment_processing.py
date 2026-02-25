@@ -10,11 +10,11 @@ from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.settings_utils import get_mollie_days_back_limit, populate_mollie_context
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     user_has_any_role,
     validate_mollie_payment_ids,
 )
-from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
 def get_context(context):
@@ -35,20 +35,7 @@ def get_context(context):
     context.csrf_token = get_csrf_token()
 
     # Get Mollie settings info
-    try:
-        # Use config service for test_mode
-        context.test_mode = get_mollie_config().is_test_mode()
-        context.api_key_type = "test" if context.test_mode else "live"
-
-        # Check if API keys configured
-        mollie_settings = frappe.get_single("Mollie Settings")
-        context.mollie_configured = bool(mollie_settings.test_secret_key or mollie_settings.live_secret_key)
-        context.mollie_settings = mollie_settings
-    except Exception:
-        context.mollie_configured = False
-        context.test_mode = True
-        context.api_key_type = "unknown"
-        context.mollie_settings = frappe._dict({"payment_retrieval_days_back_limit": 1825})
+    populate_mollie_context(context)
 
     return context
 
@@ -457,11 +444,7 @@ def bulk_retrieve_all_member_payments(
             frappe.throw(_("Access denied"))
 
         # Validate parameters - get max limit from Mollie Settings
-        try:
-            mollie_settings = frappe.get_single("Mollie Settings")
-            max_days_back = mollie_settings.payment_retrieval_days_back_limit or 1825
-        except Exception:
-            max_days_back = 1825
+        max_days_back = get_mollie_days_back_limit()
 
         try:
             days_back = int(days_back)

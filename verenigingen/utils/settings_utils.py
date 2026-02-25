@@ -388,6 +388,68 @@ def is_mollie_enabled(gateway_name: str = "Default") -> bool:
     return False
 
 
+# Template context helpers — extract duplicate patterns from template pages
+
+
+DEFAULT_DAYS_BACK_LIMIT = 1825  # 5 years
+
+
+def populate_mollie_context(context) -> None:
+    """Populate standard Mollie context fields for template pages.
+
+    Sets on context: mollie_configured, test_mode, api_key_type, mollie_settings.
+    On failure, sets safe defaults (unconfigured, test mode).
+    """
+    try:
+        mollie_settings = frappe.get_single("Mollie Settings")
+        context.mollie_configured = bool(mollie_settings.test_secret_key or mollie_settings.live_secret_key)
+        context.test_mode = mollie_settings.test_mode
+        context.api_key_type = "test" if mollie_settings.test_mode else "live"
+        context.mollie_settings = mollie_settings
+    except Exception:
+        context.mollie_configured = False
+        context.test_mode = True
+        context.api_key_type = "unknown"
+        context.mollie_settings = frappe._dict({"payment_retrieval_days_back_limit": DEFAULT_DAYS_BACK_LIMIT})
+
+
+def populate_income_calculator_context(context, settings=None) -> None:
+    """Populate income calculator context fields from Verenigingen Settings.
+
+    Args:
+        context: Template context object to populate.
+        settings: Optional pre-loaded Verenigingen Settings document.
+            If None, loads from DB.
+
+    Sets on context: enable_income_calculator, income_percentage_rate, calculator_description.
+    """
+    if settings is None:
+        settings = get_verenigingen_settings()
+    if not settings:
+        return
+    context.enable_income_calculator = getattr(settings, "enable_income_calculator", 0)
+    context.income_percentage_rate = getattr(settings, "income_percentage_rate", 0.5)
+    context.calculator_description = getattr(
+        settings,
+        "calculator_description",
+        "Our suggested contribution is 0.5% of your monthly net income."
+        " This helps ensure fair and equitable contributions based on your financial capacity.",
+    )
+
+
+def get_mollie_days_back_limit() -> int:
+    """Get the payment_retrieval_days_back_limit from Mollie Settings.
+
+    Returns:
+        Max days back for payment retrieval (default 1825 = 5 years).
+    """
+    try:
+        mollie_settings = frappe.get_single("Mollie Settings")
+        return mollie_settings.payment_retrieval_days_back_limit or DEFAULT_DAYS_BACK_LIMIT
+    except Exception:
+        return DEFAULT_DAYS_BACK_LIMIT
+
+
 # Cache invalidation utilities
 
 

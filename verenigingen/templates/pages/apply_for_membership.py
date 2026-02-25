@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.settings_utils import populate_income_calculator_context
 
 
 def get_context(context):
@@ -54,13 +55,7 @@ def get_context(context):
     }
 
     # Add income calculator settings
-    context.enable_income_calculator = getattr(settings, "enable_income_calculator", 0)
-    context.income_percentage_rate = getattr(settings, "income_percentage_rate", 0.5)
-    context.calculator_description = getattr(
-        settings,
-        "calculator_description",
-        "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.",
-    )
+    populate_income_calculator_context(context, settings)
 
     # Application form configuration
     # Check field explicitly - 0 means disabled, None/missing means use default (enabled)

@@ -22,8 +22,8 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 # eBoekhouden mutation type labels (singular form — for individual transaction display)
 MUTATION_TYPE_SINGULAR = {
     0: "Opening Balance",
-    1: "Sales Invoice",
-    2: "Purchase Invoice",
+    1: "Purchase Invoice",
+    2: "Sales Invoice",
     3: "Customer Payment",
     4: "Supplier Payment",
     5: "Money Received",
@@ -928,10 +928,6 @@ def _get_or_create_supplier(relation_id, description, debug_info):
 
     except Exception as e:
         debug_info.append(f"Error resolving supplier for relation {relation_id}: {str(e)}")
-        return None
-
-    except Exception as e:
-        debug_info.append(f"Error creating supplier for relation {relation_id}: {str(e)}")
         return None
 
 
