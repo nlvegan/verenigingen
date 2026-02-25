@@ -45,7 +45,7 @@
 | ~~`api/chapter_dashboard_debug.py`~~ | ~~2,311~~ | ~~Test code in production API~~ **DELETED in Phase 1** |
 | `mijnrood_sync/services/event_application_service.py` | 2,254 | God class: 12+ concerns |
 | `permissions.py` | 1,826 | 8x duplicated role-checking, 5x chapter board check |
-| `utils/security/api_security_framework.py` | 1,738 | God class: 50+ methods, 6 subcomponents |
+| ~~`utils/security/api_security_framework.py`~~ | ~~1,738~~ 1,279 | ~~God class: 50+ methods~~ **Reduced in Phase 3** (dead code removed) |
 | `templates/pages/donate.py` ~~+ `donate_optimized.py`~~ | ~~2,493~~ 1,804 | ~~Abandoned fork~~ **donate_optimized.py DELETED in Phase 1** |
 | `vereinigingen_payments/utils/` (4 SEPA operation files) | ~1,370 | 4 near-identical implementations |
 | `utils/analytics_engine.py` | 800+ | 30+ stub methods promising ML |
@@ -415,7 +415,7 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 | Delete performance_optimizer.py stubs | 1 | **-1,146 LOC actual** | LOW | **DONE** (entire file had zero production callers) |
 | Consolidate duplicate authorization logic | 3 | -200 LOC | LOW | SKIPPED (intentional layered architecture) |
 | Remove deprecated CircuitBreaker | 1 | **-409 LOC actual** | NONE | **DONE** (pass-through decorator in __init__.py kept for compat) |
-| Delete dead code functions | 5+ | -200 LOC | NONE | |
+| Delete dead code functions | 25 | **-4,983 LOC actual** | NONE | **DONE** (65 dead functions across 25 files; 4 files deleted, 21 surgically edited; 51 fixture entries + 22 unused imports cleaned) |
 | Standardize error codes across API | 20+ | 0 (refactor) | LOW | |
 | Consolidate settings loading pattern | 15 | -200 LOC | LOW | |
 | **Subtotal** | 46+ | ~-1,400 LOC | | |
@@ -431,8 +431,8 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 | Phase 1 (Safety) | **-10,353 actual** (est. ~5,000) | done | **DONE** (e_boekhouden deferred) |
 | Phase 2 (Dedup) | **-3,654 actual** (est. ~2,680) | done | **DONE** |
 | Phase 3 (Arch) | **-459 actual** (est. ~1,400) | done | **DONE** (APISecurityFramework dead code; split/response pattern skipped) |
-| Phase 4 (Cleanup) | **-1,555 actual** (est. ~1,400) | done | **DONE** (performance_optimizer + circuit_breaker; analytics/auth skipped) |
-| **Total actual** | **-16,021** | | |
+| Phase 4 (Cleanup) | **-6,538 actual** (est. ~1,400) | done | **DONE** (performance_optimizer + circuit_breaker + 65 dead API functions; analytics/auth skipped) |
+| **Total actual** | **-21,004** | | |
 
 ### Quality Metrics
 
@@ -442,7 +442,7 @@ Three competing patterns across 340+ API endpoints. No migration strategy or ada
 | Duplicate code hotspots | 45+ | 10-15 |
 | Test files in production | 27 | 1 (30 deleted, 1 kept — production dep) |
 | SQL injection risks | 3+ | 0 (fixed in Phase 1) |
-| Dead code LOC | ~1,800 | ~200 |
+| Dead code LOC | ~1,800 | ~50 (3 maybe-dead functions kept for safety) |
 | Competing implementations | 8 pairs | 1-2 |
 
 ---
