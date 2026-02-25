@@ -111,7 +111,6 @@
 ./verenigingen/api/chapter_join.py
 ./verenigingen/api/check_account_types.py
 ./verenigingen/api/check_and_fix_workspace.py
-./verenigingen/api/check_auto_invoice_settings.py
 ./verenigingen/api/check_customer_permissions.py
 ./verenigingen/api/check_eboekhouden_fields.py
 ./verenigingen/api/check_error_logs.py

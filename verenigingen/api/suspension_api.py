@@ -7,7 +7,7 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
+from verenigingen.utils.error_handling import handle_api_error
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.performance_utils import performance_monitor
@@ -195,46 +195,6 @@ def unsuspend_member(member_name, unsuspension_reason) -> OperationResult[Dict[s
         return OperationResult.fail(
             _("An unexpected error occurred while unsuspending the member"), error_code="INTERNAL_ERROR"
         )
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_my_suspension_status() -> OperationResult[Dict[str, Any]]:
-    """
-    Get suspension status for the current logged-in member
-    Members can only access their own suspension status
-    """
-    try:
-        # Get current user
-        user_email = frappe.session.user
-        if user_email == "Guest":
-            return OperationResult.fail(
-                _("Authentication required"),
-                error_code="NOT_AUTHENTICATED",
-                data={"authenticated": False},
-            )
-
-        # Find member record for current user
-        member_name = frappe.db.get_value("Member", {"user": user_email}, "name")
-        if not member_name:
-            return OperationResult.fail(
-                _("No member record found for current user"),
-                error_code="NO_MEMBER_RECORD",
-                data={"has_member_record": False},
-            )
-
-        # Get suspension status
-        from verenigingen.utils.termination_integration import get_member_suspension_status
-
-        status_data = get_member_suspension_status(member_name)
-        return OperationResult.ok(status_data, message=_("Suspension status retrieved successfully"))
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error getting suspension status for user {frappe.session.user}: {str(e)}\n{traceback.format_exc()}",
-            "Member Suspension Status Error",
-        )
-        return OperationResult.fail(_("Unable to retrieve suspension status"), error_code="INTERNAL_ERROR")
 
 
 @frappe.whitelist()

@@ -7,10 +7,10 @@ and automated rollback procedures for Phase 5A optimization.
 """
 
 import time
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import frappe
-from frappe.utils import now, now_datetime
+from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
@@ -383,16 +383,6 @@ def generate_index_recommendations(implementation_results: Dict) -> List[str]:
         recommendations.append("Phase 5A can proceed with current database configuration")
 
     return recommendations
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def get_current_database_performance():
-    """Get current database performance metrics for monitoring"""
-    try:
-        return capture_database_baseline()
-    except Exception as e:
-        return {"error": str(e)}
 
 
 if __name__ == "__main__":

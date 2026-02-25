@@ -7,14 +7,14 @@ and comprehensive validation before enabling full functionality.
 """
 
 import time
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import frappe
-from frappe.utils import now, now_datetime
+from frappe.utils import now_datetime
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
-from verenigingen.utils.security.audit_logging import get_audit_logger, log_sensitive_operation
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
 
 
 @frappe.whitelist()
@@ -617,43 +617,8 @@ def generate_activation_recommendations(phases: Dict) -> List[str]:
     return recommendations
 
 
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def get_dashboard_activation_status():
-    """Get current dashboard activation status"""
-    try:
-        # Check cache for activation status
-        full_mode_status = frappe.cache().get_value("performance_dashboard_full_mode")
-
-        if full_mode_status:
-            return {
-                "status": "FULLY_ACTIVATED",
-                "enabled": True,
-                "activated_at": full_mode_status.get("activated_at"),
-                "activated_by": full_mode_status.get("activated_by"),
-            }
-        else:
-            # Check if dashboard is at least partially operational
-            try:
-                from verenigingen.www.monitoring_dashboard import get_security_metrics_for_dashboard
-
-                get_security_metrics_for_dashboard()  # Test availability
-
-                return {
-                    "status": "PARTIALLY_ACTIVATED",
-                    "enabled": True,
-                    "mode": "readonly",
-                    "dashboard_accessible": True,
-                }
-            except Exception:
-                return {"status": "NOT_ACTIVATED", "enabled": False, "dashboard_accessible": False}
-
-    except Exception as e:
-        return {"status": "UNKNOWN", "error": str(e)}
-
-
 if __name__ == "__main__":
-    print("🚀 Phase 5A Performance Dashboard Activator")
+    print("Phase 5A Performance Dashboard Activator")
     print(
         "Available via API: verenigingen.api.performance_dashboard_activator.activate_performance_dashboard_gradual"
     )

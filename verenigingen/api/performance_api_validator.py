@@ -7,10 +7,10 @@ and ensures they work correctly with the security framework.
 """
 
 import time
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import frappe
-from frappe.utils import now, now_datetime
+from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
@@ -299,97 +299,8 @@ def generate_api_recommendations(api_tests: Dict) -> List[str]:
     return recommendations
 
 
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def get_performance_api_baseline():
-    """Get baseline performance metrics for all performance APIs"""
-    try:
-        baseline_results = {"baseline_timestamp": now_datetime(), "api_baselines": {}, "overall_stats": {}}
-
-        # Run each API multiple times to get baseline
-        api_configs = [
-            {
-                "name": "measure_payment_history_performance",
-                "module": "verenigingen.api.performance_measurement",
-                "function": "measure_payment_history_performance",
-                "test_params": {"member_count": 2},
-            },
-            {
-                "name": "run_comprehensive_performance_analysis",
-                "module": "verenigingen.api.performance_measurement",
-                "function": "run_comprehensive_performance_analysis",
-                "test_params": {},
-            },
-        ]
-
-        for api_config in api_configs:
-            execution_times = []
-
-            # Run API 3 times to get baseline
-            for i in range(3):
-                try:
-                    start_time = time.time()
-
-                    # Execute API
-                    import importlib
-
-                    module = importlib.import_module(api_config["module"])
-                    api_function = getattr(module, api_config["function"])
-                    api_function(**api_config["test_params"])  # Execute without storing result
-
-                    execution_time = time.time() - start_time
-                    execution_times.append(execution_time)
-
-                except Exception:
-                    execution_times.append(-1)  # Error marker
-
-            # Calculate baseline stats
-            valid_times = [t for t in execution_times if t > 0]
-            if valid_times:
-                baseline_results["api_baselines"][api_config["name"]] = {
-                    "avg_time": sum(valid_times) / len(valid_times),
-                    "min_time": min(valid_times),
-                    "max_time": max(valid_times),
-                    "successful_runs": len(valid_times),
-                    "total_runs": len(execution_times),
-                }
-            else:
-                baseline_results["api_baselines"][api_config["name"]] = {
-                    "error": "All baseline runs failed",
-                    "successful_runs": 0,
-                    "total_runs": len(execution_times),
-                }
-
-        # Calculate overall stats
-        all_avg_times = [
-            baseline["avg_time"]
-            for baseline in baseline_results["api_baselines"].values()
-            if "avg_time" in baseline
-        ]
-
-        if all_avg_times:
-            baseline_results["overall_stats"] = {
-                "total_apis_tested": len(baseline_results["api_baselines"]),
-                "successful_apis": len(all_avg_times),
-                "avg_response_time": sum(all_avg_times) / len(all_avg_times),
-                "baseline_status": "CAPTURED",
-            }
-        else:
-            baseline_results["overall_stats"] = {
-                "total_apis_tested": len(baseline_results["api_baselines"]),
-                "successful_apis": 0,
-                "baseline_status": "FAILED",
-            }
-
-        return baseline_results
-
-    except Exception as e:
-        frappe.log_error(f"Performance API baseline capture failed: {e}")
-        return {"error": str(e), "baseline_status": "FAILED"}
-
-
 if __name__ == "__main__":
-    print("🧪 Phase 5A Performance API Validator")
+    print("Phase 5A Performance API Validator")
     print(
         "Available via API: verenigingen.api.performance_api_validator.validate_performance_apis_with_security"
     )

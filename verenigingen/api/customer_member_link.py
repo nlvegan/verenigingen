@@ -57,58 +57,8 @@ from verenigingen.utils.operation_result import OperationResult
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
-    development_only_api,
-    high_security_api,
     standard_api,
 )
-
-
-def add_customer_to_member_link():
-    """Add Member link to Customer dashboard"""
-    try:
-        # Check if the link already exists
-        existing_links = frappe.get_all(
-            "DocType Link", filters={"parent": "Customer", "parenttype": "DocType", "link_doctype": "Member"}
-        )
-
-        if existing_links:
-            return {"message": "Link already exists", "success": True}
-
-        # Get Customer doctype
-        customer_doc = frappe.get_doc("DocType", "Customer")
-
-        # Add Member link
-        customer_doc.append(
-            "links",
-            {"link_doctype": "Member", "link_fieldname": "customer", "group": "Membership", "hidden": 0},
-        )
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        # Secure DocType update with explicit permission validation
-        customer_result = secure_document_operation(
-            operation="save",
-            doc=customer_doc,
-            justification="Add Member link to Customer DocType dashboard for membership integration",
-            required_permissions=["DocType:write"],
-        )
-
-        if not customer_result.success:
-            frappe.logger().error(f"Failed to update Customer DocType: {'; '.join(customer_result.errors)}")
-            return {
-                "message": f"Failed to update Customer DocType: {'; '.join(customer_result.errors)}",
-                "success": False,
-            }
-
-        frappe.db.commit()
-
-        return {"message": "Customer to Member link added successfully", "success": True}
-
-    except Exception as e:
-        frappe.log_error(f"Error adding customer to member link: {str(e)}")
-        return {"message": f"Error: {str(e)}", "success": False}
 
 
 @frappe.whitelist()
@@ -190,49 +140,5 @@ def get_member_from_customer(customer) -> OperationResult[Dict[str, Any]]:
         frappe.log_error(
             title=_("Get Member From Customer Error"),
             message=f"{error_msg}\n\nCustomer: {customer}\n\nError: {str(e)}\n\n{traceback.format_exc()}",
-        )
-        return OperationResult.fail(error_msg, errors=[str(e)])
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def create_customer_member_button() -> OperationResult[Dict[str, Any]]:
-    """Add a custom button to Customer form to navigate to Member"""
-    try:
-        javascript_code = """
-    frappe.ui.form.on('Customer', {
-        refresh: function(frm) {
-            if (!frm.is_new()) {
-                frappe.call({
-                    method: 'verenigingen.api.customer_member_link.get_member_from_customer',
-                    args: {
-                        customer: frm.doc.name
-                    },
-                    callback: function(r) {
-                        if (r.message) {
-                            frm.add_custom_button(__('View Member'), function() {
-                                frappe.set_route('Form', 'Member', r.message.name);
-                            }, __('Actions'));
-
-                            // Also show member status in dashboard
-                            frm.dashboard.add_indicator(__('Member: ') + r.message.full_name + ' (' + r.message.status + ')',
-                                r.message.status === 'Active' ? 'green' : 'orange');
-                        }
-                    }
-                });
-            }
-        }
-    });
-    """
-        return OperationResult.ok(
-            {"javascript": javascript_code},
-            message=_("Customer-Member navigation button code generated successfully"),
-        )
-
-    except Exception as e:
-        error_msg = _("Failed to generate customer-member button code")
-        frappe.log_error(
-            title=_("Create Customer Member Button Error"),
-            message=f"{error_msg}\n\nError: {str(e)}\n\n{traceback.format_exc()}",
         )
         return OperationResult.fail(error_msg, errors=[str(e)])

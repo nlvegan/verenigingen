@@ -495,10 +495,6 @@ The Verenigingen app has specific dependencies that must be installed in order:
 3. **Install and Configure Email Templates**:
 
    ```bash
-   # CLI-friendly method (recommended for installation)
-   bench --site your-association.com execute verenigingen.api.email_template_manager.create_email_templates_cli
-
-   # Alternative standard method
    bench --site your-association.com execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
 
    # Verify templates were created

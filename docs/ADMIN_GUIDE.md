@@ -182,25 +182,9 @@ Access brand management at `/brand_management` (System Manager role required):
 
 Install comprehensive email template system:
 
-**CLI-Friendly Method (Recommended)**:
-
-```bash
-bench --site [site_name] execute verenigingen.api.email_template_manager.create_email_templates_cli
-```
-
-**Standard Method**:
-
 ```bash
 bench --site [site_name] execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
 ```
-
-**Legacy Method (Backward Compatibility)**:
-
-```bash
-bench --site [site_name] execute verenigingen.api.email_template_manager.create_all_email_templates
-```
-
-> **⚠️ Security Note**: The CLI-friendly method bypasses CSRF validation that can cause issues when running via command line. Use the CLI method for automated deployment and the standard method for web-based execution.
 
 #### Available Templates
 

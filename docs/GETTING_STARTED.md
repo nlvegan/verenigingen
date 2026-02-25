@@ -139,10 +139,6 @@ bench install-app verenigingen
 2. **Install Email Templates**:
 
    ```bash
-   # CLI-friendly method (recommended)
-   bench execute verenigingen.api.email_template_manager.create_email_templates_cli
-
-   # Alternative method
    bench execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
    ```
 

@@ -5,7 +5,7 @@ Enhanced Workspace Validator that checks both database and fixtures file
 
 import json
 import os
-from typing import Dict, List, Set
+from typing import Dict, List
 
 import frappe
 
@@ -257,80 +257,6 @@ def validate_workspaces_enhanced():
     """Enhanced workspace validation that checks both fixtures and database"""
     validator = EnhancedWorkspaceValidator()
     return validator.validate_all_workspaces()
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def check_workspace_rendering_issue(workspace_name: str = "E-Boekhouden"):
-    """Debug why a workspace might not render properly"""
-
-    result = {"workspace_name": workspace_name, "database_check": {}, "possible_issues": []}
-
-    try:
-        # Check if workspace exists
-        if not frappe.db.exists("Workspace", workspace_name):
-            result["database_check"]["exists"] = False
-            result["possible_issues"].append("Workspace does not exist in database")
-            return result
-
-        workspace = frappe.get_doc("Workspace", workspace_name)
-        result["database_check"]["exists"] = True
-        result["database_check"]["data"] = {
-            "name": workspace.name,
-            "label": workspace.label,
-            "public": workspace.public,
-            "hidden": workspace.is_hidden,
-            "module": workspace.module,
-            "links_count": len(workspace.links),
-            "content": workspace.content[:200] if workspace.content else None,
-            "parent_page": workspace.parent_page,
-        }
-
-        # Check common issues
-        if workspace.is_hidden:
-            result["possible_issues"].append("Workspace is marked as hidden")
-
-        if not workspace.public:
-            result["possible_issues"].append("Workspace is not public - check user permissions")
-
-        if not workspace.module:
-            result["possible_issues"].append("Workspace has no module assigned")
-
-        # Check if module is installed
-        if workspace.module and not frappe.db.exists("Module Def", workspace.module):
-            result["possible_issues"].append(f"Module '{workspace.module}' not found")
-
-        # Check content structure
-        if workspace.content:
-            try:
-                content_data = json.loads(workspace.content)
-                if not isinstance(content_data, list):
-                    result["possible_issues"].append("Content is not a valid JSON array")
-                elif len(content_data) == 0:
-                    result["possible_issues"].append("Content array is empty")
-                elif len(content_data) == 1 and content_data[0].get("type") == "card":
-                    result["possible_issues"].append("Workspace has only one card element - may appear empty")
-            except json.JSONDecodeError:
-                result["possible_issues"].append("Content contains invalid JSON")
-
-        else:
-            result["possible_issues"].append("Workspace has no content structure")
-
-        # Check permissions
-        result["user_permissions"] = {
-            "has_read": frappe.has_permission("Workspace", "read", workspace_name),
-            "current_user": frappe.session.user,
-            "user_roles": frappe.get_roles(),
-        }
-
-        if not result["user_permissions"]["has_read"]:
-            result["possible_issues"].append("Current user lacks read permission")
-
-    except Exception as e:
-        result["error"] = str(e)
-        result["possible_issues"].append(f"Error accessing workspace: {str(e)}")
-
-    return result
 
 
 if __name__ == "__main__":

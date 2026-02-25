@@ -8,7 +8,6 @@ from typing import Any, Dict
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
 
 from verenigingen.api.membership_application_review import send_rejection_notification
 from verenigingen.utils.application_helpers import (
@@ -29,32 +28,26 @@ from verenigingen.utils.application_helpers import (
     suggest_membership_amounts as suggest_membership_amounts_util,
     update_member_from_reapplication,
 )
-from verenigingen.utils.application_notifications import check_overdue_applications
 from verenigingen.utils.application_payments import (
     get_payment_methods as get_payment_methods_util,
-    process_application_payment,
 )
-from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.constants import Roles
 
 # Import enhanced utilities
-from verenigingen.utils.error_handling import PermissionError, ValidationError, handle_api_error, log_error
+from verenigingen.utils.error_handling import ValidationError, handle_api_error, log_error
 from verenigingen.utils.operation_result import OperationResult
-from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
+from verenigingen.utils.performance_utils import performance_monitor
 
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
     high_security_api,
     public_api,
     standard_api,
 )
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
-    rate_limit,
     require_roles,
-    validate_api_input,
 )
 
 # Import our utility modules
@@ -310,13 +303,6 @@ def validate_email(email) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_email_endpoint(email) -> OperationResult[Dict[str, Any]]:
-    """Validate email format and check if it already exists (legacy endpoint)"""
-    return validate_email(email)
-
-
-@frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.PUBLIC)
 def validate_postal_code(postal_code, country="Netherlands") -> OperationResult[Dict[str, Any]]:
     """Validate postal code format and suggest chapters"""
     try:
@@ -360,13 +346,6 @@ def validate_postal_code(postal_code, country="Netherlands") -> OperationResult[
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_postal_code_endpoint(postal_code, country="Netherlands") -> OperationResult[Dict[str, Any]]:
-    """Validate postal code format and suggest chapters (legacy endpoint)"""
-    return validate_postal_code(postal_code, country)
-
-
-@frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.PUBLIC)
 def validate_phone_number(phone, country="Netherlands") -> OperationResult[Dict[str, Any]]:
     """Validate phone number format"""
     return _wrap_validation(
@@ -374,13 +353,6 @@ def validate_phone_number(phone, country="Netherlands") -> OperationResult[Dict[
         field_name="Phone number",
         operation="validate_phone_number",
     )
-
-
-@frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.PUBLIC)
-def validate_phone_number_endpoint(phone, country="Netherlands") -> OperationResult[Dict[str, Any]]:
-    """Validate phone number format (legacy endpoint)"""
-    return validate_phone_number(phone, country)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -396,13 +368,6 @@ def validate_birth_date(birth_date) -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
-def validate_birth_date_endpoint(birth_date) -> OperationResult[Dict[str, Any]]:
-    """Validate birth date (legacy endpoint)"""
-    return validate_birth_date(birth_date)
-
-
-@frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.PUBLIC)
 def validate_name(name, field_name="Name") -> OperationResult[Dict[str, Any]]:
     """Validate name fields"""
     return _wrap_validation(
@@ -410,13 +375,6 @@ def validate_name(name, field_name="Name") -> OperationResult[Dict[str, Any]]:
         field_name=field_name,
         operation="validate_name",
     )
-
-
-@frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.PUBLIC)
-def validate_name_endpoint(name, field_name="Name") -> OperationResult[Dict[str, Any]]:
-    """Validate name fields (legacy endpoint)"""
-    return validate_name(name, field_name)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -870,71 +828,6 @@ def reject_membership_application(member_name, reason) -> OperationResult[Dict[s
         )
 
 
-@frappe.whitelist()
-@high_security_api()  # Payment processing
-def process_application_payment_endpoint(
-    member_name, payment_method, payment_reference=None
-) -> OperationResult[Dict[str, Any]]:
-    """Process payment for approved application"""
-    try:
-        payment_entry = process_application_payment(member_name, payment_method, payment_reference)
-
-        # Send payment confirmation notification (failure must not affect payment result)
-        member = frappe.get_doc("Member", member_name)
-
-        try:
-            if member.email:
-                from verenigingen.services.communication.email_service import get_email_service
-
-                email_service = get_email_service()
-                membership_type = getattr(member, "selected_membership_type", "") or ""
-                portal_url = frappe.utils.get_url("/member-dashboard")
-
-                email_service.send_templated_email(
-                    template_name="member_lifecycle_notification",
-                    recipients=[member.email],
-                    context={
-                        "member_name": member.full_name,
-                        "old_status": None,
-                        "new_status": "Active",
-                        "membership_number": member.name,
-                        "additional_message": _(
-                            "Thank you for your payment! Your {0} membership is now active. "
-                            "Visit {1} to access the member portal."
-                        ).format(membership_type, portal_url),
-                        "company": frappe.defaults.get_global_default("company"),
-                    },
-                    subject_override=_("Welcome! Your membership is active"),
-                    reference_doctype="Member",
-                    reference_name=member.name,
-                    notification_key="member_activated",
-                )
-        except Exception as e:
-            frappe.log_error(
-                f"Error sending payment confirmation email for {member_name}: {str(e)}",
-                "Payment Confirmation Email Error",
-            )
-
-        return OperationResult.ok(
-            {
-                "payment_entry": payment_entry.name,
-                "member_id": member_name,
-            },
-            message=_("Payment processed successfully"),
-        )
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error processing payment: {str(e)}\n{traceback.format_exc()}",
-            "Payment Processing Error",
-        )
-        return OperationResult.fail(
-            _("Error processing payment"),
-            errors=[str(e)],
-            context={"operation": "process_application_payment"},
-        )
-
-
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 def get_membership_fee_info_endpoint(membership_type) -> OperationResult[Dict[str, Any]]:
@@ -1056,14 +949,6 @@ def check_application_status_endpoint(application_id) -> OperationResult[Dict[st
         fail_error="status_check_failed",
         operation="check_application_status",
     )
-
-
-# Scheduled tasks
-
-
-def check_overdue_applications_task():
-    """Scheduled task to check for overdue applications"""
-    check_overdue_applications()
 
 
 # Test endpoints
@@ -1326,13 +1211,6 @@ def submit_application_with_tracking(**kwargs) -> OperationResult[Dict[str, Any]
 def check_application_eligibility(data) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - check if applicant is eligible for membership"""
     return check_application_eligibility_endpoint(data)
-
-
-@frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
-def get_application_form_data_legacy() -> OperationResult[Dict[str, Any]]:
-    """Legacy endpoint - use get_application_form_data instead"""
-    return get_application_form_data()
 
 
 @frappe.whitelist(allow_guest=True)

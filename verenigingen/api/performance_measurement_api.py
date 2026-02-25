@@ -5,21 +5,14 @@ Phase 1 Implementation - Evidence-Based Performance Improvement Plan
 API endpoints for accessing query measurement tools and performance analysis.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import frappe
-from frappe import _
 
-from verenigingen.utils.performance.bottleneck_analyzer import PaymentOperationAnalyzer, PerformanceComparison
-from verenigingen.utils.performance.performance_reporter import (
-    PerformanceReporter,
-    create_performance_baseline,
-    generate_performance_report,
-    get_recent_reports,
-)
+from verenigingen.utils.performance.bottleneck_analyzer import PaymentOperationAnalyzer
+from verenigingen.utils.performance.performance_reporter import generate_performance_report
 from verenigingen.utils.performance.query_measurement import (
     PerformanceBaselineCollector,
-    QueryMeasurementStore,
     measure_member_payment_history,
     measure_sepa_mandate_operations,
 )
@@ -182,101 +175,6 @@ def collect_performance_baselines(sample_size: int = 15) -> Dict[str, Any]:
 
     except Exception as e:
         frappe.log_error(f"Failed to collect performance baselines: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@development_only()
-@standard_api(operation_type=OperationType.UTILITY)
-def get_performance_measurement_history(operation_name: str = None, limit: int = 20) -> Dict[str, Any]:
-    """
-    Get historical performance measurements
-
-    Args:
-        operation_name: Filter by specific operation name (optional)
-        limit: Maximum number of results to return
-
-    Returns:
-        Dict containing historical measurements
-    """
-    try:
-        limit = max(1, min(int(limit), 100))
-
-        measurements = QueryMeasurementStore.get_results(operation_name, limit)
-        aggregated_stats = QueryMeasurementStore.get_aggregated_stats()
-
-        return {
-            "success": True,
-            "data": {
-                "measurements": measurements,
-                "aggregated_stats": aggregated_stats,
-                "filter_applied": operation_name is not None,
-                "operation_name": operation_name,
-            },
-            "message": f"Retrieved {len(measurements)} performance measurements",
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Failed to get performance measurement history: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@development_only()
-@standard_api(operation_type=OperationType.UTILITY)
-def create_performance_baseline_snapshot(operation_name: str = "member_payment_operations") -> Dict[str, Any]:
-    """
-    Create performance baseline snapshot for comparison
-
-    Args:
-        operation_name: Name for the baseline snapshot
-
-    Returns:
-        Dict containing baseline snapshot data
-    """
-    try:
-        baseline = create_performance_baseline(operation_name)
-
-        return {
-            "success": True,
-            "data": baseline,
-            "message": f"Performance baseline snapshot created: {operation_name}",
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Failed to create performance baseline: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@development_only()
-@standard_api(operation_type=OperationType.UTILITY)
-def get_recent_performance_reports(limit: int = 10) -> Dict[str, Any]:
-    """
-    Get list of recent performance reports
-
-    Args:
-        limit: Maximum number of reports to return
-
-    Returns:
-        Dict containing list of recent reports
-    """
-    try:
-        reports = get_recent_reports()
-
-        # Limit results
-        if limit:
-            limit = max(1, min(int(limit), 20))
-            reports = reports[-limit:]
-
-        return {
-            "success": True,
-            "data": {"reports": reports, "count": len(reports)},
-            "message": f"Retrieved {len(reports)} recent performance reports",
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Failed to get recent performance reports: {e}")
         return {"success": False, "error": str(e)}
 
 

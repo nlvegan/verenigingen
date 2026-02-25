@@ -6,7 +6,6 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
-from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.services.member.account.member_user_account_service import (
     create_secure_user_account_for_member,
 )
@@ -894,40 +893,6 @@ def get_pending_applications(chapter: str | None = None, days_overdue: int | Non
     from verenigingen.utils.chapter_security import filter_applications_by_permission
 
     return filter_applications_by_permission(filtered_applications)
-
-
-@frappe.whitelist()
-@standard_api()  # Member data query
-def get_pending_reviews_for_member(member_name: str):
-    """Get pending membership application reviews for a specific member"""
-    try:
-        # Check if there are any pending reviews for this member
-        # Since this is for membership applications, we check if the member
-        # has a pending application status that needs review
-        member = frappe.get_doc("Member", member_name)
-
-        reviews = []
-
-        # If member has pending application status, they need review
-        if member.application_status == "Pending":
-            reviews.append(
-                {
-                    "name": member.name,
-                    "member": member.name,
-                    "member_name": member.full_name,
-                    "application_status": member.application_status,
-                    "application_date": getattr(member, "application_date", None),
-                    "review_type": "Membership Application",
-                }
-            )
-
-        return reviews
-
-    except Exception as e:
-        safe_log_error(
-            "Pending reviews error", f"Error getting pending reviews for member {member_name}: {str(e)}"
-        )
-        return []
 
 
 def update_payment_history_for_invoice(member_name: str, invoice_name: str):

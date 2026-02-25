@@ -1,13 +1,11 @@
 # ===== File: verenigingen/api/termination_api.py =====
 import frappe
-from frappe import _
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
-    standard_api,
 )
 
 
@@ -20,17 +18,6 @@ def get_termination_preview(member_name):
     from verenigingen.utils.termination_utils import validate_termination_readiness
 
     return validate_termination_readiness(member_name)
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_impact_summary(member_name):
-    """
-    Public API to get termination impact summary
-    """
-    from verenigingen.utils.termination_utils import get_termination_impact_summary
-
-    return get_termination_impact_summary(member_name)
 
 
 @frappe.whitelist()
