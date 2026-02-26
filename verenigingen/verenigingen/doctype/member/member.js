@@ -3139,6 +3139,7 @@ window.update_other_members_at_address = function (frm, force_refresh = false) {
 
 	// Call doctype whitelisted method to get other members at same address
 	frm.call({
+		doc: frm.doc,
 		method: 'get_address_members_html',
 		callback(r) {
 			if (r.message) {
