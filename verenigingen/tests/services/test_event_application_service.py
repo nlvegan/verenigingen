@@ -236,6 +236,85 @@ class TestHandleDivisionFieldChange(EnhancedTestCase):
         self.assertIsNone(result)
 
 
+class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
+    """Tests for join_date validation in _assign_chapter_from_division()."""
+
+    PATCH_CAS = "verenigingen.services.chapter.chapter_assignment_service.ChapterAssignmentService"
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_passes_valid_join_date(self, mock_frappe, mock_resolve):
+        """Valid past date is passed through to assign_with_cleanup."""
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.ValidationError = frappe.ValidationError
+        mock_svc_instance = MagicMock()
+        mock_svc_instance.assign_with_cleanup.return_value = {"success": True}
+
+        with patch(self.PATCH_CAS, return_value=mock_svc_instance):
+            event = MagicMock()
+            event.name = "EVT-001"
+            self.service._assign_chapter_from_division("MEM-001", 5, event, join_date="2024-03-15")
+
+        mock_svc_instance.assign_with_cleanup.assert_called_once()
+        call_kwargs = mock_svc_instance.assign_with_cleanup.call_args
+        self.assertEqual(call_kwargs.kwargs["join_date"], "2024-03-15")
+
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_rejects_future_join_date(self, mock_frappe, mock_resolve):
+        """Future date is rejected; None is passed instead."""
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.ValidationError = frappe.ValidationError
+        mock_svc_instance = MagicMock()
+        mock_svc_instance.assign_with_cleanup.return_value = {"success": True}
+
+        with patch(self.PATCH_CAS, return_value=mock_svc_instance):
+            event = MagicMock()
+            event.name = "EVT-001"
+            self.service._assign_chapter_from_division("MEM-001", 5, event, join_date="2099-01-01")
+
+        call_kwargs = mock_svc_instance.assign_with_cleanup.call_args
+        self.assertIsNone(call_kwargs.kwargs["join_date"])
+
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_rejects_invalid_join_date_format(self, mock_frappe, mock_resolve):
+        """Unparseable date string is rejected; None is passed instead."""
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.ValidationError = frappe.ValidationError
+        mock_svc_instance = MagicMock()
+        mock_svc_instance.assign_with_cleanup.return_value = {"success": True}
+
+        with patch(self.PATCH_CAS, return_value=mock_svc_instance):
+            event = MagicMock()
+            event.name = "EVT-001"
+            self.service._assign_chapter_from_division("MEM-001", 5, event, join_date="not-a-date")
+
+        call_kwargs = mock_svc_instance.assign_with_cleanup.call_args
+        self.assertIsNone(call_kwargs.kwargs["join_date"])
+
+    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_none_join_date_passes_through(self, mock_frappe, mock_resolve):
+        """None join_date is passed through (MemberManager defaults to today)."""
+        mock_frappe.db.exists.return_value = True
+        mock_frappe.ValidationError = frappe.ValidationError
+        mock_svc_instance = MagicMock()
+        mock_svc_instance.assign_with_cleanup.return_value = {"success": True}
+
+        with patch(self.PATCH_CAS, return_value=mock_svc_instance):
+            event = MagicMock()
+            event.name = "EVT-001"
+            self.service._assign_chapter_from_division("MEM-001", 5, event, join_date=None)
+
+        call_kwargs = mock_svc_instance.assign_with_cleanup.call_args
+        self.assertIsNone(call_kwargs.kwargs["join_date"])
+
+
 class TestApplyNewMembershipApplication(EnhancedTestCase):
     """Tests for _apply_new_membership_application()."""
 
@@ -1375,8 +1454,27 @@ class TestCreateRelatedRecords(EnhancedTestCase):
             "MEM-001", {"chapter": "5"}, event
         )
 
-        mock_chapter.assert_called_once_with("MEM-001", 5, event)
+        mock_chapter.assert_called_once_with("MEM-001", 5, event, join_date=None)
         self.assertIn("Assigned to chapter 'Amsterdam'", messages)
+
+    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_user_account", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
+    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    def test_passes_member_since_as_join_date(
+        self, mock_chapter, mock_addr, mock_mollie, mock_membership, mock_account, mock_comments
+    ):
+        """Passes member_since as join_date for chapter assignment."""
+        mock_chapter.return_value = "Assigned to chapter 'Amsterdam'"
+        event = MagicMock()
+
+        self.service._create_related_records(
+            "MEM-001", {"chapter": "5", "member_since": "2024-03-15"}, event
+        )
+
+        mock_chapter.assert_called_once_with("MEM-001", 5, event, join_date="2024-03-15")
 
     @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
     @patch.object(MijnRoodEventApplicationService, "_ensure_user_account", return_value=None)

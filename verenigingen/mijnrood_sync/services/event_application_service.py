@@ -206,9 +206,12 @@ class MijnRoodEventApplicationService(StatefulService):
         messages = []
 
         # Chapter assignment from division_id
+        # Use membership start date as chapter join date (best proxy for historical data)
         division_id = safe_int(row_data.get("chapter"))
         if division_id and event:
-            chapter_msg = self._assign_chapter_from_division(member_name, division_id, event)
+            chapter_msg = self._assign_chapter_from_division(
+                member_name, division_id, event, join_date=row_data.get("member_since")
+            )
             if chapter_msg:
                 messages.append(chapter_msg)
 
@@ -620,11 +623,33 @@ class MijnRoodEventApplicationService(StatefulService):
             self.logger.warning("Account creation failed for volunteer %s: %s", member_name, e)
             return _("Account creation failed: {0}").format(str(e)[:200])
 
-    def _assign_chapter_from_division(self, member_name: str, division_id: int, event) -> Optional[str]:
+    def _assign_chapter_from_division(
+        self, member_name: str, division_id: int, event, join_date: str = None
+    ) -> Optional[str]:
         """Resolve a division_id to a chapter and assign the member.
+
+        Args:
+            join_date: Optional chapter join date (e.g. member_since from MijnRood).
+                       Defaults to today() if not provided or invalid.
 
         Returns a human-readable message, or None if nothing was done.
         """
+        # Validate join_date — fall back to today() for unparseable or future dates
+        if join_date:
+            from frappe.utils import getdate
+
+            try:
+                if getdate(join_date) > getdate(today()):
+                    self.logger.warning(
+                        "Join date %s is in the future for member %s, using today", join_date, member_name
+                    )
+                    join_date = None
+            except Exception:
+                self.logger.warning(
+                    "Invalid join_date '%s' for member %s, using today", join_date, member_name
+                )
+                join_date = None
+
         chapter_name = self._resolve_division_id(division_id)
         if not chapter_name:
             return _("Division ID {0} does not match any Chapter").format(division_id)
@@ -641,6 +666,7 @@ class MijnRoodEventApplicationService(StatefulService):
                 member=member_name,
                 chapter=chapter_name,
                 note=f"MijnRood sync: chapter assignment (event {event.name})",
+                join_date=join_date,
             )
         except frappe.ValidationError as e:
             self.logger.info("Chapter assignment skipped for %s: %s", member_name, e)

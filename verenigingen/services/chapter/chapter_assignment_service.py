@@ -68,7 +68,9 @@ class ChapterAssignmentService(StatelessService):
     # PUBLIC ASSIGNMENT METHODS
     # ========================================================================
 
-    def assign_member(self, member: str, chapter: str, note: Optional[str] = None) -> Dict[str, Any]:
+    def assign_member(
+        self, member: str, chapter: str, note: Optional[str] = None, join_date: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Assign a member to a chapter.
 
         This is the basic assignment operation for administrative use.
@@ -79,6 +81,7 @@ class ChapterAssignmentService(StatelessService):
             member: Member ID to assign
             chapter: Chapter name to assign to
             note: Optional note explaining the assignment
+            join_date: Optional chapter join date (defaults to today if not provided)
 
         Returns:
             Dict with:
@@ -94,7 +97,7 @@ class ChapterAssignmentService(StatelessService):
 
         # Get chapter and add member
         chapter_doc = frappe.get_doc("Chapter", chapter)
-        added = chapter_doc.add_member(member)
+        added = chapter_doc.add_member(member, join_date=join_date)
 
         # Update member tracking fields
         self._update_member_tracking_fields(member=member, chapter=chapter, note=note)
@@ -105,7 +108,9 @@ class ChapterAssignmentService(StatelessService):
 
         return {"success": True, "added_to_members": added}
 
-    def assign_with_cleanup(self, member: str, chapter: str, note: Optional[str] = None) -> Dict[str, Any]:
+    def assign_with_cleanup(
+        self, member: str, chapter: str, note: Optional[str] = None, join_date: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Assign a member to a chapter with automatic cleanup.
 
         This method:
@@ -121,6 +126,7 @@ class ChapterAssignmentService(StatelessService):
             member: Member ID to assign
             chapter: Chapter name to assign to
             note: Optional note explaining the assignment
+            join_date: Optional chapter join date (defaults to today if not provided)
 
         Returns:
             Dict with:
@@ -177,7 +183,7 @@ class ChapterAssignmentService(StatelessService):
 
             else:
                 # Not in target - perform assignment
-                result = self.assign_member(member, chapter, note)
+                result = self.assign_member(member, chapter, note, join_date=join_date)
                 result["cleanup_performed"] = cleanup_performed
 
                 if cleanup_performed:

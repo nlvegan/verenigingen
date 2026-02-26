@@ -417,9 +417,9 @@ class Chapter(Document):
     # MEMBER MANAGEMENT API (Delegated)
     # ========================================================================
 
-    def add_member(self, member_id, introduction=None, website_url=None):
+    def add_member(self, member_id, introduction=None, website_url=None, join_date=None):
         """Add member to chapter - delegates to MemberManager"""
-        result = self.member_manager.add_member(member_id, introduction, website_url)
+        result = self.member_manager.add_member(member_id, introduction, website_url, join_date=join_date)
         return result.get("success", False)
 
     def remove_member(self, member_id, leave_reason=None):
