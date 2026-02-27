@@ -40,7 +40,7 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
     def test_manager_initialization(self):
         """Test that managers initialize correctly"""
         from verenigingen.utils.team_role_profile_manager import _team_manager, TEAM_CONFIG
-        from verenigingen.utils.chapter_role_profile_manager import _chapter_manager, CHAPTER_CONFIG
+        from verenigingen.services.chapter.chapter_role_profile_manager import _chapter_manager, CHAPTER_CONFIG
         
         # Test configurations exist and have expected values
         self.assertEqual(TEAM_CONFIG.entity_type, "team")
@@ -55,7 +55,7 @@ class TestRoleProfileAPIContracts(EnhancedTestCase):
     def test_api_methods_exist(self):
         """Test that required API methods exist and are callable"""
         from verenigingen.utils.team_role_profile_manager import _team_manager
-        from verenigingen.utils.chapter_role_profile_manager import _chapter_manager
+        from verenigingen.services.chapter.chapter_role_profile_manager import _chapter_manager
         
         required_methods = [
             "assign_role_profile",
