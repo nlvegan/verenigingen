@@ -516,7 +516,7 @@ def create_invoice_line_for_tegenrekening(
     Enhanced invoice line creation with smart tegenrekening account mapping
     """
     # Use the smart tegenrekening mapper which now raises errors instead of using fallbacks
-    from verenigingen.utils.smart_tegenrekening_mapper import (
+    from verenigingen.e_boekhouden.utils.smart_tegenrekening_mapper import (
         create_invoice_line_for_tegenrekening as smart_create_line,
     )
 

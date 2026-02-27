@@ -2038,7 +2038,7 @@ class VereningingenTestCase(FrappeTestCase):
             dict with failure scenario, member, mandate, and test context
         """
         try:
-            from verenigingen.utils.testing.sepa_payment_failure_scenarios import (
+            from verenigingen.tests.support.sepa_payment_failure_scenarios import (
                 create_payment_failure_scenario,
             )
         except ImportError:
@@ -2117,7 +2117,7 @@ class VereningingenTestCase(FrappeTestCase):
             List of retry scenarios with timing and context
         """
         try:
-            from verenigingen.utils.testing.sepa_payment_failure_scenarios import (
+            from verenigingen.tests.support.sepa_payment_failure_scenarios import (
                 simulate_payment_failure_sequence,
             )
             return simulate_payment_failure_sequence(member_name, failure_types)
@@ -2147,7 +2147,7 @@ class VereningingenTestCase(FrappeTestCase):
             bool indicating if error handling matches expectations
         """
         try:
-            from verenigingen.utils.testing.sepa_payment_failure_scenarios import SEPA_ERROR_CODES
+            from verenigingen.tests.support.sepa_payment_failure_scenarios import SEPA_ERROR_CODES
 
             if error_code not in SEPA_ERROR_CODES:
                 return False
