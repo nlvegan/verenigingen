@@ -494,7 +494,11 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Validation Orchestrator - Comprehensive Code Validation')
-    parser.add_argument('--app-path', default='/home/frappe/frappe-bench/apps/verenigingen',
+    # Derive app path from script location:
+    # Script: apps/verenigingen/scripts/validation/archived/validation_orchestrator.py
+    # App root: apps/verenigingen/
+    _default_app_path = str(Path(__file__).resolve().parent.parent.parent.parent)
+    parser.add_argument('--app-path', default=_default_app_path,
                        help='Path to the Frappe app')
     parser.add_argument('--file', type=str,
                        help='Validate single file instead of directory')

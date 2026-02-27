@@ -1632,7 +1632,8 @@ def main():
     """Main function with modern validation"""
     import sys
     
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
+    # Derive app path from script location
+    app_path = str(Path(__file__).resolve().parent.parent.parent.parent)
     
     # Parse arguments
     verbose = '--verbose' in sys.argv

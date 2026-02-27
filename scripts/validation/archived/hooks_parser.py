@@ -41,12 +41,24 @@ class HooksParser:
         self.event_mappings: Dict[str, List[EventMapping]] = {}
         self.function_to_doctype: Dict[str, Set[str]] = {}
         
+        # Derive app module name from directory
+        app_name = self.app_path.name
+
         # Parse hooks file (in the main app module directory)
-        hooks_file = self.app_path / "verenigingen" / "hooks.py"
+        # Support both hooks.py (file) and hooks/ (package) structures
+        app_module = self.app_path / app_name
+        hooks_file = app_module / "hooks.py"
+        hooks_doc_events = app_module / "hooks" / "doc_events.py"
+        hooks_package_init = app_module / "hooks" / "__init__.py"
+
         if hooks_file.exists():
             self.parse_hooks_file(hooks_file)
+        elif hooks_doc_events.exists():
+            self.parse_hooks_file(hooks_doc_events)
+        elif hooks_package_init.exists():
+            self.parse_hooks_file(hooks_package_init)
         else:
-            logger.warning(f"hooks.py not found at {hooks_file}")
+            logger.warning(f"hooks not found: tried {hooks_file} and {hooks_package_init}")
     
     def parse_hooks_file(self, hooks_path: Path) -> None:
         """Parse hooks.py file to extract doc_events mappings"""
