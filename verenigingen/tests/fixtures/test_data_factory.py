@@ -270,6 +270,7 @@ class CoreTestDataFactory:
 
         defaults = {
             "chapter_name": chapter_name,
+            "status": "Active",
             "region": test_region.name,
             "postal_codes": f"{1000 + (seq % 9000):04d}-{1000 + (seq % 9000) + 99:04d}",
             "introduction": f"Test chapter created for automated testing - {self.test_run_id}",

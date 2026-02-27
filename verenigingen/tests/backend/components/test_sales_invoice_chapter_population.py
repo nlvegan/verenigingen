@@ -33,6 +33,64 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         super().setUp()
         TestSalesInvoiceChapterPopulation.test_counter += 1
         self.test_id = f"SINV{TestSalesInvoiceChapterPopulation.test_counter:03d}"
+        self.company = self._get_test_company()
+
+    def _get_or_create_customer(self, customer_name, member=None):
+        """Get existing Customer for member or create a new one."""
+        if member:
+            existing = frappe.db.get_value("Customer", {"member": member.name}, "name")
+            if existing:
+                return frappe.get_doc("Customer", existing)
+        customer = frappe.get_doc(
+            {
+                "doctype": "Customer",
+                "customer_name": customer_name,
+                "customer_type": "Individual",
+                "customer_group": "Individual",
+                "territory": "Netherlands",
+                **({"member": member.name} if member else {}),
+            }
+        )
+        customer.insert()
+        return customer
+
+    def _make_invoice(self, customer_name, **overrides):
+        """Build a Sales Invoice doc with all required ERPNext fields."""
+        company = self.company
+        currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
+        debit_to = frappe.db.get_value("Company", company, "default_receivable_account")
+        selling_price_list = (
+            frappe.db.get_value("Selling Settings", None, "selling_price_list") or "Standard Selling"
+        )
+        income_account = frappe.db.get_value(
+            "Account", {"account_type": "Income Account", "company": company, "is_group": 0}, "name"
+        )
+        cost_center = frappe.db.get_value("Company", company, "cost_center")
+
+        data = {
+            "doctype": "Sales Invoice",
+            "company": company,
+            "currency": currency,
+            "conversion_rate": 1.0,
+            "selling_price_list": selling_price_list,
+            "price_list_currency": currency,
+            "plc_conversion_rate": 1.0,
+            "debit_to": debit_to,
+            "customer": customer_name,
+            "posting_date": nowdate(),
+            "due_date": nowdate(),
+            "items": [
+                {
+                    "item_code": "_Test Item",
+                    "qty": 1,
+                    "rate": 100,
+                    "income_account": income_account,
+                    "cost_center": cost_center,
+                }
+            ],
+        }
+        data.update(overrides)
+        return frappe.get_doc(data)
 
     def test_get_member_primary_chapter_with_active_chapter(self):
         """Test get_member_primary_chapter returns active chapter"""
@@ -52,7 +110,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to chapter
         chapter.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 1,
@@ -100,7 +158,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to chapter with inactive status
         chapter.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 0,  # Disabled
@@ -137,7 +195,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to first chapter (older)
         chapter1.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 1,
@@ -149,7 +207,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to second chapter (newer)
         chapter2.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 1,
@@ -183,7 +241,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to chapter
         chapter.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 1,
@@ -193,35 +251,11 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         )
         chapter.save()
 
-        # Create customer for member
-        customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": f"Test Customer {self.test_id}",
-                "customer_type": "Individual",
-                "customer_group": "Individual",
-                "territory": "Netherlands",
-                "member": member.name,
-            }
-        )
-        customer.insert()
+        # Get or create customer for member
+        customer = self._get_or_create_customer(f"Test Customer {self.test_id}", member)
 
         # Create Sales Invoice
-        invoice = frappe.get_doc(
-            {
-                "doctype": "Sales Invoice",
-                "customer": customer.name,
-                "posting_date": nowdate(),
-                "due_date": nowdate(),
-                "items": [
-                    {
-                        "item_code": "_Test Item",
-                        "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
-        )
+        invoice = self._make_invoice(customer.name)
         invoice.insert()
 
         # Verify chapter was populated
@@ -248,7 +282,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to chapter1
         chapter1.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 1,
@@ -258,36 +292,11 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         )
         chapter1.save()
 
-        # Create customer
-        customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": f"Test Customer Override {self.test_id}",
-                "customer_type": "Individual",
-                "customer_group": "Individual",
-                "territory": "Netherlands",
-                "member": member.name,
-            }
-        )
-        customer.insert()
+        # Get or create customer for member
+        customer = self._get_or_create_customer(f"Test Customer Override {self.test_id}", member)
 
         # Create Sales Invoice with manually set chapter
-        invoice = frappe.get_doc(
-            {
-                "doctype": "Sales Invoice",
-                "customer": customer.name,
-                "posting_date": nowdate(),
-                "due_date": nowdate(),
-                "custom_member_chapter": chapter2.name,  # Manually set to different chapter
-                "items": [
-                    {
-                        "item_code": "_Test Item",
-                        "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
-        )
+        invoice = self._make_invoice(customer.name, custom_member_chapter=chapter2.name)
         invoice.insert()
 
         # Verify chapter was NOT overwritten
@@ -303,33 +312,10 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         print("\n🧪 Testing Sales Invoice for non-member has no chapter...")
 
         # Create customer without member
-        customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": f"Non-Member Customer {self.test_id}",
-                "customer_type": "Individual",
-                "customer_group": "Individual",
-                "territory": "Netherlands",
-            }
-        )
-        customer.insert()
+        customer = self._get_or_create_customer(f"Non-Member Customer {self.test_id}")
 
         # Create Sales Invoice
-        invoice = frappe.get_doc(
-            {
-                "doctype": "Sales Invoice",
-                "customer": customer.name,
-                "posting_date": nowdate(),
-                "due_date": nowdate(),
-                "items": [
-                    {
-                        "item_code": "_Test Item",
-                        "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
-        )
+        invoice = self._make_invoice(customer.name)
         invoice.insert()
 
         # Verify chapter is empty
@@ -357,7 +343,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to chapter
         chapter.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 1,
@@ -367,35 +353,11 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         )
         chapter.save()
 
-        # Create customer
-        customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": f"Test Customer Direct {self.test_id}",
-                "customer_type": "Individual",
-                "customer_group": "Individual",
-                "territory": "Netherlands",
-                "member": member.name,
-            }
-        )
-        customer.insert()
+        # Get or create customer for member
+        customer = self._get_or_create_customer(f"Test Customer Direct {self.test_id}", member)
 
-        # Create Sales Invoice without triggering hooks
-        invoice = frappe.get_doc(
-            {
-                "doctype": "Sales Invoice",
-                "customer": customer.name,
-                "posting_date": nowdate(),
-                "due_date": nowdate(),
-                "items": [
-                    {
-                        "item_code": "_Test Item",
-                        "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
-        )
+        # Create Sales Invoice doc without inserting (no hooks)
+        invoice = self._make_invoice(customer.name)
 
         # Call function directly
         populate_member_chapter(invoice)
@@ -424,7 +386,7 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
 
         # Add member to chapter
         chapter.append(
-            "chapter_members",
+            "members",
             {
                 "member": member.name,
                 "enabled": 1,
