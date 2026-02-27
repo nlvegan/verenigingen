@@ -166,10 +166,10 @@ doc_events = {
     },
     "Journal Entry": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry",
-        "on_submit": "verenigingen.utils.donor_auto_creation.process_payment_for_donor_creation",
+        "on_submit": "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",
     },
     "Bank Transaction": {
-        "on_submit": "verenigingen.utils.donor_auto_creation.process_payment_for_donor_creation",
+        "on_submit": "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",
     },
     # =========================================================================
     # FINANCIAL SYSTEM - EXPENSES
@@ -219,7 +219,7 @@ doc_events = {
     },
     "Donor": {
         # Note: on_update fires after after_save, so we only register once
-        "on_update": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
+        "on_update": "verenigingen.services.member.donor.donor_customer_sync.sync_donor_to_customer",
     },
     # =========================================================================
     # CUSTOMER INTEGRATION
@@ -228,7 +228,7 @@ doc_events = {
         "validate": "verenigingen.verenigingen_payments.mollie.utils.data_validator.validate_mollie_customer_data",
         # Note: on_update fires after after_save, so we only register once
         "on_update": [
-            "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
+            "verenigingen.services.member.donor.donor_customer_sync.sync_customer_to_donor",
             "verenigingen.utils.cache_invalidation.on_document_update",
         ],
     },

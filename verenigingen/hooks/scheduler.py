@@ -37,8 +37,8 @@ scheduler_events = {
         # Analytics and goals
         "verenigingen.verenigingen.doctype.membership_goal.membership_goal.update_all_goals",
         # Termination system maintenance
-        "verenigingen.utils.termination_utils.process_overdue_termination_requests",
-        "verenigingen.utils.termination_utils.audit_termination_compliance",
+        "verenigingen.services.termination.termination_utils.process_overdue_termination_requests",
+        "verenigingen.services.termination.termination_utils.audit_termination_compliance",
         # SEPA mandate management
         "verenigingen.verenigingen.doctype.member.mixins.sepa_mixin.check_sepa_mandate_discrepancies",
         "verenigingen.verenigingen_payments.api.sepa_mandate_management.periodic_sepa_mandate_child_table_sync",
@@ -95,7 +95,7 @@ scheduler_events = {
     # =========================================================================
     "weekly": [
         # Termination reports
-        "verenigingen.utils.termination_utils.generate_weekly_termination_report",
+        "verenigingen.services.termination.termination_utils.generate_weekly_termination_report",
         # Security health check
         "verenigingen.utils.security.audit_logging.weekly_security_health_check",
         # Address maintenance

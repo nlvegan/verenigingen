@@ -339,7 +339,7 @@
 ./verenigingen/tests/utils/coverage_reporter.py
 ./verenigingen/tests/utils/hybrid_report_tester.py
 ./verenigingen/utils/__init__.py
-./verenigingen/utils/account_creation_manager.py
+./verenigingen/services/member/account/account_creation_manager.py
 ./verenigingen/utils/account_group_project_framework.py
 ./verenigingen/utils/account_group_validation_hooks.py
 ./verenigingen/utils/address_formatter.py
@@ -357,7 +357,7 @@
 ./verenigingen/utils/api_endpoint_optimizer.py
 ./verenigingen/utils/api_response.py
 ./verenigingen/utils/auth_monitoring.py
-./verenigingen/utils/base_role_profile_manager.py
+./verenigingen/services/member/account/base_role_profile_manager.py
 ./verenigingen/utils/billing_frequency_transition_manager.py
 ./verenigingen/utils/brand_css_generator.py
 ./verenigingen/utils/bulk_performance_monitor.py
@@ -437,8 +437,8 @@
 ./verenigingen/utils/department_hierarchy.py
 ./verenigingen/utils/donation_emails.py
 ./verenigingen/utils/donation_history_manager.py
-./verenigingen/utils/donor_auto_creation.py
-./verenigingen/utils/donor_customer_sync.py
+./verenigingen/services/member/donor/donor_auto_creation.py
+./verenigingen/services/member/donor/donor_customer_sync.py
 ./verenigingen/utils/dues_invoice_tracking.py
 ./verenigingen/utils/dues_schedule_auto_creator.py
 ./verenigingen/utils/dutch_name_utils.py
@@ -517,7 +517,7 @@
 ./verenigingen/utils/session_cleanup_enhanced.py
 ./verenigingen/utils/smart_tegenrekening_mapper.py
 ./verenigingen/utils/team_role_profile_manager.py
-./verenigingen/utils/termination_utils.py
+./verenigingen/services/termination/termination_utils.py
 ./verenigingen/utils/test_board_assignments.py
 ./verenigingen/utils/test_payment_simulation.py
 ./verenigingen/utils/test_schema_simple.py
