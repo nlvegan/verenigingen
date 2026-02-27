@@ -70,7 +70,11 @@ class PostalCodeValidator(BaseValidator):
         pattern = pattern.strip().upper()
 
         # Check pattern type and validate accordingly
-        if self._is_range_pattern(pattern):
+        # Wildcard ranges (e.g., "1*-9*") must be checked before plain ranges
+        if self._is_wildcard_range_pattern(pattern):
+            wildcard_range_result = self._validate_wildcard_range_pattern(pattern)
+            result.merge(wildcard_range_result)
+        elif self._is_range_pattern(pattern):
             range_result = self._validate_range_pattern(pattern)
             result.merge(range_result)
         elif self._is_wildcard_pattern(pattern):
@@ -89,6 +93,13 @@ class PostalCodeValidator(BaseValidator):
             return []
 
         return [p.strip() for p in postal_codes.split(",") if p.strip()]
+
+    def _is_wildcard_range_pattern(self, pattern: str) -> bool:
+        """Check if pattern is a range of wildcards (e.g., 1*-9*)"""
+        if "-" not in pattern or pattern.count("-") != 1:
+            return False
+        parts = pattern.split("-")
+        return parts[0].strip().endswith("*") and parts[1].strip().endswith("*")
 
     def _is_range_pattern(self, pattern: str) -> bool:
         """Check if pattern is a range (e.g., 1000-1099)"""
@@ -128,6 +139,57 @@ class PostalCodeValidator(BaseValidator):
                     result.add_error(
                         ("Range start {0} cannot be greater than range end {1}").format(start, end)
                     )
+
+        return result
+
+    def _validate_wildcard_range_pattern(self, pattern: str) -> ValidationResult:
+        """Validate wildcard range pattern like 1*-9* (all postal codes from 1xxx to 9xxx)"""
+        result = self.create_result()
+
+        parts = pattern.split("-")
+        if len(parts) != 2:
+            result.add_error(("Invalid wildcard range pattern: {0}").format(pattern))
+            return result
+
+        start_wildcard = parts[0].strip()
+        end_wildcard = parts[1].strip()
+
+        # Validate each side as a wildcard pattern
+        start_result = self._validate_wildcard_pattern(start_wildcard)
+        end_result = self._validate_wildcard_pattern(end_wildcard)
+
+        if not start_result.is_valid:
+            result.add_error(("Invalid start of wildcard range: {0}").format(start_wildcard))
+            return result
+
+        if not end_result.is_valid:
+            result.add_error(("Invalid end of wildcard range: {0}").format(end_wildcard))
+            return result
+
+        # Bases must be the same length for a meaningful range
+        start_base = start_wildcard[:-1]
+        end_base = end_wildcard[:-1]
+
+        if len(start_base) != len(end_base):
+            result.add_error(
+                ("Wildcard range bases must be the same length: {0} vs {1}").format(
+                    start_wildcard, end_wildcard
+                )
+            )
+            return result
+
+        # For numeric bases, ensure start <= end
+        if start_base.isdigit() and end_base.isdigit():
+            if int(start_base) > int(end_base):
+                result.add_error(
+                    ("Wildcard range start {0} cannot be greater than end {1}").format(
+                        start_wildcard, end_wildcard
+                    )
+                )
+
+        # Propagate warnings from individual wildcard validation
+        result.warnings.extend(start_result.warnings)
+        result.warnings.extend(end_result.warnings)
 
         return result
 
@@ -203,7 +265,9 @@ class PostalCodeValidator(BaseValidator):
 
     def _matches_pattern(self, postal_code: str, pattern: str) -> bool:
         """Check if postal code matches a specific pattern"""
-        if self._is_range_pattern(pattern):
+        if self._is_wildcard_range_pattern(pattern):
+            return self._matches_wildcard_range(postal_code, pattern)
+        elif self._is_range_pattern(pattern):
             return self._matches_range(postal_code, pattern)
         elif self._is_wildcard_pattern(pattern):
             return self._matches_wildcard(postal_code, pattern)
@@ -231,6 +295,28 @@ class PostalCodeValidator(BaseValidator):
         base = wildcard_pattern[:-1]  # Remove the *
         return postal_code.startswith(base)
 
+    def _matches_wildcard_range(self, postal_code: str, wildcard_range_pattern: str) -> bool:
+        """Check if postal code matches a wildcard range pattern like 1*-9*"""
+        try:
+            start_wc, end_wc = wildcard_range_pattern.split("-")
+            start_base = start_wc.strip()[:-1]  # Remove *
+            end_base = end_wc.strip()[:-1]  # Remove *
+            base_len = len(start_base)
+
+            # Extract the prefix of the postal code at the same length as the bases
+            prefix = postal_code[:base_len]
+            if len(prefix) < base_len:
+                return False
+
+            # For numeric bases, compare numerically
+            if start_base.isdigit() and end_base.isdigit() and prefix.isdigit():
+                return int(start_base) <= int(prefix) <= int(end_base)
+
+            # For alphanumeric, use string comparison
+            return start_base <= prefix <= end_base
+        except (ValueError, AttributeError):
+            return False
+
     def get_pattern_summary(self, postal_codes: str) -> Dict:
         """Get summary of postal code patterns"""
         if not postal_codes:
@@ -247,7 +333,9 @@ class PostalCodeValidator(BaseValidator):
                 valid_patterns.append(pattern)
 
                 # Count pattern types
-                if self._is_range_pattern(pattern):
+                if self._is_wildcard_range_pattern(pattern):
+                    pattern_types["range"] += 1
+                elif self._is_range_pattern(pattern):
                     pattern_types["range"] += 1
                 elif self._is_wildcard_pattern(pattern):
                     pattern_types["wildcard"] += 1
@@ -270,7 +358,20 @@ class PostalCodeValidator(BaseValidator):
         coverage = {"exact": 0, "range": 0, "wildcard": 0}
 
         for pattern in patterns:
-            if self._is_range_pattern(pattern):
+            if self._is_wildcard_range_pattern(pattern):
+                try:
+                    start_wc, end_wc = pattern.split("-")
+                    start_base = start_wc.strip()[:-1]
+                    end_base = end_wc.strip()[:-1]
+                    if start_base.isdigit() and end_base.isdigit():
+                        base_count = int(end_base) - int(start_base) + 1
+                        codes_per_base = 10 ** (4 - len(start_base))
+                        coverage["range"] += base_count * codes_per_base
+                    else:
+                        coverage["range"] += 100  # Rough estimate
+                except Exception:
+                    coverage["range"] += 100
+            elif self._is_range_pattern(pattern):
                 try:
                     start, end = pattern.split("-")
                     if start.isdigit() and end.isdigit():
