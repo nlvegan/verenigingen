@@ -14,7 +14,7 @@ Key Features:
 - Consistent error handling and security logging
 
 Usage:
-    from verenigingen.utils.chapter_utils import (
+    from verenigingen.services.chapter.chapter_utils import (
         get_user_accessible_chapters,
         has_chapter_access_permission,
         get_user_board_positions

@@ -1756,7 +1756,7 @@ function apply_role_profiles_to_board_members(frm) {
 		() => {
 			frappe.call({
 				method:
-          'verenigingen.utils.chapter_role_profile_manager.bulk_assign_chapter_board_role_profiles',
+          'verenigingen.services.chapter.chapter_role_profile_manager.bulk_assign_chapter_board_role_profiles',
 				args: {
 					chapter_name: frm.doc.name
 				},

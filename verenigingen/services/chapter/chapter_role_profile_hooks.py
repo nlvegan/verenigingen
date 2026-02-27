@@ -21,7 +21,9 @@ def invalidate_chapter_profile_cache(doc, method):
         doc: Chapter document
         method: Hook method name
     """
-    from verenigingen.utils.user_role_profile_calculator import invalidate_profile_config_cache
+    from verenigingen.services.member.account.user_role_profile_calculator import (
+        invalidate_profile_config_cache,
+    )
 
     # Invalidate this chapter's profile config cache
     invalidate_profile_config_cache(entity_type="chapter", entity_name=doc.name)

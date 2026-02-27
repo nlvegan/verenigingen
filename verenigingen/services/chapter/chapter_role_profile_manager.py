@@ -20,7 +20,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 
-from verenigingen.utils.base_role_profile_manager import (
+from verenigingen.services.member.account.base_role_profile_manager import (
     BaseRoleProfileManager,
     EntityConfig,
     _is_system_operation_authorized,
@@ -191,7 +191,7 @@ def bulk_assign_chapter_board_role_profiles(chapter_name):
     Uses auto_sync_on_role_change() which derives the correct profile from
     ground truth (actual DB state) rather than trying to assign a specific profile.
     """
-    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+    from verenigingen.services.member.account.user_role_profile_calculator import auto_sync_on_role_change
 
     if not frappe.db.exists("Chapter", chapter_name):
         return {"success": False, "members_updated": 0, "message": f"Chapter '{chapter_name}' does not exist"}

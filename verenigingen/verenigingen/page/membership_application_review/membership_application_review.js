@@ -492,7 +492,7 @@ class MembershipApplicationReview {
 			// Check user's chapter management permissions
 			const permissions = await frappe.call({
 				method:
-          'verenigingen.utils.chapter_security.get_user_chapter_permissions'
+          'verenigingen.services.chapter.chapter_security.get_user_chapter_permissions'
 			});
 
 			this.user_permissions = permissions.message || {};

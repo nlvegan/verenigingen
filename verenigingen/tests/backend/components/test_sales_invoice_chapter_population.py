@@ -15,7 +15,7 @@ Key scenarios:
 import frappe
 from frappe.utils import today, nowdate
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.chapter_utils import get_member_primary_chapter
+from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 from verenigingen.services.billing.sales_invoice_hooks import populate_member_chapter
 
 

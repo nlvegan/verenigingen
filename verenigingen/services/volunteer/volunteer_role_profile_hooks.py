@@ -26,6 +26,8 @@ def on_volunteer_status_change(doc, method):
         if doc.member:
             member_doc = frappe.get_doc("Member", doc.member)
             if member_doc.user:
-                from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+                from verenigingen.services.member.account.user_role_profile_calculator import (
+                    auto_sync_on_role_change,
+                )
 
                 auto_sync_on_role_change(member_doc.user)

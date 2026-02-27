@@ -79,7 +79,9 @@ def activate_volunteer_record(member):
             # Upgrade user account from Website User to System User for volunteer access
             if member.user:
                 try:
-                    from verenigingen.utils.account_creation_manager import upgrade_member_to_volunteer_user
+                    from verenigingen.services.member.account.account_creation_manager import (
+                        upgrade_member_to_volunteer_user,
+                    )
 
                     upgrade_result = upgrade_member_to_volunteer_user(member.name)
                     _log_upgrade_result(upgrade_result, "volunteer")
@@ -95,7 +97,7 @@ def activate_volunteer_record(member):
             )
         else:
             # Create volunteer record if it doesn't exist (fallback)
-            from verenigingen.utils.application_helpers import create_volunteer_record
+            from verenigingen.services.member.approval.application_helpers import create_volunteer_record
 
             volunteer = create_volunteer_record(member)
             if volunteer:
@@ -108,7 +110,7 @@ def activate_volunteer_record(member):
                 # Upgrade user account from Website User to System User for volunteer access
                 if member.user:
                     try:
-                        from verenigingen.utils.account_creation_manager import (
+                        from verenigingen.services.member.account.account_creation_manager import (
                             upgrade_member_to_volunteer_user,
                         )
 
