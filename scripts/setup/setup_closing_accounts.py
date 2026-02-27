@@ -86,7 +86,7 @@ def create_period_closing_vouchers_with_account_setup():
     setup_result = setup_closing_accounts()
 
     # Then create Period Closing Vouchers
-    from verenigingen.utils.create_period_closing_vouchers import create_period_closing_vouchers
+    from scripts.migration.create_period_closing_vouchers import create_period_closing_vouchers
 
     pcv_result = create_period_closing_vouchers()
 

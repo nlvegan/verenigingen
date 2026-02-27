@@ -356,37 +356,8 @@ class SecurityFrameworkIntegrationTests(EnhancedTestCase):
 
 class SecurityAuditIntegrationTests(EnhancedTestCase):
     """Integration tests for security audit functionality"""
-    
-    def test_security_audit_script_integration(self):
-        """
-        Test that security audit script can run successfully
-        and identify security issues.
-        """
-        from verenigingen.utils.security_audit_script import run_comprehensive_audit
-        
-        # Run audit (should not crash)
-        try:
-            results = run_comprehensive_audit()
-            self.assertIn("summary", results)
-            self.assertIn("total_issues_found", results["summary"])
-            
-        except Exception as e:
-            self.fail(f"Security audit script failed: {e}")
-    
-    def test_migration_script_generation(self):
-        """
-        Test that migration scripts can be generated successfully
-        for identified security issues.
-        """
-        from verenigingen.utils.security_audit_script import generate_security_report
-        
-        try:
-            report = generate_security_report()
-            self.assertIn("Security Audit Report", report)
-            self.assertIn("frappe.get_roles()", report)
-            
-        except Exception as e:
-            self.fail(f"Migration script generation failed: {e}")
+
+    pass  # Audit script moved to scripts/security/ (outside Python package)
 
 
 if __name__ == "__main__":
