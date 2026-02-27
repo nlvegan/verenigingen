@@ -1299,11 +1299,57 @@ function updateMollieDisplay(data) {
                             </div>
                         ` : ''}
                         <div class="mt-4 pt-3 border-t border-gray-200">
-                            <button onclick="cancelMollieSubscription('${customerId}', '${subscriptionId}')"
-                                    class="inline-flex items-center px-4 py-2 text-sm font-medium text-danger-700 bg-danger-50 border border-danger-300 rounded-lg hover:bg-danger-100 transition-colors duration-200">
-                                <i class="fa fa-times-circle mr-2"></i>
-                                {{ _("Cancel Subscription") }}
-                            </button>
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="toggleBankAccountForm('${customerId}', '${subscriptionId}')"
+                                        id="update-bank-btn-${subscriptionId}"
+                                        class="inline-flex items-center px-4 py-2 text-sm font-medium text-primary-700 bg-primary-50 border border-primary-300 rounded-lg hover:bg-primary-100 transition-colors duration-200">
+                                    <i class="fa fa-university mr-2"></i>
+                                    {{ _("Update Bank Account") }}
+                                </button>
+                                <button onclick="cancelMollieSubscription('${customerId}', '${subscriptionId}')"
+                                        class="inline-flex items-center px-4 py-2 text-sm font-medium text-danger-700 bg-danger-50 border border-danger-300 rounded-lg hover:bg-danger-100 transition-colors duration-200">
+                                    <i class="fa fa-times-circle mr-2"></i>
+                                    {{ _("Cancel Subscription") }}
+                                </button>
+                            </div>
+                            <div id="bank-account-form-${subscriptionId}" class="hidden mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <p class="text-sm text-gray-600 mb-3">
+                                    {{ _("This will update the bank account used for your recurring payments.") }}
+                                </p>
+                                <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        {{ _("IBAN") }} <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text"
+                                           id="mollie-iban-${subscriptionId}"
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                           placeholder="{{ _('NL91 ABNA 0417 1643 00') }}"
+                                           maxlength="42"
+                                           oninput="formatIbanInput(this)">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        {{ _("Account holder name") }} <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text"
+                                           id="mollie-holder-${subscriptionId}"
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                           value="${escapeHtml('{{ member_doc.full_name if member_doc else "" }}')}"
+                                           maxlength="70">
+                                </div>
+                                <div class="flex gap-2">
+                                    <button onclick="submitBankAccountUpdate('${customerId}', '${subscriptionId}')"
+                                            id="submit-bank-btn-${subscriptionId}"
+                                            class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors duration-200">
+                                        <i class="fa fa-check mr-2"></i>
+                                        {{ _("Confirm") }}
+                                    </button>
+                                    <button onclick="toggleBankAccountForm('${customerId}', '${subscriptionId}')"
+                                            class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200">
+                                        {{ _("Cancel") }}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1530,6 +1576,89 @@ function cancelMollieSubscription(customerId, subscriptionId) {
         },
         error: function(r) {
             showMessage(__("An error occurred while cancelling the subscription. Please try again or contact support."), 'error');
+        }
+    });
+}
+
+// Toggle bank account update form
+function toggleBankAccountForm(customerId, subscriptionId) {
+    const form = document.getElementById('bank-account-form-' + subscriptionId);
+    if (form) {
+        form.classList.toggle('hidden');
+        // Focus IBAN input when opening
+        if (!form.classList.contains('hidden')) {
+            const ibanInput = document.getElementById('mollie-iban-' + subscriptionId);
+            if (ibanInput) ibanInput.focus();
+        }
+    }
+}
+
+// Format IBAN input with spaces every 4 characters
+function formatIbanInput(input) {
+    let value = input.value.replace(/\s/g, '').toUpperCase();
+    let formatted = '';
+    for (let i = 0; i < value.length; i++) {
+        if (i > 0 && i % 4 === 0) formatted += ' ';
+        formatted += value[i];
+    }
+    input.value = formatted;
+}
+
+// Submit bank account update to Mollie
+function submitBankAccountUpdate(customerId, subscriptionId) {
+    const ibanInput = document.getElementById('mollie-iban-' + subscriptionId);
+    const holderInput = document.getElementById('mollie-holder-' + subscriptionId);
+    const submitBtn = document.getElementById('submit-bank-btn-' + subscriptionId);
+
+    const iban = ibanInput ? ibanInput.value.replace(/\s/g, '') : '';
+    const holder = holderInput ? holderInput.value.trim() : '';
+
+    // Client-side validation
+    if (!iban || iban.length < 15 || !/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(iban)) {
+        showMessage(__("Please enter a valid IBAN"), 'error');
+        if (ibanInput) ibanInput.focus();
+        return;
+    }
+    if (!holder) {
+        showMessage(__("Please enter the account holder name"), 'error');
+        if (holderInput) holderInput.focus();
+        return;
+    }
+
+    // Disable button during request
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>' + __("Updating...");
+    }
+
+    frappe.call({
+        method: 'verenigingen.api.mollie_payment.update_mollie_bank_account',
+        args: {
+            iban: iban,
+            account_holder_name: holder
+        },
+        callback: function(r) {
+            if (r.message && r.message.status === 'success') {
+                showMessage(r.message.message || __("Bank account updated successfully"), 'success');
+                // Hide form and reload Mollie status
+                toggleBankAccountForm(customerId, subscriptionId);
+                loadMollieStatus();
+            } else {
+                const errorMsg = r.message && r.message.message ? r.message.message : __("Failed to update bank account");
+                showMessage(errorMsg, 'error');
+            }
+            // Re-enable button
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa fa-check mr-2"></i>' + __("Confirm");
+            }
+        },
+        error: function() {
+            showMessage(__("An error occurred. Please try again or contact support."), 'error');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa fa-check mr-2"></i>' + __("Confirm");
+            }
         }
     });
 }
