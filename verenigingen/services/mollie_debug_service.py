@@ -441,6 +441,80 @@ class MollieDebugService(StatelessService):
             )
             raise api_error
 
+    def update_subscription_mandate(
+        self, customer_id, subscription_id, new_mandate_id, reason="Bank account update"
+    ):
+        """
+        Update the mandate (bank account) for a subscription via Mollie PATCH API.
+
+        Args:
+            customer_id: Mollie customer ID (cst_xxx)
+            subscription_id: Mollie subscription ID (sub_xxx)
+            new_mandate_id: Mollie mandate ID to switch to (mdt_xxx)
+            reason: Reason for the update (for audit trail)
+
+        Returns:
+            Dict with success/error status (via create_success_response)
+        """
+        if not customer_id or not subscription_id:
+            raise ValueError(_("Customer ID and Subscription ID are required"))
+
+        if not new_mandate_id:
+            raise ValueError(_("New Mandate ID is required"))
+
+        try:
+            client = self.mollie_client.sdk_client
+            customer_obj = client.customers.get(customer_id)
+
+            # Verify subscription exists and capture old mandate ID
+            current_subscription = customer_obj.subscriptions.get(subscription_id)
+            old_mandate_id = getattr(current_subscription, "mandateId", None)
+
+            # PATCH the subscription with the new mandate
+            customer_obj.subscriptions.update(subscription_id, {"mandateId": new_mandate_id})
+
+            self.audit_trail.log_event(
+                AuditEventType.CONFIGURATION_CHANGED,
+                AuditSeverity.INFO,
+                f"Updated mandate for subscription {subscription_id}",
+                details={
+                    "action": "subscription_mandate_update",
+                    "subscription_id": subscription_id,
+                    "customer_id": customer_id,
+                    "old_mandate_id": old_mandate_id,
+                    "new_mandate_id": new_mandate_id,
+                    "reason": reason,
+                    "updated_by": frappe.session.user,
+                },
+                entity_type="Mollie Subscription",
+                entity_id=subscription_id,
+            )
+
+            self.logger.info(
+                f"MANDATE UPDATE: User {frappe.session.user} updated mandate for subscription "
+                f"{subscription_id} (customer {customer_id}). Old: {old_mandate_id}, New: {new_mandate_id}"
+            )
+
+            return create_success_response(
+                "Subscription mandate updated successfully",
+                {
+                    "subscription_id": subscription_id,
+                    "customer_id": customer_id,
+                    "old_mandate_id": old_mandate_id,
+                    "new_mandate_id": new_mandate_id,
+                    "updated_by": frappe.session.user,
+                    "timestamp": frappe.utils.now(),
+                },
+            )
+
+        except Exception as api_error:
+            error_message = str(api_error)
+            self.logger.error(
+                f"MANDATE UPDATE FAILED: User {frappe.session.user} failed to update mandate for "
+                f"subscription {subscription_id} (customer {customer_id}): {error_message}"
+            )
+            raise api_error
+
     def admin_revoke_mandate(self, customer_id, mandate_id, reason="Administrative revocation"):
         """
         Admin function to revoke a mandate and cancel all associated subscriptions.
