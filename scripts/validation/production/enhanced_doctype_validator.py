@@ -149,27 +149,45 @@ class HooksParser:
         self._parse_hooks()
 
     def _parse_hooks(self):
-        """Parse hooks.py to extract doc_events mappings"""
-        hooks_file = self.app_path / "hooks.py"
-        if not hooks_file.exists():
+        """Parse hooks to extract doc_events mappings.
+
+        Supports both hooks.py (single file) and hooks/ package structures.
+        For packages, reads doc_events from hooks/doc_events.py first,
+        falling back to hooks/__init__.py.
+        """
+        app_name = self.app_path.name
+        app_module = self.app_path / app_name
+
+        # Try locations in priority order
+        candidates = [
+            self.app_path / "hooks.py",               # Legacy: hooks.py at app root
+            app_module / "hooks.py",                   # Standard: <app>/<app>/hooks.py
+            app_module / "hooks" / "doc_events.py",    # Package: doc_events submodule
+            app_module / "hooks" / "__init__.py",       # Package: __init__.py fallback
+        ]
+
+        hooks_file = None
+        for candidate in candidates:
+            if candidate.exists():
+                hooks_file = candidate
+                break
+
+        if not hooks_file:
             return
 
         try:
             with open(hooks_file, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Parse the hooks.py file as AST
             tree = ast.parse(content)
 
-            # Find doc_events assignment
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name) and target.id == 'doc_events':
                             self._extract_doc_events(node.value)
 
-        except Exception as e:
-            # Silently ignore parsing errors
+        except Exception:
             pass
 
     def _extract_doc_events(self, node: ast.AST):

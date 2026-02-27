@@ -216,11 +216,18 @@ class LambdaParameterTracker(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+def _get_app_path() -> str:
+    """Derive app path from script location instead of hardcoding."""
+    # Script is at: apps/verenigingen/scripts/validation/framework/ast_field_analyzer.py
+    # App root is: apps/verenigingen/
+    return str(Path(__file__).resolve().parent.parent.parent.parent)
+
+
 def main():
     """Test the enhanced analyzer"""
     import sys
 
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
+    app_path = _get_app_path()
 
     # Parse arguments
     verbose = '--verbose' in sys.argv
@@ -248,14 +255,8 @@ def main():
             except Exception as e:
                 print(f"Warning: Could not process {file_path}: {e}")
     else:
-        # Test on the problematic hook file
-        hook_file = Path("/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_schedule_hooks.py")
-        if hook_file.exists():
-            print(f"🔍 Testing on hook file: {hook_file.name}")
-            violations = analyzer.validate_file(hook_file)
-        else:
-            print("❌ Hook file not found")
-            return 1
+        print("No files specified. Pass .py files as arguments.")
+        return 0
 
     # Filter to medium+ confidence
     medium_plus = [v for v in violations if v.confidence in [ConfidenceLevel.MEDIUM, ConfidenceLevel.HIGH, ConfidenceLevel.CRITICAL]]
@@ -263,11 +264,12 @@ def main():
     print()
     if medium_plus:
         print(f"Found {len(medium_plus)} medium+ confidence issues:")
+        app_prefix = app_path + "/"
         for issue in medium_plus:
-            # Extract relative path from the file field for cleaner output
+            # Extract relative path for cleaner output
             file_path = issue.file
-            if file_path.startswith('/home/frappe/frappe-bench/apps/verenigingen/'):
-                file_path = file_path.replace('/home/frappe/frappe-bench/apps/verenigingen/', '')
+            if file_path.startswith(app_prefix):
+                file_path = file_path[len(app_prefix):]
             print(f"  {file_path}:{issue.line}: {issue.field} ({issue.confidence.value}) - {issue.message}")
     else:
         print("✅ No medium+ confidence issues found!")

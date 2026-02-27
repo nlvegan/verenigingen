@@ -42,11 +42,15 @@ class HooksParser:
         self.event_mappings: Dict[str, List[EventMapping]] = {}
         self.function_to_doctype: Dict[str, Set[str]] = {}
 
+        # Derive app module name from directory (e.g., "verenigingen" from the app root)
+        app_name = self.app_path.name
+
         # Parse hooks file (in the main app module directory)
         # Support both hooks.py (file) and hooks/ (package) structures
-        hooks_file = self.app_path / "verenigingen" / "hooks.py"
-        hooks_package_init = self.app_path / "verenigingen" / "hooks" / "__init__.py"
-        hooks_doc_events = self.app_path / "verenigingen" / "hooks" / "doc_events.py"
+        app_module = self.app_path / app_name
+        hooks_file = app_module / "hooks.py"
+        hooks_package_init = app_module / "hooks" / "__init__.py"
+        hooks_doc_events = app_module / "hooks" / "doc_events.py"
 
         if hooks_file.exists():
             self.parse_hooks_file(hooks_file)
@@ -54,12 +58,14 @@ class HooksParser:
             # New package structure - parse doc_events.py directly
             self.parse_hooks_file(hooks_doc_events)
             if self.verbose:
-                print("📦 Using hooks/ package structure")
+                print("📦 Using hooks/ package structure (doc_events.py)")
         elif hooks_package_init.exists():
-            # Try __init__.py as fallback
+            # Hooks package without separate doc_events.py
             self.parse_hooks_file(hooks_package_init)
+            if self.verbose:
+                print("📦 Using hooks/ package structure (__init__.py)")
         else:
-            logger.warning(f"hooks.py not found at {hooks_file}")
+            logger.warning(f"hooks not found: tried {hooks_file} and {hooks_package_init}")
     
     def parse_hooks_file(self, hooks_path: Path) -> None:
         """Parse hooks.py file to extract doc_events mappings"""
@@ -84,7 +90,7 @@ class HooksParser:
             self._build_function_mapping()
             
             if self.verbose:
-                print(f"📋 Parsed {len(self.event_mappings)} DocType event mappings from hooks.py")
+                print(f"📋 Parsed {len(self.event_mappings)} DocType event mappings from {hooks_path.name}")
                 print(f"🔗 Built {len(self.function_to_doctype)} function mappings")
                 
         except Exception as e:

@@ -1693,11 +1693,16 @@ class ASTFieldAnalyzer:
         return '\n'.join(report)
 
 
+def _get_app_path() -> str:
+    """Derive app path from script location."""
+    return str(Path(__file__).resolve().parent.parent.parent.parent)
+
+
 def main():
     """Main function with modern validation"""
     import sys
 
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
+    app_path = _get_app_path()
 
     # Parse arguments
     verbose = '--verbose' in sys.argv
