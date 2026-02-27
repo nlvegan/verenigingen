@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING, Optional
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.services.billing.billing_period_calculator import calculate_next_invoice_date
 from verenigingen.services.infrastructure.base_service import StatelessService
-from verenigingen.utils.billing_period_calculator import calculate_next_invoice_date
 
 if TYPE_CHECKING:
     from frappe.model.document import Document

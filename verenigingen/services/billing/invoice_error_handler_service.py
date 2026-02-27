@@ -49,16 +49,15 @@ from typing import TYPE_CHECKING, Any, Dict, Literal, TypedDict
 import frappe
 from frappe.utils import today
 
-from verenigingen.services.infrastructure.base_service import StatelessService
-
 # Import shared billing constants (eliminates duplication with controller)
-from verenigingen.utils.billing_constants import (
+from verenigingen.services.billing.billing_constants import (
     DEADLOCK_PATTERNS,
     ERROR_DEDUP_PATTERN,
     MAX_DB_ERROR_LENGTH,
     MAX_LOG_ERROR_LENGTH,
     RecoveryAction,
 )
+from verenigingen.services.infrastructure.base_service import StatelessService
 
 if TYPE_CHECKING:
     from frappe.model.document import Document

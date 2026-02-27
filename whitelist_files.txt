@@ -372,7 +372,6 @@
 ./verenigingen/utils/cleanup_direct_sql.py
 ./verenigingen/utils/cleanup_function_summary.py
 ./verenigingen/utils/complete_payment_test.py
-./verenigingen/utils/contribution_amendment_utilities.py
 ./verenigingen/utils/database_query_analyzer.py
 ./verenigingen/utils/debug/analyze_payment_api.py
 ./verenigingen/utils/debug/analyze_payment_ledgers.py
@@ -439,8 +438,7 @@
 ./verenigingen/utils/donation_history_manager.py
 ./verenigingen/services/member/donor/donor_auto_creation.py
 ./verenigingen/services/member/donor/donor_customer_sync.py
-./verenigingen/utils/dues_invoice_tracking.py
-./verenigingen/utils/dues_schedule_auto_creator.py
+./verenigingen/services/billing/dues_schedule_auto_creator.py
 ./verenigingen/utils/dutch_name_utils.py
 ./verenigingen/utils/email_queue_cleanup.py
 ./verenigingen/utils/employee_user_link.py
@@ -457,7 +455,7 @@
 ./verenigingen/utils/fraud_detection.py
 ./verenigingen/utils/inspect_journal_entry.py
 ./verenigingen/utils/interactive_subscription_test.py
-./verenigingen/utils/invoice_management.py
+./verenigingen/services/billing/invoice_management.py
 ./verenigingen/utils/jinja_methods.py
 ./verenigingen/utils/logger_config.py
 ./verenigingen/utils/manual_camt_import.py

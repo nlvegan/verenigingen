@@ -60,7 +60,7 @@ def get_context(context):
         {
             "title": "Cleanup Orphaned Schedules (Dry Run)",
             "description": "Preview orphaned dues schedules that would be cleaned up",
-            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
+            "method": "verenigingen.services.billing.invoice_management.cleanup_orphaned_schedules",
             "icon": "fa fa-search",
             "color": "brand-accent",
             "args": {"dry_run": True, "max_cleanup": 10},
@@ -69,7 +69,7 @@ def get_context(context):
         {
             "title": "Cleanup Orphaned Schedules (Live)",
             "description": "Remove orphaned dues schedules that reference deleted members",
-            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
+            "method": "verenigingen.services.billing.invoice_management.cleanup_orphaned_schedules",
             "icon": "fa fa-trash",
             "color": "brand-primary",
             "warning": "This will permanently delete orphaned dues schedules!",
@@ -79,7 +79,7 @@ def get_context(context):
         {
             "title": "Enhanced Membership Cleanup (Dry Run)",
             "description": "Preview comprehensive cleanup of orphaned schedules, invalid memberships, and orphaned amendments",
-            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
+            "method": "verenigingen.services.billing.invoice_management.cleanup_orphaned_membership_data",
             "icon": "fa fa-search-plus",
             "color": "brand-accent",
             "args": {"dry_run": True, "max_cleanup": 20},
@@ -88,7 +88,7 @@ def get_context(context):
         {
             "title": "Enhanced Membership Cleanup (Live)",
             "description": "Comprehensive cleanup including orphaned schedules, invalid membership types (like 'Standard Monthly'), and orphaned amendments",
-            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
+            "method": "verenigingen.services.billing.invoice_management.cleanup_orphaned_membership_data",
             "icon": "fa fa-magic",
             "color": "brand-secondary",
             "warning": "This will permanently delete orphaned membership data including invalid membership types!",
@@ -98,14 +98,14 @@ def get_context(context):
         {
             "title": "Sync All Member Fields",
             "description": "Synchronize all member fields (current_membership_plan, current_dues_schedule, dues_rate) with their related records",
-            "method": "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
+            "method": "verenigingen.services.billing.dues_schedule_health_manager.sync_all_member_fields",
             "icon": "fa fa-refresh",
             "color": "brand-accent",
         },
         {
             "title": "Reconstruct Member Data",
             "description": "Reconstruct missing membership and dues schedule data for a specific member",
-            "method": "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
+            "method": "verenigingen.services.billing.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
             "icon": "fa fa-magic",
             "color": "brand-primary",
             "args": {"member_filter": "", "fix_issues": True},
@@ -545,15 +545,15 @@ def get_context(context):
         },
         {
             "description": "Cleanup orphaned schedules (dry run)",
-            "command": f"bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{{\"dry_run\": True}}'",
+            "command": f"bench --site {site_name} execute verenigingen.services.billing.invoice_management.cleanup_orphaned_schedules --kwargs='{{\"dry_run\": True}}'",
         },
         {
             "description": "Enhanced membership cleanup (dry run)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": True, "max_cleanup": 20}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.services.billing.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": True, "max_cleanup": 20}}\'',
         },
         {
             "description": "Enhanced membership cleanup (live)",
-            "command": f'bench --site {site_name} execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": False, "max_cleanup": 20}}\'',
+            "command": f'bench --site {site_name} execute verenigingen.services.billing.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{{"dry_run": False, "max_cleanup": 20}}\'',
         },
         {
             "description": "Preview member cleanup (safe)",
@@ -611,10 +611,10 @@ def get_context(context):
 # Define allowed methods - CRITICAL for security
 ALLOWED_ADMIN_METHODS = {
     # Invoice management
-    "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
-    "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
+    "verenigingen.services.billing.invoice_management.cleanup_orphaned_schedules",
+    "verenigingen.services.billing.invoice_management.cleanup_orphaned_membership_data",
     # Dues schedule health management
-    "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
+    "verenigingen.services.billing.dues_schedule_health_manager.sync_all_member_fields",
     # Data integrity management
     "verenigingen.utils.orphaned_child_table_cleanup.verify_child_table_indexes",
     "verenigingen.utils.orphaned_child_table_cleanup.create_missing_parent_indexes",

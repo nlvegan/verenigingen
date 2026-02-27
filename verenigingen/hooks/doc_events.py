@@ -139,12 +139,12 @@ doc_events = {
     "Sales Invoice": {
         "before_validate": [
             "verenigingen.utils.apply_tax_exemption_from_source",
-            "verenigingen.utils.sales_invoice_hooks.set_member_from_customer",
-            "verenigingen.utils.sales_invoice_hooks.populate_member_chapter",
+            "verenigingen.services.billing.sales_invoice_hooks.set_member_from_customer",
+            "verenigingen.services.billing.sales_invoice_hooks.populate_member_chapter",
         ],
         "validate": [
             "verenigingen.overrides.sales_invoice.custom_validate",
-            "verenigingen.utils.sales_invoice_account_handler.set_membership_receivable_account",
+            "verenigingen.services.billing.sales_invoice_account_handler.set_membership_receivable_account",
         ],
         "after_validate": ["verenigingen.overrides.sales_invoice.after_validate"],
         "on_submit": [
@@ -161,7 +161,7 @@ doc_events = {
             "verenigingen.utils.cache_invalidation.on_document_cancel",
         ],
         "on_trash": [
-            "verenigingen.utils.sales_invoice_hooks.on_trash",
+            "verenigingen.services.billing.sales_invoice_hooks.on_trash",
         ],
     },
     "Journal Entry": {

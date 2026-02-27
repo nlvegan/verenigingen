@@ -62,7 +62,9 @@ class TestVerenigingenSettings(EnhancedTestCase):
         # Skipping for now - needs investigation of Account creation dependencies
         self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
 
-        from verenigingen.utils.sales_invoice_account_handler import set_membership_receivable_account
+        from verenigingen.services.billing.sales_invoice_account_handler import (
+            set_membership_receivable_account,
+        )
 
         # Create test accounts
         company_default_account = self.create_test_account(
@@ -123,7 +125,9 @@ class TestVerenigingenSettings(EnhancedTestCase):
         # Skipping for now - needs investigation of Account creation dependencies
         self.skipTest("Complex ERPNext Account setup with parent account dependencies - needs investigation")
 
-        from verenigingen.utils.sales_invoice_account_handler import set_membership_receivable_account
+        from verenigingen.services.billing.sales_invoice_account_handler import (
+            set_membership_receivable_account,
+        )
 
         # Create test accounts
         company_default_account = self.create_test_account(
@@ -177,7 +181,9 @@ class TestVerenigingenSettings(EnhancedTestCase):
 
     def test_account_handler_error_handling(self):
         """Test that the account handler handles errors gracefully"""
-        from verenigingen.utils.sales_invoice_account_handler import set_membership_receivable_account
+        from verenigingen.services.billing.sales_invoice_account_handler import (
+            set_membership_receivable_account,
+        )
 
         # Test with invoice that has no debit_to
         invoice = frappe.new_doc("Sales Invoice")

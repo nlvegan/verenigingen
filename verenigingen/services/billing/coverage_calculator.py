@@ -302,7 +302,7 @@ class CoverageCalculator(StatelessService):
         Returns:
             tuple: (period_start, period_end) as date objects
         """
-        from verenigingen.utils.billing_period_calculator import calculate_billing_period
+        from verenigingen.services.billing.billing_period_calculator import calculate_billing_period
 
         return calculate_billing_period(
             billing_frequency, invoice_date, custom_frequency_number, custom_frequency_unit
@@ -428,7 +428,7 @@ class CoverageCalculator(StatelessService):
         Raises:
             ValueError: If unable to derive valid coverage dates
         """
-        from verenigingen.utils.billing_period_calculator import derive_coverage_from_invoice_data
+        from verenigingen.services.billing.billing_period_calculator import derive_coverage_from_invoice_data
 
         return derive_coverage_from_invoice_data(
             posting_date, last_invoice_date, next_invoice_date, billing_frequency
@@ -604,7 +604,7 @@ def calculate_coverage_for_payment_date(
         )
 
     # Use the billing_period_calculator to get period dates
-    from verenigingen.utils.billing_period_calculator import calculate_billing_period
+    from verenigingen.services.billing.billing_period_calculator import calculate_billing_period
 
     coverage_start, coverage_end = calculate_billing_period(
         billing_frequency, payment_date, custom_number, custom_unit

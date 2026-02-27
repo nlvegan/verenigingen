@@ -30,8 +30,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.services.billing.billing_constants import MAX_LOG_ERROR_LENGTH
 from verenigingen.services.infrastructure.base_service import StatefulService
-from verenigingen.utils.billing_constants import MAX_LOG_ERROR_LENGTH
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 if TYPE_CHECKING:

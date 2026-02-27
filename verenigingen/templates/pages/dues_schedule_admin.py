@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 
-from verenigingen.utils.dues_schedule_auto_creator import (
+from verenigingen.services.billing.dues_schedule_auto_creator import (
     preview_missing_dues_schedules,
     run_auto_creation_manually,
 )

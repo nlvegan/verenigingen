@@ -20,8 +20,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import getdate
 
+from verenigingen.services.billing.billing_period_calculator import derive_coverage_from_invoice_data
 from verenigingen.services.infrastructure.base_service import StatelessService
-from verenigingen.utils.billing_period_calculator import derive_coverage_from_invoice_data
 
 # Business rule constants
 GAP_RESET_THRESHOLD_DAYS = 30  # Billing gap threshold - prevents processing old invoices

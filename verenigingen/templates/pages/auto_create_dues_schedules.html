@@ -99,7 +99,7 @@ frappe.ready(function() {
         $('#results-section').hide();
 
         frappe.call({
-            method: 'verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules',
+            method: 'verenigingen.services.billing.dues_schedule_auto_creator.auto_create_missing_dues_schedules',
             args: {
                 preview_mode: previewMode,
                 send_emails: sendEmails
@@ -129,7 +129,7 @@ frappe.ready(function() {
         $('#members-list-section').hide();
 
         frappe.call({
-            method: 'verenigingen.utils.dues_schedule_auto_creator.get_members_without_dues_schedules',
+            method: 'verenigingen.services.billing.dues_schedule_auto_creator.get_members_without_dues_schedules',
             callback: function(r) {
                 $btn.prop('disabled', false).html('<i class="fa fa-search"></i> {{ _("Check Members Without Schedules") }}');
 
@@ -164,7 +164,7 @@ frappe.ready(function() {
         $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Creating...');
 
         frappe.call({
-            method: 'verenigingen.utils.dues_schedule_auto_creator.create_dues_schedules_for_members',
+            method: 'verenigingen.services.billing.dues_schedule_auto_creator.create_dues_schedules_for_members',
             args: {
                 members: selectedMembers,
                 send_emails: $('#send-emails').is(':checked')

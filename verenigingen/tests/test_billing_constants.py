@@ -15,7 +15,7 @@ Tests verify:
 import re
 import unittest
 
-from verenigingen.utils.billing_constants import (
+from verenigingen.services.billing.billing_constants import (
     DEADLOCK_PATTERNS,
     ERROR_DEDUP_PATTERN,
     MAX_DB_ERROR_LENGTH,

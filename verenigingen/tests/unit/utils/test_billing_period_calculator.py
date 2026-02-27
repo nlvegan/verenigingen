@@ -9,7 +9,7 @@ Tests pure calculation logic extracted from MembershipDuesSchedule.
 import unittest
 from datetime import date
 
-from verenigingen.utils.billing_period_calculator import (
+from verenigingen.services.billing.billing_period_calculator import (
     calculate_billing_period,
     calculate_next_invoice_date,
 )

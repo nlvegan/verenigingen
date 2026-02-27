@@ -26,11 +26,11 @@ from typing import Any, NoReturn, Tuple
 
 import frappe
 
+from verenigingen.services.billing.billing_constants import MAX_USER_ERROR_LENGTH
 from verenigingen.services.billing.invoice_error_handler_service import (
     get_invoice_error_handler_service,
 )
 from verenigingen.services.infrastructure.base_service import StatelessService
-from verenigingen.utils.billing_constants import MAX_USER_ERROR_LENGTH
 from verenigingen.utils.operation_result import OperationResult
 
 

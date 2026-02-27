@@ -331,7 +331,7 @@ def setup_verenigingen_security_policies():
 
             # Check multiple API modules for comprehensive coverage
             api_modules = [
-                "verenigingen.utils.invoice_management",
+                "verenigingen.services.billing.invoice_management",
                 "verenigingen.api.member_management",
                 "verenigingen.api.payment_processing",
                 "verenigingen.utils.sepa_operations",

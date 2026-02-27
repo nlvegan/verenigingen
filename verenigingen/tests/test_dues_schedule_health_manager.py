@@ -11,7 +11,7 @@ from unittest.mock import patch, MagicMock
 from frappe.utils import today, add_months, add_days
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.dues_schedule_health_manager import (
+from verenigingen.services.billing.dues_schedule_health_manager import (
     DuesScheduleHealthManager,
     comprehensive_dues_schedule_health_check,
     sync_all_member_fields

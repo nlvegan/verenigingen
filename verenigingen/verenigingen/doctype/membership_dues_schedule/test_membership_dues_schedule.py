@@ -181,7 +181,7 @@ class TestErrorConstants(unittest.TestCase):
 
     def test_constant_values(self):
         """Test that constants have sensible values"""
-        from verenigingen.utils.billing_constants import (
+        from verenigingen.services.billing.billing_constants import (
             MAX_DB_ERROR_LENGTH,
             MAX_LOG_ERROR_LENGTH,
             MAX_USER_ERROR_LENGTH,
@@ -193,7 +193,7 @@ class TestErrorConstants(unittest.TestCase):
 
     def test_deadlock_patterns_defined(self):
         """Test that deadlock patterns are properly defined"""
-        from verenigingen.utils.billing_constants import DEADLOCK_PATTERNS
+        from verenigingen.services.billing.billing_constants import DEADLOCK_PATTERNS
 
         self.assertIsInstance(DEADLOCK_PATTERNS, list)
         self.assertGreaterEqual(len(DEADLOCK_PATTERNS), 4)

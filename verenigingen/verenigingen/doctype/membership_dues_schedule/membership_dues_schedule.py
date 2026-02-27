@@ -6,7 +6,10 @@ from frappe.model.document import Document
 from frappe.utils import getdate, today
 
 from verenigingen.services.billing import DuplicateInvoiceDetector
-from verenigingen.utils.billing_period_calculator import calculate_billing_period, calculate_next_invoice_date
+from verenigingen.services.billing.billing_period_calculator import (
+    calculate_billing_period,
+    calculate_next_invoice_date,
+)
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -683,7 +686,9 @@ class MembershipDuesSchedule(Document):
             error_lower = error_message.lower()
             if "membership_type" in error_lower or "missing membership" in error_lower:
                 try:
-                    from verenigingen.utils.dues_schedule_health_manager import DuesScheduleHealthManager
+                    from verenigingen.services.billing.dues_schedule_health_manager import (
+                        DuesScheduleHealthManager,
+                    )
 
                     manager = DuesScheduleHealthManager()
                     manager.reconstruct_missing_membership(self.member)
@@ -1312,7 +1317,7 @@ def test_billing_day_field():
 
     Test billing_day field implementation.
     """
-    from verenigingen.utils.billing_debug_utilities import (
+    from verenigingen.services.billing.billing_debug_utilities import (
         test_billing_day_field as _test_billing_day_field,
     )
 
@@ -1327,7 +1332,7 @@ def create_test_schedule(member_name: str, membership_name: str = None):
 
     Create a test dues schedule for development.
     """
-    from verenigingen.utils.billing_debug_utilities import (
+    from verenigingen.services.billing.billing_debug_utilities import (
         create_test_schedule as _create_test_schedule,
     )
 
@@ -1342,7 +1347,7 @@ def debug_template_daglid_issue():
 
     Debug Template-Daglid billing frequency override issue.
     """
-    from verenigingen.utils.billing_debug_utilities import (
+    from verenigingen.services.billing.billing_debug_utilities import (
         debug_template_daglid_issue as _debug_template_daglid_issue,
     )
 
@@ -1357,7 +1362,7 @@ def test_template_daglid_fix():
 
     Test that Template-Daglid billing frequency is preserved during template recreation.
     """
-    from verenigingen.utils.billing_debug_utilities import (
+    from verenigingen.services.billing.billing_debug_utilities import (
         test_template_daglid_fix as _test_template_daglid_fix,
     )
 
@@ -1399,7 +1404,7 @@ def validate_and_fix_schedule_dates():
     Validate and fix all dues schedule dates to prevent issues.
     Returns a report of issues found and fixed.
     """
-    from verenigingen.utils.billing_debug_utilities import (
+    from verenigingen.services.billing.billing_debug_utilities import (
         validate_and_fix_schedule_dates as _validate_and_fix_schedule_dates,
     )
 
