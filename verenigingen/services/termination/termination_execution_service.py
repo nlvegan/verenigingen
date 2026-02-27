@@ -207,7 +207,7 @@ class TerminationExecutionService(StatelessService):
             >>> results = TerminationExecutionService().execute_system_updates(termination_request)
             >>> print(f"Actions: {len(results['actions_taken'])}, Errors: {len(results['errors'])}")
         """
-        from verenigingen.utils.termination_operations import (
+        from verenigingen.services.termination.termination_operations import (
             CancelDuesSchedulesOperation,
             CancelFutureInvoicesOperation,
             CancelMembershipsOperation,

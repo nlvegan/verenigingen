@@ -167,7 +167,7 @@ def map_payment_method(payment_method, validate: bool = True):
             "all_missing_modes": missing_modes,
             "recovery_command": (
                 "bench --site <site> execute "
-                '"verenigingen.utils.application_helpers.ensure_payment_modes_exist"'
+                '"verenigingen.services.member.approval.application_helpers.ensure_payment_modes_exist"'
             ),
         }
 
@@ -178,7 +178,7 @@ def map_payment_method(payment_method, validate: bool = True):
             error_msg += _(
                 "Missing payment modes: {0}. "
                 "Please run 'bench --site <site> execute "
-                '"verenigingen.utils.application_helpers.ensure_payment_modes_exist"\' '
+                '"verenigingen.services.member.approval.application_helpers.ensure_payment_modes_exist"\' '
                 "or contact your system administrator."
             ).format(", ".join(missing_modes))
         else:

@@ -46,8 +46,6 @@ class TestAllImports(EnhancedTestCase):
         import verenigingen.utils.application_helpers
         import verenigingen.utils.application_payments
         import verenigingen.utils.donation_emails
-        import verenigingen.utils.expense_permissions
-        import verenigingen.utils.sepa_notifications
         import verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation
         
         # E-Boekhouden utils
@@ -80,7 +78,7 @@ class TestAllImports(EnhancedTestCase):
         
         # Volunteer system
         import verenigingen.verenigingen.doctype.volunteer.volunteer
-        import verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense
+        # volunteer_expense DocType removed — import removed
         import verenigingen.verenigingen.doctype.volunteer_assignment.volunteer_assignment
         
         # Financial

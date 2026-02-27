@@ -61,7 +61,7 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
         settings.update(
             {
                 "api_key": "test_mollie_api_key_12345",
-                "webhook_url": "https://dev.veganisme.net/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook",
+                "webhook_url": "https://dev.veganisme.net/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook",
                 "enabled": 1,
                 "test_mode": 1,
                 "default_currency": "EUR",
@@ -234,7 +234,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             m.get("https://api.mollie.com/v2/payments/tr_test_payment_success", json=webhook_payload)
 
             # Process webhook
-            from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+            from verenigingen.verenigingen_payments.utils.payment_gateways import mollie_subscription_webhook
 
             result = mollie_subscription_webhook()
 
@@ -290,7 +290,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             m.get("https://api.mollie.com/v2/payments/tr_test_payment_failed", json=webhook_payload)
 
             # Process failed payment webhook
-            from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+            from verenigingen.verenigingen_payments.utils.payment_gateways import mollie_subscription_webhook
 
             result = mollie_subscription_webhook()
 
@@ -354,7 +354,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
         with requests_mock.Mocker() as m:
             m.get("https://api.mollie.com/v2/payments/tr_duplicate_test", json=webhook_payload)
 
-            from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+            from verenigingen.verenigingen_payments.utils.payment_gateways import mollie_subscription_webhook
 
             result1 = mollie_subscription_webhook()
             self.assertTrue(result1["success"])
@@ -431,7 +431,7 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             )
 
             # Process chargeback webhook
-            from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+            from verenigingen.verenigingen_payments.utils.payment_gateways import mollie_chargeback_webhook
 
             result = mollie_chargeback_webhook(chargeback_payload)
 
@@ -524,7 +524,9 @@ class TestMollieChargebackHandling(EnhancedTestCase):
                     )
 
                     # Process chargeback
-                    from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+                    from verenigingen.verenigingen_payments.utils.payment_gateways import (
+                        mollie_chargeback_webhook,
+                    )
 
                     result = mollie_chargeback_webhook(chargeback_payload)
 
@@ -561,7 +563,7 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             )
 
             # Process contestable chargeback
-            from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+            from verenigingen.verenigingen_payments.utils.payment_gateways import mollie_chargeback_webhook
 
             result = mollie_chargeback_webhook(contestable_chargeback)
 
@@ -607,7 +609,9 @@ class TestMollieChargebackHandling(EnhancedTestCase):
                 mock_email.return_value = {"success": True, "notification_sent": True}
 
                 # Process high-value chargeback
-                from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+                from verenigingen.verenigingen_payments.utils.payment_gateways import (
+                    mollie_chargeback_webhook,
+                )
 
                 result = mollie_chargeback_webhook(high_value_chargeback)
 
@@ -648,7 +652,7 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             )
 
             # Process repeat chargeback
-            from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+            from verenigingen.verenigingen_payments.utils.payment_gateways import mollie_chargeback_webhook
 
             result = mollie_chargeback_webhook(repeat_chargeback)
 
@@ -726,7 +730,9 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
 
         for payload in malformed_payloads:
             with self.subTest(payload=payload):
-                from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+                from verenigingen.verenigingen_payments.utils.payment_gateways import (
+                    mollie_subscription_webhook,
+                )
 
                 result = mollie_subscription_webhook()
 

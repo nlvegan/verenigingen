@@ -174,7 +174,7 @@ class PaymentRetryManager:
 
         try:
             frappe.enqueue(
-                "verenigingen.utils.payment_retry.execute_payment_retry",
+                "verenigingen.verenigingen_payments.utils.payment_retry.execute_payment_retry",
                 retry_record=retry_record.name,
                 queue="default",
                 now=False,

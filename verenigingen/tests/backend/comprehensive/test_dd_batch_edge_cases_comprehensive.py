@@ -10,11 +10,12 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from verenigingen.utils.dd_security_enhancements import (
-    DDConflictResolutionManager,
-    DDSecurityAuditLogger,
-    MemberIdentityValidator,
-)
+# dd_security_enhancements was deleted (zero production callers).
+# Tests that depend on these classes are effectively dead (will be skipped via None checks).
+DDConflictResolutionManager = None
+DDSecurityAuditLogger = None
+MemberIdentityValidator = None
+
 from verenigingen.tests.utils.test_setup import setup_test_environment
 
 

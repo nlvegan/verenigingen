@@ -134,7 +134,7 @@ class CancelMembershipsOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import cancel_membership_safe
+        from verenigingen.services.termination.termination_integration import cancel_membership_safe
 
         active_memberships = frappe.get_all(
             "Membership",
@@ -171,7 +171,7 @@ class CancelSEPAMandatesOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import cancel_sepa_mandate_safe
+        from verenigingen.services.termination.termination_integration import cancel_sepa_mandate_safe
 
         active_mandates = frappe.get_all(
             "SEPA Mandate",
@@ -207,7 +207,7 @@ class EndBoardPositionsOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import end_board_positions_safe
+        from verenigingen.services.termination.termination_integration import end_board_positions_safe
 
         positions_ended = end_board_positions_safe(
             self.member_name,
@@ -229,7 +229,7 @@ class DisableChapterMembershipsOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import disable_chapter_memberships_safe
+        from verenigingen.services.termination.termination_integration import disable_chapter_memberships_safe
 
         memberships_disabled = disable_chapter_memberships_safe(
             self.member_name,
@@ -251,7 +251,7 @@ class SuspendTeamMembershipsOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import suspend_team_memberships_safe
+        from verenigingen.services.termination.termination_integration import suspend_team_memberships_safe
 
         teams_suspended = suspend_team_memberships_safe(
             self.member_name,
@@ -271,7 +271,7 @@ class DeactivateUserAccountOperation(TerminationOperation):
         return "Deactivate User Account"
 
     def execute(self, results: TerminationResults) -> None:
-        from verenigingen.utils.termination_integration import deactivate_user_account_safe
+        from verenigingen.services.termination.termination_integration import deactivate_user_account_safe
 
         termination_reason = (
             f"Member terminated - Type: {self.termination_request.termination_type} - "
@@ -298,7 +298,7 @@ class TerminateVolunteerRecordsOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import terminate_volunteer_records_safe
+        from verenigingen.services.termination.termination_integration import terminate_volunteer_records_safe
 
         termination_reason = (
             f"Member terminated - Type: {self.termination_request.termination_type} - "
@@ -325,7 +325,7 @@ class TerminateEmployeeRecordsOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import terminate_employee_records_safe
+        from verenigingen.services.termination.termination_integration import terminate_employee_records_safe
 
         termination_reason = (
             f"Member terminated - Type: {self.termination_request.termination_type} - "
@@ -356,7 +356,7 @@ class UpdateCustomerRecordOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import update_customer_safe
+        from verenigingen.services.termination.termination_integration import update_customer_safe
 
         if not self.enabled:
             return
@@ -391,7 +391,7 @@ class UpdateOutstandingInvoicesOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import update_invoice_safe
+        from verenigingen.services.termination.termination_integration import update_invoice_safe
 
         if not self.enabled:
             return
@@ -433,7 +433,7 @@ class CancelOutstandingInvoicesOperation(TerminationOperation):
         return "Cancel Outstanding Invoices"
 
     def execute(self, results: TerminationResults) -> None:
-        from verenigingen.utils.termination_integration import cancel_outstanding_invoices_safe
+        from verenigingen.services.termination.termination_integration import cancel_outstanding_invoices_safe
 
         if not self.enabled:
             return
@@ -474,7 +474,7 @@ class CancelFutureInvoicesOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import cancel_future_invoices_safe
+        from verenigingen.services.termination.termination_integration import cancel_future_invoices_safe
 
         if not self.enabled:
             return
@@ -507,7 +507,7 @@ class CancelDuesSchedulesOperation(TerminationOperation):
         return "Cancel Dues Schedules"
 
     def execute(self, results: TerminationResults) -> None:
-        from verenigingen.utils.termination_integration import cancel_dues_schedule_safe
+        from verenigingen.services.termination.termination_integration import cancel_dues_schedule_safe
 
         active_dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
@@ -538,7 +538,7 @@ class UpdateMemberStatusOperation(TerminationOperation):
     def execute(self, results: TerminationResults) -> None:
         from frappe.utils import today
 
-        from verenigingen.utils.termination_integration import update_member_status_safe
+        from verenigingen.services.termination.termination_integration import update_member_status_safe
 
         if update_member_status_safe(
             self.member_name,

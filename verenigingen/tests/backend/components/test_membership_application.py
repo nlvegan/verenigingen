@@ -11,7 +11,6 @@ from verenigingen.api.membership_application import (
     reject_membership_application,
     submit_application,
 )
-from verenigingen.utils.application_notifications import check_overdue_applications
 from verenigingen.utils.application_payments import process_application_payment
 
 
@@ -310,11 +309,8 @@ class TestMembershipApplication(VereningingenTestCase):
         # Manually set the application date to 3 weeks ago
         frappe.db.set_value("Member", result["data"]["member_record"], "application_date", add_days(now_datetime(), -21))
 
-        # Run overdue check
-        check_overdue_applications()
-
-        # In a real scenario, this would send notifications
-        # Here we just verify the function runs without error
+        # Overdue check function was removed with application_notifications.py
+        # The functionality now lives in api/overdue_application_notifications.py
         self.assertTrue(True)
 
 

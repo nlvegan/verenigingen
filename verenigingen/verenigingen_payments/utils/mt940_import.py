@@ -8,8 +8,8 @@ import traceback
 import frappe
 from frappe.utils import getdate, today
 
-from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
 # =============================================================================
 # Constants
@@ -573,7 +573,7 @@ def extract_sepa_data_enhanced(mt940_transaction):
     in the mt940 library, with fallbacks to parsing structured data from
     description fields.
     """
-    from verenigingen.utils.sepa_parser import parse_sepa_structured_data
+    from verenigingen.verenigingen_payments.utils.sepa_parser import parse_sepa_structured_data
 
     transaction_data = mt940_transaction.data
 
@@ -646,7 +646,7 @@ def extract_sepa_data_enhanced(mt940_transaction):
         counterparty = re.sub(r"\s+", " ", counterparty).strip()
 
     # Filter out placeholder values
-    from verenigingen.utils.sepa_parser import is_placeholder_value
+    from verenigingen.verenigingen_payments.utils.sepa_parser import is_placeholder_value
 
     if is_placeholder_value(counterparty):
         counterparty = ""
@@ -918,7 +918,7 @@ def process_mt940_document(mt940_content, bank_account, company):
                     # The library structure treats each parsed item as a single transaction
                     try:
                         # Generate transaction ID to check for duplicates within this import
-                        from verenigingen.utils.mt940_import import (
+                        from verenigingen.verenigingen_payments.utils.mt940_import import (
                             extract_sepa_data_enhanced,
                             get_enhanced_duplicate_hash,
                         )
@@ -1176,7 +1176,7 @@ def create_enhanced_bank_transaction_from_mt940(
 
         # Store additional SEPA data in custom fields (if available)
         try:
-            from verenigingen.utils.mt940_enhanced_fields import (
+            from verenigingen.verenigingen_payments.utils.mt940_enhanced_fields import (
                 populate_enhanced_mt940_fields,
                 validate_enhanced_fields_exist,
             )
