@@ -368,7 +368,7 @@ def _assign_member_to_chapter(member):
         return
 
     # Use centralized optimized chapter lookup
-    from verenigingen.utils.optimized_chapter_lookup import get_lookup_instance
+    from verenigingen.services.chapter.optimized_chapter_lookup import get_lookup_instance
 
     lookup = get_lookup_instance()
     best_chapter = lookup.find_best_chapter_for_postal_code(postal_code)

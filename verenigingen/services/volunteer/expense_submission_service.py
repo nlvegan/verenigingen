@@ -24,13 +24,13 @@ from frappe import _
 from frappe.utils import flt
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.services.volunteer.volunteer_expense_setup import get_or_create_expense_type
 from verenigingen.utils.employee_user_link import create_employee_for_approved_volunteer
 from verenigingen.utils.member_utils import get_volunteer_for_current_user
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.audit_logging import get_audit_logger
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity
-from verenigingen.utils.volunteer_expense_setup import get_or_create_expense_type
 
 
 @dataclass
@@ -699,7 +699,7 @@ class VolunteerExpenseSubmissionService(StatelessService):
             return OperationResult.fail(_("Too many expenses in one submission. Maximum allowed: 50"))
 
         # Pre-validation of all expenses
-        from verenigingen.utils.volunteer_expense_portal_utils import validate_expense_data
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import validate_expense_data
 
         all_errors = []
         total_amount = 0

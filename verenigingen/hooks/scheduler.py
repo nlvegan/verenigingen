@@ -51,9 +51,9 @@ scheduler_events = {
         "verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.reconcile_bank_transactions",
         "verenigingen.verenigingen_payments.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Expense management
-        "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
-        "verenigingen.utils.department_approver_sync.sync_all_department_approvers",
-        "verenigingen.utils.expense_history_batch_processor.process_pending_expense_history_updates",
+        "verenigingen.services.volunteer.native_expense_helpers.refresh_all_expense_approvers",
+        "verenigingen.services.volunteer.department_approver_sync.sync_all_department_approvers",
+        "verenigingen.services.volunteer.expense_history_batch_processor.process_pending_expense_history_updates",
         # SEPA Direct Debit
         "verenigingen.verenigingen_payments.api.dd_batch_scheduler.daily_batch_optimization",
         "verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
@@ -101,7 +101,7 @@ scheduler_events = {
         # Address maintenance
         "verenigingen.tasks.address_optimization.refresh_member_address_displays",
         # Expense history validation
-        "verenigingen.utils.expense_history_batch_processor.validate_expense_history_integrity",
+        "verenigingen.services.volunteer.expense_history_batch_processor.validate_expense_history_integrity",
         # Session cleanup
         "verenigingen.utils.session_cleanup_enhanced.scheduled_session_cleanup",
     ],
@@ -112,7 +112,7 @@ scheduler_events = {
         # Address data cleanup
         "verenigingen.tasks.address_optimization.cleanup_orphaned_address_data",
         # Expense history cleanup
-        "verenigingen.utils.expense_history_batch_processor.cleanup_orphaned_expense_history",
+        "verenigingen.services.volunteer.expense_history_batch_processor.cleanup_orphaned_expense_history",
     ],
 }
 

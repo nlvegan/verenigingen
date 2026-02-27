@@ -1112,7 +1112,10 @@ def validate_system_configuration() -> Dict[str, Any]:
     }
 
     try:
-        from verenigingen.utils.chapter_role_profile_manager import CHAPTER_CONFIG, _chapter_manager
+        from verenigingen.services.chapter.chapter_role_profile_manager import (
+            CHAPTER_CONFIG,
+            _chapter_manager,
+        )
         from verenigingen.utils.team_role_profile_manager import TEAM_CONFIG, _team_manager
 
         # Validate all teams

@@ -61,7 +61,7 @@ doc_events = {
         # on_update fires only for existing documents (after after_save)
         # Only include handlers that need to run specifically for updates, not inserts
         "on_update": [
-            "verenigingen.utils.chapter_role_events.on_member_on_update",
+            "verenigingen.services.chapter.chapter_role_events.on_member_on_update",
             "verenigingen.services.field_sync_service.sync_fields",
         ],
     },
@@ -77,10 +77,10 @@ doc_events = {
     "Chapter": {
         # validate: now handled in controller validate() method
         # after_save: runs for BOTH new and existing - use for cache invalidation
-        "after_save": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+        "after_save": "verenigingen.services.chapter.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
         # on_update: runs ONLY for existing documents - use for update-specific logic
         "on_update": [
-            "verenigingen.utils.chapter_role_profile_hooks.invalidate_chapter_profile_cache",
+            "verenigingen.services.chapter.chapter_role_profile_hooks.invalidate_chapter_profile_cache",
         ],
         # NOTE: Role assignment and role profile sync for board members is handled
         # explicitly by BoardManager.handle_board_member_additions/changes/deletions
@@ -89,7 +89,7 @@ doc_events = {
         # hooks were removed.
     },
     "Chapter Role": {
-        "on_update": "verenigingen.utils.chapter_role_events.on_chapter_role_on_update",
+        "on_update": "verenigingen.services.chapter.chapter_role_events.on_chapter_role_on_update",
     },
     # =========================================================================
     # TEAM SYSTEM
@@ -109,10 +109,10 @@ doc_events = {
     # =========================================================================
     "Verenigingen Volunteer": {
         "on_update": [
-            "verenigingen.utils.native_expense_helpers.update_employee_approver",
-            "verenigingen.utils.chapter_role_events.on_volunteer_on_update",
+            "verenigingen.services.volunteer.native_expense_helpers.update_employee_approver",
+            "verenigingen.services.chapter.chapter_role_events.on_volunteer_on_update",
             "verenigingen.utils.performance_event_handlers.on_volunteer_assignment_change",
-            "verenigingen.utils.volunteer_role_profile_hooks.on_volunteer_status_change",
+            "verenigingen.services.volunteer.volunteer_role_profile_hooks.on_volunteer_status_change",
         ],
     },
     # =========================================================================
@@ -178,12 +178,12 @@ doc_events = {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim",
         "on_update_after_submit": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_update",
         "on_submit": [
-            "verenigingen.utils.expense_handlers.update_member_expense_history",
-            "verenigingen.utils.expense_handlers.notify_expense_approvers",
+            "verenigingen.services.volunteer.expense_handlers.update_member_expense_history",
+            "verenigingen.services.volunteer.expense_handlers.notify_expense_approvers",
         ],
         "on_cancel": [
             "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_removal",
-            "verenigingen.utils.expense_handlers.on_expense_claim_cancel",
+            "verenigingen.services.volunteer.expense_handlers.on_expense_claim_cancel",
         ],
     },
     "Purchase Invoice": {
@@ -249,7 +249,7 @@ doc_events = {
         # validate: now handled in controller validate() method
         "on_update": [
             "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
-            "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+            "verenigingen.services.chapter.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
         ],
     },
     # =========================================================================

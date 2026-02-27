@@ -106,7 +106,7 @@ class ChapterJoinRequest(Document):
             self.save()
 
             # Use existing ChapterMembershipManager for proper workflow handling
-            from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+            from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
             # Create membership using existing manager (this ensures proper validation and history)
             result = ChapterMembershipManager.assign_member_to_chapter(

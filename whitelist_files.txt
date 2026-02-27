@@ -364,10 +364,10 @@
 ./verenigingen/utils/bulk_queue_config.py
 ./verenigingen/utils/bulk_retry_processor.py
 ./verenigingen/utils/cache_invalidation.py
-./verenigingen/utils/chapter_board_permissions.py
-./verenigingen/utils/chapter_role_events.py
-./verenigingen/utils/chapter_role_profile_manager.py
-./verenigingen/utils/chapter_security.py
+./verenigingen/services/chapter/chapter_board_permissions.py
+./verenigingen/services/chapter/chapter_role_events.py
+./verenigingen/services/chapter/chapter_role_profile_manager.py
+./verenigingen/services/chapter/chapter_security.py
 ./verenigingen/utils/check_existing_accounts.py
 ./verenigingen/utils/cleanup_direct_sql.py
 ./verenigingen/utils/cleanup_function_summary.py
@@ -444,7 +444,7 @@
 ./verenigingen/utils/employee_user_link.py
 ./verenigingen/utils/error_handling.py
 ./verenigingen/utils/execute_workspace_reorg.py
-./verenigingen/utils/expense_history_batch_processor.py
+./verenigingen/services/volunteer/expense_history_batch_processor.py
 ./verenigingen/utils/expense_notifications.py
 ./verenigingen/utils/fix_eboekhouden_workspace.py
 ./verenigingen/utils/fix_member_ownership.py
@@ -480,7 +480,7 @@
 ./verenigingen/utils/mollie_test_helpers.py
 ./verenigingen/verenigingen_payments/utils/mt940_enhanced_fields.py
 ./verenigingen/verenigingen_payments/utils/mt940_import.py
-./verenigingen/utils/native_expense_helpers.py
+./verenigingen/services/volunteer/native_expense_helpers.py
 ./verenigingen/utils/nuke_financial_data.py
 ./verenigingen/utils/optimized_queries.py
 ./verenigingen/utils/payment_history_validator.py

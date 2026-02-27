@@ -479,7 +479,7 @@ class InvoiceGenerator(StatelessService):
         Returns:
             Cost center name if found, None otherwise
         """
-        from verenigingen.utils.chapter_utils import get_member_primary_chapter
+        from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 
         chapter = get_member_primary_chapter(member_name)
         if not chapter:

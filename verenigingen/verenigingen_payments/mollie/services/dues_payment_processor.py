@@ -671,7 +671,7 @@ class DuesPaymentProcessor:
         Returns:
             Cost center name, or None if neither chapter nor company has one configured
         """
-        from verenigingen.utils.chapter_utils import get_member_primary_chapter
+        from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 
         chapter = get_member_primary_chapter(member_doc.name)
         if chapter:

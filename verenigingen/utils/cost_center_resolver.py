@@ -14,7 +14,10 @@ from typing import Optional
 import frappe
 from frappe import _
 
-from verenigingen.utils.volunteer_expense_setup import create_default_cost_center, get_fallback_cost_center
+from verenigingen.services.volunteer.volunteer_expense_setup import (
+    create_default_cost_center,
+    get_fallback_cost_center,
+)
 
 
 def get_organization_cost_center(

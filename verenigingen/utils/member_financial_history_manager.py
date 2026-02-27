@@ -301,7 +301,9 @@ class MemberFinancialHistoryManager:
                     # Try to clean up invalid chapter references if this is not the last retry
                     if retry < max_retries - 1:
                         # Use dedicated chapter reference manager
-                        from verenigingen.utils.chapter_reference_manager import ChapterReferenceManager
+                        from verenigingen.services.chapter.chapter_reference_manager import (
+                            ChapterReferenceManager,
+                        )
 
                         chapter_manager = ChapterReferenceManager(self.member)
                         removed_count = chapter_manager.cleanup_invalid_chapter_references()

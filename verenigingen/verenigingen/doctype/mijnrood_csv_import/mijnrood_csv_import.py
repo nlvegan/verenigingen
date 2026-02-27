@@ -14,9 +14,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cstr, flt, getdate, today
 
+from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.services.member.member_lookup_service import get_member_lookup_service
 from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
-from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.utils.csv.csv_data_validator import CSVDataValidator
 from verenigingen.utils.csv.data_transformers import (
     calculate_next_invoice_date,

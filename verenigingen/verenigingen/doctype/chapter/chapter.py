@@ -1035,7 +1035,7 @@ def assign_member_to_chapter(member: str, chapter: str, note: str = None):
 def join_chapter(member_name: str, chapter_name: str, introduction: str = None, website_url: str = None):
     """Web method for a member to join a chapter via portal"""
     # Use centralized chapter membership manager for consistency
-    from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+    from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
     result = ChapterMembershipManager.join_chapter(
         member_id=member_name,
@@ -1053,7 +1053,7 @@ def join_chapter(member_name: str, chapter_name: str, introduction: str = None, 
 def leave_chapter(member_name: str, chapter_name: str, leave_reason: str = None):
     """Web method for a member to leave a chapter via portal"""
     # Use centralized chapter membership manager for consistency
-    from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+    from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
     result = ChapterMembershipManager.leave_chapter(
         member_id=member_name,
@@ -1094,7 +1094,9 @@ def get_board_role_profile_preview(chapter_name: str):
     Note: Consider moving chapter_role_profile_manager to services/ in future
     for consistency with other chapter services.
     """
-    from verenigingen.utils.chapter_role_profile_manager import determine_role_profile_for_board_member
+    from verenigingen.services.chapter.chapter_role_profile_manager import (
+        determine_role_profile_for_board_member,
+    )
 
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
         return {"error": "Chapter not found"}
@@ -1153,7 +1155,9 @@ def bulk_apply_chapter_board_role_profiles(chapter_name: str):
     CONSOLIDATED: Already uses centralized chapter_role_profile_manager (utils/).
     Board role profile logic is centralized - this is just an API wrapper.
     """
-    from verenigingen.utils.chapter_role_profile_manager import bulk_assign_chapter_board_role_profiles
+    from verenigingen.services.chapter.chapter_role_profile_manager import (
+        bulk_assign_chapter_board_role_profiles,
+    )
 
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
         return {"success": False, "error": "Chapter not found"}

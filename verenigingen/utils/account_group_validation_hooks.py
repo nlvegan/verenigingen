@@ -6,8 +6,8 @@ Integrates the account group project framework with ERPNext transactions.
 import frappe
 from frappe import _
 
+from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 from verenigingen.utils.account_group_project_framework import account_group_framework
-from verenigingen.utils.chapter_utils import get_user_accessible_chapters
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 

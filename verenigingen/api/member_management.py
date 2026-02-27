@@ -44,7 +44,7 @@ def assign_member_to_chapter(member_name, chapter_name) -> OperationResult[Dict[
         raise PermissionError("You don't have permission to assign members to this chapter")
 
     # Use centralized chapter membership manager for proper history tracking
-    from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+    from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
     result = ChapterMembershipManager.assign_member_to_chapter(
         member_id=member_name,
@@ -397,7 +397,7 @@ def add_member_to_chapter_roster(member_name, new_chapter):
     try:
         if new_chapter:
             # Use centralized chapter membership manager for proper history tracking
-            from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+            from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
             result = ChapterMembershipManager.assign_member_to_chapter(
                 member_id=member_name,

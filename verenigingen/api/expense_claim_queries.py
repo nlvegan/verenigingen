@@ -61,7 +61,7 @@ def get_user_accessible_chapters_for_expenses(
     Returns:
         List of tuples: [(chapter_name,), ...]
     """
-    from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+    from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
     if filters is None:
         filters = {}

@@ -11,12 +11,9 @@ import frappe
 from frappe import _
 
 from verenigingen.services.volunteer.expense_submission_service import get_expense_submission_service
-from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_current_user
-from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
-from verenigingen.utils.security.types import OperationType
 
 # Import centralized utilities
-from verenigingen.utils.volunteer_expense_portal_utils import (
+from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
     build_base_expense_context,
     get_approval_thresholds,
     get_expense_categories,
@@ -26,6 +23,9 @@ from verenigingen.utils.volunteer_expense_portal_utils import (
     map_erpnext_status_to_volunteer_status,
     validate_expense_data,
 )
+from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_current_user
+from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
+from verenigingen.utils.security.types import OperationType
 
 
 def get_context(context):

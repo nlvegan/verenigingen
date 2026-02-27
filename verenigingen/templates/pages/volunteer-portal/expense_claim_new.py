@@ -10,15 +10,14 @@ URL: /volunteer-portal/expense_claim_new
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name, require_login
-
 # Import centralized utilities
-from verenigingen.utils.volunteer_expense_portal_utils import (
+from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
     build_base_expense_context,
     get_empty_statistics,
     get_theme_settings,
     get_volunteer_expense_statistics,
 )
+from verenigingen.utils.member_utils import get_current_user_member_name, require_login
 
 
 def get_context(context):

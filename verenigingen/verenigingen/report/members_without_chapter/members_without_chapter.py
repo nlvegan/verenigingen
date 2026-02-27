@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 
-from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
 
 def validate_doctype_fields(doctype, required_fields):
@@ -252,7 +252,7 @@ def get_data(filters):
 
     # Get all chapter suggestions in one batch operation
     try:
-        from verenigingen.utils.optimized_chapter_lookup import batch_suggest_chapters_for_members
+        from verenigingen.services.chapter.optimized_chapter_lookup import batch_suggest_chapters_for_members
 
         batch_chapter_suggestions = batch_suggest_chapters_for_members(member_postal_codes)
     except ImportError:
@@ -333,7 +333,7 @@ def suggest_chapter_for_member_optimized(member, address_info, preloaded_chapter
 
     try:
         # Use the new optimized chapter lookup utility
-        from verenigingen.utils.optimized_chapter_lookup import get_lookup_instance
+        from verenigingen.services.chapter.optimized_chapter_lookup import get_lookup_instance
 
         lookup = get_lookup_instance()
         suggested_chapter = lookup.find_best_chapter_for_postal_code(postal_code)

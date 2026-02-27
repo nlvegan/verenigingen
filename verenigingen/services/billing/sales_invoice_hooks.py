@@ -4,7 +4,7 @@ Sales Invoice hooks to automatically populate member field and chapter
 
 import frappe
 
-from verenigingen.utils.chapter_utils import get_member_primary_chapter
+from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 
 
 def on_trash(doc, method=None):

@@ -233,7 +233,7 @@ def get_chart_data(data):
 
 def get_user_chapter_filter():
     """Get chapter filter based on user's role and permissions"""
-    from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+    from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
     user = frappe.session.user
 

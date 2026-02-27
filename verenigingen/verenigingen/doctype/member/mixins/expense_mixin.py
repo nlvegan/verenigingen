@@ -57,6 +57,6 @@ class ExpenseMixin:
 
     def _build_expense_history_entry(self, expense_doc):
         """Build an expense history entry. Delegates to ExpenseHistoryEntryBuilder."""
-        from verenigingen.utils.expense_history_entry_builder import ExpenseHistoryEntryBuilder
+        from verenigingen.services.volunteer.expense_history_entry_builder import ExpenseHistoryEntryBuilder
 
         return ExpenseHistoryEntryBuilder.build_from_expense_doc(expense_doc, self.name)

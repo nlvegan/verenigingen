@@ -221,7 +221,7 @@ class FinancialHistoryBatchProcessor:
                     # Build expense entry using builder directly (avoids full Member doc dependency)
                     def build_expense_entry():
                         try:
-                            from verenigingen.utils.expense_history_entry_builder import (
+                            from verenigingen.services.volunteer.expense_history_entry_builder import (
                                 ExpenseHistoryEntryBuilder,
                             )
 

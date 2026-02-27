@@ -106,7 +106,7 @@ def approve_membership_application_background(
             frappe.throw(_("This application cannot be approved in its current state"))
 
         # Check chapter-based permissions
-        from verenigingen.utils.chapter_security import validate_chapter_permission_or_throw
+        from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
 
         validate_chapter_permission_or_throw(member_name, "approve")
 

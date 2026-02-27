@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 from verenigingen.utils.member_utils import get_member_chapters
 from verenigingen.utils.validation_utilities import QueryBuilder
 

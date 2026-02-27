@@ -50,7 +50,7 @@ def bulk_assign_members_to_chapters(
     frappe.logger().info(f"Starting bulk chapter assignment for {len(member_postal_codes)} members")
 
     # Load chapter lookup once for all batches
-    from verenigingen.utils.optimized_chapter_lookup import get_lookup_instance
+    from verenigingen.services.chapter.optimized_chapter_lookup import get_lookup_instance
 
     lookup = get_lookup_instance()
 

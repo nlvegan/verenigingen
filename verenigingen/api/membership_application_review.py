@@ -104,7 +104,7 @@ def assign_member_to_chapter(member, chapter, notify=None):
         return
 
     try:
-        from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
         result = ChapterMembershipManager.assign_member_to_chapter(
             member_id=member.name,
@@ -455,7 +455,7 @@ def approve_membership_application(
         frappe.throw(_("This application cannot be approved in its current state"))
 
     # Check chapter-based permissions
-    from verenigingen.utils.chapter_security import validate_chapter_permission_or_throw
+    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
 
     validate_chapter_permission_or_throw(member_name, "approve")
 
@@ -557,7 +557,7 @@ def reject_membership_application(
         frappe.throw(_("This application cannot be rejected in its current state"))
 
     # Check chapter-based permissions
-    from verenigingen.utils.chapter_security import validate_chapter_permission_or_throw
+    from verenigingen.services.chapter.chapter_security import validate_chapter_permission_or_throw
 
     validate_chapter_permission_or_throw(member_name, "reject")
 
@@ -890,7 +890,7 @@ def get_pending_applications(chapter: str | None = None, days_overdue: int | Non
         filtered_applications.append(app)
 
     # Apply chapter-based security filtering
-    from verenigingen.utils.chapter_security import filter_applications_by_permission
+    from verenigingen.services.chapter.chapter_security import filter_applications_by_permission
 
     return filter_applications_by_permission(filtered_applications)
 

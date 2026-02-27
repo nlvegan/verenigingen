@@ -1755,7 +1755,7 @@ def has_expense_claim_permission(doc, user=None, permission_type=None):
 
     # Expense approvers can see expense claims for their chapters
     if "Expense Approver" in user_roles and expense_chapter:
-        from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+        from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
         accessible_chapters = get_user_accessible_chapters(user)
 
@@ -1796,7 +1796,7 @@ def get_expense_claim_permission_query(user):
 
     # Expense Approvers can see expense claims for their chapters
     if "Expense Approver" in user_roles:
-        from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+        from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
         accessible_chapters = get_user_accessible_chapters(user)
 
