@@ -47,7 +47,7 @@ scheduler_events = {
         # E-Boekhouden integration
         "verenigingen.e_boekhouden.utils.eboekhouden_api.update_dashboard_data_periodically",
         # Payment processing
-        "verenigingen.utils.payment_retry.execute_payment_retry",
+        "verenigingen.verenigingen_payments.utils.payment_retry.execute_payment_retry",
         "verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.reconcile_bank_transactions",
         "verenigingen.verenigingen_payments.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Expense management

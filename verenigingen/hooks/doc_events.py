@@ -121,7 +121,7 @@ doc_events = {
     "Payment Entry": {
         "on_submit": [
             "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
-            "verenigingen.utils.payment_notifications.on_payment_submit",
+            "verenigingen.verenigingen_payments.utils.payment_notifications.on_payment_submit",
             "verenigingen.utils.background_jobs.queue_expense_event_processing_handler",
             "verenigingen.utils.background_jobs.queue_donor_auto_creation_handler",
             "verenigingen.utils.cache_invalidation.on_document_submit",
