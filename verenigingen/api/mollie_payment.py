@@ -388,3 +388,142 @@ def cancel_specific_subscription(customer_id: str = None, subscription_id: str =
         error_msg = f"Error cancelling subscription {subscription_id}: {str(e)}"
         frappe.log_error(error_msg, "Mollie Subscription Cancel")
         return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def update_mollie_bank_account(iban: str = None, account_holder_name: str = None):
+    """
+    Update the bank account (mandate) on the member's active Mollie subscription.
+
+    Creates a new Mollie SEPA Direct Debit mandate with the provided IBAN, then
+    PATCHes the active subscription to use the new mandate.
+
+    Args:
+        iban: New IBAN for the bank account
+        account_holder_name: Name on the bank account
+
+    Returns:
+        Dict with status, message, and masked IBAN on success
+    """
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
+
+    # Get form data if not provided as parameters
+    if not iban:
+        iban = frappe.local.form_dict.get("iban", "")
+    if not account_holder_name:
+        account_holder_name = frappe.local.form_dict.get("account_holder_name", "")
+
+    # Clean input
+    iban = iban.replace(" ", "").upper().strip() if iban else ""
+    account_holder_name = account_holder_name.strip() if account_holder_name else ""
+
+    # Validate required fields
+    if not iban:
+        return {"status": "error", "message": _("IBAN is required")}
+    if not account_holder_name:
+        return {"status": "error", "message": _("Account holder name is required")}
+
+    # Validate IBAN format
+    validation_result = validate_iban(iban)
+    if not validation_result.get("valid"):
+        return {"status": "error", "message": validation_result.get("message", _("Invalid IBAN format"))}
+
+    # Get and validate member
+    member_name = get_current_user_member_name_required()
+    validate_member_ownership(member_name, _("You can only update your own bank account"))
+
+    member = frappe.get_doc("Member", member_name)
+
+    # Verify member has Mollie subscription
+    if not member.mollie_customer_id or not member.mollie_subscription_id:
+        return {"status": "error", "message": _("No active Mollie subscription found")}
+
+    customer_id = parse_mollie_customer_ids(member.mollie_customer_id, max_ids=1)[0]
+    subscription_id = member.mollie_subscription_id
+    old_mandate_id = member.mollie_mandate_id
+
+    # Derive BIC for Dutch IBANs
+    bic = derive_bic_from_iban(iban) or None
+
+    try:
+        from verenigingen.services.mollie_debug_service import MollieDebugService
+
+        service = MollieDebugService()
+
+        # Step 1: Verify subscription is active
+        client = service.mollie_client.sdk_client
+        customer_obj = client.customers.get(customer_id)
+        subscription = customer_obj.subscriptions.get(subscription_id)
+
+        if subscription.status != "active":
+            return {
+                "status": "error",
+                "message": _("Your subscription is not active. Cannot update bank account."),
+            }
+
+        # Step 2: Create new Mollie mandate with the new IBAN
+        mandate_data = {
+            "method": "directdebit",
+            "consumerName": account_holder_name,
+            "consumerAccount": iban,
+        }
+        if bic:
+            mandate_data["consumerBic"] = bic
+
+        new_mandate = customer_obj.mandates.create(mandate_data)
+        new_mandate_id = new_mandate.id
+
+        # Step 3: PATCH subscription with new mandate
+        try:
+            service.update_subscription_mandate(
+                customer_id=customer_id,
+                subscription_id=subscription_id,
+                new_mandate_id=new_mandate_id,
+                reason=f"Bank account update by {frappe.session.user}",
+            )
+        except Exception as patch_error:
+            # Rollback: revoke the newly created mandate
+            try:
+                customer_obj.mandates.delete(new_mandate_id)
+            except Exception:
+                frappe.logger().warning(
+                    f"Could not revoke new mandate {new_mandate_id} after failed subscription update"
+                )
+            raise patch_error
+
+        # Step 4: Update member record
+        member.db_set("mollie_mandate_id", new_mandate_id, update_modified=False)
+        frappe.db.commit()
+
+        # Step 5: Best-effort cleanup of old mandate
+        if old_mandate_id:
+            try:
+                customer_obj.mandates.delete(old_mandate_id)
+            except Exception as revoke_error:
+                frappe.logger().warning(f"Could not revoke old mandate {old_mandate_id}: {str(revoke_error)}")
+
+        # Mask IBAN for response
+        masked_iban = f"{iban[:2]}{'*' * (len(iban) - 6)}{iban[-4:]}" if len(iban) >= 6 else "****"
+
+        frappe.logger().info(
+            f"BANK ACCOUNT UPDATE: User {frappe.session.user} updated Mollie bank account "
+            f"for member {member_name}. IBAN: {masked_iban}"
+        )
+
+        return {
+            "status": "success",
+            "message": _("Bank account updated successfully. Your next payment will use the new account."),
+            "masked_iban": masked_iban,
+        }
+
+    except Exception as e:
+        error_msg = str(e)
+        frappe.log_error(
+            f"Mollie bank account update failed for member {member_name}: {error_msg}",
+            "Mollie Bank Account Update",
+        )
+        return {
+            "status": "error",
+            "message": _("Failed to update bank account. Please try again or contact support."),
+        }
