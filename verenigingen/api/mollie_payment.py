@@ -391,7 +391,7 @@ def cancel_specific_subscription(customer_id: str = None, subscription_id: str =
 
 
 @frappe.whitelist(allow_guest=False)
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@critical_api(operation_type=OperationType.FINANCIAL)
 def update_mollie_bank_account(iban: str = None, account_holder_name: str = None):
     """
     Update the bank account (mandate) on the member's active Mollie subscription.
@@ -423,6 +423,8 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
         return {"status": "error", "message": _("IBAN is required")}
     if not account_holder_name:
         return {"status": "error", "message": _("Account holder name is required")}
+    if len(account_holder_name) > 70:
+        return {"status": "error", "message": _("Account holder name must not exceed 70 characters")}
 
     # Validate IBAN format
     validation_result = validate_iban(iban)
@@ -439,7 +441,10 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
     if not member.mollie_customer_id or not member.mollie_subscription_id:
         return {"status": "error", "message": _("No active Mollie subscription found")}
 
-    customer_id = parse_mollie_customer_ids(member.mollie_customer_id, max_ids=1)[0]
+    customer_ids = parse_mollie_customer_ids(member.mollie_customer_id, max_ids=1)
+    if not customer_ids:
+        return {"status": "error", "message": _("Invalid or missing Mollie customer ID")}
+    customer_id = customer_ids[0]
     subscription_id = member.mollie_subscription_id
     old_mandate_id = member.mollie_mandate_id
 
@@ -467,6 +472,7 @@ def update_mollie_bank_account(iban: str = None, account_holder_name: str = None
             "method": "directdebit",
             "consumerName": account_holder_name,
             "consumerAccount": iban,
+            "signatureDate": frappe.utils.today(),
         }
         if bic:
             mandate_data["consumerBic"] = bic

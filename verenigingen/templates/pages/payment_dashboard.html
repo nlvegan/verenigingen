@@ -1026,6 +1026,7 @@ if (typeof escapeHtml === 'undefined') {
 document.addEventListener('DOMContentLoaded', function() {
     // Get member from context
     memberParam = '{{ member }}';
+    window.memberFullName = {{ member_doc.full_name | tojson if member_doc else '""' }};
 
     // Only load data if we have a member (not in selection mode)
     if (memberParam) {
@@ -1334,7 +1335,7 @@ function updateMollieDisplay(data) {
                                     <input type="text"
                                            id="mollie-holder-${subscriptionId}"
                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                                           value="${escapeHtml('{{ member_doc.full_name if member_doc else "" }}')}"
+                                           value="${escapeHtml(window.memberFullName || '')}"
                                            maxlength="70">
                                 </div>
                                 <div class="flex gap-2">
