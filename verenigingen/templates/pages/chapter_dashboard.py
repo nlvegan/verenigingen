@@ -361,10 +361,12 @@ def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
     try:
         # Get pending expense amount and count for this chapter
         pending_expenses = frappe.get_all(
-            "Volunteer Expense", filters={"chapter": chapter_name, "status": "Submitted"}, fields=["amount"]
+            "Expense Claim",
+            filters={"custom_chapter": chapter_name, "approval_status": "Draft", "docstatus": 0},
+            fields=["total_claimed_amount"],
         )
 
-        pending_amount = sum(exp.amount or 0 for exp in pending_expenses)
+        pending_amount = sum(exp.total_claimed_amount or 0 for exp in pending_expenses)
         pending_count = len(pending_expenses)
 
         # Get YTD total for this chapter
@@ -374,31 +376,31 @@ def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
         year_start = today.replace(month=1, day=1)
 
         ytd_expenses = frappe.get_all(
-            "Volunteer Expense",
+            "Expense Claim",
             filters={
-                "chapter": chapter_name,
-                "status": ["in", ["Approved", "Reimbursed"]],
-                "expense_date": [">=", year_start],
+                "custom_chapter": chapter_name,
+                "approval_status": "Approved",
+                "posting_date": [">=", year_start],
             },
-            fields=["amount"],
+            fields=["total_claimed_amount"],
         )
 
-        ytd_total = sum(exp.amount or 0 for exp in ytd_expenses)
+        ytd_total = sum(exp.total_claimed_amount or 0 for exp in ytd_expenses)
 
         # Get this month's total
         month_start = today.replace(day=1)
 
         month_expenses = frappe.get_all(
-            "Volunteer Expense",
+            "Expense Claim",
             filters={
-                "chapter": chapter_name,
-                "status": ["in", ["Submitted", "Approved", "Reimbursed"]],
-                "expense_date": [">=", month_start],
+                "custom_chapter": chapter_name,
+                "approval_status": ["in", ["Draft", "Approved"]],
+                "posting_date": [">=", month_start],
             },
-            fields=["amount"],
+            fields=["total_claimed_amount"],
         )
 
-        this_month = sum(exp.amount or 0 for exp in month_expenses)
+        this_month = sum(exp.total_claimed_amount or 0 for exp in month_expenses)
 
         return {
             "pending_amount": pending_amount,
@@ -563,43 +565,53 @@ def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
 
         # This month's expenses
         submitted_this_month = frappe.get_all(
-            "Volunteer Expense",
-            filters={"chapter": chapter_name, "status": "Submitted", "expense_date": [">=", month_start]},
-            fields=["amount"],
+            "Expense Claim",
+            filters={
+                "custom_chapter": chapter_name,
+                "approval_status": "Draft",
+                "docstatus": 0,
+                "posting_date": [">=", month_start],
+            },
+            fields=["total_claimed_amount"],
         )
 
         approved_this_month = frappe.get_all(
-            "Volunteer Expense",
+            "Expense Claim",
             filters={
-                "chapter": chapter_name,
-                "status": ["in", ["Approved", "Reimbursed"]],
-                "expense_date": [">=", month_start],
+                "custom_chapter": chapter_name,
+                "approval_status": "Approved",
+                "posting_date": [">=", month_start],
             },
-            fields=["amount"],
+            fields=["total_claimed_amount"],
         )
 
         pending_this_month = frappe.get_all(
-            "Volunteer Expense",
-            filters={"chapter": chapter_name, "status": "Submitted", "expense_date": [">=", month_start]},
-            fields=["amount"],
+            "Expense Claim",
+            filters={
+                "custom_chapter": chapter_name,
+                "approval_status": "Draft",
+                "docstatus": 0,
+                "posting_date": [">=", month_start],
+            },
+            fields=["total_claimed_amount"],
         )
 
         # YTD expenses
         ytd_expenses = frappe.get_all(
-            "Volunteer Expense",
+            "Expense Claim",
             filters={
-                "chapter": chapter_name,
-                "status": ["in", ["Approved", "Reimbursed"]],
-                "expense_date": [">=", year_start],
+                "custom_chapter": chapter_name,
+                "approval_status": "Approved",
+                "posting_date": [">=", year_start],
             },
-            fields=["amount"],
+            fields=["total_claimed_amount"],
         )
 
-        expenses_submitted = sum(exp.amount or 0 for exp in submitted_this_month)
-        expenses_approved = sum(exp.amount or 0 for exp in approved_this_month)
-        pending_approval = sum(exp.amount or 0 for exp in pending_this_month)
+        expenses_submitted = sum(exp.total_claimed_amount or 0 for exp in submitted_this_month)
+        expenses_approved = sum(exp.total_claimed_amount or 0 for exp in approved_this_month)
+        pending_approval = sum(exp.total_claimed_amount or 0 for exp in pending_this_month)
 
-        ytd_total = sum(exp.amount or 0 for exp in ytd_expenses)
+        ytd_total = sum(exp.total_claimed_amount or 0 for exp in ytd_expenses)
         ytd_count = len(ytd_expenses)
         average_claim = ytd_total / ytd_count if ytd_count > 0 else 0
 
