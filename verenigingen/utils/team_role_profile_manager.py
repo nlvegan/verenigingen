@@ -20,7 +20,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 
-from verenigingen.utils.base_role_profile_manager import (
+from verenigingen.services.member.account.base_role_profile_manager import (
     BaseRoleProfileManager,
     EntityConfig,
     _is_system_operation_authorized,
