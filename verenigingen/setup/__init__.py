@@ -486,9 +486,22 @@ def _seed_default_document_categories(settings):
     Idempotent — only adds categories that aren't already present.
     """
     defaults = [
-        {"category_name": "Policy", "category_icon": "📋"},
-        {"category_name": "Meeting Minutes", "category_icon": "📝"},
+        {
+            "category_name": "Policy",
+            "category_icon": "📋",
+            "folder_keywords": "programmacommissie, minimumprogramma",
+        },
+        {
+            "category_name": "Meeting Minutes",
+            "category_icon": "📝",
+            "folder_keywords": "bestuursvergadering, ledenvergadering, conferentie, congres, kaderdag, notulen",
+        },
         {"category_name": "Financial Report", "category_icon": "💰"},
+        {
+            "category_name": "Intern Bulletin",
+            "category_icon": "📰",
+            "folder_keywords": "intern bulletin",
+        },
         {"category_name": "Other", "category_icon": "📎"},
     ]
 

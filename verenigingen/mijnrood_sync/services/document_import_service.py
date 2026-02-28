@@ -368,8 +368,30 @@ class DocumentImportService:
 
         doc_type = mapping["document_type"]
         original_name = doc.get("name") or upload_filename
+
+        from verenigingen.utils.date_extraction import extract_date_from_text, extract_year_from_text
+        from verenigingen.utils.folder_category_detector import detect_category_from_folder_path
+
+        # 1. Try MijnRood's date_uploaded first
         upload_date = self._parse_upload_date(doc)
-        year = str(upload_date.year) if upload_date else "Other"
+
+        # 2. If no DB date, try extracting from document name / upload filename
+        if not upload_date:
+            upload_date = extract_date_from_text(original_name)
+
+        # 3. If still no date, try the folder path
+        folder_path = self._get_folder_path(doc.get("folder_id"))
+        if not upload_date and folder_path:
+            upload_date = extract_date_from_text(folder_path)
+
+        # 4. Year from full date, or from text patterns, or "Other"
+        if upload_date:
+            year = str(upload_date.year)
+        else:
+            year = extract_year_from_text(original_name, default="Other")
+
+        # 5. Auto-detect category from folder path if currently "Other"
+        doc_type = detect_category_from_folder_path(folder_path or "", doc_type)
 
         # Save file to hierarchical storage
         from verenigingen.utils.file_storage import save_organization_document
@@ -448,6 +470,18 @@ class DocumentImportService:
             current = folder.get("parent_id")
         parts.reverse()
         return " / ".join(parts)
+
+    def _get_folder_path(self, folder_id: int | None) -> str | None:
+        """Compute the folder path string for a document's folder_id.
+
+        Uses the already-loaded folder_tree to build the path.
+        Returns None if folder_id is missing or not in the tree.
+        """
+        if folder_id is None or not self.folder_tree:
+            return None
+        if folder_id not in self.folder_tree:
+            return None
+        return self._compute_folder_path(folder_id, self.folder_tree)
 
     def _dry_run_summary(self, documents: list[dict]) -> dict:
         """Compute what would be imported without actually importing."""

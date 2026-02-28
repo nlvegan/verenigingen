@@ -7,7 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "category_name",
-  "category_icon"
+  "category_icon",
+  "folder_keywords"
  ],
  "fields": [
   {
@@ -24,12 +25,19 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Icon"
+  },
+  {
+   "description": "Comma-separated keywords for auto-detecting this category from folder names during document import (e.g., bestuursvergadering, ledenvergadering, notulen)",
+   "fieldname": "folder_keywords",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Folder Keywords"
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-11-10 12:00:00.000000",
+ "modified": "2026-02-28 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Board Document Category",

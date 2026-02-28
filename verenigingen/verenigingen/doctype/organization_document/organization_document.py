@@ -18,7 +18,6 @@ Documents are stored in hierarchical paths:
 """
 
 import os
-import re
 from typing import Optional
 
 import frappe
@@ -229,12 +228,14 @@ class OrganizationDocument(Document):
         return "unknown"
 
     def _extract_year_from_document_name(self) -> str:
-        """Extract year from document name, or return 'Other' if not found"""
-        if self.document_name:
-            year_match = re.search(r"\b(20\d{2})\b", self.document_name)
-            if year_match:
-                return year_match.group(1)
-        return "Other"
+        """Extract year from document name, or return 'Other' if not found.
+
+        Delegates to shared date_extraction utility for comprehensive
+        pattern matching (ISO, European, Dutch month names, etc.).
+        """
+        from verenigingen.utils.date_extraction import extract_year_from_text
+
+        return extract_year_from_text(self.document_name or "", default="Other")
 
     def get_organization_display_name(self) -> str:
         """Get a human-readable organization name for display"""

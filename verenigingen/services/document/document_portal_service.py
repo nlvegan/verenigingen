@@ -652,20 +652,17 @@ class DocumentPortalService(StatelessService):
     def _extract_year(self, document_name: str) -> str:
         """Extract year from document name, or return current year.
 
-        Handles multiple formats:
-        - YYYYMMDD at start of filename (e.g., 20230128-document.pdf)
-        - Standalone year with word boundaries (e.g., Report 2023.pdf)
+        Delegates to shared date_extraction utility which handles:
+        - YYYYMMDD at start of filename
+        - YYYY-MM-DD (ISO format)
+        - DD-MM-YYYY (European format)
+        - Space-separated dates
+        - Dutch month names
+        - Standalone year with word boundaries
         """
-        if document_name:
-            # First try YYYYMMDD format at start of filename
-            date_match = re.search(r"^(20\d{2})\d{4}", document_name)
-            if date_match:
-                return date_match.group(1)
-            # Then try standalone year with word boundaries
-            year_match = re.search(r"\b(20\d{2})\b", document_name)
-            if year_match:
-                return year_match.group(1)
-        return str(frappe.utils.now_datetime().year)
+        from verenigingen.utils.date_extraction import extract_year_from_text
+
+        return extract_year_from_text(document_name, default=str(frappe.utils.now_datetime().year))
 
     def _check_duplicate_document(self, request: DocumentUploadRequest) -> Optional[str]:
         """
