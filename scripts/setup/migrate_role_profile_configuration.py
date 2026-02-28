@@ -63,7 +63,7 @@ def migrate_team_configurations():
     # Since hardcoded mappings were removed in the refactoring, 
     # we need to provide a migration mapping here
     LEGACY_TEAM_MAPPINGS = {
-        "Kascommissie": "Verenigingen Treasurer",
+        "Kascommissie": "Verenigingen Auditor",
         "Communications Team": "Verenigingen Volunteer",
         # Add other known team mappings here based on historical configuration
     }

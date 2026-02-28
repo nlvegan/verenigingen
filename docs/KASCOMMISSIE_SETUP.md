@@ -26,17 +26,11 @@ The kascommissie (audit committee) fixtures provide a complete solution for esta
 - **Status:** Active
 - **Responsibilities:** Financial oversight, audit functions, compliance monitoring
 
-### 3. System Role: `Verenigingen Kascommissie`
+### 3. Role Profile: `Verenigingen Auditor`
 
-**File:** `verenigingen/fixtures/role.json`
+The Kascommissie role profile has been merged into **Verenigingen Auditor**.
 
-- **Role Name:** Verenigingen Kascommissie
-- **Desk Access:** Yes
-- **Home Page:** /app/verenigingen
-
-### 4. Role Profile: `Verenigingen Kascommissie`
-
-**File:** `verenigingen/fixtures/role_profile_kascommissie.json`
+**File:** `verenigingen/fixtures/role_profile.json`
 
 Combined roles for comprehensive audit access:
 
@@ -44,7 +38,6 @@ Combined roles for comprehensive audit access:
 - **Employee** - Employee module access
 - **Auditor** - Built-in ERPNext audit permissions
 - **Accounts User** - Read access to accounting data
-- **Verenigingen Kascommissie** - Custom role for specific permissions
 
 ## Audit Access Capabilities
 

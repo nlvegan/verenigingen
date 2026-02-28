@@ -89,18 +89,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Support team access
   - Advanced reporting
 
-### 9. **Verenigingen Finance Manager** (NEW)
-
-- **For**: Senior financial staff
-- **Access**: Full financial management
-- **Additional Modules**: Buying, Stock, Assets
-- **Key Features**:
-  - Complete accounting access
-  - Purchase management
-  - Asset tracking
-  - Financial planning
-
-### 10. **Verenigingen System Administrator**
+### 9. **Verenigingen System Administrator**
 
 - **For**: IT administrators and system managers
 - **Access**: Full system access
@@ -110,7 +99,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - User management
   - Technical administration
 
-### 11. **Verenigingen Auditor**
+### 10. **Verenigingen Auditor**
 
 - **For**: Internal auditors and compliance officers
 - **Access**: Read-only access to financial and governance data
@@ -120,7 +109,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Generate compliance reports
   - Quality management tools
 
-### 12. **Verenigingen Guest** (NEW)
+### 11. **Verenigingen Guest** (NEW)
 
 - **For**: Non-members and public users
 - **Access**: Public website only

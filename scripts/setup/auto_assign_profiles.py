@@ -92,7 +92,7 @@ def determine_user_profile(user_email):
     if "Verenigingen Staff" in user_roles:
         # Check for finance focus
         if "Accounts Manager" in user_roles:
-            return "Verenigingen Finance Manager"
+            return "Verenigingen Treasurer"
         return "Verenigingen Staff"
 
     # 3. Audit roles

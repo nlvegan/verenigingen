@@ -21,10 +21,8 @@ ROLE_MODULE_MAPPING = {
     "Verenigingen Communications Officer": "Verenigingen Volunteer",
     "Verenigingen Event Coordinator": "Verenigingen Volunteer",
     Roles.VERENIGINGEN_STAFF: "Verenigingen National Board Member",
-    "Verenigingen Finance Manager": "Verenigingen Treasurer",
     "Verenigingen System Administrator": None,  # Full access
     "Verenigingen Auditor": "Verenigingen Auditor",
     "Verenigingen Guest": "Verenigingen Member",
-    "Verenigingen Kascommissie": "Verenigingen Auditor",
     "Verenigingen National Board Member": "Verenigingen National Board Member",
 }

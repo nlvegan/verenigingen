@@ -6,7 +6,7 @@ This is a ground-truth approach that derives the profile from actual assignments
 trying to maintain state through add/remove operations.
 
 Priority Order (highest to lowest):
-1. Special accounting roles (Treasurer, Kascommissie) — priority 100
+1. Special accounting roles (Treasurer, Auditor) — priority 100
 2. Board roles with custom profiles — priority 80
 3. Association-wide staff teams — priority 75
 4. Default board member profile — priority 70
@@ -42,7 +42,7 @@ PROFILE_VOLUNTEER = "Verenigingen Volunteer"
 PROFILE_MEMBER = "Verenigingen Member"
 
 # Priority levels for profile conflicts
-PRIORITY_SPECIAL_ACCOUNTING = 100  # Treasurer, Kascommissie with accounting access
+PRIORITY_SPECIAL_ACCOUNTING = 100  # Treasurer, Auditor with accounting access
 PRIORITY_BOARD_ROLE_SPECIFIC = 80  # Board roles with custom profiles
 PRIORITY_BOARD_DEFAULT = 70  # Default board member profile
 PRIORITY_STAFF = 75  # Association-wide staff teams
@@ -233,7 +233,7 @@ def calculate_user_role_profile(user: str) -> Optional[str]:
         str: Role profile name, or None if user is not a member
 
     Priority Order (highest to lowest):
-        1. Special accounting roles (Treasurer, Kascommissie) - Priority 100
+        1. Special accounting roles (Treasurer, Auditor) - Priority 100
         2. Board roles with custom profiles - Priority 80
         3. Association-wide staff teams - Priority 75
         4. Default board member profile - Priority 70
@@ -491,7 +491,7 @@ def get_profile_priority_for_role(role_name: str, profile_name: str) -> int:
     """
     Determine priority for a role based on role name and profile.
 
-    Special accounting roles (Treasurer, Kascommissie, financial positions) get highest priority.
+    Special accounting roles (Treasurer, Auditor, financial positions) get highest priority.
 
     Supports both English and Dutch keywords for maximum compatibility.
 
@@ -509,11 +509,9 @@ def get_profile_priority_for_role(role_name: str, profile_name: str) -> int:
     # Dutch accounting keywords
     dutch_accounting_keywords = [
         "penningmeester",  # treasurer
-        "kascommissie",  # audit committee
         "boekhouding",  # accounting
         "financiën",  # finances
         "financieel",  # financial
-        "kascommissielid",  # audit committee member
         "financieel beheerder",  # financial controller
     ]
 

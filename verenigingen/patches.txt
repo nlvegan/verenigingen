@@ -41,3 +41,4 @@ verenigingen.patches.v2_1.sync_module_profiles_safely
 verenigingen.patches.v2_1.migrate_contribution_mode_values
 verenigingen.patches.v2_1.backfill_sync_event_change_tags
 verenigingen.patches.v2_1.rename_terminated_status_to_quit
+verenigingen.patches.v2_1.enable_desk_settings_for_volunteers

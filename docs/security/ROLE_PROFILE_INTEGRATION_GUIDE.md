@@ -60,7 +60,7 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 
 - All HIGH level profiles +
 - `Verenigingen Chapter Board Member` - Chapter operations (+ contextual validation)
-- `Verenigingen Kascommissie` - Audit and compliance access
+- `Verenigingen Auditor` - Audit and compliance access
 - `Verenigingen Staff` - Administrative support
 
 **Use Cases:** Reporting, analytics, read operations, self-service operations
