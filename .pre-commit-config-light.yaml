@@ -76,13 +76,6 @@ repos:
         pass_filenames: true
         exclude: '^(archived_|tests/|scripts/)'
 
-      - id: tier1-tests
-        name: Tier 1 Tests (Direct Unit Tests)
-        entry: python scripts/testing/test_impact_analyzer_v2.py --tier tier1 --run
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-        always_run: true
 
 # =============================================================================
 # WHAT MOVED TO CI:
