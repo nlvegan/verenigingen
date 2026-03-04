@@ -313,7 +313,6 @@
 ./verenigingen/templates/pages/workflow_demo.py
 ./verenigingen/tests/backend/business_logic/test_per_type_minimum_period.py
 ./verenigingen/tests/backend/components/expense_form_test.py
-./verenigingen/tests/backend/components/test_payment_interval_fix.py
 ./verenigingen/tests/backend/components/test_payment_reports_runner.py
 ./verenigingen/tests/backend/comprehensive/test_comprehensive_edge_cases.py
 ./verenigingen/tests/backend/comprehensive/test_doctype_validation_comprehensive.py
