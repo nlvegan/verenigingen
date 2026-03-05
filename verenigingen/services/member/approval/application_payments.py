@@ -143,38 +143,36 @@ def create_customer_for_member(member):
     if not frappe.has_permission("Contact", "create"):
         frappe.throw(_("Insufficient permissions to create Contact"))
 
-    # Use transaction management for data integrity (skip if in test environment)
-    needs_transaction = not frappe.flags.in_test
+    # Use savepoint for data integrity — allows rollback without conflicting
+    # with the caller's transaction (frappe.db.begin() causes implicit commit errors
+    # when called inside an existing transaction, e.g. from MijnRood sync events).
+    from frappe.database import savepoint
+
     try:
-        if needs_transaction:
-            frappe.db.begin()
+        with savepoint(catch=Exception):
+            # Create Customer record (without direct email/mobile - these come from Contact via fetch_from)
+            customer = frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": member.full_name,
+                    "customer_type": "Individual",
+                    "customer_group": frappe.db.get_single_value("Selling Settings", "customer_group")
+                    or "Individual",
+                    "territory": frappe.db.get_single_value("Selling Settings", "territory")
+                    or "All Territories",
+                    "member": member.name,  # Direct link to member record
+                }
+            )
+            customer.insert()
 
-        # Create Customer record (without direct email/mobile - these come from Contact via fetch_from)
-        customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": member.full_name,
-                "customer_type": "Individual",
-                "customer_group": frappe.db.get_single_value("Selling Settings", "customer_group")
-                or "Individual",
-                "territory": frappe.db.get_single_value("Selling Settings", "territory") or "All Territories",
-                "member": member.name,  # Direct link to member record
-            }
-        )
-        customer.insert()
+            # Create Contact record using existing Dutch name utilities
+            contact = create_contact_for_customer(customer, member)
+            if not contact:
+                frappe.throw(_("Failed to create Contact for Customer"))
 
-        # Create Contact record using existing Dutch name utilities
-        contact = create_contact_for_customer(customer, member)
-        if not contact:
-            if needs_transaction:
-                frappe.db.rollback()
-            frappe.throw(_("Failed to create Contact for Customer"))
+            # Set primary contact - ERPNext will automatically populate email_id/mobile_no via fetch_from
+            customer.db_set("customer_primary_contact", contact.name, update_modified=False)
 
-        # Set primary contact - ERPNext will automatically populate email_id/mobile_no via fetch_from
-        customer.db_set("customer_primary_contact", contact.name, update_modified=False)
-
-        if needs_transaction:
-            frappe.db.commit()
         frappe.logger().info(
             f"Created Customer {customer.name} with Contact {contact.name} for Member {member.name}"
         )
@@ -182,8 +180,6 @@ def create_customer_for_member(member):
         return customer
 
     except Exception as e:
-        if needs_transaction:
-            frappe.db.rollback()
         frappe.log_error(
             f"Failed to create Customer for Member {member.name}: {str(e)}", "Customer Creation Error"
         )
