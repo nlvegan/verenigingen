@@ -184,7 +184,7 @@ class MolliePaymentOrchestrator:
     def _get_bank_account_config(self):
         """Get Mollie bank account config with per-instance caching (avoids 4x repeated validation)."""
         if self._bank_config_cache is None:
-            self._bank_config_cache = self._get_bank_account_config()
+            self._bank_config_cache = self.bt_creator.get_mollie_bank_account_config()
         return self._bank_config_cache
 
     def get_processing_status(self, payment_id: str) -> ProcessingStatus:
