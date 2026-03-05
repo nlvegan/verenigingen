@@ -123,7 +123,7 @@ class TerminationExecutionService(StatelessService):
         # transaction (e.g. MijnRood sync event processor). FOR UPDATE locks
         # still work within savepoints.
         try:
-            with frappe.db.savepoint():
+            with frappe.database.savepoint():
                 # STEP 1: Idempotency check with database-level locking
                 # FOR UPDATE lock prevents race conditions in concurrent execution
                 if self._check_idempotency_with_lock(termination_request):
@@ -481,7 +481,7 @@ class TerminationExecutionService(StatelessService):
         # Revert status in a savepoint so this works both standalone and
         # within an existing transaction (e.g. MijnRood sync event processor).
         try:
-            with frappe.db.savepoint():
+            with frappe.database.savepoint():
                 # Reload document to get fresh state after savepoint rollback
                 termination_request.reload()
 
