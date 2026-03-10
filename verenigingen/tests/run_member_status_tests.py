@@ -13,7 +13,7 @@ def run_tests():
     
     try:
         # Import test module
-        from verenigingen.tests.test_member_status_transitions_enhanced import TestMemberStatusTransitionsEnhanced
+        from verenigingen.tests.member.test_member_status_transitions_enhanced import TestMemberStatusTransitionsEnhanced
         
         # Create test suite
         suite = unittest.TestLoader().loadTestsFromTestCase(TestMemberStatusTransitionsEnhanced)
