@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, Mock, patch
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-from verenigingen.tests.test_mollie_api_data_factory import (
+from verenigingen.tests.payment.test_mollie_api_data_factory import (
     MollieApiDataFactory,
     create_test_settlements_for_revenue_analysis,
     create_test_data_for_caching_validation
