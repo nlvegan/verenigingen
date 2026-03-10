@@ -17,8 +17,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 # Import all security test modules
-from verenigingen.tests.test_security_setup import run_tests as run_security_setup_tests
-from verenigingen.tests.test_admin_tools_security import run_tests as run_admin_tools_tests
+from verenigingen.tests.security.test_security_setup import run_tests as run_security_setup_tests
+from verenigingen.tests.security.test_admin_tools_security import run_tests as run_admin_tools_tests
 
 
 class SecurityTestMetrics:
