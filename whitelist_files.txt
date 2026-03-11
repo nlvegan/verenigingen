@@ -328,8 +328,8 @@
 ./verenigingen/tests/run_chapter_members_tests.py
 ./verenigingen/tests/run_member_status_tests.py
 ./verenigingen/tests/support/sepa_payment_failure_scenarios.py
-./verenigingen/tests/test_api_security_decorators.py
-./verenigingen/tests/test_dues_schedule_system.py
+./verenigingen/tests/security/test_api_security_decorators.py
+./verenigingen/tests/payment/test_dues_schedule_system.py
 ./verenigingen/tests/utils/contribution_amendment_test_utilities.py
 ./verenigingen/tests/utils/coverage_reporter.py
 ./verenigingen/tests/utils/hybrid_report_tester.py

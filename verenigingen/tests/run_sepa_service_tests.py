@@ -45,10 +45,10 @@ sys.path.insert(0, str(app_path))
 
 # Import test modules
 try:
-    from verenigingen.tests.test_sepa_mandate_identity_service import TestSEPAMandateIdentityService
-    from verenigingen.tests.test_sepa_mandate_validation_service import TestSEPAMandateValidationService
-    from verenigingen.tests.test_sepa_mandate_lifecycle_service import TestSEPAMandateLifecycleService
-    from verenigingen.tests.test_sepa_mandate_member_integration_service import TestSEPAMandateMemberIntegrationService
+    from verenigingen.tests.sepa.test_sepa_mandate_identity_service import TestSEPAMandateIdentityService
+    from verenigingen.tests.sepa.test_sepa_mandate_validation_service import TestSEPAMandateValidationService
+    from verenigingen.tests.sepa.test_sepa_mandate_lifecycle_service import TestSEPAMandateLifecycleService
+    from verenigingen.tests.sepa.test_sepa_mandate_member_integration_service import TestSEPAMandateMemberIntegrationService
 
     # Track which test modules were successfully imported
     AVAILABLE_TEST_MODULES = {
