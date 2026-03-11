@@ -8,7 +8,7 @@ The validation test suite consists of three main test files that comprehensively
 
 1. **`test_validation_regression.py`** - Core regression tests to prevent known issues
 2. **`test_application_submission_validation.py`** - Application submission flow validation
-3. **`test_doctype_validation_comprehensive.py`** - Comprehensive doctype field validation
+3. **`test_doctype_validation.py`** - Comprehensive doctype field validation
 
 ## Test Files
 
@@ -38,7 +38,7 @@ The validation test suite consists of three main test files that comprehensively
 
 **Whitelisted Function**: `run_application_submission_tests()`
 
-### 3. test_doctype_validation_comprehensive.py
+### 3. test_doctype_validation.py
 
 **Purpose**: Comprehensive validation of doctype field configurations and options.
 
@@ -61,7 +61,7 @@ python verenigingen/tests/test_runner.py validation
 # Run specific test suites
 bench --site dev.veganisme.net execute verenigingen.tests.test_validation_regression.run_validation_regression_suite
 bench --site dev.veganisme.net execute verenigingen.tests.test_application_submission_validation.run_application_submission_tests
-bench --site dev.veganisme.net execute verenigingen.tests.test_doctype_validation_comprehensive.run_doctype_validation_tests
+bench --site dev.veganisme.net execute verenigingen.tests.backend.comprehensive.test_doctype_validation.run_doctype_validation_tests
 
 # Run integrated validation tests via test runner
 bench --site dev.veganisme.net execute verenigingen.tests.test_runner.run_validation_tests

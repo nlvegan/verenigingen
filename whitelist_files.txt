@@ -315,7 +315,7 @@
 ./verenigingen/tests/backend/components/expense_form_test.py
 ./verenigingen/tests/backend/components/test_payment_reports_runner.py
 ./verenigingen/tests/backend/comprehensive/test_comprehensive_edge_cases.py
-./verenigingen/tests/backend/comprehensive/test_doctype_validation_comprehensive.py
+./verenigingen/tests/backend/comprehensive/test_doctype_validation.py
 ./verenigingen/tests/backend/features/test_application_special_chars.py
 ./verenigingen/tests/backend/features/test_application_submission_validation.py
 ./verenigingen/tests/backend/features/test_complete_application_flow.py

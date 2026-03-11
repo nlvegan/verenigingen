@@ -12,7 +12,7 @@ from datetime import datetime
 
 # Import all test runners
 from test_member_lifecycle_complete import run_member_lifecycle_tests
-from test_financial_workflows_complete import run_financial_workflow_tests
+from test_financial_workflows import run_financial_workflow_tests
 from test_sepa_processing_pipeline import run_sepa_pipeline_tests
 from test_erpnext_integration_comprehensive import run_erpnext_integration_tests
 from test_communication_system_integration import run_communication_system_tests

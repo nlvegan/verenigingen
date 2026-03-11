@@ -47,7 +47,7 @@ Usage:
 python /path/to/run_authentication_test_suite.py
 
 Or run individual test modules:
-- test_authentication_flows_comprehensive.py
+- test_authentication_flows.py
 - test_portal_authentication_security.py  
 - test_api_authentication_decorators_integration.py
 - test_sepa_mandate_authentication_security.py
@@ -88,7 +88,7 @@ class AuthenticationTestSuiteRunner:
         test_modules = [
             {
                 "name": "Member Authentication Flow",
-                "module": "test_authentication_flows_comprehensive",
+                "module": "test_authentication_flows",
                 "function": "run_authentication_integration_tests",
                 "description": "Core member authentication and session management"
             },
@@ -270,7 +270,7 @@ def run_specific_test_module(module_name: str) -> bool:
     
     test_modules = {
         "comprehensive": {
-            "module": "test_authentication_flows_comprehensive",
+            "module": "test_authentication_flows",
             "function": "run_authentication_integration_tests"
         },
         "portal": {

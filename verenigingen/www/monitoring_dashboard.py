@@ -499,7 +499,7 @@ def refresh_advanced_dashboard_data():
 @development_only_api(operation_type=OperationType.UTILITY)
 def cleanup_test_data():
     """Clean up test data created during comprehensive tests."""
-    from verenigingen.tests.integration.test_monitoring_system_comprehensive import (
+    from verenigingen.tests.integration.test_monitoring_system import (
         cleanup_test_data as cleanup_impl,
     )
 
