@@ -459,8 +459,9 @@ class MembershipCreationService(StatelessService):
             "dues_rate",
         ]
         for field in copy_fields:
-            if hasattr(template, field) and getattr(template, field):
-                setattr(schedule, field, getattr(template, field))
+            value = getattr(template, field, None)
+            if value is not None and value != "":
+                setattr(schedule, field, value)
 
         schedule.template_reference = template_name
         schedule.save()

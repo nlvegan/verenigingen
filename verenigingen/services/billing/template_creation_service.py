@@ -249,8 +249,9 @@ class TemplateCreationService(StatelessService):
         ]
 
         for field in template_fields:
-            if hasattr(template, field) and getattr(template, field):
-                setattr(schedule, field, getattr(template, field))
+            value = getattr(template, field, None)
+            if value is not None and value != "":
+                setattr(schedule, field, value)
 
         # Set instance-specific fields
         schedule.is_template = 0

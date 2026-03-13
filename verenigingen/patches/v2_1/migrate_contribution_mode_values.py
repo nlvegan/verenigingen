@@ -11,107 +11,66 @@ Mapping:
 - Progressive → Income-Based with income_calculation_type = "Progressive"
 
 This patch is idempotent and can be run multiple times safely.
+Uses raw SQL to avoid ORM filtering issues with invalid Select values.
 """
 
 import frappe
-from frappe import _
 
 
 def execute():
     """Migrate contribution_mode values to new schema."""
-    # Check if Membership Dues Schedule doctype exists
     if not frappe.db.table_exists("tabMembership Dues Schedule"):
         return
 
-    # Check if the field exists (may have been added in this same migration)
     meta = frappe.get_meta("Membership Dues Schedule")
     if not meta.has_field("contribution_mode"):
         return
 
-    # Define the migration mapping
+    # Use raw SQL — frappe.get_all may silently filter out records whose
+    # contribution_mode is not in the current Select options list.
     migrations = [
-        {
-            "old_value": "Tier",
-            "new_value": "Fixed",
-            "additional_updates": {},
-        },
-        {
-            "old_value": "Calculator",
-            "new_value": "Income-Based",
-            "additional_updates": {
-                "income_calculation_type": "Percentage",
-            },
-        },
-        {
-            "old_value": "Custom",
-            "new_value": "Flexible",
-            "additional_updates": {},
-        },
-        {
-            "old_value": "Progressive",
-            "new_value": "Income-Based",
-            "additional_updates": {
-                "income_calculation_type": "Progressive",
-            },
-        },
+        ("Tier", "Fixed", None),
+        ("Calculator", "Income-Based", "Percentage"),
+        ("Custom", "Flexible", None),
+        ("Progressive", "Income-Based", "Progressive"),
     ]
 
-    migrated_count = 0
-    errors = []
+    total = 0
+    for old_value, new_value, income_calc_type in migrations:
+        if income_calc_type:
+            frappe.db.sql(
+                """UPDATE `tabMembership Dues Schedule`
+                   SET contribution_mode = %s, income_calculation_type = %s
+                   WHERE contribution_mode = %s""",
+                (new_value, income_calc_type, old_value),
+            )
+        else:
+            frappe.db.sql(
+                """UPDATE `tabMembership Dues Schedule`
+                   SET contribution_mode = %s
+                   WHERE contribution_mode = %s""",
+                (new_value, old_value),
+            )
 
-    for mapping in migrations:
-        old_value = mapping["old_value"]
-        new_value = mapping["new_value"]
-        additional = mapping["additional_updates"]
+        affected = frappe.db.sql("SELECT ROW_COUNT() as cnt")[0][0]
+        if affected:
+            frappe.logger().info(
+                f"Migrated {affected} Membership Dues Schedule records: "
+                f"contribution_mode '{old_value}' → '{new_value}'"
+            )
+            total += affected
 
-        # Find records with old value
-        schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"contribution_mode": old_value},
-            fields=["name"],
-        )
+    # Also fix NULL values — set to DocType default
+    frappe.db.sql(
+        """UPDATE `tabMembership Dues Schedule`
+           SET contribution_mode = 'Fixed'
+           WHERE contribution_mode IS NULL"""
+    )
+    null_fixed = frappe.db.sql("SELECT ROW_COUNT() as cnt")[0][0]
+    if null_fixed:
+        frappe.logger().info(f"Set {null_fixed} NULL contribution_mode records to 'Fixed'")
+        total += null_fixed
 
-        if not schedules:
-            continue
-
-        frappe.logger().info(
-            f"Migrating {len(schedules)} Membership Dues Schedule records "
-            f"from contribution_mode='{old_value}' to '{new_value}'"
-        )
-
-        for schedule in schedules:
-            try:
-                # Build update dict
-                update_values = {"contribution_mode": new_value}
-                update_values.update(additional)
-
-                # Update directly via SQL for efficiency
-                frappe.db.set_value(
-                    "Membership Dues Schedule",
-                    schedule.name,
-                    update_values,
-                    update_modified=False,  # Don't change modified timestamp
-                )
-
-                migrated_count += 1
-
-            except Exception as e:
-                errors.append(f"{schedule.name}: {str(e)}")
-                frappe.log_error(
-                    f"Error migrating contribution_mode for {schedule.name}: {str(e)}",
-                    "Contribution Mode Migration Error",
-                )
-
-    # Commit changes
-    if migrated_count > 0:
+    if total:
         frappe.db.commit()
-        frappe.logger().info(f"Successfully migrated {migrated_count} Membership Dues Schedule records")
-
-    if errors:
-        frappe.logger().error(f"Errors during contribution_mode migration: {errors}")
-
-    # Log summary
-    if migrated_count > 0 or errors:
-        frappe.logger().info(
-            f"Contribution mode migration complete. " f"Migrated: {migrated_count}, Errors: {len(errors)}"
-        )
+        frappe.logger().info(f"Contribution mode migration complete: {total} records updated")
