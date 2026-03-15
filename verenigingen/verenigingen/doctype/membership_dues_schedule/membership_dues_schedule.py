@@ -14,7 +14,6 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
-    development_only_api,
     high_security_api,
     standard_api,
 )
@@ -1309,66 +1308,6 @@ def update_member_contribution(schedule_name: str, updates: str):
     return {"success": True, "schedule": schedule.as_dict()}
 
 
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def test_billing_day_field():
-    """
-    DELEGATES TO: billing_debug_utilities.test_billing_day_field()
-
-    Test billing_day field implementation.
-    """
-    from verenigingen.services.billing.billing_debug_utilities import (
-        test_billing_day_field as _test_billing_day_field,
-    )
-
-    return _test_billing_day_field()
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def create_test_schedule(member_name: str, membership_name: str = None):
-    """
-    DELEGATES TO: billing_debug_utilities.create_test_schedule()
-
-    Create a test dues schedule for development.
-    """
-    from verenigingen.services.billing.billing_debug_utilities import (
-        create_test_schedule as _create_test_schedule,
-    )
-
-    return _create_test_schedule(member_name, membership_name)
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def debug_template_daglid_issue():
-    """
-    DELEGATES TO: billing_debug_utilities.debug_template_daglid_issue()
-
-    Debug Template-Daglid billing frequency override issue.
-    """
-    from verenigingen.services.billing.billing_debug_utilities import (
-        debug_template_daglid_issue as _debug_template_daglid_issue,
-    )
-
-    return _debug_template_daglid_issue()
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def test_template_daglid_fix():
-    """
-    DELEGATES TO: billing_debug_utilities.test_template_daglid_fix()
-
-    Test that Template-Daglid billing frequency is preserved during template recreation.
-    """
-    from verenigingen.services.billing.billing_debug_utilities import (
-        test_template_daglid_fix as _test_template_daglid_fix,
-    )
-
-    return _test_template_daglid_fix()
-
-
 def has_permission(doc, user=None, permission_type="read"):
     """
     DELEGATES TO: DuesSchedulePermissionService.check_document_permission()
@@ -1393,22 +1332,6 @@ def get_permission_query_conditions(user=None):
     )
 
     return _get_permission_query_conditions(user)
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
-def validate_and_fix_schedule_dates():
-    """
-    DELEGATES TO: billing_debug_utilities.validate_and_fix_schedule_dates()
-
-    Validate and fix all dues schedule dates to prevent issues.
-    Returns a report of issues found and fixed.
-    """
-    from verenigingen.services.billing.billing_debug_utilities import (
-        validate_and_fix_schedule_dates as _validate_and_fix_schedule_dates,
-    )
-
-    return _validate_and_fix_schedule_dates()
 
 
 def _log_blocked_members_summary():
