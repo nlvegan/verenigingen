@@ -935,6 +935,11 @@ class MijnRoodEventApplicationService(StatefulService):
         member_name = event.linked_member
         if not member_name:
             member_name = frappe.db.get_value("Member", {"member_id": new_data.get("id")}, "name")
+        if not member_name:
+            # Fallback: match by old email (pre-change) for email change events
+            old_email = (old_data or {}).get("email")
+            if old_email:
+                member_name = frappe.db.get_value("Member", {"email": old_email}, "name")
 
         if not member_name:
             return {
@@ -1106,6 +1111,10 @@ class MijnRoodEventApplicationService(StatefulService):
         member_name = event.linked_member
         if not member_name:
             member_name = frappe.db.get_value("Member", {"member_id": new_data.get("id")}, "name")
+        if not member_name:
+            old_email = (old_data or {}).get("email")
+            if old_email:
+                member_name = frappe.db.get_value("Member", {"email": old_email}, "name")
 
         if not member_name:
             return {

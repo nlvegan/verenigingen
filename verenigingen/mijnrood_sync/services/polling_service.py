@@ -263,7 +263,7 @@ class MijnRoodPollingService(StatefulService):
         # 5. Process NEW rows
         for row_id in new_ids:
             new_data = row_data_by_id.get(row_id, {})
-            linked_member = self._find_linked_member(table, row_id)
+            linked_member = self._find_linked_member(table, row_id, row_data=new_data)
 
             self._create_sync_event(
                 event_type="New",
@@ -292,7 +292,9 @@ class MijnRoodPollingService(StatefulService):
             state = state_by_id[row_id]
             old_data = json.loads(state.raw_data) if state.raw_data else {}
             changed_fields = self._compute_changed_fields(old_data, new_data)
-            linked_member = state.get("linked_member") or self._find_linked_member(table, row_id)
+            linked_member = state.get("linked_member") or self._find_linked_member(
+                table, row_id, row_data=old_data
+            )
 
             self._create_sync_event(
                 event_type="Changed",
@@ -320,7 +322,9 @@ class MijnRoodPollingService(StatefulService):
         for row_id in deleted_ids:
             state = state_by_id[row_id]
             old_data = json.loads(state.raw_data) if state.raw_data else {}
-            linked_member = state.get("linked_member")
+            linked_member = state.get("linked_member") or self._find_linked_member(
+                table, row_id, row_data=old_data
+            )
 
             self._create_sync_event(
                 event_type="Deleted",
@@ -652,11 +656,16 @@ class MijnRoodPollingService(StatefulService):
             summary += f" (+{len(changed_fields) - 5} more)"
         return summary
 
-    def _find_linked_member(self, table: str, row_id: int) -> Optional[str]:
-        """Look up Verenigingen Member by member_id matching MijnRood row ID.
+    def _find_linked_member(self, table: str, row_id: int, row_data: Optional[dict] = None) -> Optional[str]:
+        """Look up Verenigingen Member by member_id, falling back to email.
 
         Applies to admin_member and admin_membership_application tables,
         which both use member_id to link to Verenigingen Members.
+
+        Args:
+            table: MijnRood table name
+            row_id: MijnRood row primary key (maps to Member.member_id)
+            row_data: Optional row data dict containing email for fallback lookup
         """
         if table not in ("admin_member", "admin_membership_application"):
             return None
@@ -666,6 +675,14 @@ class MijnRoodPollingService(StatefulService):
             {"member_id": row_id},
             "name",
         )
+        if member:
+            return member
+
+        # Fallback: match by email when member_id lookup fails (e.g. members
+        # created before sync was set up, or whose member_id was never populated)
+        email = (row_data or {}).get("email")
+        if email:
+            member = frappe.db.get_value("Member", {"email": email}, "name")
         return member
 
 

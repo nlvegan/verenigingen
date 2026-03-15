@@ -215,5 +215,7 @@
   "sort_field": "detected_at",
   "sort_order": "DESC",
   "states": [],
+  "title_field": "change_summary",
+  "show_title_field_in_link": 1,
   "track_changes": 1
 }
