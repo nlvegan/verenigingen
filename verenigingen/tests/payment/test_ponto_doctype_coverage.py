@@ -10,12 +10,9 @@ Tests 4 Ponto integration DocTypes:
 External HTTP calls are mocked via @patch on client/service imports.
 """
 
-import json
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from datetime import datetime
 
 import frappe
-from frappe.utils import now_datetime, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 

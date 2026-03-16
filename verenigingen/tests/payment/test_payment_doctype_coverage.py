@@ -17,9 +17,7 @@ Also tests 2 Mollie services:
 - MollieWebhookService (webhook URL management)
 """
 
-import unittest
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_months, getdate, today
@@ -591,10 +589,6 @@ class TestPaymentHistory(EnhancedTestCase):
 
     def test_payment_history_validate_required_fields(self):
         """Missing payment_date should throw."""
-        from verenigingen.verenigingen.doctype.payment_history.payment_history import (
-            PaymentHistory,
-        )
-
         ph = frappe.new_doc("Payment History")
         ph.payment_date = None
         ph.amount = 10
