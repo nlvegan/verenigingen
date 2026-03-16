@@ -17,10 +17,9 @@ Covers:
 10. sales_invoice_account_handler — receivable account hook
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
