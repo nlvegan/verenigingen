@@ -7,8 +7,6 @@ DocTypes tested:
 3. MembershipGoal — goal tracking and calculation
 """
 
-from datetime import timedelta
-
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
