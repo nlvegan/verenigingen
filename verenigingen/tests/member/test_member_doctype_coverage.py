@@ -24,7 +24,6 @@ class TestMemberContactRequest(EnhancedTestCase):
         self.member = self.create_test_member(first_name="Contact", last_name=f"R{self.uid}")
         # Ensure member is Active
         frappe.db.set_value("Member", self.member.name, "membership_status", "Active", update_modified=False)
-        frappe.db.commit()
         self.member.reload()
 
     def _create_request(self, **overrides):
@@ -59,7 +58,6 @@ class TestMemberContactRequest(EnhancedTestCase):
     def test_validate_member_not_active(self):
         """Throws when member is not active."""
         frappe.db.set_value("Member", self.member.name, "membership_status", "Pending", update_modified=False)
-        frappe.db.commit()
         self.member.reload()
         doc = self._create_request()
         with self.assertRaises(frappe.ValidationError):

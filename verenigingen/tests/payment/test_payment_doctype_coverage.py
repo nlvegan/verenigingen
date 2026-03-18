@@ -403,7 +403,6 @@ class TestMollieAuditLog(EnhancedTestCase):
             "tampered_action",
             update_modified=False,
         )
-        frappe.db.commit()
 
         log.reload()
         self.assertFalse(log.verify_integrity())

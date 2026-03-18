@@ -13,7 +13,6 @@ Covers:
 9. department_approver_sync.py — on_board_member_change, get_financial_roles, etc.
 """
 
-import unittest
 from unittest.mock import MagicMock
 
 import frappe
@@ -352,7 +351,6 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
             return
         # Set status to Active/Approved which is required
         frappe.db.set_value("Member", member.name, "status", "Active")
-        frappe.db.commit()
 
         svc = self._get_service()
         summary = svc.create_volunteers_for_members([member.name])
@@ -373,7 +371,6 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
             self.skipTest("Member creation failed due to pre-existing customer handling bug")
             return
         self.create_test_volunteer(member_name=member.name)
-        frappe.db.commit()
 
         svc = self._get_service()
         summary = svc.create_volunteers_for_members([member.name])
