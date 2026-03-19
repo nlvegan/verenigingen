@@ -37,7 +37,7 @@ test:
 
 test-quick:
 	@echo "Running quick validation tests (SEPA naming + Chapter management)..."
-	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --module verenigingen.tests.test_sepa_mandate_naming
+	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --module verenigingen.tests.sepa.test_sepa_mandate_naming
 	@cd $(BENCH_DIR) && bench --site $(SITE) run-tests --module verenigingen.tests.backend.unit.services.test_chapter_management_service
 
 test-all:

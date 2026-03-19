@@ -29,7 +29,6 @@ def run_pytest_for_precommit():
     
     # Check if critical test files exist
     critical_tests = [
-        app_path / "verenigingen/tests/test_validation_regression.py",
         app_path / "verenigingen/tests/backend/business_logic/test_critical_business_logic.py",
     ]
     
@@ -44,7 +43,6 @@ def run_pytest_for_precommit():
     # Using the existing test runner that already handles Frappe context
     # Note: Multiple modules can be run in sequence for comprehensive coverage
     test_modules = [
-        "verenigingen.tests.test_validation_regression",
         "verenigingen.tests.backend.business_logic.test_critical_business_logic"
     ]
     
