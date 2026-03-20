@@ -139,21 +139,24 @@ Production Client Secret: [Your production client secret]
 
 **Certificate Configuration**
 
+Certificates are entered as inline PEM content (not file paths). Copy and paste the full PEM certificate text into each field.
+
 ```
 Use Ibanity mTLS: ✓
 Ibanity API URL: https://api.ibanity.com
 Ibanity Client ID: [Your Ibanity client ID]
 Ibanity Client Secret: [Your Ibanity client secret]
 
-mTLS Certificates:
-  Certificate Path: /path/to/certificate.pem
-  Private Key Path: /path/to/private_key.pem
-  Key Passphrase: [If applicable]
+mTLS Certificates (paste PEM content):
+  Client Certificate (PEM): [Paste full certificate PEM text]
+  Private Key (PEM): [Paste full private key PEM text]
+  Private Key Passphrase: [If applicable]
 
 Signature Certificate (for payment initiation):
   Signature Certificate ID: [From Ibanity portal]
-  Signature Certificate Path: /path/to/signature_cert.pem
-  Signature Private Key Path: /path/to/signature_key.pem
+  Signature Certificate (PEM): [Paste signature certificate PEM text]
+  Signature Private Key (PEM): [Paste signature private key PEM text]
+  Signature Key Passphrase: [If applicable]
 ```
 
 ### Step 3: Authorize Ponto Access
@@ -439,50 +442,122 @@ Check the Error Log for detailed error messages:
 **Ponto Settings**
 
 ```
-sandbox_mode: Use test environment
+sandbox_mode: Use test environment (boolean)
 organization_id: Ponto organization ID
-sandbox_client_id/secret: Sandbox API credentials
-production_client_id/secret: Production API credentials
-ibanity_certificate: mTLS certificate path
-ibanity_private_key: mTLS private key path
-signature_certificate_id: Signature certificate ID
-auto_sync_enabled: Enable automatic transaction import
-sync_interval_hours: Hours between syncs
-enable_webhooks: Enable webhook notifications
+organization_name: Organization display name
+onboarding_complete: Whether Ponto onboarding is done (boolean)
+payments_activated: Whether outbound payments are enabled (boolean)
+payment_requests_activated: Whether payment requests are enabled (boolean)
+sandbox_client_id: Sandbox API Client ID
+sandbox_client_secret: Sandbox API Client Secret (encrypted)
+production_client_id: Production API Client ID
+production_client_secret: Production API Client Secret (encrypted)
+use_ibanity_mtls: Enable mTLS authentication for production (boolean)
+ibanity_api_url: Ibanity API base URL
+ibanity_client_id: Ibanity client ID for mTLS
+ibanity_client_secret: Ibanity client secret for mTLS (encrypted)
+ibanity_certificate: Client certificate - inline PEM content (Code field)
+ibanity_private_key: Private key - inline PEM content (Code field)
+ibanity_key_passphrase: Private key passphrase (encrypted)
+signature_certificate_id: Signature certificate ID from Ibanity portal
+signature_certificate: Signature certificate - inline PEM content (Code field)
+signature_private_key: Signature private key - inline PEM content (Code field)
+signature_key_passphrase: Signature key passphrase (encrypted)
+ibanity_access_token: Current OAuth2 access token (encrypted, auto-managed)
+ibanity_refresh_token: Current OAuth2 refresh token (encrypted, auto-managed)
+access_token_expiry: Access token expiry timestamp (auto-managed)
+bank_account_mappings: Table of Ponto Bank Account Mapping records
+auto_sync_enabled: Enable automatic transaction import (boolean)
+sync_interval_hours: Hours between automatic syncs (integer)
+last_sync_time: Last successful sync timestamp (auto-managed)
+enable_webhooks: Enable Ponto webhook notifications (boolean)
+require_webhook_signature: Validate webhook signatures (boolean)
+webhook_application_id: Webhook application ID from Ponto
+webhook_url: Auto-generated webhook endpoint URL
 ```
 
-**Ponto Bank Account Mapping**
+**Ponto Bank Account Mapping** (child table of Ponto Settings)
 
 ```
-ponto_account_id: Ponto account UUID
-iban: Bank account IBAN
-bank_account: Linked ERPNext Bank Account
-enabled: Enable for sync
-last_sync: Last successful sync time
+enabled: Enable sync for this account (boolean, default: enabled)
+ponto_account_id: Ponto account UUID from API (read-only)
+ponto_account_name: Account name/description from Ponto (read-only)
+ponto_iban: Bank account IBAN (read-only)
+ponto_currency: Account currency, e.g. EUR (read-only, Link to Currency)
+bank_account: Linked ERPNext Bank Account (Link)
+last_sync_time: Last successful sync time for this account
+transactions_imported: Count of transactions imported
+sync_status: Current sync status
+last_sync_failure_time: Time of last sync failure
+last_sync_error: Error message from last failed sync
 ```
 
-**Ponto Payment Link**
+**Ponto Payment Link** (naming: PONTO-LINK-####)
 
 ```
-payment_link_id: Ponto payment request ID
-payment_url: URL for member to pay
-amount: Payment amount
-reference: Invoice or payment reference
-status: pending/paid/expired/cancelled
+payment_type: Payment type (One-Time only; periodic not supported by Ponto Connect)
+amount: Payment amount (Currency, required)
+currency: Currency code, e.g. EUR (Link to Currency, required)
+description: Payment description shown to customer (required)
+status: Draft / Pending Authorization / Authorized / Executed / Rejected / Cancelled / Expired / Failed
+ponto_request_id: Ponto payment request ID (auto-populated)
+redirect_link: Payment URL for the member to complete payment (auto-populated)
+frequency: Payment frequency (for future periodic support)
+start_date / end_date: Scheduling dates (for future periodic support)
+next_payment_date: Next scheduled payment date
+total_payments_collected: Running total of collected payments
+debtor_name: Debtor (payer) name
+debtor_iban: Debtor bank account IBAN
+debtor_bank: Debtor bank name
+creditor_name: Creditor (association) name
+creditor_iban: Creditor bank account IBAN
+creditor_account: Creditor ERPNext account
+reference_doctype: Linked document type (e.g. Sales Invoice)
+reference_name: Linked document name
 member: Linked Member (optional)
 sales_invoice: Linked Sales Invoice (optional)
+payment_entry: Created Payment Entry (auto-populated after payment)
 ```
 
-**Ponto Sync Log**
+**Ponto Payment Request** (naming: PONTO-PAY-####)
+
+Used for outgoing payment initiation (SEPA Credit Transfers):
 
 ```
-sync_type: manual/scheduled/webhook
+ponto_account: Ponto account ID to pay from (required)
+ponto_account_name: Display name of the source account
+amount: Payment amount (Currency, required)
+currency: Currency code (Link to Currency, required)
+status: Draft / Pending Authorization / Authorized / Executed / Rejected / Cancelled / Expired / Failed
+ponto_payment_id: Ponto payment ID (auto-populated)
+requested_execution_date: Desired execution date
+creditor_name: Recipient name
+creditor_iban: Recipient IBAN
+creditor_bic: Recipient BIC code
+remittance_info: Payment reference/description
+redirect_uri: Authorization redirect URI
+redirect_link: Authorization link for payment approval
+reference_doctype: Linked document type
+reference_name: Linked document name
+payment_entry: Created Payment Entry (auto-populated)
+```
+
+**Ponto Sync Log** (naming: PONTO-SYNC-YYYY-MM-DD-####)
+
+```
+sync_type: Manual / Automatic / Webhook
+account_id: Ponto account UUID
+status: Pending / In Progress / Completed / Failed
+ponto_sync_id: Ponto synchronization ID (for manual syncs)
 start_time: Sync start timestamp
 end_time: Sync end timestamp
+duration_seconds: Duration of sync in seconds
 transactions_imported: Count of new transactions
-transactions_skipped: Count of duplicates
-status: success/partial/failed
-error_message: Error details if failed
+transactions_skipped: Count of duplicate/already-imported transactions
+transactions_failed: Count of transactions that failed to import
+error_summary: Brief error description
+error_details: Detailed error information (Long Text)
+bank_transactions: Table of linked Bank Transaction documents
 ```
 
 ### API Endpoints
@@ -613,20 +688,19 @@ print(service.get_access_token())
 
 Webhooks are validated using:
 
-1. **Signature Verification**: HMAC signature validation (if enabled)
+1. **JWT Signature Verification**: Webhooks are signed using JWT with JWKS public keys from Ibanity (not HMAC). Signature verification can be enabled via "Require Webhook Signature" in Ponto Settings
 2. **Idempotency**: Duplicate event detection
 3. **Payload Validation**: Schema validation of webhook content
 
 ```python
 from verenigingen.verenigingen_payments.ponto.utils.webhook_security import (
     verify_webhook_signature,
-    validate_webhook_payload,
 )
 ```
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: January 2026
+**Document Version**: 1.1
+**Last Updated**: March 2026
 **System Compatibility**: ERPNext v15+, Verenigingen App v2.0+
 **Ponto API Version**: Ponto Connect API v2

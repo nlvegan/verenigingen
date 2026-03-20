@@ -114,7 +114,8 @@ The Mollie payment integration provides automated recurring payment processing f
 
 ```
 Profile ID: [Your Mollie Profile ID]
-Secret Key: [Your Test API Secret Key]
+Test Secret Key: [Your Test API Secret Key]
+Live Secret Key: [Your Live API Secret Key] (leave blank until go-live)
 Test Mode: ✓ (Enable for initial testing)
 ```
 
@@ -122,15 +123,29 @@ Test Mode: ✓ (Enable for initial testing)
 
 ```
 Enable Subscriptions: ✓
-Default Subscription Interval: 1 month
+Default Subscription Interval: 1 month (options: 1 month, 3 months, 12 months)
 Subscription Description Template: Membership dues for {member_name}
+Quarterly/Yearly Payment Months: [e.g. 1,4,7,10 for quarterly]
+Payment Day of Month: [1-28, day of month for subscription charges]
+```
+
+**Webhook Configuration**
+
+```
+Testing Webhook URL: [Auto-populated for test mode]
+Live Webhook URL: [Auto-populated for production mode]
+Testing Webhook Secret Key: [Secret for test webhook signature verification]
+Live Webhook Secret Key: [Secret for production webhook signature verification]
+Webhook Rate Limit (per hour): [Default rate limit for webhook processing]
 ```
 
 **Backend API Settings (Optional)**
 
 ```
-Enable Backend API: ✓ (For financial dashboard)
+Enable Backend API: ✓ (For financial dashboard and balance monitoring)
 Organization Access Token: [Your OAT token]
+Organization ID: [Your Mollie Organization ID]
+Backend Webhook Secret: [Secret for backend API webhooks]
 ```
 
 **Click Save** - The system will automatically validate your credentials.
@@ -144,6 +159,8 @@ Configure the accounting integration for proper financial tracking:
 Mollie Bank Account: [Select your main bank account]
 Mollie Clearing Account: [Create/select clearing account]
 Payment Processing Fees Account: [Account for Mollie fees]
+Dues Payment Creation Mode: [Select how dues payments are created]
+Payment Retrieval Days Back Limit: [Number of days to look back for payments]
 ```
 
 **Account Setup Example**
@@ -211,10 +228,11 @@ The system automatically configures webhook URLs when you save Mollie Settings:
 **Switching to Production**
 
 1. Return to **Mollie Settings**
-2. Replace test API key with live key
-3. Uncheck **Test Mode**
-4. Save configuration
-5. Test with a small transaction first
+2. Enter your **Live Secret Key** (the Test Secret Key can remain for future testing)
+3. Enter the **Live Webhook Secret Key** for production webhook signature verification
+4. Uncheck **Test Mode**
+5. Save configuration -- the system will now use live keys and live webhook URLs
+6. Test with a small transaction first
 
 ---
 
@@ -679,13 +697,31 @@ subscription_cancelled_date: When subscription was cancelled
 
 ```
 profile_id: Mollie Profile ID (required)
-secret_key: API Secret Key (encrypted)
+test_secret_key: API Test Secret Key (encrypted, used in test mode)
+live_secret_key: API Live Secret Key (encrypted, used in production)
 test_mode: Enable for testing (boolean)
+header_img: Header image for payment pages (optional)
+redirect_url: Custom redirect URL after payment (optional)
 enable_subscriptions: Allow subscription creation (boolean)
-subscription_webhook_url: Auto-generated webhook URL
-default_subscription_interval: Default billing frequency
-organization_access_token: Backend API token (optional)
-mollie_bank_account: Bank account for settlements
+testing_webhook_url: Webhook URL for test mode (auto-generated)
+live_webhook_url: Webhook URL for production (auto-generated)
+default_subscription_interval: Default billing frequency (1 month, 3 months, 12 months)
+subscription_description_template: Template for subscription descriptions
+quarterly_yearly_payment_months: Months for quarterly/yearly payment scheduling
+payment_day_of_month: Day of month for subscription charges
+testing_webhook_secret_key: Webhook secret for test mode (encrypted)
+live_webhook_secret_key: Webhook secret for production (encrypted)
+webhook_rate_limit: Rate limit for webhook processing per hour
+enable_backend_api: Enable Mollie backend API features (boolean)
+organization_access_token: Backend API Organization Access Token (encrypted)
+organization_id: Mollie Organization ID
+backend_webhook_secret: Backend API webhook secret (encrypted)
+mollie_bank_account: Bank account for Mollie settlements (Link)
+mollie_clearing_account: Clearing account for payment processing (Link)
+payment_processing_fees_account: Account for recording Mollie fees (Link)
+dues_payment_creation_mode: Mode for creating dues payments
+payment_retrieval_days_back_limit: Days to look back when retrieving payments
+encryption_key: Encryption key for secure data storage (encrypted)
 ```
 
 ### API Endpoints
@@ -791,6 +827,6 @@ For high-volume associations:
 
 _This guide covers the complete Mollie payment integration for Nederlandse verenigingen. For additional support or advanced customization requirements, consult your system administrator or the development team._
 
-**Document Version**: 1.1
-**Last Updated**: January 2026
+**Document Version**: 1.2
+**Last Updated**: March 2026
 **System Compatibility**: ERPNext v15+, Verenigingen App v2.0+

@@ -202,11 +202,12 @@ result = create_mandate_for_member(
 
 **Mandate Statuses**
 
-- **pending**: Awaiting member signature
-- **active**: Signed and ready for debits
-- **expired**: Past validity period
-- **cancelled**: Revoked by member or admin
-- **failed**: Signature process failed
+- **Pending**: Awaiting member signature
+- **Active**: Signed and ready for debits
+- **Used**: Mandate has been used for a debit (single-use mandates)
+- **Cancelled**: Revoked by member or admin
+- **Expired**: Past validity period
+- **Failed**: Signature process failed
 
 **Viewing Member Mandates**
 
@@ -246,15 +247,16 @@ print(f"Status: {status['state']}")
 
 **Transaction States**
 
-| Pay.nl Status | Meaning |
-|--------------|---------|
-| PENDING | Payment initiated, awaiting completion |
-| PAID | Payment successful |
-| CANCELLED | Payment cancelled by user |
-| EXPIRED | Payment link expired |
-| FAILED | Payment failed |
-| REFUNDED | Payment refunded |
-| CHARGEBACK | Direct debit reversed |
+| Status | Meaning |
+|--------|---------|
+| Pending | Payment initiated, awaiting completion |
+| Processing | Payment is being processed |
+| Paid | Payment successful |
+| Paid - Payment Entry Failed | Payment received but ERPNext Payment Entry creation failed (requires manual intervention) |
+| Cancelled | Payment cancelled by user |
+| Expired | Payment link expired |
+| Denied | Payment denied by bank or payment provider |
+| Refunded | Payment refunded |
 
 ---
 
@@ -334,28 +336,49 @@ webhook_url: Auto-generated webhook endpoint
 connection_status: Last connection test result
 ```
 
-**ING Checkout Transaction**
+**ING Checkout Transaction** (naming: ICT-####)
 
 ```
-transaction_id: Pay.nl order/transaction ID
+transaction_id: Pay.nl Order ID (format: EX-xxxx-xxxx-xxxx, unique, required)
+status: Pending / Processing / Paid / Paid - Payment Entry Failed / Cancelled / Expired / Denied / Refunded
+payment_method: iDEAL / Bancontact / Credit Card / Direct Debit / Other
+amount: Transaction amount (Currency, required)
+currency: Currency code, e.g. EUR (Link to Currency)
+reference_doctype: Linked document type (e.g. Sales Invoice)
+reference_name: Linked document name
+payment_entry: Created Payment Entry (auto-populated after reconciliation)
+customer_name: Customer/member name
+customer_iban: Customer bank account IBAN
+customer_bic: Customer bank BIC code
+redirect_url: Payment redirect URL
+return_url: Post-payment return URL
+raw_request: Raw API request data (for debugging)
+raw_response: Raw API response data (for debugging)
+```
+
+**ING Checkout Mandate** (naming: ICM-####)
+
+```
+mandate_id: Pay.nl Mandate ID (format: IO-xxxx-xxxx-xxxx, unique, required)
+mandate_type: single / recurring / flexible (default: flexible)
+status: Pending / Active / Used / Cancelled / Expired / Failed
+amount: Mandate amount (Currency)
+currency: Currency code, e.g. EUR (Link to Currency)
+description: Mandate description
+debtor_name: Debtor (payer) name
+debtor_iban: Debtor bank account IBAN
+debtor_email: Debtor email address
+debtor_bic: Debtor bank BIC code
 reference_doctype: Linked document type
 reference_name: Linked document name
-amount: Transaction amount
-status: Current status
-created_at: Transaction creation time
-updated_at: Last status update
-```
-
-**ING Checkout Mandate**
-
-```
-mandate_id: Pay.nl mandate ID
 member: Linked Member
-iban: Bank account IBAN
-account_holder: Account holder name
-status: Mandate status
-signed_date: When member signed
-expiry_date: Mandate validity end
+sepa_mandate: Linked SEPA Mandate (if applicable)
+created_date: Mandate creation date
+first_collection_date: First direct debit collection date
+last_collection_date: Last direct debit collection date
+expiry_date: Mandate expiry date
+terms_url: URL to terms and conditions page
+raw_response: Raw API response data (for debugging)
 ```
 
 ### API Endpoints
@@ -436,6 +459,6 @@ bench --site dev.veganisme.net run-tests --module verenigingen.verenigingen_paym
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: January 2026
+**Document Version**: 1.1
+**Last Updated**: March 2026
 **System Compatibility**: ERPNext v15+, Verenigingen App v2.0+

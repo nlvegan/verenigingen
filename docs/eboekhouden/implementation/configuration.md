@@ -50,18 +50,20 @@ Configure the core API settings:
 
 ```
 API Configuration Section:
-┌─────────────────────────────────────────┐
-│ API Token: [Your eBoekhouden API token] │
+┌──────────────────────────────────────────┐
 │ API URL: https://api.e-boekhouden.nl/v1 │
-│ Source Application: ERPNext Integration │
-└─────────────────────────────────────────┘
+│ API Token: [Your eBoekhouden API token]  │
+│ Source Application: ERPNext Integration  │
+└──────────────────────────────────────────┘
 ```
 
 **Field Details**:
 
-- **API Token**: The token from your eBoekhouden account (stored securely)
-- **API URL**: Leave as default unless using custom endpoint
+- **API URL**: eBoekhouden REST API endpoint (leave as default unless using custom endpoint)
+- **API Token**: The token from your eBoekhouden account (stored securely as Password field)
 - **Source Application**: Identifier for API usage tracking
+
+After entering credentials, check the **Connection Status** and **Last Tested** fields to confirm the connection works.
 
 ### 2.3 Company Configuration
 
@@ -69,18 +71,36 @@ Set up the ERPNext company mapping:
 
 ```
 Company Settings Section:
-┌────────────────────────────────────────┐
-│ Default Company: [Your ERPNext Company]│
-│ Default Cost Center: [Auto-populated] │
-│ Journal Entry Series: [ACC-JV-.YYYY.-] │
-└────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ Default Company: [Your ERPNext Company]          │
+│ Default Cost Center: [Select your cost center]   │
+│ Default Currency: [EUR]                          │
+│ Fiscal Year Start Month: [January]               │
+└──────────────────────────────────────────────────┘
 ```
 
 **Field Details**:
 
-- **Default Company**: Select your primary ERPNext company
-- **Default Cost Center**: Automatically populated from company settings
-- **Journal Entry Series**: Naming series for imported journal entries
+- **Default Company**: Select your primary ERPNext company (Link to Company)
+- **Default Cost Center**: Cost center for imported transactions (Link to Cost Center)
+- **Default Currency**: Currency for imported data (Link to Currency, typically EUR)
+- **Fiscal Year Start Month**: Month your fiscal year begins (January for most Dutch associations)
+
+### 2.3b Payment Gateway Configuration (Optional)
+
+If using eBoekhouden alongside Mollie or other payment gateways:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Virtual Account: [Select payment gateway virtual account]    │
+│ Gateway Invoice Prefix: [Prefix for gateway invoices]        │
+│ Auto-create Customers/Suppliers from Bank Transactions: yes  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- **Virtual Account**: ERPNext account representing the payment gateway clearing account
+- **Gateway Invoice Prefix**: Prefix to identify invoices created by payment gateways
+- **Auto-create Customers/Suppliers**: Automatically create party records when importing bank transactions with unknown counterparties
 
 ### 2.4 Migration Options
 
@@ -136,6 +156,40 @@ API Version: v1
 ```
 
 ## Step 4: Advanced Configuration
+
+### 4.0 Account Classification (Optional)
+
+For precise control over how eBoekhouden accounts are classified in ERPNext, enable the advanced classification service:
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Use Advanced Classification Service: ✓               │
+│ Classification Strategy: [Range-Based / Keyword]     │
+└──────────────────────────────────────────────────────┘
+```
+
+**Balance Sheet Ranges** (for Range-Based strategy):
+
+- **Asset Account Ranges**: e.g. `0-199` for accounts like cash, bank, receivables
+- **Liability Account Ranges**: e.g. `200-299` for payables, loans
+- **Equity Account Ranges**: e.g. `300-399` for equity accounts
+- **Equity Keywords**: comma-separated keywords to identify equity accounts
+
+**Profit & Loss Ranges**:
+
+- **Income Account Ranges**: e.g. `800-899` for revenue accounts
+- **Expense Account Ranges**: e.g. `400-799` for cost and expense accounts
+- **Income Keywords** / **Expense Keywords**: comma-separated keywords for classification
+
+**Group Type Mappings**: Use the **Parse Groups & Configure Cost Centers** button to auto-detect group types from eBoekhouden, then review and adjust the generated **Group Type Mappings** and **Cost Center Mappings** tables.
+
+Special group name fields control how specific account types are identified:
+
+- **Receivables Group Name**: eBoekhouden group name for receivables (e.g. "Vorderingen")
+- **Payables Group Name**: eBoekhouden group name for payables (e.g. "Schulden")
+- **Financial Accounts Group Name**: eBoekhouden group name for bank/cash accounts
+- **Prepaid/Accrued Assets Group Name**: eBoekhouden group name for accruals
+- **Tax Payable / Tax Receivable Group Names**: For VAT-related accounts
 
 ### 4.1 Account Mapping Configuration
 
