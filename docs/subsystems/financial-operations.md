@@ -6,59 +6,85 @@ The Financial Operations System provides comprehensive financial management for 
 
 ## Core Architecture
 
+### Billing Services (`services/billing/`)
+
+The billing service layer contains 22 specialized modules:
+
+**Invoice Generation Pipeline:**
+
+- `invoice_generation_orchestrator.py` -- Top-level orchestrator for the invoice pipeline
+- `invoice_generator.py` -- Core invoice creation logic
+- `bulk_invoice_generation_service.py` -- Batch invoice generation for multiple members
+- `invoice_management.py` -- Invoice lifecycle operations
+- `invoice_error_handler_service.py` -- Error recovery and retry for failed invoice generation
+- `invoice_matcher.py` -- Payment-to-invoice matching logic
+- `duplicate_invoice_detector.py` -- Prevents duplicate invoice creation
+- `sales_invoice_hooks.py` -- Doc event hooks for Sales Invoice (set_member_from_customer, populate_member_chapter, on_trash)
+- `sales_invoice_account_handler.py` -- Sets membership receivable account on validation
+
+**Dues Schedule Management:**
+
+- `dues_schedule_creation_service.py` -- Creates new dues schedules for members
+- `dues_schedule_auto_creator.py` -- Daily scheduled auto-creation of missing dues schedules
+- `dues_schedule_lifecycle_service.py` -- Schedule status transitions and lifecycle management
+- `dues_schedule_validation_service.py` -- Validates schedule configuration and business rules
+- `dues_schedule_permission_service.py` -- Permission checks for schedule operations
+- `dues_schedule_health_manager.py` -- Monitors and reports stuck/unhealthy schedules
+- `template_configuration_service.py` -- Manages dues schedule templates
+- `template_creation_service.py` -- Creates new schedule templates
+
+**Calculation and Period Management:**
+
+- `billing_period_calculator.py` -- Calculates billing period start/end dates
+- `billing_date_service.py` -- Date arithmetic for billing operations
+- `billing_constants.py` -- Shared constants for billing logic
+- `coverage_calculator.py` -- Calculates dues coverage periods
+- `coverage_overlap_detector.py` -- Detects overlapping coverage periods
+- `eligibility_checker.py` -- Checks member eligibility for invoicing
+
+**Fee Management:**
+
+- `fee_change_tracking_service.py` -- Tracks changes to membership fees
+- `progressive_dues_service.py` -- Progressive/tiered dues calculation
+
+### Payment Services (`services/payment/`)
+
+Specialized payment processing modules:
+
+- `sepa_mandate_manager.py` -- SEPA mandate lifecycle management
+- `sepa_batch_approval_service.py` -- Approval workflow for direct debit batches
+- `sepa_batch_state_machine.py` -- State transitions for batch processing
+- `sepa_upload_guard.py` -- Safety checks before SEPA file upload to bank
+- `pain002_ingestion_service.py` -- Parses bank pain.002 status reports (hourly scheduled task)
+- `validation_service.py` -- Payment data validation
+- `mollie_reconciliation_service.py` -- Reconciles Mollie payments with invoices
+- `mollie_webhook_service.py` -- Processes Mollie webhook events
+- `alert_manager.py` -- Payment-related alerts and notifications
+
 ### SEPA Direct Debit Infrastructure
 
 #### SEPA Mandate Management (`SEPA Mandate`)
 
 European banking compliance system for payment authorization:
 
-**Key Characteristics:**
-
-- Complete mandate lifecycle management
-- IBAN validation and format verification
-- Mandate type support: CORE, RCUR (Recurring), FNAL (Final), OOFF (One-off)
-- Active/inactive status management with cancellation tracking
-
 **Core Fields:**
 
 - **Mandate Details**: mandate_id (unique reference), member, status, mandate_type, scheme
-- **Bank Information**: account_holder_name, iban, bic, bank_name, bank_branch
+- **Bank Information**: account_holder_name, iban, bic, bank_name
 - **Validity Management**: sign_date, first_collection_date, expiry_date, is_active
 - **Usage Tracking**: frequency, maximum_amount, used_for_memberships, used_for_donations
 - **History**: usage_history (table), cancellation_reason
 
 **Business Rules:**
 
-- SEPA compliance with 14-day pre-notification requirements
+- SEPA compliance with pre-notification requirements
 - Mandate reference uniqueness across organization
 - Dutch IBAN format validation
-- Expiry date management for time-limited mandates
+- Daily discrepancy checks via `check_sepa_mandate_discrepancies` and `periodic_sepa_mandate_child_table_sync`
 
 #### Direct Debit Batch Processing (`Direct Debit Batch`)
 
 SEPA XML file generation and batch payment management:
-
-**Key Characteristics:**
-
-- Auto-naming: `BATCH-{YY}-{MM}-{####}`
-- Submittable workflow with approval stages
-- SEPA XML generation compliance
-- Risk assessment and validation framework
-
-**Core Fields:**
-
-- **Batch Management**: batch_date, batch_description, batch_type, total_amount, entry_count
-- **Approval Workflow**: approval_status, risk_level, approval_notes
-- **Validation**: validation_status, validation_errors, validation_warnings
-- **SEPA Generation**: sepa_file, sepa_message_id, sepa_payment_info_id
-- **Tracking**: invoices (table), batch_log
-
-**Batch Types:**
-
-- **CORE**: Standard SEPA Core Direct Debit
-- **B2B**: Business-to-business transactions
-- **FRST**: First collection in sequence
-- **RCUR**: Recurring collection
 
 **Workflow States:**
 
@@ -68,35 +94,20 @@ SEPA XML file generation and batch payment management:
 4. **Processed**: Successfully processed by bank
 5. **Failed**: Processing failed, requires intervention
 
+**Scheduled Tasks:**
+
+- Daily: `daily_batch_optimization` and `create_monthly_dues_collection_batch`
+- Hourly: `run_pain002_ingestion` (bank status report processing)
+
 ### Membership Dues Management
 
 #### Dues Schedule System (`Membership Dues Schedule`)
 
 Automated billing system with flexible frequency and contribution models:
 
-**Key Characteristics:**
-
-- Template-based or member-specific schedules
-- Multiple billing frequency options
-- Contribution calculation modes
-- Error recovery and retry logic
-
-**Core Fields:**
-
-- **Schedule Identity**: schedule_name, is_template, member, membership_type
-- **Billing Configuration**: billing_frequency, next_invoice_date, billing_day
-- **Contribution Management**: contribution_mode, selected_tier, base_multiplier, dues_rate
-- **Coverage Tracking**: next_billing_period_start_date, last_invoice_coverage_end
-- **Error Recovery**: custom_invoice_retry_count, custom_last_invoice_error
-
 **Billing Frequencies:**
 
-- **Annual**: Once per year
-- **Semi-Annual**: Twice per year
-- **Quarterly**: Four times per year
-- **Monthly**: Monthly billing
-- **Daily**: Daily billing (for special cases)
-- **Custom**: User-defined frequency with number and unit
+- Annual, Semi-Annual, Quarterly, Monthly, Daily, Custom
 
 **Contribution Modes:**
 
@@ -104,290 +115,66 @@ Automated billing system with flexible frequency and contribution models:
 2. **Calculator**: Algorithm-based calculation with multipliers
 3. **Custom**: Manually set amounts with approval workflow
 
-#### Invoice Generation Process
+**Scheduled Processing:**
 
-Automated invoice creation from dues schedules:
+- Daily: `generate_dues_invoices` scans schedules approaching invoice date
+- Daily: `auto_create_missing_dues_schedules_scheduled` creates schedules for members without one
+- Daily: `check_and_notify_stuck_schedules` identifies schedules that failed to generate invoices
+- Hourly: `process_pending_amendments` handles contribution amendment requests
 
-**Processing Logic:**
+### Document Event Hooks
 
-1. **Schedule Analysis**: Daily scan of dues schedules approaching invoice date
-2. **Period Calculation**: Determine billing period start/end dates
-3. **Amount Calculation**: Apply contribution mode to determine invoice amount
-4. **Invoice Creation**: Generate Sales Invoice with proper line items
-5. **Schedule Update**: Update next invoice date and coverage tracking
+From `hooks/doc_events.py`:
 
-**Integration Points:**
+**Sales Invoice:**
+- `before_validate`: Tax exemption, set member from customer, populate member chapter
+- `validate`: Custom validation, set membership receivable account
+- `on_submit`/`on_cancel`: Invoice event emission, cache invalidation
 
-- Sales Invoice creation with member-customer linking
-- Payment terms application from templates
-- Tax exemption handling for qualifying organizations
-- Member payment history automatic updates
+**Payment Entry:**
+- `on_submit`: Queue payment history update, payment notifications, donor auto-creation, expense event processing
+- `on_cancel`/`on_trash`: Queue payment history update, cache invalidation
 
-### Payment Processing Architecture
-
-#### Payment Entry Integration
-
-Comprehensive payment tracking and reconciliation:
-
-**Event-Driven Processing:**
-
-- Payment Entry submission triggers member payment history updates
-- Background job queuing for performance optimization
-- Automatic invoice-payment matching
-- Donor creation for non-member payments
-
-**Integration Hooks:**
-
-- `on_submit`: Queue payment history updates, notification sending
-- `on_cancel`: Reverse payment history entries
-- `on_trash`: Clean up related records
-
-#### Member Payment History (`Member Payment History`)
-
-Centralized payment tracking across all payment types:
-
-**Tracked Information:**
-
-- Sales Invoice payments and status
-- SEPA direct debit collections
-- Manual payments and adjustments
-- Mollie subscription payments
-- Volunteer expense reimbursements
-
-**Real-time Updates:**
-
-- Automatic updates via ERPNext payment hooks
-- Background job processing for heavy operations
-- Cache invalidation for performance optimization
-- Data integrity validation and repair
-
-### Bank Transaction Processing
-
-#### MT940 Import System (`MT940 Import`)
-
-Dutch bank statement processing and reconciliation:
-
-**Processing Capabilities:**
-
-- MT940 format parsing (Dutch banking standard)
-- Automatic transaction categorization
-- Payment matching to existing invoices
-- Unreconciled payment identification
-
-**Reconciliation Logic:**
-
-- IBAN-based member identification
-- Payment reference matching
-- Amount and date correlation
-- Manual review queue for unmatched transactions
-
-### Financial Reporting and Analytics
-
-#### Revenue Analytics
-
-Comprehensive financial performance tracking:
-
-**Key Metrics:**
-
-- Monthly revenue trends by payment type
-- Outstanding invoice aging analysis
-- SEPA payment success rates
-- Member payment behavior patterns
-
-**Dashboard Integration:**
-
-- Real-time payment status monitoring
-- Revenue projection based on dues schedules
-- Collection efficiency metrics
-- Financial health indicators
-
-#### Compliance Reporting
-
-Dutch regulatory compliance and audit support:
-
-**SEPA Compliance:**
-
-- Pre-notification tracking
-- Mandate status monitoring
-- Collection frequency validation
-- Bank return file processing
-
-**Tax Compliance:**
-
-- ANBI (Dutch charity) tax receipt generation
-- VAT handling for applicable transactions
-- Revenue recognition by membership periods
-- Donation vs. membership classification
+**SEPA Mandate:**
+- `after_save`/`on_submit`/`on_cancel`/`on_trash`: Cache invalidation and performance event handlers
 
 ### Error Handling and Recovery
 
-#### Automated Retry Logic
-
-Intelligent error recovery for payment processing:
-
-**Retry Mechanisms:**
-
-- Failed invoice generation retry with exponential backoff
-- SEPA file generation error recovery
-- Payment matching retry for temporary failures
-- Bank communication error handling
-
-**Manual Review Queues:**
-
-- Stuck dues schedule identification
-- Unreconciled payment management
-- Mandate discrepancy resolution
-- Invalid IBAN correction workflow
-
-#### Monitoring and Alerting
-
-Proactive issue identification and notification:
-
-**Automated Monitoring:**
-
-- Daily stuck schedule notifications
-- Payment failure alerts
-- Mandate expiry warnings
-- Bank reconciliation discrepancies
-
-**Performance Monitoring:**
-
-- Payment processing speed tracking
-- SEPA file generation performance
-- Invoice creation efficiency
-- Error rate monitoring and trending
-
-### Security and Compliance
-
-#### Data Protection
-
-GDPR/AVG compliance for financial data:
-
-**Access Controls:**
-
-- Role-based financial data access
-- Payment information encryption
-- Audit trail for all financial operations
-- Member consent tracking for payment processing
-
-**Bank Data Security:**
-
-- IBAN masking in user interfaces
-- Secure SEPA file generation and transmission
-- Bank credential encryption
-- Payment processing audit logging
-
-#### Regulatory Compliance
-
-Dutch financial regulation adherence:
-
-**SEPA Compliance:**
-
-- Proper mandate management
-- Pre-notification requirements
-- Collection timing rules
-- Bank return code handling
-
-**Charity Regulations:**
-
-- ANBI (tax-exempt charity) compliance
-- Donation receipt generation
-- Revenue categorization
-- Audit trail maintenance
-
-### Integration Architecture
-
-#### ERPNext Financial Integration
-
-Deep integration with ERPNext financial modules:
-
-**Core Integrations:**
-
-- Customer-Member synchronization
-- Sales Invoice automatic generation
-- Payment Entry processing
-- Account reconciliation
-
-**Accounting Integration:**
-
-- Chart of accounts customization for associations
-- Cost center management for chapters
-- Project tracking for volunteer activities
-- Financial reporting customization
-
-#### eBoekhouden Accounting Sync
-
-Real-time synchronization with Dutch accounting software:
-
-**Sync Operations:**
-
-- Invoice creation and updates
-- Payment entry synchronization
-- Customer/member data sync
-- Chart of accounts mapping
-
-**Data Flow:**
-
-- Verenigingen → eBoekhouden: Invoice and payment data
-- eBoekhouden → Verenigingen: Account structure and balances
-- Bidirectional synchronization with conflict resolution
-- Real-time API integration with error handling
+- Failed invoice generation retry via `invoice_error_handler_service.py`
+- Payment retry processing: daily `execute_payment_retry`
+- Bulk retry processor: hourly `process_retry_queues`
+- Amendment processing: hourly for same-day turnaround
 
 ### Background Job Architecture
 
-#### Scheduled Financial Operations
+#### Scheduled Financial Operations (from `hooks/scheduler.py`)
 
-Automated financial processing tasks:
-
-**Daily Operations:**
-
-- Dues invoice generation from schedules
-- Payment history refresh for all members
-- SEPA mandate discrepancy checking
+**Daily:**
+- Member financial history refresh
+- Dues invoice generation
+- Auto-create missing dues schedules
+- Stuck schedule notifications
+- SEPA mandate discrepancy checks
+- Payment retry processing
 - Bank transaction reconciliation
+- SEPA expiry notifications
+- Direct debit batch optimization and monthly collection
+- Payment plan overdue installment processing
 
-**Hourly Operations:**
-
+**Hourly:**
 - Payment history validation and repair
-- Failed payment retry processing
-- Real-time payment status monitoring
+- Bulk retry processor
+- Contribution amendment processing
+- pain.002 bank status report ingestion
 
-**Weekly/Monthly Operations:**
+**High-Frequency (30s cron):**
+- Financial history batch processing
 
-- Financial data integrity validation
-- Performance metrics calculation
-- Compliance report generation
-- Historical data archival
+## Key File Locations
 
-### Performance Optimization
-
-#### Caching Strategy
-
-Financial data caching for performance:
-
-**Cached Data:**
-
-- Member payment summaries
-- Outstanding invoice calculations
-- SEPA mandate status
-- Payment history aggregations
-
-**Cache Invalidation:**
-
-- Payment event-driven invalidation
-- Scheduled cache refresh
-- Manual cache clearing for troubleshooting
-- Performance impact monitoring
-
-#### Bulk Processing Optimization
-
-Efficient handling of large-scale operations:
-
-**Batch Processing:**
-
-- Large invoice generation batches
-- Bulk payment history updates
-- Mass SEPA mandate updates
-- Performance monitoring and throttling
-
-This financial operations system provides the backbone for sustainable association management with full European banking compliance and Dutch regulatory adherence.
+- **Billing services**: `services/billing/` (22 modules)
+- **Payment services**: `services/payment/` (9 modules)
+- **Member financial**: `services/member/financial/` (6 modules)
+- **Member payment**: `services/member/payment/` (2 modules)
+- **Payment DocTypes**: `verenigingen_payments/` package
+- **Hooks**: `hooks/doc_events.py` (Sales Invoice, Payment Entry, SEPA Mandate sections)

@@ -2,15 +2,13 @@
 
 ## Overview
 
-The Security and Permissions System provides enterprise-grade access control, data protection, and audit capabilities for the Verenigingen association management platform. This system implements role-based access control, row-level security, comprehensive audit logging, and API security frameworks.
+The Security and Permissions System provides access control, data protection, and audit capabilities for the Verenigingen association management platform. This system implements role-based access control, row-level security via permission queries, audit logging, and an API security framework.
 
 ## Core Security Architecture
 
 ### Role-Based Access Control (RBAC)
 
 #### Role Hierarchy
-
-Comprehensive role structure with 13 defined role profiles:
 
 **Administrative Roles:**
 
@@ -24,32 +22,63 @@ Comprehensive role structure with 13 defined role profiles:
 - **Verenigingen National Board Member**: National oversight
 - **Verenigingen Chapter Board Member**: Chapter board leadership
 - **Verenigingen Treasurer**: Financial management
-- **Verenigingen Auditor**: Financial audit/compliance
+- **Verenigingen Auditor**: Financial audit/compliance (read-only audit access)
 
 **Operational Roles:**
 
 - **Verenigingen Member**: Self-service member access
 - **Verenigingen Volunteer**: Volunteer-specific access
 - **Verenigingen Team Leader**: Team coordination
-- **Verenigingen Auditor**: Read-only audit access
 - **Verenigingen Webhook User**: System integration access
 
-#### Permission Query Implementation
+### Permission Query System (`hooks/permissions.py`)
 
-Limited row-level security implementation for specific DocTypes:
+Row-level security is implemented through permission_query_conditions (SQL WHERE clause generators) and has_permission handlers (document-level checks).
 
-**Implemented Permission Queries:**
+**Permission Query Conditions (15 DocTypes):**
 
-- **Chapter**: Published chapters visible to all users; full access for administrators
-- **Team**: Team membership and chapter affiliation (referenced in hooks)
+| DocType | Handler |
+|---------|---------|
+| Member | `permissions.get_member_permission_query` |
+| Membership | `permissions.get_membership_permission_query` |
+| Employee | `permissions.get_employee_permission_query` |
+| Chapter | `chapter.get_chapter_permission_query_conditions` |
+| Chapter Member | `permissions.get_chapter_member_permission_query` |
+| Team | `team.get_team_permission_query_conditions` |
+| Team Member | `permissions.get_team_member_permission_query` |
+| Membership Termination Request | `permissions.get_termination_permission_query` |
+| Volunteer | `permissions.get_volunteer_permission_query` |
+| Address | `permissions.get_address_permission_query` |
+| Donor | `permissions.get_donor_permission_query` |
+| Membership Dues Schedule | `membership_dues_schedule.get_permission_query_conditions` |
+| Project | `project_permissions.get_project_permission_query_conditions` |
+| Expense Claim | `permissions.get_expense_claim_permission_query` |
+| Event Contact Campaign | `event_contact_campaign.get_permission_query_conditions` |
 
-### API Security Framework
+**Has Permission Handlers (12 DocTypes):**
 
-#### Multi-Level Security Decorators
+| DocType | Handler |
+|---------|---------|
+| Member | `permissions.has_member_permission` |
+| Membership | `permissions.has_membership_permission` |
+| Membership Termination Request | `permissions.has_membership_termination_request_permission` |
+| Address | `permissions.has_address_permission` |
+| Donor | `permissions.has_donor_permission` |
+| Donation | `permissions.has_donation_permission` |
+| Volunteer | `permissions.has_volunteer_permission` |
+| Chapter | `chapter.has_chapter_permission` |
+| Membership Dues Schedule | `membership_dues_schedule.has_permission` |
+| Project | `project_permissions.has_project_permission_via_team` |
+| Expense Claim | `permissions.has_expense_claim_permission` |
+| Event Contact Campaign | `event_contact_campaign.has_permission` |
 
-Comprehensive API protection using a 5-tier security classification system:
+### API Security Framework (`utils/security/`)
 
-**Security Level Decorators:**
+The security framework lives under `utils/security/` with 19 modules:
+
+#### Security Decorators
+
+Multi-level security classification system:
 
 - `@critical_api`: Financial transactions, system administration (SecurityLevel.CRITICAL)
 - `@high_security_api`: Member data access, administrative functions (SecurityLevel.HIGH)
@@ -57,11 +86,9 @@ Comprehensive API protection using a 5-tier security classification system:
 - `@public_api`: Public endpoints, no authentication required (SecurityLevel.PUBLIC)
 - `@development_only_api`: Development/debug functions (blocked in production)
 
-#### Operation Type Classification
+**Critical decorator ordering rule:** `@frappe.whitelist()` MUST be the outermost (first/top) decorator. Frappe checks whitelist via object identity in a `set()`. If a security decorator wraps first, the module-level name points to the wrapper, causing "Method Not Allowed" errors.
 
-API operations classified by business context for appropriate security measures:
-
-**Operation Types:**
+#### Operation Type Classification (`api_classifier.py`)
 
 - **FINANCIAL**: Payment processing, invoicing, SEPA operations
 - **MEMBER_DATA**: Member information access and modification
@@ -70,205 +97,93 @@ API operations classified by business context for appropriate security measures:
 - **UTILITY**: Health checks, status endpoints, system utilities
 - **PUBLIC**: Public information and documentation endpoints
 
-#### Environment-Aware Security
+#### Security Modules
 
-Production isolation with automatic blocking of development functions:
+| Module | Purpose |
+|--------|---------|
+| `api_security_framework.py` | Main security facade (1,279 LOC) |
+| `authorization_engine.py` | Role and permission checking |
+| `authorization.py` | Authorization helpers |
+| `authorization_policy.py` | Policy-based authorization |
+| `rate_limit_engine.py` | Configurable request rate limiting per security level |
+| `input_validator.py` | Input sanitization and validation |
+| `enhanced_validation.py` | Extended validation rules |
+| `csrf_protection.py` | CSRF token validation (API key exemption) |
+| `audit_emitter.py` | Security audit event emission |
+| `audit_logging.py` | Audit log storage, daily cleanup, weekly health check |
+| `cache_invalidation.py` | User role cache invalidation on User/Role Profile/Has Role changes |
+| `client_ip.py` | Client IP extraction |
+| `environment_validator.py` | Environment detection (dev/staging/production) |
+| `frappe_whitelist_adapter.py` | Adapter for Frappe whitelist integration |
+| `security_monitoring.py` | Security health monitoring |
+| `self_service_access_controller.py` | Self-service portal access control |
+| `types.py` | Security type definitions |
+| `api_classifier.py` | API operation type classification |
 
-**Environment Controls:**
+### Document Event Hooks for Security
 
-- **Production Environment**: Development-only APIs automatically blocked
-- **Staging Environment**: Full API access with enhanced monitoring
-- **Development Environment**: All APIs available with debug capabilities
+From `hooks/doc_events.py`:
 
-### Data Protection and Privacy
+**User:**
+- `on_update`: Invalidate user role cache, field sync, ensure desk settings
+- `after_insert`: Invalidate user role cache, ensure desk settings
 
-#### Personal Data Protection
+**Role Profile:**
+- `on_update`/`after_insert`/`on_trash`: Invalidate all user caches
 
-GDPR/AVG compliance features are implemented through:
+**Has Role:**
+- `on_update`/`after_insert`/`on_trash`: Invalidate user cache for affected user
 
-**Privacy Features:**
+### Scheduled Security Tasks
 
-- **Role-based access control**: Restricts data access to authorized users
-- **Audit logging**: API security framework provides comprehensive audit trails
-- **Data validation**: Input sanitization and validation in security decorators
-- **Member data security**: `@high_security_api` protection for member operations
+From `hooks/scheduler.py`:
 
-### Audit and Compliance
-
-#### Security Audit Logging
-
-Audit logging is implemented through the API security framework:
-
-**Audit Features:**
-
-- **API Access Logs**: Logged through security decorators with configurable audit levels
-- **Security Events**: CSRF validation, rate limiting, and authorization failures
-- **Critical Operations**: Enhanced logging for `@critical_api` operations
-- **Background Jobs**: Audit trail for secure operations processing
-
-#### Security Monitoring
-
-Basic security monitoring through:
-
-**Monitoring Features:**
-
-- **Security Framework Status**: Environment detection and configuration validation
-- **API Protection Coverage**: Automated security coverage analysis
-- **Permission Validation**: Role profile and permission checking
-
-### Authentication and Session Management
-
-The security system builds upon Frappe's standard authentication with:
-
-**Enhanced Security Features:**
-
-- **Account Creation Workflow**: Secure account creation through Account Creation Request system
-- **Role Profile Integration**: Comprehensive role profile system for access control
-- **API Authentication**: API key and session-based authentication support
-- **Environment-Aware Security**: Different security levels for development/production
+- **Daily**: `cleanup_old_audit_logs`, `run_daily_checks` (alert manager), `alert_if_auth_issues`
+- **Hourly**: `send_security_policy_change_digest` (Critical Operation Rule)
+- **Weekly**: `weekly_security_health_check`
 
 ### Chapter and Team Security
 
 #### Chapter Access Control
 
-Basic chapter access control is implemented through:
-
-**Chapter Security:**
-
-- **Permission Query**: Published chapters visible to all users via `get_chapter_permission_query_conditions`
-- **Administrative Access**: System managers and administrators have full access
-- **Member Context**: Chapter membership tracked through Chapter Member DocType
+- `services/chapter/chapter_permission_service.py` -- Chapter permission enforcement
+- `services/chapter/chapter_board_permissions.py` -- Board-specific permissions
+- `services/chapter/chapter_security.py` -- Chapter security operations
+- `services/chapter/chapter_role_profile_manager.py` -- Role profile assignment for board members
 
 #### Team Access Control
 
-Team security is referenced in hooks configuration:
+- `utils/team_role_profile_manager.py` -- Team role profile management
+- Permission query: `get_team_permission_query_conditions` and `get_team_member_permission_query`
 
-**Team Security:**
+### Account Creation Security
 
-- **Permission Query**: Implemented via `get_team_permission_query_conditions`
-- **Team Membership**: Access control based on team assignment patterns
+- `services/member/account/account_creation_manager.py` -- Secure user account creation workflow
+- `services/member/account/member_role_service.py` -- Role management for members
+- `services/member/account/base_role_profile_manager.py` -- Base class for role profile management
+- `services/member/account/user_role_profile_calculator.py` -- Calculates appropriate role profile
 
-### Financial Data Security
+### Security Testing
 
-#### Payment Information Protection
+- `tests/backend/security/` -- Security test suite (ANBI security, SEPA validation, volunteer portal, core security, comprehensive)
+- `tests/security/` -- Additional security tests (reorganized from Phase 3)
+- `scripts/analysis/detailed_security_audit.py` -- Comprehensive security coverage analysis
 
-Financial data security is implemented through:
+### Security Validation Hooks
 
-**Financial Security:**
+From `.pre-commit-config.yaml`:
 
-- **Critical API Protection**: All financial operations protected with `@critical_api`
-- **Role-Based Access**: Financial operations require administrative roles
-- **SEPA Operations**: Secure SEPA batch processing with audit trails
-- **Payment Processing**: Protected payment history and reconciliation operations
+- `bandit-focused` -- Security scanning on critical files
+- `whitelist-type-safety` -- Validates @whitelist parameter types
+- `api-security-validator` -- Checks API security decorators
+- `insecure-api-detector` -- Finds unprotected API endpoints
 
-### Volunteer and HR Security
+## Key File Locations
 
-Volunteer security is handled through the standard role-based access control system:
-
-**Volunteer Security:**
-
-- **Role-Based Access**: Volunteer data protected through role assignments
-- **Account Integration**: Account Creation Manager creates Employee records for volunteers
-- **Expense System Access**: Employee roles enable expense reporting functionality
-
-### API Security Implementation
-
-#### Security Features in Practice
-
-The API security framework provides:
-
-**Request Protection:**
-
-- **Rate Limiting**: Configurable request limits per security level via rate limiter
-- **Input Validation**: Automatic sanitization of input parameters
-- **Request Size Limits**: Configurable maximum request sizes per security level
-- **CSRF Protection**: Token validation for state-changing operations (with API key exemption)
-
-**Environment Controls:**
-
-- **Development Isolation**: `@development_only_api` blocked in production
-- **Environment Detection**: Automatic environment detection and appropriate security
-- **Permission Validation**: Role profile and individual role checking
-
-#### Background Job Security
-
-Background job processing includes:
-
-**Security Features:**
-
-- **Account Creation Jobs**: Secure background processing for user account creation
-- **Audit Trail**: Job processing logged through security framework
-- **Error Handling**: Proper error handling and retry logic for failed operations
-- **Permission Context**: Background jobs maintain appropriate user context
-
-### Compliance and Regulatory Adherence
-
-The security system supports Dutch regulatory compliance through:
-
-**Privacy Compliance:**
-
-- **Role-Based Data Access**: Restricts personal data access to authorized users
-- **Audit Logging**: Security framework provides audit trails for data access
-- **Data Protection**: Input validation and sanitization protects against data breaches
-
-**Financial Compliance:**
-
-- **SEPA Operations**: Secure SEPA batch processing with proper audit trails
-- **Financial Data Protection**: Critical API protection for all financial operations
-- **Access Control**: Role-based restrictions on financial data access
-
-### Security Management and Testing
-
-#### Security Configuration
-
-Security configuration is managed through:
-
-**Configuration Features:**
-
-- **Security Profiles**: Pre-defined security levels with configurable parameters
-- **Environment Detection**: Automatic development/staging/production environment detection
-- **Role Profile System**: Comprehensive role-based access control configuration
-
-#### Security Testing and Validation
-
-Security validation is provided through:
-
-**Testing Features:**
-
-- **Automated Security Audit**: `scripts/analysis/detailed_security_audit.py` provides comprehensive coverage analysis
-- **API Protection Validation**: Automatic detection of unprotected API endpoints
-- **Permission Testing**: Role profile and permission validation in test suite
-
-## Current Security Status
-
-**Security Coverage Metrics** (as of 2025-09-16):
-
-- **93.8% API Protection Rate** (150/160 files protected)
-- **90.5% High-Risk Coverage** (19/21 critical files secured)
-- **100% Critical Function Coverage** (all exposed API endpoints protected)
-
-**Remaining Security Gaps:**
-
-- 2 high-risk files lack protection: `payment_sync_system.py`, `payment_audit.py`
-- These files contain **0 `@frappe.whitelist()` functions**, so pose no actual security risk
-- 8 low-risk utility files are unprotected but contain no exposed API endpoints
-
-**Security Audit Validation:**
-
-```bash
-# Run comprehensive security audit
-python scripts/analysis/detailed_security_audit.py
-
-# Generate detailed security coverage report
-# Report saved to: detailed_security_audit_report.md
-```
-
-**Security Framework Features:**
-
-- **Complete Framework Detection**: Recognizes all security decorators (@critical_api, @high_security_api, @standard_api, @public_api, @development_only_api)
-- **Risk Classification**: Automatically categorizes files by risk level (HIGH/MEDIUM/LOW)
-- **Coverage Metrics**: Accurate API protection percentages
-- **Gap Analysis**: Identifies unprotected endpoints requiring security
-- **False Positive Filtering**: Excludes non-API files and archived code
-
-This security and permissions system provides enterprise-grade protection while maintaining usability and compliance with Dutch regulatory requirements for association management.
+- **Security framework**: `utils/security/` (19 modules)
+- **Permissions**: `hooks/permissions.py` (15 query conditions + 12 has_permission)
+- **Permission module**: `permissions.py` (centralized permission functions)
+- **Chapter security**: `services/chapter/chapter_security.py`, `chapter_permission_service.py`, `chapter_board_permissions.py`
+- **Account security**: `services/member/account/` (5 modules)
+- **Security tests**: `tests/backend/security/`, `tests/security/`
+- **Audit script**: `scripts/analysis/detailed_security_audit.py`

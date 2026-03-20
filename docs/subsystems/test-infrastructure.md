@@ -2,338 +2,196 @@
 
 ## Overview
 
-The Test Infrastructure System provides comprehensive testing capabilities for the Verenigingen association management platform, including enhanced test data factories, JavaScript controller testing, unit testing, integration testing, and performance validation. This system ensures code quality, business rule compliance, and system reliability through sophisticated testing frameworks.
+The Test Infrastructure System provides testing capabilities for the Verenigingen association management platform. The test suite was significantly reorganized in Phase 3 (March 2026) to move ~207 top-level files into domain subdirectories.
 
-## Enhanced Test Factory Framework
+## Directory Structure
 
-### Business Rule Validation
+### Domain Subdirectories
 
-Comprehensive test data generation with built-in business rule enforcement:
+| Directory | Focus |
+|-----------|-------|
+| `tests/payment/` | Payment, Mollie, invoice tests |
+| `tests/member/` | Member lifecycle, membership tests |
+| `tests/sepa/` | SEPA mandate, batch, processing tests |
+| `tests/chapter/` | Chapter management, assignment tests |
+| `tests/security/` | Security framework, access control tests |
+| `tests/donor/` | Donor management, donation tests |
+| `tests/financial/` | Financial operations, expense tests |
+| `tests/email/` | Email system tests |
+| `tests/volunteer/` | Volunteer management tests |
+| `tests/e_boekhouden/` | eBoekhouden integration tests |
+| `tests/workflows/` | Cross-cutting workflow tests |
 
-**Enhanced Test Factory Features:**
+### Backend Test Structure (`tests/backend/`)
 
-- **Field Validation**: Automatic DocType field existence validation
-- **Business Rule Enforcement**: Dutch association management rule compliance
-- **Deterministic Data Generation**: Seeded random data for reproducible tests
-- **No Security Bypass**: Proper permission validation in all tests
-- **Database Rollback**: Automatic cleanup between test cases
+| Directory | Focus |
+|-----------|-------|
+| `backend/unit/api/` | API endpoint unit tests |
+| `backend/unit/controllers/` | DocType controller tests |
+| `backend/unit/services/` | Service layer tests |
+| `backend/components/` | Component-level integration tests |
+| `backend/integration/` | Cross-component integration tests |
+| `backend/features/` | Feature-level tests |
+| `backend/business_logic/` | Business rule tests |
+| `backend/comprehensive/` | Comprehensive suite demos |
+| `backend/performance/` | Performance tests |
+| `backend/optimization/` | UI optimization tests |
+| `backend/portal/` | Portal function tests |
+| `backend/security/` | Security tests |
+| `backend/validation/` | Validation tests |
+| `backend/workflows/` | Workflow tests |
 
-**Key Business Rules:**
+### Other Test Directories
 
-- Volunteers must be 16+ years old
-- Members require valid Dutch postal codes and IBAN formats
-- Chapter assignments must respect geographic boundaries
-- Financial operations require proper mandate and customer relationships
+| Directory | Purpose |
+|-----------|---------|
+| `tests/api/` | API-level tests |
+| `tests/config/` | Test configuration |
+| `tests/contracts/` | API contract tests (SEPA, Mollie JSON) |
+| `tests/docs/` | Test documentation |
+| `tests/e2e/` | End-to-end tests |
+| `tests/fixtures/` | Test data factories and helpers |
+| `tests/frontend/` | Frontend/JS controller tests |
+| `tests/integration/` | Integration tests |
+| `tests/performance/` | Performance tests |
+| `tests/reports/` | Report tests |
+| `tests/repositories/` | Repository pattern tests |
+| `tests/resilience/` | Resilience tests |
+| `tests/safety/` | Safety tests |
+| `tests/scalability/` | Scalability tests |
+| `tests/services/` | Service layer tests |
+| `tests/setup/` | Test setup utilities |
+| `tests/support/` | Test support modules |
+| `tests/test_records/` | Test record data |
+| `tests/unit/` | Unit tests |
+| `tests/utils/` | Test utility modules |
 
-### Dutch Business Logic Testing
+## Test Factory Framework
 
-Specialized testing for Dutch association management requirements:
+### Base Test Cases
 
-**Dutch-Specific Tests:**
+**`VereningingenTestCase`** (`tests/utils/base.py`):
+- General-purpose base class
+- Re-exported from `tests/base_test_case.py` as `BaseTestCase`
 
-- **Name Handling**: Tussenvoegsel (van, de, der) proper handling
-- **Address Validation**: Dutch postal code format validation
-- **IBAN Testing**: Dutch IBAN format and checksum validation
-- **SEPA Compliance**: European payment regulation compliance testing
-- **Cultural Adaptation**: Pronoun usage and inclusive language testing
+**`EnhancedTestCase`** (`tests/fixtures/enhanced_test_factory.py`):
+- Business logic validation framework
+- Field Validator: Validates DocType field existence at test time
+- Deterministic data generation with seeded randomness
+- Real database testing without inappropriate mocks
 
-## JavaScript Controller Testing (Cypress)
+### Test Data Factories (`tests/fixtures/`)
 
-### Comprehensive E2E Testing
+| Factory | Purpose |
+|---------|---------|
+| `test_data_factory.py` | Core test data factory |
+| `test_data_factory_extended.py` | Extended factory |
+| `enhanced_test_factory.py` | EnhancedTestCase with field validation |
+| `test_secure_factory.py` | Security-aware test data |
+| `sepa_test_factory.py` | SEPA-specific test data |
+| `sepa_mandate_test_factory.py` | SEPA mandate test data |
+| `ponto_test_data_factory.py` | Ponto (banking) test data |
+| `field_validator.py` | Field existence validation |
+| `dutch_validation_helpers.py` | Dutch business logic helpers |
+| `anbi_test_personas.py` | ANBI donation personas |
+| `billing_transition_personas.py` | Billing transition scenarios |
+| `test_personas.py` | General test personas |
 
-Advanced end-to-end testing for 25+ DocType JavaScript controllers:
+### Test Utilities (`tests/utils/`)
 
-**Test Coverage Categories:**
+- `base.py` -- VereningingenTestCase base class
+- `factories.py` -- Factory utility functions
+- `assertions.py` -- Custom assertion helpers
+- `setup_helpers.py`, `test_helpers.py`, `test_setup.py`
+- `test_config.py`, `test_utils.py`, `test_email_mocking.py`
+- `fixture_validator.py`, `coverage_reporter.py`, `quick_validation.py`
+- `hybrid_report_tester.py`, `contribution_amendment_test_utilities.py`
 
-- **High Priority**: Financial operations, SEPA processing, member lifecycle
-- **Medium Priority**: Reporting, administration, chapter management
-- **Lower Priority**: Extended functionality and specialized features
+## JavaScript Testing
 
-**Test Architecture:**
+### Cypress E2E Tests
 
-- **Real Runtime Environment**: Tests execute in actual Frappe/ERPNext environment
-- **Production HTTPS Support**: Secure testing environment configuration
-- **Enhanced Test Factory Integration**: Realistic Dutch association data
-- **Sophisticated Error Recovery**: SEPA operations, form validation, timeout handling
+Configuration: `cypress.config.js`
+Test runner: `./run_controller_tests.sh`
+Frontend test files: `tests/frontend/doctypes/`
 
-### JavaScript Controller Test Framework
+### Jest Unit Tests
 
-#### Custom Cypress Commands
+Configuration: `jest.config.js`
+Note: Pre-push Jest hook has 3 pre-existing failures (`SKIP=jest-testing`).
 
-Specialized commands for association management testing:
+## Quality Assurance
 
-**SEPA Financial Operations:**
+### Pre-commit Hooks (`.pre-commit-config.yaml`)
 
-```javascript
-cy.test_sepa_mandate_dialog(memberName);
-cy.test_iban_validation("NL91 ABNA 0417 1643 00", true);
-cy.execute_sepa_operation(() => {
-  // Complex SEPA business logic testing
-});
-```
+**Pre-commit stage:** ruff, black (line-length 110), eslint, field validators, test quality enforcer, import path validator
 
-**Dutch Business Logic Validation:**
+**Pre-push stage:** pylint (threshold 7.0), security validators (bandit, whitelist-type-safety, API security, insecure-api-detector)
 
-```javascript
-cy.test_dutch_validation("postal_code", "1234 AB", { valid: true });
-cy.test_dutch_validation("iban", "NL91ABNA0417164300", {
-  valid: true,
-  formatted: "NL91 ABNA 0417 1643 00",
-});
-```
+### Contract Testing
 
-**Form Controller Integration:**
+- `tests/contracts/sepa-contracts.json`
+- `tests/contracts/mollie-contracts.json`
 
-```javascript
-cy.test_dynamic_ui_update("membership_type", "Student", {
-  fieldVisible: "student_discount",
-  buttonAppears: "Calculate Student Rate",
-});
-```
+### Mollie Integration Tests
 
-#### Test Execution and Management
+Runner: `./run_mollie_e2e_tests.sh`
+Tests: `vereinigingen_payments/mollie/tests/`
 
-Comprehensive test execution framework:
+## DocType-Level Tests
 
-**Execution Commands:**
+Each DocType directory contains its own `test_<doctype_name>.py` file following Frappe conventions. These tests run with:
 
 ```bash
-# Run all controller tests
+bench --site veg11.veganisme.org run-tests --app verenigingen --doctype "DocType Name"
+```
+
+### e-Boekhouden Tests (`tests/e_boekhouden/`)
+
+- `test_bank_transaction_parser.py` -- Bank transaction parsing
+- `test_party_extractor.py` -- Party data extraction
+- `test_configurable_account_mapper.py` -- Account mapping configuration
+
+### Mollie Tests (`vereinigingen_payments/mollie/tests/`)
+
+Separate from the main test suite, with its own fixtures:
+
+- `fixtures/test_factory.py` -- Mollie-specific test data factory
+- `mollie_test_helper.py` -- Helper for Mollie test setup
+- `integration/test_real_api.py` -- Real API integration tests
+- `integration/test_subscription_integration.py` -- Subscription integration
+
+### Test Quality Enforcement
+
+The pre-commit hook `test-quality-enforcer` blocks mock abuse and enforces real integration testing. The `block-inappropriate-mocks` hook prevents mocking of business logic.
+
+## Running Tests
+
+```bash
+# All tests
+bench --site veg11.veganisme.org run-tests --app verenigingen
+
+# Specific DocType
+bench --site veg11.veganisme.org run-tests --app verenigingen --doctype "Member"
+
+# Parallel
+bench --site veg11.veganisme.org run-parallel-tests --app verenigingen
+
+# Cypress
 ./run_controller_tests.sh --all --headless
 
-# Priority-based execution
-./run_controller_tests.sh --high-priority
-
-# Development and debugging
-./run_controller_tests.sh --interactive
+# Mollie E2E
+./run_mollie_e2e_tests.sh
 ```
 
-**Performance Features:**
-
-- **Parallel Execution**: Faster test execution through parallelization
-- **Coverage Reporting**: Code coverage analysis and reporting
-- **Performance Metrics**: Test execution timing and optimization
-- **Error Recovery**: Intelligent retry logic for flaky tests
-
-## Unit Testing Framework
-
-### Python Unit Testing
-
-Comprehensive unit testing for Python controllers and utilities:
-
-**Test Categories:**
-
-- **DocType Controllers**: Individual DocType business logic testing
-- **Utility Functions**: Helper function validation and edge case testing
-- **Integration Points**: API endpoint and external service integration testing
-- **Security Functions**: Permission and access control testing
-
-**Testing Patterns:**
-
-```python
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-
-class TestMemberLifecycle(EnhancedTestCase):
-    def test_member_creation_with_business_rules(self):
-        # Creates valid test data with business rule validation
-        member = self.create_test_member(
-            first_name="Test",
-            last_name="User",
-            birth_date="1990-01-01"
-        )
-
-        # Monitor query performance
-        with self.assertQueryCount(100):
-            volunteer = self.create_test_volunteer(member.name)
-```
-
-### JavaScript Unit Testing
-
-Client-side JavaScript testing for controller logic:
-
-**Testing Framework:**
-
-- **Jest Configuration**: Modern JavaScript testing with ES6+ support
-- **Mock Framework**: Sophisticated mocking for Frappe framework dependencies
-- **Coverage Reporting**: Code coverage analysis for JavaScript components
-- **Performance Testing**: Client-side performance validation
-
-## Integration Testing
-
-### API Integration Testing
-
-Comprehensive testing of whitelisted API methods:
-
-**API Test Categories:**
-
-- **Member Management APIs**: Registration, updates, termination workflows
-- **Financial APIs**: Payment processing, invoice generation, SEPA operations
-- **Volunteer APIs**: Assignment management, expense processing
-- **Chapter APIs**: Geographic assignment, board management
-
-**Testing Framework:**
-
-```python
-class TestMemberAPI(EnhancedTestCase):
-    def test_member_registration_api(self):
-        response = self.client.post('/api/method/create_member', {
-            'first_name': 'Test',
-            'last_name': 'User',
-            'email': 'test@example.com'
-        })
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('member_id', response.json())
-```
-
-### External Integration Testing
-
-Testing of external service integrations:
-
-**Integration Points:**
-
-- **eBoekhouden API**: Accounting system synchronization testing
-- **Mollie Payment**: Payment processing workflow testing
-- **Bank Integration**: SEPA file generation and processing testing
-- **Email Services**: Communication platform integration testing
-
-## Performance Testing
-
-### Performance Measurement Framework
-
-Comprehensive performance monitoring and validation:
-
-**Performance Metrics:**
-
-- **Query Count Monitoring**: Database query optimization validation
-- **Response Time Tracking**: API endpoint performance measurement
-- **Memory Usage Analysis**: Resource consumption monitoring
-- **Background Job Performance**: Async operation efficiency testing
-
-**Performance Testing Tools:**
-
-```python
-# Query count assertion for optimization
-with self.assertQueryCount(50):
-    result = expensive_operation()
-
-# Response time validation
-with self.assertResponseTime(seconds=2):
-    api_response = call_api_endpoint()
-```
-
-### Load Testing
-
-Stress testing for system scalability:
-
-**Load Test Categories:**
-
-- **Member Portal Load**: Concurrent user access testing
-- **Payment Processing Load**: High-volume payment testing
-- **Background Job Load**: Queue processing capacity testing
-- **Database Load**: High-volume data operation testing
-
-## Quality Assurance Framework
-
-### Code Quality Validation
-
-Comprehensive code quality enforcement:
-
-**Quality Tools:**
-
-- **Python Linting**: flake8, pylint, black formatting
-- **JavaScript Linting**: ESLint with security plugins
-- **Security Scanning**: bandit security analysis
-- **Dependency Scanning**: Vulnerability assessment for dependencies
-
-**Pre-commit Hooks:**
-
-- Automatic code formatting and validation
-- Security vulnerability scanning
-- Test execution on commit
-- Documentation update validation
-
-### Test Data Management
-
-Sophisticated test data creation and management:
-
-**Test Data Features:**
-
-- **Realistic Dutch Data**: Proper names, addresses, postal codes
-- **Business Rule Compliance**: Valid member, volunteer, chapter data
-- **Relationship Integrity**: Proper cross-DocType relationships
-- **Performance Optimization**: Efficient test data creation
-
-## Continuous Integration
-
-### Automated Testing Pipeline
-
-Comprehensive CI/CD testing integration:
-
-**Pipeline Stages:**
-
-1. **Code Quality**: Linting, formatting, security scanning
-2. **Unit Tests**: Individual component testing
-3. **Integration Tests**: Cross-component testing
-4. **E2E Tests**: Full workflow validation
-5. **Performance Tests**: Performance regression detection
-
-### Test Environment Management
-
-Sophisticated test environment setup and management:
-
-**Environment Features:**
-
-- **Isolated Test Databases**: Clean test environment per run
-- **Configuration Management**: Test-specific configuration
-- **External Service Mocking**: Reliable testing without external dependencies
-- **Data Seeding**: Consistent test data across environments
-
-## Error Testing and Validation
-
-### Error Scenario Testing
-
-Comprehensive error condition testing:
-
-**Error Categories:**
-
-- **Input Validation Errors**: Invalid data handling
-- **Business Rule Violations**: Dutch association rule enforcement
-- **External Service Failures**: Integration error handling
-- **Performance Degradation**: System behavior under load
-
-### Security Testing
-
-Comprehensive security validation:
-
-**Security Test Categories:**
-
-- **Permission Testing**: Access control validation
-- **API Security**: Authentication and authorization testing
-- **Data Protection**: Privacy regulation compliance testing
-- **Injection Attack Prevention**: Security vulnerability testing
-
-## Regression Testing
-
-### Automated Regression Detection
-
-Comprehensive regression testing framework:
-
-**Regression Categories:**
-
-- **Functionality Regression**: Feature behavior validation
-- **Performance Regression**: Performance metric validation
-- **Security Regression**: Security control validation
-- **Integration Regression**: External system compatibility
-
-### Test Maintenance
-
-Ongoing test suite maintenance and optimization:
-
-**Maintenance Features:**
-
-- **Test Optimization**: Test execution time optimization
-- **Test Refactoring**: Test code quality improvement
-- **Coverage Analysis**: Test coverage gap identification
-- **Test Documentation**: Comprehensive test documentation
-
-This test infrastructure system provides comprehensive quality assurance through sophisticated testing frameworks, ensuring reliable, performant, and secure association management operations.
+## Key File Locations
+
+- **Test root**: `tests/` (34 subdirectories)
+- **Base test case**: `tests/utils/base.py`
+- **Enhanced factory**: `tests/fixtures/enhanced_test_factory.py`
+- **Core factory**: `tests/fixtures/test_data_factory.py`
+- **Cypress config**: `cypress.config.js`
+- **Jest config**: `jest.config.js`
+- **Test runners**: `run_controller_tests.sh`, `run_mollie_e2e_tests.sh`
+- **API contracts**: `tests/contracts/`
+- **Mollie tests**: `vereinigingen_payments/mollie/tests/`
