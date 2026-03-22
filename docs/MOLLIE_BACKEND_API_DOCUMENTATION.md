@@ -334,7 +334,7 @@ POST /api/method/verenigingen.api.dd_batch_scheduler.create_dd_batch
 
 The eBoekhouden integration provides comprehensive accounting system synchronization using REST API architecture. This enables complete financial data management and compliance with Dutch accounting standards.
 
-> **📖 Detailed Guide**: For complete implementation details, see [eBoekhouden API Integration Guide](api/EBOEKHOUDEN_API_GUIDE.md)
+> **Detailed Guide**: For complete implementation details, see [eBoekhouden Integration Comprehensive](EBOEKHOUDEN_INTEGRATION_COMPREHENSIVE.md) and [eBoekhouden API Reference](eboekhouden/api/api-reference.md)
 
 ### Migration Management
 
