@@ -208,8 +208,8 @@ The system includes pre-configured role profiles:
 ### User Training Plan
 
 1. **Administrators**: Read [ADMIN_GUIDE.md](ADMIN_GUIDE.md)
-2. **Members**: Review [MEMBER_PORTAL_GUIDE.md](user-manual/MEMBER_PORTAL_GUIDE.md)
-3. **Volunteers**: Study [VOLUNTEER_PORTAL_GUIDE.md](user-manual/VOLUNTEER_PORTAL_GUIDE.md)
+2. **Members**: Review [MEMBER_PORTAL_GUIDE.md](features/membership-management.md)
+3. **Volunteers**: Study [VOLUNTEER_PORTAL_GUIDE.md](features/volunteer-management.md)
 4. **Treasurers**: Focus on financial sections of admin guide
 
 ## First Steps
@@ -401,8 +401,8 @@ Establish regular maintenance routines:
 
 - **[Installation Guide](INSTALLATION.md)**: Detailed installation instructions
 - **[Administrator Guide](ADMIN_GUIDE.md)**: Comprehensive admin documentation
-- **[Member Portal Guide](user-manual/MEMBER_PORTAL_GUIDE.md)**: Member user guide
-- **[Volunteer Portal Guide](user-manual/VOLUNTEER_PORTAL_GUIDE.md)**: Volunteer user guide
+- **[Member Portal Guide](features/membership-management.md)**: Member user guide
+- **[Volunteer Portal Guide](features/volunteer-management.md)**: Volunteer user guide
 - **[API Documentation](API_DOCUMENTATION.md)**: Integration and development guide
 - **[FAQ & Troubleshooting](FAQ_TROUBLESHOOTING.md)**: Common issues and solutions
 

@@ -1450,4 +1450,4 @@ bench --site your-association.com execute verenigingen.templates.pages.brand_css
 
 **🎉 Congratulations!** You have successfully installed and configured the Verenigingen comprehensive association management system. Your organization now has a powerful platform for managing members, volunteers, finances, and operations with Dutch compliance and eBoekhouden integration.
 
-For ongoing support and detailed usage instructions, refer to the complete documentation in the `/docs/` directory and the [User Manual](user-manual/) for role-specific guidance.
+For ongoing support and detailed usage instructions, refer to the [Administrator Guide](ADMIN_GUIDE.md) and the [documentation index](README.md) for role-specific guidance.
