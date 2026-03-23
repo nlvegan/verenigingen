@@ -325,15 +325,16 @@ sync_mandate_status("ING-MANDATE-00001")
 **ING Checkout Settings**
 
 ```
-enabled: Enable/disable integration
-sandbox_mode: Use test environment
-service_id: Pay.nl Service ID (SL-xxxx-xxxx)
-token_code: Pay.nl Token Code (AT-xxxx-xxxx)
-api_token: Pay.nl API Token (encrypted)
-default_return_url: Post-payment redirect URL
-terms_and_conditions_url: Terms page for mandates
-webhook_url: Auto-generated webhook endpoint
-connection_status: Last connection test result
+enabled: Enable/disable integration (boolean)
+sandbox_mode: Use test environment (boolean, default: enabled)
+service_id: Pay.nl Service ID (SL-xxxx-xxxx, required when enabled)
+token_code: Pay.nl Token Code (AT-xxxx-xxxx, required when enabled)
+api_token: Pay.nl API Token (encrypted, required when enabled)
+default_return_url: Post-payment redirect URL (URL)
+terms_and_conditions_url: Terms page for mandates (URL, required for SEPA Direct Debit)
+webhook_url: Auto-generated webhook endpoint (read-only)
+last_sync: Last synchronization timestamp (read-only)
+connection_status: Last connection test result (read-only)
 ```
 
 **ING Checkout Transaction** (naming: ICT-####)
@@ -352,8 +353,8 @@ customer_iban: Customer bank account IBAN
 customer_bic: Customer bank BIC code
 redirect_url: Payment redirect URL
 return_url: Post-payment return URL
-raw_request: Raw API request data (for debugging)
-raw_response: Raw API response data (for debugging)
+raw_request: Raw API request data (JSON, for debugging)
+raw_response: Raw API response data (JSON, for debugging)
 ```
 
 **ING Checkout Mandate** (naming: ICM-####)
@@ -378,7 +379,7 @@ first_collection_date: First direct debit collection date
 last_collection_date: Last direct debit collection date
 expiry_date: Mandate expiry date
 terms_url: URL to terms and conditions page
-raw_response: Raw API response data (for debugging)
+raw_response: Raw API response data (JSON, for debugging)
 ```
 
 ### API Endpoints

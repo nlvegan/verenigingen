@@ -123,7 +123,7 @@ Test Mode: ✓ (Enable for initial testing)
 
 ```
 Enable Subscriptions: ✓
-Default Subscription Interval: 1 month (options: 1 month, 3 months, 12 months)
+Default Subscription Interval: 1 month (options: 1 day, 7 days, 14 days, 1 month, 3 months, 6 months, 1 year)
 Subscription Description Template: Membership dues for {member_name}
 Quarterly/Yearly Payment Months: [e.g. 1,4,7,10 for quarterly]
 Payment Day of Month: [1-28, day of month for subscription charges]
@@ -705,7 +705,7 @@ redirect_url: Custom redirect URL after payment (optional)
 enable_subscriptions: Allow subscription creation (boolean)
 testing_webhook_url: Webhook URL for test mode (auto-generated)
 live_webhook_url: Webhook URL for production (auto-generated)
-default_subscription_interval: Default billing frequency (1 month, 3 months, 12 months)
+default_subscription_interval: Default billing frequency (1 day, 7 days, 14 days, 1 month, 3 months, 6 months, 1 year)
 subscription_description_template: Template for subscription descriptions
 quarterly_yearly_payment_months: Months for quarterly/yearly payment scheduling
 payment_day_of_month: Day of month for subscription charges

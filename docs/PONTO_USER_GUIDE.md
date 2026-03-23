@@ -199,7 +199,7 @@ For each bank account:
 
 ```
 Auto Sync Enabled: ✓
-Sync Interval (hours): 4
+Sync Interval (hours): 6
 
 Webhook Settings:
   Enable Webhooks: ✓
@@ -328,11 +328,13 @@ payment = service.initiate_payment(
 **Payment Status Tracking**
 
 Outgoing payments go through these states:
-- **pending**: Payment initiated, awaiting authorization
-- **authorized**: Authorized, awaiting execution
-- **executed**: Successfully sent to bank
-- **rejected**: Bank rejected the payment
-- **error**: Technical error occurred
+- **Draft**: Payment created, not yet submitted
+- **Pending**: Payment initiated, awaiting signing
+- **Signed**: Signed by authorized user, awaiting execution
+- **Executed**: Successfully sent to bank
+- **Rejected**: Bank rejected the payment
+- **Cancelled**: Payment cancelled
+- **Failed**: Technical error occurred
 
 ### Viewing Account Balances
 
@@ -408,7 +410,7 @@ Check the Error Log for detailed error messages:
 
 **mTLS Connection Failed**
 
-- Verify certificate paths are correct
+- Verify certificate PEM content is correctly pasted (certificates are inline PEM, not file paths)
 - Check certificate is not expired
 - Ensure private key matches certificate
 - Verify certificate is registered with Ibanity
@@ -442,20 +444,26 @@ Check the Error Log for detailed error messages:
 **Ponto Settings**
 
 ```
-sandbox_mode: Use test environment (boolean)
+sandbox_mode: Use test environment (boolean, default: enabled)
 organization_id: Ponto organization ID
-organization_name: Organization display name
-onboarding_complete: Whether Ponto onboarding is done (boolean)
-payments_activated: Whether outbound payments are enabled (boolean)
-payment_requests_activated: Whether payment requests are enabled (boolean)
+organization_name: Organization display name (read-only, auto-populated)
+access_token_expiry: Access token expiry timestamp (read-only, auto-managed)
+onboarding_complete: Whether Ponto onboarding is done (boolean, read-only)
+payments_activated: Whether outbound payments are enabled (boolean, read-only)
+payment_requests_activated: Whether payment requests are enabled (boolean, read-only)
+payments_activation_requested: Whether activation has been requested for outbound payments (boolean, read-only)
+payment_requests_activation_requested: Whether activation has been requested for payment requests (boolean, read-only)
+last_status_refresh: Last time service activation status was refreshed (Datetime, read-only)
+use_ibanity_mtls: Enable mTLS authentication for full API access (boolean)
+ibanity_access_token: Current OAuth2 access token (Password, hidden, auto-managed)
+ibanity_refresh_token: Current OAuth2 refresh token (Password, hidden, auto-managed)
 sandbox_client_id: Sandbox API Client ID
 sandbox_client_secret: Sandbox API Client Secret (encrypted)
 production_client_id: Production API Client ID
 production_client_secret: Production API Client Secret (encrypted)
-use_ibanity_mtls: Enable mTLS authentication for production (boolean)
-ibanity_api_url: Ibanity API base URL
-ibanity_client_id: Ibanity client ID for mTLS
-ibanity_client_secret: Ibanity client secret for mTLS (encrypted)
+ibanity_api_url: Ibanity API base URL (default: https://api.ibanity.com)
+ibanity_client_id: Ibanity OAuth2 Client ID for mTLS
+ibanity_client_secret: Ibanity OAuth2 Client Secret for mTLS (encrypted)
 ibanity_certificate: Client certificate - inline PEM content (Code field)
 ibanity_private_key: Private key - inline PEM content (Code field)
 ibanity_key_passphrase: Private key passphrase (encrypted)
@@ -463,33 +471,30 @@ signature_certificate_id: Signature certificate ID from Ibanity portal
 signature_certificate: Signature certificate - inline PEM content (Code field)
 signature_private_key: Signature private key - inline PEM content (Code field)
 signature_key_passphrase: Signature key passphrase (encrypted)
-ibanity_access_token: Current OAuth2 access token (encrypted, auto-managed)
-ibanity_refresh_token: Current OAuth2 refresh token (encrypted, auto-managed)
-access_token_expiry: Access token expiry timestamp (auto-managed)
 bank_account_mappings: Table of Ponto Bank Account Mapping records
 auto_sync_enabled: Enable automatic transaction import (boolean)
-sync_interval_hours: Hours between automatic syncs (integer)
-last_sync_time: Last successful sync timestamp (auto-managed)
+sync_interval_hours: Hours between automatic syncs (integer, default: 6)
+last_sync_time: Last successful sync timestamp (read-only, auto-managed)
 enable_webhooks: Enable Ponto webhook notifications (boolean)
-require_webhook_signature: Validate webhook signatures (boolean)
-webhook_application_id: Webhook application ID from Ponto
-webhook_url: Auto-generated webhook endpoint URL
+require_webhook_signature: Require JWT signature verification on webhooks (boolean, default: enabled)
+webhook_application_id: Application ID for webhook JWT verification from Ibanity developer console
+webhook_url: Auto-generated webhook endpoint URL (read-only)
 ```
 
 **Ponto Bank Account Mapping** (child table of Ponto Settings)
 
 ```
 enabled: Enable sync for this account (boolean, default: enabled)
-ponto_account_id: Ponto account UUID from API (read-only)
+ponto_account_id: Ponto account UUID from API (read-only, required)
 ponto_account_name: Account name/description from Ponto (read-only)
 ponto_iban: Bank account IBAN (read-only)
 ponto_currency: Account currency, e.g. EUR (read-only, Link to Currency)
-bank_account: Linked ERPNext Bank Account (Link)
-last_sync_time: Last successful sync time for this account
-transactions_imported: Count of transactions imported
-sync_status: Current sync status
-last_sync_failure_time: Time of last sync failure
-last_sync_error: Error message from last failed sync
+bank_account: Linked ERPNext Bank Account (Link to Bank Account)
+last_sync_time: Last successful sync time for this account (read-only)
+transactions_imported: Count of transactions imported (read-only)
+sync_status: Current sync status (OK / Failed / Needs Re-authorization, read-only)
+last_sync_failure_time: Time of last sync failure (read-only)
+last_sync_error: Error message from last failed sync (read-only)
 ```
 
 **Ponto Payment Link** (naming: PONTO-LINK-####)
@@ -501,17 +506,17 @@ currency: Currency code, e.g. EUR (Link to Currency, required)
 description: Payment description shown to customer (required)
 status: Draft / Pending Authorization / Authorized / Executed / Rejected / Cancelled / Expired / Failed
 ponto_request_id: Ponto payment request ID (auto-populated)
-redirect_link: Payment URL for the member to complete payment (auto-populated)
-frequency: Payment frequency (for future periodic support)
-start_date / end_date: Scheduling dates (for future periodic support)
-next_payment_date: Next scheduled payment date
-total_payments_collected: Running total of collected payments
+redirect_link: Authorization link for customer to authorize the payment (auto-populated, read-only)
+frequency: DEPRECATED - Periodic payments not supported by Ponto Connect (hidden)
+start_date / end_date: DEPRECATED - Periodic payments not supported (hidden)
+next_payment_date: DEPRECATED - Periodic payments not supported (hidden)
+total_payments_collected: DEPRECATED - Periodic payments not supported (hidden)
 debtor_name: Debtor (payer) name
 debtor_iban: Debtor bank account IBAN
 debtor_bank: Debtor bank name
 creditor_name: Creditor (association) name
 creditor_iban: Creditor bank account IBAN
-creditor_account: Creditor ERPNext account
+creditor_account: Creditor ERPNext Bank Account (Link to Bank Account)
 reference_doctype: Linked document type (e.g. Sales Invoice)
 reference_name: Linked document name
 member: Linked Member (optional)
@@ -528,7 +533,7 @@ ponto_account: Ponto account ID to pay from (required)
 ponto_account_name: Display name of the source account
 amount: Payment amount (Currency, required)
 currency: Currency code (Link to Currency, required)
-status: Draft / Pending Authorization / Authorized / Executed / Rejected / Cancelled / Expired / Failed
+status: Draft / Pending / Signed / Executed / Rejected / Cancelled / Failed
 ponto_payment_id: Ponto payment ID (auto-populated)
 requested_execution_date: Desired execution date
 creditor_name: Recipient name
@@ -556,8 +561,8 @@ transactions_imported: Count of new transactions
 transactions_skipped: Count of duplicate/already-imported transactions
 transactions_failed: Count of transactions that failed to import
 error_summary: Brief error description
-error_details: Detailed error information (Long Text)
-bank_transactions: Table of linked Bank Transaction documents
+error_details: Detailed error information (Code/JSON)
+bank_transactions: List of created Bank Transaction names (Code/JSON array)
 ```
 
 ### API Endpoints

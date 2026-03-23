@@ -110,13 +110,17 @@ verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.get_cache_statis
 
 - **E-Boekhouden Settings**: Single doctype for API configuration, company defaults, account classification, and cost center mappings. Key fields include:
   - `api_url` / `api_token` / `source_application`: API connection credentials
+  - `connection_status` / `last_tested`: Connection test results (read-only)
   - `default_company` / `default_cost_center` / `default_currency`: ERPNext company mapping
-  - `fiscal_year_start_month`: Fiscal year configuration
-  - `payment_gateway_virtual_account` / `payment_gateway_invoice_prefix`: Payment gateway integration
+  - `fiscal_year_start_month`: Fiscal year configuration (Select: 1-12)
+  - `payment_gateway_virtual_account` / `payment_gateway_invoice_prefix`: Payment gateway adjustment detection
   - `auto_create_parties_from_bank_transactions`: Automatic customer/supplier creation
+  - `balance_sheet_group_mappings` / `pl_group_mappings`: Account group code-to-name mappings (Long Text)
   - `group_type_mappings`: Table mapping eBoekhouden groups to ERPNext account types
+  - Balance sheet organization: `vorderingen_group_name`, `schulden_group_name`, `financial_accounts_group_name`, `overlopende_activa_group_name`, `tax_payable_group_name`, `tax_receivable_group_name`
+  - `enable_account_classification_service` / `classification_strategy`: Classification service configuration (strategy options: Prefer Groups, Prefer Code Ranges, Groups Only, Code Ranges Only)
+  - Account classification fields: `bal_asset_ranges`, `bal_liability_ranges`, `bal_equity_ranges`, `vw_income_ranges`, `vw_expense_ranges`, and keyword fields (`bal_equity_keywords`, `vw_income_keywords`, `vw_expense_keywords`) for advanced classification
   - `cost_center_mappings`: Table mapping eBoekhouden cost centers to ERPNext
-  - Account classification fields: `bal_asset_ranges`, `bal_liability_ranges`, `bal_equity_ranges`, `vw_income_ranges`, `vw_expense_ranges`, and keyword fields for advanced classification
 - **E-Boekhouden Migration**: Migration orchestration with progress tracking
 - **E-Boekhouden Dashboard**: Dashboard view for monitoring migration and sync status
 - **E-Boekhouden Ledger Mapping**: Account mapping between eBoekhouden and ERPNext chart of accounts
