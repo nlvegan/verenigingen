@@ -26,9 +26,9 @@ SecurityLevel.CRITICAL: SecurityProfile(
 # New system - role profiles properly mapped to security levels
 ROLE_PROFILE_SECURITY_MAPPING = {
     "Verenigingen Treasurer": [SecurityLevel.CRITICAL, SecurityLevel.HIGH, SecurityLevel.MEDIUM],
-    "Verenigingen Chapter Board Member": [SecurityLevel.MEDIUM, SecurityLevel.LOW],
-    "Verenigingen Volunteer": [SecurityLevel.LOW],  # + self_service_only
-    # ... all 13 role profiles mapped
+    "Verenigingen Chapter Board Member": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
+    "Verenigingen Volunteer": [SecurityLevel.MEDIUM, SecurityLevel.LOW],  # + self_service_only
+    # ... all 11 role profiles mapped
 }
 ```
 
@@ -50,7 +50,9 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 **Role Profiles with HIGH access:**
 
 - All CRITICAL level profiles +
-- `Verenigingen Manager` - Operational management
+- `Verenigingen Staff` - Administrative support
+- `Verenigingen Chapter Board Member` - Chapter operations (+ contextual validation)
+- `Verenigingen Webhook User` - Service account for webhooks and automation
 
 **Use Cases:** Member data operations, batch processing, administrative functions
 
@@ -59,9 +61,8 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 **Role Profiles with MEDIUM access:**
 
 - All HIGH level profiles +
-- `Verenigingen Chapter Board Member` - Chapter operations (+ contextual validation)
 - `Verenigingen Auditor` - Audit and compliance access
-- `Verenigingen Staff` - Administrative support
+- `Verenigingen Volunteer` - Self-service operations (+ `self_service_only`)
 
 **Use Cases:** Reporting, analytics, read operations, self-service operations
 
@@ -71,15 +72,15 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 
 - All MEDIUM level profiles +
 - `Verenigingen Team Leader` - Team coordination (+ contextual validation)
-- `Verenigingen Auditor` - Read-only audit access
 - `Verenigingen Member` - Basic member services
-- `Verenigingen Volunteer` - Basic volunteer access (+ self_service_only)
+
+Note: Any authenticated user is granted LOW access (Rule 3 in the authorization decision table).
 
 **Use Cases:** Utility functions, basic operations, self-service with restrictions
 
 ### Public Access (`SecurityLevel.PUBLIC`)
 
-- `Verenigingen Webhook User` - Integration access
+- `Verenigingen Webhook User` - Integration access (also has HIGH/MEDIUM/LOW)
 - No authentication required for truly public endpoints
 
 ## Self-Service Operations Enhancement

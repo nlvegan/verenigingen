@@ -1,149 +1,113 @@
 # Verenigingen Role Profiles Guide
 
-This document describes the role profiles available in the Verenigingen app and their intended use cases.
+This document describes the 11 role profiles defined in `verenigingen/fixtures/role_profile.json` and their intended use cases.
 
 ## Overview
 
-Role profiles in Verenigingen are designed to provide appropriate access levels for different types of users in an association management system. Each profile includes specific roles and module access tailored to the user's responsibilities.
+Role profiles in Verenigingen provide appropriate access levels for different types of users in an association management system. Each profile bundles specific Frappe roles tailored to the user's responsibilities.
 
 ## Role Profiles
 
-### 1. **Verenigingen Member**
+### 1. Verenigingen Member
 
 - **For**: Regular association members
-- **Access**: Basic member portal, view their own information, communication
-- **Modules**: Verenigingen, Portal, Communication, Desk
+- **Roles**: Verenigingen Member, All
 - **Use Case**: Members who need to manage their own profile, view membership status, and access member resources
 
-### 2. **Verenigingen Volunteer**
+### 2. Verenigingen Volunteer
 
 - **For**: Active volunteers participating in teams or projects
-- **Access**: Member access + project participation, expense submission
-- **Modules**: Adds Projects, Support, Activity
-- **Key Features**:
-  - Submit volunteer expenses
-  - Participate in team activities
-  - Access project documentation
-  - Track volunteer hours
+- **Roles**: Verenigingen Member, Verenigingen Volunteer, Employee, Employee Self Service, Projects User
+- **Use Case**: Volunteers who participate in team activities, submit expenses, and track project work
 
-### 3. **Verenigingen Team Leader**
+### 3. Verenigingen Team Leader
 
 - **For**: Volunteers leading teams or specific projects
-- **Access**: Volunteer access + team management, expense approval
-- **Additional Roles**: Expense Approver, Leave Approver
-- **Key Features**:
-  - Approve team member expenses
-  - Manage project tasks
-  - Coordinate team activities
-  - Access HR features for team management
+- **Roles**: Verenigingen Member, Verenigingen Volunteer, Employee, Employee Self Service, Projects User, Expense Approver
+- **Use Case**: Team leads who approve expenses and coordinate team activities
 
-### 4. **Verenigingen Chapter Board**
+### 4. Verenigingen Chapter Board Member
 
 - **For**: Elected board members of local chapters
-- **Access**: Enhanced volunteer access + chapter oversight
-- **Key Features**:
-  - View chapter membership
-  - Approve volunteer activities
-  - Access chapter reports
-  - Participate in governance
+- **Roles**: Verenigingen Member, Verenigingen Chapter Board Member, Verenigingen Volunteer, Employee, Employee Self Service, Projects User, Projects Manager, Expense Approver, Accounts User, Sales User, Purchase User
+- **Use Case**: Chapter governance, financial oversight, volunteer coordination at the chapter level
 
-### 5. **Verenigingen Treasurer**
+### 5. Verenigingen National Board Member
+
+- **For**: Members of the national board
+- **Roles**: Verenigingen Member, Verenigingen Staff, Verenigingen Chapter Board Member, Verenigingen Volunteer, Employee, Employee Self Service, Projects User, Projects Manager, Expense Approver, Website Manager, Auditor
+- **Module Profile**: Verenigingen Management Access
+- **Use Case**: National oversight, governance, audit access, website management
+
+### 6. Verenigingen Treasurer
 
 - **For**: Chapter treasurers and financial officers
-- **Access**: Limited financial management capabilities
-- **Modules**: Accounts, Banking, Selling
-- **Key Features**:
-  - Process member payments
-  - Bank reconciliation
-  - Generate financial reports
-  - Manage chapter budgets
+- **Roles**: Verenigingen Member, Verenigingen Staff, Accounts Manager, Purchase Manager, Sales Manager, Stock Manager, Verenigingen Chapter Board Member, Verenigingen National Board Member, Projects Manager, Employee, Employee Self Service, Verenigingen Financial Manager, Dashboard Manager, Expense Approver
+- **Use Case**: Full financial management including payments, reconciliation, reporting, and budgets
 
-### 6. **Verenigingen Communications Officer** (NEW)
+### 7. Verenigingen Staff
 
-- **For**: Dedicated communications staff
-- **Access**: Full communications and content management
-- **Key Features**:
-  - Manage all website content
-  - Social media management
-  - Newsletter campaigns
-  - Blog and news updates
+- **For**: National office staff and support team members
+- **Roles**: Verenigingen Staff, Verenigingen Member, Employee, Employee Self Service, Projects User, Support Team, Accounts User, Sales User, Purchase User
+- **Use Case**: Day-to-day administrative and support operations
 
-### 7. **Verenigingen Event Coordinator** (NEW)
+### 8. Verenigingen Administrator
 
-- **For**: Event organizers and coordinators
-- **Access**: Project and event management tools
-- **Key Features**:
-  - Create and manage events
-  - Coordinate volunteers
-  - Track event participation
-  - Generate event reports
+- **For**: Association administrators managing the application
+- **Roles**: Verenigingen Administrator, Verenigingen Member, Verenigingen Staff, Employee, System Manager, Accounts Manager, Sales Manager, Purchase Manager, Projects User
+- **Use Case**: Application administration, user management, configuration
 
-### 8. **Verenigingen Manager**
+### 9. Verenigingen System Administrator
 
-- **For**: National office staff and regional managers
-- **Access**: Comprehensive management capabilities
-- **Key Features**:
-  - Full project management
-  - Account management
-  - HR functions
-  - Support team access
-  - Advanced reporting
+- **For**: IT administrators with full system access
+- **Roles**: Verenigingen Administrator, System Manager, Administrator, All
+- **Use Case**: Full system access, technical administration, infrastructure management
 
-### 9. **Verenigingen System Administrator**
-
-- **For**: IT administrators and system managers
-- **Access**: Full system access
-- **Key Features**:
-  - All modules and features
-  - System configuration
-  - User management
-  - Technical administration
-
-### 10. **Verenigingen Auditor**
+### 10. Verenigingen Auditor
 
 - **For**: Internal auditors and compliance officers
-- **Access**: Read-only access to financial and governance data
-- **Key Features**:
-  - View all financial records
-  - Access audit trails
-  - Generate compliance reports
-  - Quality management tools
+- **Roles**: Verenigingen Member, Verenigingen Volunteer, Employee, Auditor
+- **Use Case**: Read-only access to financial and governance data for audit and compliance
 
-### 11. **Verenigingen Guest** (NEW)
+### 11. Verenigingen Webhook User
 
-- **For**: Non-members and public users
-- **Access**: Public website only
-- **Key Features**:
-  - View public content
-  - Submit membership applications
-  - Make donations
+- **For**: Service accounts handling webhook and automation integrations
+- **Roles**: Verenigingen Webhook User, Accounts User, Sales User
+- **Use Case**: Processing incoming webhooks (e.g., Mollie payment notifications) and background automation
 
-## Module Access Summary
+## Role Count Summary
 
-### Excluded Modules (Not relevant for associations):
+| # | Role Profile | Role Count |
+|---|-------------|-----------|
+| 1 | Verenigingen Member | 2 |
+| 2 | Verenigingen Volunteer | 5 |
+| 3 | Verenigingen Team Leader | 6 |
+| 4 | Verenigingen Chapter Board Member | 11 |
+| 5 | Verenigingen National Board Member | 11 |
+| 6 | Verenigingen Treasurer | 14 |
+| 7 | Verenigingen Staff | 9 |
+| 8 | Verenigingen Administrator | 9 |
+| 9 | Verenigingen System Administrator | 4 |
+| 10 | Verenigingen Auditor | 4 |
+| 11 | Verenigingen Webhook User | 3 |
 
-- Manufacturing
-- Education
-- Healthcare
-- Agriculture
-- Non Profit (replaced by Verenigingen)
-- Hospitality
-- Distribution
+## API Security Level Mapping
 
-### Conditionally Included Modules:
+Role profiles are mapped to API security levels in `verenigingen/utils/security/authorization_policy.py`. See [security/ROLE_PROFILE_INTEGRATION_GUIDE.md](security/ROLE_PROFILE_INTEGRATION_GUIDE.md) for details.
 
-- **Stock**: Only for Finance Managers (for inventory if needed)
-- **Buying**: Only for Finance Managers (for procurement)
-- **Assets**: For Managers and Finance roles (equipment tracking)
-- **Payroll**: For Treasurers and Managers (if staff employed)
-- **HR**: For Team Leaders and Managers
-
-### Core Modules for All Members:
-
-- Verenigingen (custom association management)
-- Portal (member self-service)
-- Communication (messaging and notifications)
-- Desk (basic navigation)
+| Role Profile | Security Levels |
+|-------------|----------------|
+| Verenigingen System Administrator | CRITICAL, HIGH, MEDIUM, LOW |
+| Verenigingen Administrator | CRITICAL, HIGH, MEDIUM, LOW |
+| Verenigingen Treasurer | CRITICAL, HIGH, MEDIUM |
+| Verenigingen National Board Member | CRITICAL, HIGH, MEDIUM |
+| Verenigingen Staff | HIGH, MEDIUM, LOW |
+| Verenigingen Chapter Board Member | HIGH, MEDIUM, LOW |
+| Verenigingen Auditor | MEDIUM, LOW |
+| Verenigingen Volunteer | MEDIUM, LOW |
+| Verenigingen Team Leader | LOW |
+| Verenigingen Member | LOW |
+| Verenigingen Webhook User | HIGH, MEDIUM, LOW, PUBLIC |
 
 ## Implementation
 
@@ -178,7 +142,7 @@ auto_assign_role_profiles()
 ## Best Practices
 
 1. **Start with the minimum required access** - Users can always be upgraded to higher profiles
-2. **Use role profiles consistently** - Don't mix individual role assignments with profiles
+2. **Use role profiles consistently** - Avoid mixing individual role assignments with profiles
 3. **Regular review** - Audit role assignments quarterly
 4. **Document exceptions** - If custom roles are needed, document why
 5. **Test thoroughly** - Verify access levels before rolling out to users
@@ -194,7 +158,7 @@ If you need to modify role profiles:
 
 ## Troubleshooting
 
-### User can't access expected features
+### User cannot access expected features
 
 1. Check if role profile is properly assigned
 2. Verify module profile is linked to role profile
