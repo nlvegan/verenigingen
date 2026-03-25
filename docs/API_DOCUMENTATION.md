@@ -1,1173 +1,962 @@
 # API Documentation
 
-This comprehensive guide covers the Verenigingen API endpoints, authentication, and integration patterns.
+This document covers the public API endpoints exposed by the Verenigingen app via `@frappe.whitelist()`. All endpoints are accessed through Frappe's standard method call pattern:
+
+```
+POST /api/method/verenigingen.<module_path>.<function_name>
+```
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Authentication](#authentication)
-- [Core API Endpoints](#core-api-endpoints)
-- [Member Management API](#member-management-api)
-- [Payment and Financial API](#payment-and-financial-api)
-- [eBoekhouden Integration API](#eboekhouden-integration-api)
-- [Volunteer Management API](#volunteer-management-api)
-- [Communication API](#communication-api)
-- [Portal APIs](#portal-apis)
-- [Integration Examples](#integration-examples)
-- [Error Handling](#error-handling)
-- [Rate Limiting](#rate-limiting)
-
-## Overview
-
-The Verenigingen app provides a comprehensive REST API built on the Frappe framework. All endpoints follow Frappe's API conventions and require proper authentication.
-
-### Base URL Structure
-
-```
-https://your-site.com/api/method/verenigingen.api.[module].[function]
-```
-
-### API Capabilities
-
-- **Member Management**: Complete lifecycle from application to termination with automated workflows
-- **Payment Processing**: SEPA direct debit, mandate management, and ERPNext financial integration
-- **eBoekhouden Integration**: Production-ready REST API integration for financial data synchronization
-- **Volunteer Coordination**: Team assignments, expense management, and skills tracking
-- **Portal Systems**: Member and volunteer self-service portals with brand customization
-- **Communication**: Automated email templates and notification systems
-- **Analytics & Reporting**: Real-time KPIs, cohort analysis, and business intelligence
-- **Brand Management**: Dynamic theming with color preview and instant activation
-- **System Administration**: Health monitoring, test framework, and migration tools
-- **Geographic Organization**: Chapter management with postal code assignment
-- **Termination Workflows**: Governance-compliant termination with audit trails
-- **Banking Integration**: MT940 import, IBAN validation, and bank reconciliation
-
-### Response Format
-
-All API responses follow this standard format:
-
-```json
-{
-  "message": {
-    "success": true,
-    "data": {
-      "id": "record_id",
-      "name": "Document Name",
-      "details": {}
-    },
-    "error": null,
-    "timestamp": "2025-01-21T10:30:00Z",
-    "version": "1.0"
-  }
-}
-```
-
-### Error Response Format
-
-Error responses include detailed information for debugging:
-
-```json
-{
-  "exc_type": "ValidationError",
-  "message": "Detailed error description",
-  "exception": "Full stack trace (in debug mode)"
-}
-```
-
-## Authentication
-
-### API Key Authentication (Recommended)
-
-1. **Generate API Keys**:
-   - Go to **Users and Permissions → User**
-   - Select user account
-   - Click "Generate Keys" in API Access section
-
-2. **API Request Headers**:
-   ```http
-   Authorization: token api_key:api_secret
-   Content-Type: application/json
-   ```
-
-### Session-Based Authentication
-
-For browser-based applications:
-
-```javascript
-// Login to create session
-fetch("/api/method/login", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    usr: "user@example.com",
-    pwd: "password",
-  }),
-});
-```
-
-## Core API Endpoints
-
-### Member Management API
-
-#### Get Member Information
-
-```http
-GET /api/method/verenigingen.api.member_management.get_member_info
-```
-
-**Parameters**:
-
-- `member_id` (string): Member ID or email address
-- `include_payments` (boolean): Include payment history
-- `include_volunteer` (boolean): Include volunteer information
-
-**Example Request**:
-
-```bash
-curl -X GET "https://your-site.com/api/method/verenigingen.api.member_management.get_member_info" \
-  -H "Authorization: token your_api_key:your_api_secret" \
-  -d "member_id=MEMBER001&include_payments=true"
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "success": true,
-    "data": {
-      "member_id": "MEMBER001",
-      "name": "John Doe",
-      "email": "john@example.com",
-      "status": "Active",
-      "membership_type": "Individual",
-      "chapter": "Amsterdam",
-      "join_date": "2023-01-15",
-      "payments": [
-        {
-          "date": "2024-01-01",
-          "amount": 25.0,
-          "status": "Paid",
-          "method": "SEPA"
-        }
-      ]
-    }
-  }
-}
-```
-
-#### Create New Member
-
-```http
-POST /api/method/verenigingen.api.member_management.create_member
-```
-
-**Request Body**:
-
-```json
-{
-  "first_name": "Jane",
-  "last_name": "Smith",
-  "email": "jane@example.com",
-  "phone": "+31612345678",
-  "address": {
-    "street": "Damrak 1",
-    "city": "Amsterdam",
-    "postal_code": "1012LG",
-    "country": "Netherlands"
-  },
-  "membership_type": "Individual",
-  "fee_amount": 25.0
-}
-```
-
-#### Update Member Information
-
-```http
-PUT /api/method/verenigingen.api.member_management.update_member
-```
-
-**Parameters**:
-
-- `member_id` (string, required): Member to update
-- `data` (object): Fields to update
-
-### Membership Application API
-
-#### Submit New Application
-
-```http
-POST /api/method/verenigingen.api.membership_application.submit_application
-```
-
-**Request Body**:
-
-```json
-{
-  "applicant": {
-    "first_name": "John",
-    "last_name": "Doe",
-    "email": "john@example.com",
-    "phone": "+31612345678",
-    "birth_date": "1990-01-01"
-  },
-  "address": {
-    "street": "Damrak 1",
-    "city": "Amsterdam",
-    "postal_code": "1012LG"
-  },
-  "membership_type": "Individual",
-  "payment_method": "sepa",
-  "iban": "NL91ABNA0417164300"
-}
-```
-
-#### Get Application Status
-
-```http
-GET /api/method/verenigingen.api.membership_application.get_application_status
-```
-
-**Parameters**:
-
-- `application_id` (string): Application reference number
-- `email` (string): Applicant email address
-
-## Payment and Financial API
-
-### SEPA Mandate Management
-
-#### Create SEPA Mandate
-
-```http
-POST /api/method/verenigingen.api.sepa_mandate_fix.create_sepa_mandate
-```
-
-**Request Body**:
-
-```json
-{
-  "member_id": "MEMBER001",
-  "iban": "NL91ABNA0417164300",
-  "account_holder": "John Doe",
-  "mandate_type": "RCUR"
-}
-```
-
-#### Validate IBAN
-
-```http
-GET /api/method/verenigingen.utils.iban_validator.validate_iban
-```
-
-**Parameters**:
-
-- `iban` (string): IBAN to validate
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "valid": true,
-    "iban": "NL91ABNA0417164300",
-    "bank": "ABN AMRO",
-    "bic": "ABNANL2A",
-    "country": "Netherlands"
-  }
-}
-```
-
-### Payment Processing
-
-#### Process Payment
-
-```http
-POST /api/method/verenigingen.api.payment_processing.process_payment
-```
-
-**Request Body**:
-
-```json
-{
-  "member_id": "MEMBER001",
-  "amount": 25.0,
-  "payment_method": "sepa",
-  "description": "Annual membership fee",
-  "due_date": "2024-12-31"
-}
-```
-
-#### Get Payment History
-
-```http
-GET /api/method/verenigingen.api.payment_processing.get_payment_history
-```
-
-**Parameters**:
-
-- `member_id` (string): Member ID
-- `from_date` (date): Start date filter
-- `to_date` (date): End date filter
-- `status` (string): Payment status filter
-
-### Direct Debit Batch Management
-
-#### Create SEPA Batch
-
-```http
-POST /api/method/verenigingen.api.dd_batch_scheduler.create_dd_batch
-```
-
-**Request Body**:
-
-```json
-{
-  "execution_date": "2024-12-31",
-  "batch_type": "membership_fees",
-  "include_member_types": ["Individual", "Student"],
-  "exclude_suspended": true
-}
-```
-
-## eBoekhouden Integration API
-
-The eBoekhouden integration provides comprehensive accounting system synchronization using REST API architecture. This enables complete financial data management and compliance with Dutch accounting standards.
-
-> **📖 Detailed Guide**: For complete implementation details, see [eBoekhouden API Integration Guide](api/EBOEKHOUDEN_API_GUIDE.md)
-
-### Migration Management
-
-#### Start Complete Migration
-
-```http
-POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import
-```
-
-**Request Body**:
-
-```json
-{
-  "migration_name": "eBoekhouden Migration 2025-01-07"
-}
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "success": true,
-    "migration_id": "MIGRATE-2025-001",
-    "status": "Started",
-    "estimated_transactions": 7163,
-    "start_time": "2025-01-07 10:00:00"
-  }
-}
-```
-
-#### Test Opening Balance Import
-
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.test_opening_balance_import
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "success": true,
-    "imported": 1,
-    "total_amount": "324062.12",
-    "account_entries": 22,
-    "journal_entry": "EBH-Opening-Balance"
-  }
-}
-```
-
-#### Get Migration Progress
-
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_migration_status
-```
-
-**Parameters**:
-
-- `migration_id` (string): Migration identifier
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "migration_id": "MIGRATE-2025-001",
-    "status": "In Progress",
-    "progress": {
-      "total_mutations": 7163,
-      "processed": 1250,
-      "successful": 1200,
-      "failed": 50,
-      "percentage": 17.4
-    },
-    "current_operation": "Processing mutation 1251: ID=4550, Type=3",
-    "errors": [
-      "Failed to import mutation 3746: Zero amount invoice",
-      "Skipped mutation 1256: Zero amount journal entry"
-    ]
-  }
-}
-```
-
-### Data Analysis and Validation
-
-#### Analyze Missing Mappings
-
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.analyze_missing_ledger_mappings
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "total_unmapped": 15,
-    "missing_mappings": [
-      {
-        "ledger_id": "42308",
-        "usage_count": 25,
-        "description": "Bijeenkomsten: deelnemersbijdragen"
-      }
-    ],
-    "impact_analysis": {
-      "affected_transactions": 250,
-      "total_amount": "15420.50"
-    }
-  }
-}
-```
-
-#### Export Unprocessed Data
-
-```http
-POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.export_unprocessed_mutations
-```
-
-**Request Body**:
-
-```json
-{
-  "export_path": "/tmp/unprocessed_mutations.json",
-  "format": "json"
-}
-```
-
-### API Connectivity Testing
-
-#### Test REST API Connection
-
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "success": true,
-    "api_status": "Connected",
-    "mutations_found": {
-      "100": "Found - Type: 2, Date: 2024-03-15",
-      "500": "Found - Type: 1, Date: 2024-04-20"
-    },
-    "session_token": "Valid",
-    "estimated_range": "1 to 7420"
-  }
-}
-```
-
-#### Estimate Data Range
-
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.estimate_mutation_range
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "success": true,
-    "lowest_id": 0,
-    "highest_id": 7420,
-    "estimated_count": 7421,
-    "includes_opening_balance": true
-  }
-}
-```
-
-### Cache Management
-
-#### Get Cache Statistics
-
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_cache_statistics
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "total_cached_mutations": 5000,
-    "cache_size_mb": 45.2,
-    "oldest_entry": "2024-01-01",
-    "newest_entry": "2024-12-31",
-    "hit_rate": "85.6%"
-  }
-}
-```
-
-#### Clear Cache
-
-```http
-DELETE /api/method/verenigingen.utils.eboekhouden_rest_full_migration.clear_cache
-```
-
-### Account Management
-
-#### Create Account Mapping
-
-```http
-POST /api/method/verenigingen.api.eboekhouden_account_manager.create_account_mapping
-```
-
-**Request Body**:
-
-```json
-{
-  "eboekhouden_code": "42308",
-  "erpnext_account": "42308 - Bijeenkomsten: deelnemersbijdragen - NVV",
-  "account_type": "Expense Account",
-  "description": "Event participation fees"
-}
-```
-
-#### Validate Account Structure
-
-```http
-GET /api/method/verenigingen.api.eboekhouden_account_manager.validate_account_structure
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "valid": true,
-    "chart_of_accounts": {
-      "total_accounts": 156,
-      "mapped_accounts": 141,
-      "unmapped_accounts": 15
-    },
-    "validation_errors": [],
-    "recommendations": [
-      "Create mapping for account 42308",
-      "Review account hierarchy for group 19000"
-    ]
-  }
-}
-```
-
-### Document Processing
-
-#### Process Single Transaction
-
-```http
-POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.process_single_mutation
-```
-
-**Request Body**:
-
-```json
-{
-  "mutation_id": 4550,
-  "force_reprocess": false,
-  "validation_mode": false
-}
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "success": true,
-    "mutation_id": 4550,
-    "document_created": "EBH-Payment-4550",
-    "document_type": "Journal Entry",
-    "amount": 150.0,
-    "party": "Customer ABC",
-    "balanced": true
-  }
-}
-```
-
-### System Health
-
-#### Health Check
-
-```http
-GET /api/method/verenigingen.api.eboekhouden_account_manager.system_health_check
-```
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "overall_status": "Healthy",
-    "api_connectivity": "Connected",
-    "database_integrity": "Valid",
-    "mapping_coverage": "90.4%",
-    "balance_accuracy": "99.8%",
-    "last_import": "2025-01-07 09:30:00",
-    "recommendations": [
-      "Update 15 missing account mappings",
-      "Review 3 balance discrepancies"
-    ]
-  }
-}
-```
-
-### Error Handling for eBoekhouden API
-
-The eBoekhouden integration includes comprehensive error handling:
-
-```json
-{
-  "message": {
-    "success": false,
-    "error": "API_CONNECTION_FAILED",
-    "details": {
-      "error_code": "AUTH_001",
-      "description": "Invalid API credentials",
-      "resolution": "Check eBoekhouden Settings and verify API token",
-      "retry_possible": true
-    }
-  }
-}
-```
-
-**Common Error Codes**:
-
-- `AUTH_001`: Invalid API credentials
-- `MAPPING_002`: Missing account mapping
-- `VALIDATION_003`: Document validation failed
-- `BALANCE_004`: Transaction balance mismatch
-- `NETWORK_005`: API connectivity issues
-
-## Volunteer Management API
-
-### Volunteer Information
-
-#### Get Volunteer Profile
-
-```http
-GET /api/method/verenigingen.api.volunteer_api.get_volunteer_profile
-```
-
-**Parameters**:
-
-- `volunteer_id` (string): Volunteer ID or member email
-- `include_assignments` (boolean): Include team assignments
-- `include_expenses` (boolean): Include expense history
-
-#### Update Volunteer Availability
-
-```http
-PUT /api/method/verenigingen.api.volunteer_api.update_availability
-```
-
-**Request Body**:
-
-```json
-{
-  "volunteer_id": "VOL001",
-  "availability": {
-    "monday": { "start": "09:00", "end": "17:00" },
-    "tuesday": { "start": "09:00", "end": "17:00" },
-    "weekend": false
-  },
-  "preferred_activities": ["fundraising", "events"],
-  "skills": ["marketing", "social_media", "event_planning"]
-}
-```
-
-### Team Management
-
-#### Get Team Information
-
-```http
-GET /api/method/verenigingen.api.volunteer_api.get_team_info
-```
-
-**Parameters**:
-
-- `team_id` (string): Team identifier
-- `include_members` (boolean): Include team member details
-
-#### Assign Volunteer to Team
-
-```http
-POST /api/method/verenigingen.api.volunteer_api.assign_to_team
-```
-
-**Request Body**:
-
-```json
-{
-  "volunteer_id": "VOL001",
-  "team_id": "TEAM001",
-  "role": "Member",
-  "start_date": "2024-01-01",
-  "responsibilities": ["Social media management", "Event coordination"]
-}
-```
-
-### Expense Management
-
-#### Submit Volunteer Expense
-
-```http
-POST /api/method/verenigingen.api.volunteer_api.submit_expense
-```
-
-**Request Body**:
-
-```json
-{
-  "volunteer_id": "VOL001",
-  "team_id": "TEAM001",
-  "expense_type": "Travel",
-  "amount": 15.5,
-  "description": "Train ticket to volunteer event",
-  "expense_date": "2024-01-15",
-  "receipt_attachment": "base64_encoded_image"
-}
-```
-
-## Communication API
-
-### Email Management
-
-#### Send Email Template
-
-```http
-POST /api/method/verenigingen.api.email_template_manager.send_template_email
-```
-
-**Request Body**:
-
-```json
-{
-  "template_name": "membership_welcome",
-  "recipient": "new_member@example.com",
-  "context": {
-    "member_name": "John Doe",
-    "membership_type": "Individual",
-    "member_id": "MEMBER001"
-  }
-}
-```
-
-#### Create Email Template
-
-```http
-POST /api/method/verenigingen.api.email_template_manager.create_template
-```
-
-**Request Body**:
-
-```json
-{
-  "template_name": "custom_notification",
-  "subject": "Important Update - {{ member_name }}",
-  "message": "Dear {{ member_name }}, we have an important update...",
-  "template_type": "notification"
-}
-```
-
-### Notification Management
-
-#### Send System Notification
-
-```http
-POST /api/method/verenigingen.api.communication.send_notification
-```
-
-**Request Body**:
-
-```json
-{
-  "recipients": ["user1@example.com", "user2@example.com"],
-  "subject": "System Maintenance Notice",
-  "message": "The system will be under maintenance...",
-  "notification_type": "system_alert",
-  "priority": "high"
-}
-```
-
-## Chapter Management API
-
-### Chapter Information
-
-#### Get Chapter Details
-
-```http
-GET /api/method/verenigingen.api.chapter_dashboard_api.get_chapter_info
-```
-
-**Parameters**:
-
-- `chapter_id` (string): Chapter identifier
-- `include_members` (boolean): Include member count and details
-- `include_activities` (boolean): Include recent activities
-
-#### Get Chapters by Postal Code
-
-```http
-GET /api/method/verenigingen.api.get_user_chapters.get_chapters_by_postal_code
-```
-
-**Parameters**:
-
-- `postal_code` (string): Dutch postal code (e.g., "1012LG")
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "chapters": [
-      {
-        "name": "Amsterdam",
-        "chapter_id": "AMS001",
-        "coverage_area": "Amsterdam city center",
-        "contact_email": "amsterdam@example.org"
-      }
-    ]
-  }
-}
-```
-
-## System Administration API
-
-### Brand Management
-
-#### Update Brand Settings
-
-```http
-POST /api/method/verenigingen.api.brand_management.update_brand_settings
-```
-
-**Request Body**:
-
-```json
-{
-  "primary_color": "#cf3131",
-  "secondary_color": "#01796f",
-  "accent_color": "#663399",
-  "success_color": "#28a745",
-  "warning_color": "#ffc107",
-  "error_color": "#dc3545"
-}
-```
-
-#### Generate Brand CSS
-
-```http
-GET /api/method/verenigingen.templates.pages.brand_css.get_brand_css
-```
-
-### Analytics and Reporting
-
-#### Get Membership Analytics
-
-```http
-GET /api/method/verenigingen.api.member_management.get_membership_analytics
-```
-
-**Parameters**:
-
-- `date_range` (string): "last_month", "last_quarter", "last_year"
-- `group_by` (string): "membership_type", "chapter", "age_group"
-- `include_trends` (boolean): Include trend analysis
-
-**Example Response**:
-
-```json
-{
-  "message": {
-    "total_members": 1250,
-    "new_members_this_month": 45,
-    "retention_rate": 89.5,
-    "revenue_this_month": 31250.0,
-    "by_membership_type": {
-      "Individual": 800,
-      "Student": 300,
-      "Senior": 150
-    },
-    "trends": {
-      "growth_rate": 5.2,
-      "churn_rate": 2.1
-    }
-  }
-}
-```
-
-## Integration Examples
-
-### JavaScript/Node.js Example
-
-```javascript
-class VerenigingenAPI {
-  constructor(baseUrl, apiKey, apiSecret) {
-    this.baseUrl = baseUrl;
-    this.auth = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
-  }
-
-  async getMemberInfo(memberId) {
-    const response = await fetch(
-      `${this.baseUrl}/api/method/verenigingen.api.member_management.get_member_info`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `token ${this.auth}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ member_id: memberId }),
-      },
-    );
-
-    return response.json();
-  }
-
-  async createMember(memberData) {
-    const response = await fetch(
-      `${this.baseUrl}/api/method/verenigingen.api.member_management.create_member`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `token ${this.auth}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(memberData),
-      },
-    );
-
-    return response.json();
-  }
-}
-
-// Usage
-const api = new VerenigingenAPI(
-  "https://your-site.com",
-  "api_key",
-  "api_secret",
-);
-const member = await api.getMemberInfo("MEMBER001");
-```
-
-### Python Example
-
-```python
-import requests
-import base64
-import json
-
-class VerenigingenAPI:
-    def __init__(self, base_url, api_key, api_secret):
-        self.base_url = base_url
-        self.auth_header = {
-            'Authorization': f'token {api_key}:{api_secret}',
-            'Content-Type': 'application/json'
-        }
-
-    def get_member_info(self, member_id):
-        url = f"{self.base_url}/api/method/verenigingen.api.member_management.get_member_info"
-        data = {'member_id': member_id}
-
-        response = requests.post(url, headers=self.auth_header, json=data)
-        return response.json()
-
-    def create_sepa_mandate(self, member_id, iban):
-        url = f"{self.base_url}/api/method/verenigingen.api.sepa_mandate_fix.create_sepa_mandate"
-        data = {
-            'member_id': member_id,
-            'iban': iban,
-            'mandate_type': 'RCUR'
-        }
-
-        response = requests.post(url, headers=self.auth_header, json=data)
-        return response.json()
-
-# Usage
-api = VerenigingenAPI('https://your-site.com', 'api_key', 'api_secret')
-member = api.get_member_info('MEMBER001')
-```
-
-### PHP Example
-
-```php
-<?php
-class VerenigingenAPI {
-    private $baseUrl;
-    private $authHeader;
-
-    public function __construct($baseUrl, $apiKey, $apiSecret) {
-        $this->baseUrl = $baseUrl;
-        $this->authHeader = [
-            'Authorization: token ' . $apiKey . ':' . $apiSecret,
-            'Content-Type: application/json'
-        ];
-    }
-
-    public function getMemberInfo($memberId) {
-        $url = $this->baseUrl . '/api/method/verenigingen.api.member_management.get_member_info';
-        $data = json_encode(['member_id' => $memberId]);
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $this->authHeader);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-        $response = curl_exec($ch);
-        curl_close($ch);
-
-        return json_decode($response, true);
-    }
-}
-
-// Usage
-$api = new VerenigingenAPI('https://your-site.com', 'api_key', 'api_secret');
-$member = $api->getMemberInfo('MEMBER001');
-?>
-```
-
-## Error Handling
-
-### Standard Error Response Format
-
-```json
-{
-  "message": {
-    "success": false,
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Required field 'email' is missing",
-      "details": {
-        "field": "email",
-        "type": "required"
-      }
-    }
-  }
-}
-```
-
-### Common Error Codes
-
-- **AUTHENTICATION_ERROR**: Invalid API credentials
-- **PERMISSION_DENIED**: Insufficient permissions for operation
-- **VALIDATION_ERROR**: Input validation failed
-- **NOT_FOUND**: Requested resource not found
-- **DUPLICATE_ENTRY**: Attempt to create duplicate record
-- **PAYMENT_ERROR**: Payment processing failed
-- **SEPA_ERROR**: SEPA mandate or direct debit error
-- **SYSTEM_ERROR**: Internal system error
-
-### HTTP Status Codes
-
-- **200**: Success
-- **400**: Bad Request (validation error)
-- **401**: Unauthorized (authentication error)
-- **403**: Forbidden (permission denied)
-- **404**: Not Found
-- **409**: Conflict (duplicate entry)
-- **500**: Internal Server Error
-
-## Rate Limiting
-
-### Default Limits
-
-- **Authenticated requests**: 1000 requests per hour per user
-- **Anonymous requests**: 100 requests per hour per IP
-- **Bulk operations**: 10 requests per minute per user
-
-### Rate Limit Headers
-
-```http
-X-RateLimit-Limit: 1000
-X-RateLimit-Remaining: 999
-X-RateLimit-Reset: 1640995200
-```
-
-### Handling Rate Limits
-
-When rate limits are exceeded, the API returns HTTP 429 with:
-
-```json
-{
-  "message": {
-    "success": false,
-    "error": {
-      "code": "RATE_LIMIT_EXCEEDED",
-      "message": "Rate limit exceeded. Try again later.",
-      "retry_after": 3600
-    }
-  }
-}
-```
-
-## Best Practices
-
-### API Usage Guidelines
-
-1. **Authentication Security**:
-   - Store API credentials securely
-   - Use HTTPS for all API calls
-   - Rotate API keys regularly
-   - Implement proper error handling
-
-2. **Request Optimization**:
-   - Use appropriate HTTP methods (GET, POST, PUT, DELETE)
-   - Batch requests when possible
-   - Implement exponential backoff for retries
-   - Cache responses when appropriate
-
-3. **Data Handling**:
-   - Validate input data before sending
-   - Handle partial failures gracefully
-   - Implement idempotency for critical operations
-   - Use pagination for large datasets
-
-4. **Error Handling**:
-   - Check response status codes
-   - Parse error messages appropriately
-   - Implement retry logic for transient errors
-   - Log errors for debugging
-
-### Integration Patterns
-
-1. **Webhook Integration**: Set up webhooks for real-time notifications
-2. **Batch Processing**: Use bulk operations for large data sets
-3. **Synchronization**: Implement proper sync strategies for data consistency
-4. **Monitoring**: Track API usage and performance metrics
+- [Membership Application (Public)](#membership-application-public)
+- [Membership Application Review (Admin)](#membership-application-review-admin)
+- [Background Approval](#background-approval)
+- [Admin Membership Operations](#admin-membership-operations)
+- [Member Management](#member-management)
+- [Suspension Management](#suspension-management)
+- [Termination](#termination)
+- [Chapter Dashboard](#chapter-dashboard)
+- [Chapter Join](#chapter-join)
+- [Chapter Validation](#chapter-validation)
+- [User Chapters](#user-chapters)
+- [Payment Dashboard (Member Portal)](#payment-dashboard-member-portal)
+- [Payment Processing](#payment-processing)
+- [Payment Plan Management](#payment-plan-management)
+- [Dues Invoice Workflow](#dues-invoice-workflow)
+- [Manual Invoice Generation](#manual-invoice-generation)
+- [Schedule Maintenance](#schedule-maintenance)
+- [Mollie Payment](#mollie-payment)
+- [Mollie Connector (Balance/Settlements)](#mollie-connector-balancesettlements)
+- [Mollie Balance Transaction Processing](#mollie-balance-transaction-processing)
+- [Donation Portal](#donation-portal)
+- [Periodic Donation Operations](#periodic-donation-operations)
+- [Donor Management](#donor-management)
+- [ANBI Operations](#anbi-operations)
+- [Customer-Member Link](#customer-member-link)
+- [SEPA Batch UI](#sepa-batch-ui)
+- [SEPA Batch UI (Secure)](#sepa-batch-ui-secure)
+- [SEPA Batch Workflow Controller](#sepa-batch-workflow-controller)
+- [SEPA Batch Optimizer](#sepa-batch-optimizer)
+- [SEPA Batch Scheduler](#sepa-batch-scheduler)
+- [SEPA Batch Notifications](#sepa-batch-notifications)
+- [SEPA Mandate Management](#sepa-mandate-management)
+- [SEPA Health](#sepa-health)
+- [SEPA Phantom Hash Admin](#sepa-phantom-hash-admin)
+- [Document Portal](#document-portal)
+- [Volunteer Application](#volunteer-application)
+- [Volunteer Skills](#volunteer-skills)
+- [Team Management](#team-management)
+- [Team Admin Utilities](#team-admin-utilities)
+- [Expense Claim Queries](#expense-claim-queries)
+- [Email Template Manager](#email-template-manager)
+- [Membership Email Templates](#membership-email-templates)
+- [Overdue Application Notifications](#overdue-application-notifications)
+- [Dashboard Charts](#dashboard-charts)
+- [eBoekhouden Integration](#eboekhouden-integration)
+- [Performance and Monitoring](#performance-and-monitoring)
+- [Security Monitoring](#security-monitoring)
+- [Workspace Health and Validation](#workspace-health-and-validation)
+- [System Utilities](#system-utilities)
 
 ---
 
-This API documentation provides comprehensive information for integrating with the Verenigingen system. For specific implementation questions or additional endpoints, refer to the source code or contact the development team.
+## Authentication
+
+### API Key Authentication
+
+```http
+Authorization: token api_key:api_secret
+Content-Type: application/json
+```
+
+Generate keys via **Users and Permissions > User > API Access > Generate Keys**.
+
+### Session-Based Authentication
+
+For browser-based applications, authenticate via `/api/method/login`.
+
+### Guest Endpoints
+
+Endpoints marked `allow_guest=True` do not require authentication. All other endpoints require a logged-in user.
+
+---
+
+## Membership Application (Public)
+
+**Module:** `verenigingen.api.membership_application`
+
+These endpoints power the public membership application form. Most are guest-accessible.
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `test_connection()` | Guest | -- | Health check for the application API |
+| `test_all_endpoints()` | Guest | -- | Verifies all application endpoints are accessible |
+| `get_application_form_data()` | Guest | -- | Returns form configuration (membership types, chapters, fields) |
+| `validate_email(email)` | Guest | -- | Validates email format and checks for duplicates |
+| `validate_postal_code(postal_code, country)` | Guest | -- | Validates Dutch postal code format |
+| `validate_phone_number(phone, country)` | Guest | -- | Validates phone number format |
+| `validate_birth_date(birth_date)` | Guest | -- | Validates birth date and age requirements |
+| `validate_name(name, field_name)` | Guest | -- | Validates name field input |
+| `check_application_eligibility_endpoint(data)` | Guest | -- | Checks whether applicant is eligible |
+| `submit_application(**kwargs)` | Guest | -- | Submits a new membership application |
+| `get_membership_fee_info_endpoint(membership_type)` | Guest | -- | Returns fee info for a membership type |
+| `get_membership_type_details_endpoint(membership_type)` | Guest | -- | Returns details for a membership type |
+| `suggest_membership_amounts_endpoint(membership_type_name)` | Guest | -- | Suggests fee amounts for a membership type |
+| `validate_membership_amount_selection_endpoint(...)` | Guest | -- | Validates a selected fee amount |
+| `validate_custom_amount_endpoint(membership_type, amount)` | Guest | -- | Validates a custom fee amount |
+| `get_payment_methods_endpoint()` | Guest | -- | Returns available payment methods |
+| `save_draft_application_endpoint(data)` | Guest | -- | Saves a draft application |
+| `load_draft_application_endpoint(draft_id)` | Guest | -- | Loads a previously saved draft |
+| `get_member_field_info_endpoint()` | Guest | -- | Returns Member DocType field metadata |
+| `check_application_status_endpoint(application_id)` | Guest | -- | Checks status of a submitted application |
+| `test_submit()` | Guest | -- | Test endpoint for application submission |
+| `approve_membership_application(member_name, notes)` | Login | `@high_security_api()` | Approves a pending membership application |
+| `reject_membership_application(member_name, reason)` | Login | `@high_security_api()` | Rejects a pending membership application |
+| `debug_member_issue(member_name)` | Login | `@standard_api(UTILITY)` | Debug endpoint for member issues |
+| `fix_specific_member(member_name, chapter_name, dry_run)` | Login | `@high_security_api(ADMIN)` | Fixes chapter assignment for a specific member |
+
+**Convenience aliases** (Guest, delegate to `_endpoint` versions above):
+`validate_custom_amount`, `save_draft_application`, `load_draft_application`, `get_membership_type_details`, `get_membership_fee_info`, `suggest_membership_amounts`, `get_payment_methods`, `check_application_status`, `submit_application_with_tracking`, `check_application_eligibility`
+
+---
+
+## Membership Application Review (Admin)
+
+**Module:** `verenigingen.api.membership_application_review`
+
+Admin-only endpoints for reviewing and processing membership applications.
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `approve_membership_application(member_name, membership_type, notes, ...)` | Login | `@high_security_api()` | Full approval workflow: creates membership, invoice, user account, sends notifications. Params include `activate_as_volunteer`, `chapter_name` |
+| `reject_membership_application(member_name, reason, ...)` | Login | `@high_security_api()` | Rejects application with reason, optional `email_template` and `rejection_category` |
+| `get_user_chapter_access(**kwargs)` | Login | `@standard_api` | Returns chapters accessible to the current user |
+| `get_pending_applications(chapter, days_overdue)` | Login | `@standard_api()` | Lists pending applications, optionally filtered by chapter or overdue days |
+
+---
+
+## Background Approval
+
+**Module:** `verenigingen.api.background_approval_api`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `approve_membership_application_background(member_name, ...)` | Login | -- | Enqueues approval as a background job for heavy operations |
+| `get_approval_progress(member_name)` | Login | -- | Polls progress of a background approval job |
+
+---
+
+## Admin Membership Operations
+
+**Module:** `verenigingen.api.admin_membership_operations`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `sync_member_statuses()` | Login | -- | Synchronizes member statuses with their membership records |
+| `fix_backend_member_statuses()` | Login | -- | Fixes inconsistent backend member statuses |
+| `migrate_active_application_status()` | Login | -- | Migrates legacy "Active Application" statuses |
+| `get_application_stats()` | Login | `@standard_api()` | Returns application statistics by status |
+
+---
+
+## Member Management
+
+**Module:** `verenigingen.api.member_management`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `assign_member_to_chapter(member_name, chapter_name)` | Login | `@high_security_api(MEMBER_DATA)` | Assigns a member to a chapter |
+| `get_members_without_chapter(**kwargs)` | Login | `@standard_api(MEMBER_DATA)` | Lists members not assigned to any chapter |
+| `bulk_assign_members_to_chapters(assignments)` | Login | -- | Bulk assigns members to chapters. `assignments`: list of `{member, chapter}` |
+| `get_members_with_chapter_info(filters, limit)` | Login | -- | Returns members enriched with chapter info |
+| `get_mt940_import_url()` | Login | `@standard_api(UTILITY)` | Returns the URL for MT940 bank import |
+| `import_mt940_improved(file_content, bank_account, company)` | Login | -- | Imports MT940 bank statement file and creates bank transactions |
+| `get_chapter_member_emails(chapter_name)` | Login | `@standard_api(MEMBER_DATA)` | Returns email addresses for all members in a chapter |
+
+---
+
+## Suspension Management
+
+**Module:** `verenigingen.api.suspension_api`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `suspend_member(member_name, suspension_reason, ...)` | Login | -- | Suspends a member. Optional params: `suspension_end_date`, `notify_member`, `internal_notes` |
+| `unsuspend_member(member_name, unsuspension_reason)` | Login | -- | Lifts a member's suspension |
+| `get_suspension_status(member_name)` | Login | `@standard_api(MEMBER_DATA)` | Returns current suspension status for a member |
+| `can_suspend_member(member_name)` | Login | -- | Checks whether current user can suspend the given member |
+| `get_suspension_preview(member_name)` | Login | `@high_security_api(MEMBER_DATA)` | Returns preview of suspension impact |
+| `bulk_suspend_members(members, suspension_reason, ...)` | Login | -- | Suspends multiple members at once |
+| `get_suspension_list(limit, offset, status, chapter)` | Login | `@standard_api(MEMBER_DATA)` | Lists suspended members with filters |
+| `get_suspension_status_safe(member_name)` | Guest | `@standard_api(MEMBER_DATA)` | Safe public suspension status check |
+| `test_bank_details_debug()` | Login | -- | Debug endpoint for bank details |
+
+---
+
+## Termination
+
+**Module:** `verenigingen.api.termination_api`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_termination_preview(member_name)` | Login | -- | Returns preview of termination impact |
+| `execute_safe_termination(member_name, termination_type, termination_date, request_name)` | Login | -- | Executes a membership termination |
+
+---
+
+## Chapter Dashboard
+
+**Module:** `verenigingen.api.chapter_dashboard_api`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_chapter_member_emails(chapter_name)` | Login | `@high_security_api(MEMBER_DATA)` | Returns member emails for a chapter |
+| `quick_approve_member(member_name, chapter_name)` | Login | `@high_security_api(MEMBER_DATA)` | Quick-approves a member from the chapter dashboard |
+| `reprocess_mt940_import(import_name)` | Login | -- | Reprocesses an MT940 import |
+| `get_active_members_count(chapter)` | Login | `@standard_api(REPORTING)` | Returns count of active members |
+| `get_pending_applications_count(chapter)` | Login | `@standard_api(REPORTING)` | Returns count of pending applications |
+| `get_board_members_count(chapter)` | Login | `@standard_api(REPORTING)` | Returns count of board members |
+| `get_new_members_count(chapter)` | Login | `@standard_api(REPORTING)` | Returns count of recently joined members |
+| `get_filed_expense_claims_count(chapter)` | Login | `@standard_api(REPORTING)` | Returns count of filed expense claims |
+| `get_approved_expense_claims_count(chapter)` | Login | `@standard_api(REPORTING)` | Returns count of approved expense claims |
+| `get_volunteer_expenses_count(chapter)` | Login | `@standard_api(REPORTING)` | Returns count of volunteer expenses |
+
+---
+
+## Chapter Join
+
+**Module:** `verenigingen.api.chapter_join`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_chapter_join_context(chapter_name)` | Login | -- | Returns context data for the chapter join page |
+| `join_chapter(chapter_name, introduction)` | Login | -- | Submits a request to join a chapter |
+| `get_user_chapter_requests()` | Login | -- | Returns the current user's chapter join requests |
+
+---
+
+## Chapter Validation
+
+**Module:** `verenigingen.api.chapter_validation`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `validate_chapter_head(chapter_name, chapter_head)` | Login | -- | Validates a proposed chapter head |
+| `validate_region(chapter_name, region)` | Login | -- | Validates a chapter's region assignment |
+| `update_publication_status(chapter_name, published)` | Login | -- | Updates a chapter's publication status |
+| `validate_board_member(chapter_name, volunteer, role)` | Login | -- | Validates a board member assignment |
+| `validate_board_removal(chapter_name)` | Login | -- | Validates whether a board member can be removed |
+
+---
+
+## User Chapters
+
+**Module:** `verenigingen.api.get_user_chapters`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_user_chapter_data()` | Guest | -- | Returns chapter data for the current user (used by HTML templates) |
+
+---
+
+## Payment Dashboard (Member Portal)
+
+**Module:** `verenigingen.api.payment_dashboard`
+
+Member-facing payment dashboard endpoints. All require login.
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_dashboard_data(member)` | Login | -- | Returns complete payment dashboard data for a member |
+| `get_payment_method(member)` | Login | -- | Returns the member's current payment method |
+| `get_payment_history(member, year, status)` | Login | -- | Returns payment history with optional year/status filters |
+| `get_mandate_history(member)` | Login | -- | Returns SEPA mandate history |
+| `get_payment_schedule(member)` | Login | -- | Returns upcoming payment schedule |
+| `get_next_payment(member)` | Login | -- | Returns the next scheduled payment |
+| `retry_failed_payment(invoice_id)` | Login | -- | Retries a failed payment |
+| `download_payment_receipt(payment_id)` | Login | -- | Downloads a payment receipt |
+| `export_payment_history_csv(year)` | Login | -- | Exports payment history as CSV |
+
+---
+
+## Payment Processing
+
+**Module:** `verenigingen.api.payment_processing`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `send_overdue_payment_reminders(filters, reminder_type, ...)` | Login | -- | Sends overdue payment reminders. `methods=["POST"]`. Params: `custom_message`, `dry_run` |
+| `export_overdue_payments(filters, format)` | Login | -- | Exports overdue payments as CSV or Excel |
+| `execute_bulk_payment_action(action, member_names, ...)` | Login | -- | Executes bulk payment actions (e.g., suspend, create plan) |
+
+---
+
+## Payment Plan Management
+
+**Module:** `vereinigingen.api.payment_plan_management`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `request_payment_plan(member, total_amount, installments, ...)` | Login | -- | Creates a payment plan request. Params: `frequency`, `reason` |
+| `get_member_payment_plans(member)` | Login | -- | Returns payment plans for a member |
+| `calculate_payment_plan_preview(total_amount, installments, frequency)` | Login | -- | Previews installment schedule without creating |
+
+---
+
+## Dues Invoice Workflow
+
+**Module:** `verenigingen.api.dues_invoice_workflow`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `check_member_dues_status(member_name, ...)` | Login | `@standard_api(FINANCIAL)` | Checks dues status for a member. `methods=["GET", "POST"]` |
+| `generate_missing_invoices(member_list, ...)` | Login | -- | Generates missing invoices for specified members |
+| `validate_sepa_eligibility(invoice_list)` | Login | `@standard_api(FINANCIAL)` | Validates SEPA eligibility for invoices. `methods=["GET", "POST"]` |
+| `prepare_sepa_batch(invoice_list, execution_date, ...)` | Login | -- | Prepares a SEPA batch from eligible invoices |
+| `get_workflow_status()` | Login | `@standard_api(FINANCIAL)` | Returns current workflow status overview |
+| `check_coverage_scheduling_mismatches()` | Login | `@standard_api(FINANCIAL)` | Detects mismatches between coverage and scheduling |
+
+---
+
+## Manual Invoice Generation
+
+**Module:** `verenigingen.api.manual_invoice_generation`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `generate_manual_invoice(member_name)` | Login | -- | Generates a manual dues invoice for a member |
+| `get_member_invoice_info(member_name)` | Login | -- | Returns invoice generation prerequisites for a member |
+
+---
+
+## Schedule Maintenance
+
+**Module:** `verenigingen.api.schedule_maintenance`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_schedule_health_report()` | Login | -- | Returns health report on dues schedules |
+| `cleanup_orphaned_schedules(issue_type, dry_run)` | Login | -- | Cleans up orphaned dues schedules |
+| `prevent_orphaned_schedules()` | Login | -- | Runs preventive maintenance on schedules |
+
+---
+
+## Mollie Payment
+
+**Module:** `vereinigingen.api.mollie_payment`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `create_payment(donation_data)` | Login | -- | Creates a Mollie payment for a donation |
+| `get_payment_status(payment_id)` | Login | -- | Returns status of a Mollie payment |
+| `get_subscription_details()` | Login | `@high_security_api(MEMBER_DATA)` | Returns subscription details for the current user |
+| `cancel_specific_subscription(customer_id, subscription_id)` | Login | `@high_security_api(FINANCIAL)` | Cancels a specific Mollie subscription |
+| `update_mollie_bank_account(iban, account_holder_name)` | Login | -- | Updates the Mollie bank account for SEPA |
+
+---
+
+## Mollie Connector (Balance/Settlements)
+
+**Module:** `verenigingen.verenigingen_payments.integration.mollie_connector`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `test_mollie_connection(settings_name)` | Login | `@critical_api(ADMIN)` | Tests connectivity to the Mollie API |
+| `get_account_balance(balance_id)` | Login | `@critical_api(FINANCIAL)` | Returns the Mollie account balance |
+| `list_recent_settlements(days)` | Login | `@critical_api(FINANCIAL)` | Lists recent Mollie settlements |
+
+---
+
+## Mollie Balance Transaction Processing
+
+**Module:** `verenigingen.verenigingen_payments.api.balance_transaction_processing`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `process_balance_transactions(balance_id, from_date, to_date, ...)` | Login | -- | Processes Mollie balance transactions into ERPNext |
+| `process_historical_data(months_back, batch_size)` | Login | -- | Processes historical Mollie data |
+| `get_primary_balance_info()` | Login | -- | Returns primary Mollie balance information |
+| `check_transaction_status(transaction_id, include_mollie_data)` | Login | -- | Checks status of a specific transaction |
+| `search_transactions_by_description(search_term, limit)` | Login | -- | Searches transactions by description text |
+| `fetch_recent_transactions_for_search(limit)` | Login | -- | Fetches recent transactions for search UI |
+| `get_processing_statistics(days)` | Login | -- | Returns transaction processing statistics |
+
+---
+
+## Donation Portal
+
+**Module:** `verenigingen.templates.pages.donate`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `submit_donation(**kwargs)` | Guest | -- | Submits a donation via the public portal |
+| `get_donation_status(donation_id)` | Login | -- | Returns status of a donation |
+| `mark_donation_paid(donation_id, payment_reference)` | Login | -- | Marks a donation as paid |
+| `test_donation_system()` | Login | `@development_only_api(UTILITY)` | Tests the donation flow (dev only) |
+| `test_donation_submission()` | Login | `@development_only_api(UTILITY)` | Tests donation submission with sample data (dev only) |
+| `force_doctype_sync()` | Login | -- | Forces DocType schema sync |
+| `test_workspace_links()` | Login | -- | Tests workspace link integrity |
+| `retry_payment(donation_id)` | Guest | -- | Retries a failed donation payment |
+| `debug_frontend_routing()` | Login | -- | Debug endpoint for frontend routing |
+
+---
+
+## Periodic Donation Operations
+
+**Module:** `vereinigingen.api.periodic_donation_operations`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `create_periodic_agreement(donor, amount, frequency, ...)` | Login | `@high_security_api(FINANCIAL)` | Creates a periodic donation agreement. Params: `payment_method`, `start_date`, `end_date` |
+| `link_donation_to_agreement(donation, agreement)` | Login | -- | Links a one-time donation to a periodic agreement |
+| `send_renewal_reminders(days_before_expiry)` | Login | -- | Sends renewal reminders for expiring agreements |
+| `generate_tax_receipts(filters)` | Login | -- | Generates tax receipts for donors |
+| `export_agreements(filters)` | Login | `@standard_api(REPORTING)` | Exports periodic donation agreements |
+
+---
+
+## Donor Management
+
+### Donor Customer Management
+
+**Module:** `vereinigingen.api.donor_customer_management`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_donor_customer_info(donor_name)` | Login | `@high_security_api(MEMBER_DATA)` | Returns customer info linked to a donor |
+| `force_donor_customer_sync(donor_name)` | Login | -- | Forces sync between donor and ERPNext customer |
+| `unlink_donor_customer(donor_name, remove_customer)` | Login | -- | Unlinks a donor from their ERPNext customer |
+| `get_donor_sync_dashboard()` | Login | `@standard_api(REPORTING)` | Returns sync dashboard overview |
+
+### Donor Auto-Creation Management
+
+**Module:** `verenigingen.api.donor_auto_creation_management`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_auto_creation_dashboard()` | Login | `@standard_api(REPORTING)` | Returns auto-creation dashboard data |
+| `update_auto_creation_settings(...)` | Login | -- | Updates donor auto-creation settings |
+| `test_customer_eligibility(customer_name, amount)` | Login | `@high_security_api(MEMBER_DATA)` | Tests whether a customer is eligible for auto-creation |
+| `get_donations_gl_accounts()` | Login | `@standard_api(REPORTING)` | Returns GL accounts used for donations |
+| `get_customer_groups()` | Login | `@standard_api(REPORTING)` | Returns available customer groups |
+| `simulate_auto_creation(customer_name, amount, donations_account)` | Login | `@high_security_api(MEMBER_DATA)` | Simulates auto-creation without persisting |
+| `get_recent_error_logs()` | Login | `@standard_api(UTILITY)` | Returns recent error logs for auto-creation |
+| `check_test_accounts()` | Login | -- | Checks test account configuration |
+| `bulk_process_pending_payments(...)` | Login | -- | Processes pending payments in bulk |
+
+---
+
+## ANBI Operations
+
+**Module:** `verenigingen.api.anbi_operations`
+
+Dutch ANBI (public benefit organization) tax compliance endpoints.
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `update_donor_tax_identifiers(donor, bsn, ...)` | Login | -- | Updates BSN and tax identifiers for a donor |
+| `get_donor_anbi_data(donor)` | Login | -- | Returns ANBI-related data for a donor |
+| `generate_anbi_report(from_date, to_date, include_bsn)` | Login | -- | Generates ANBI compliance report |
+| `update_anbi_consent(donor, consent, reason)` | Login | -- | Updates data processing consent for a donor |
+| `validate_bsn(bsn)` | Login | `@standard_api(FINANCIAL)` | Validates a Dutch BSN (citizen service number) |
+| `get_anbi_statistics(from_date, to_date)` | Login | `@standard_api(FINANCIAL)` | Returns aggregate ANBI statistics |
+| `export_belastingdienst_report(filters)` | Login | -- | Exports report for Dutch tax authority |
+| `send_consent_requests(filters)` | Login | `@standard_api(FINANCIAL)` | Sends ANBI consent requests to donors |
+
+---
+
+## Customer-Member Link
+
+**Module:** `vereinigingen.api.customer_member_link`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_member_from_customer(customer)` | Login | `@standard_api(MEMBER_DATA)` | Returns the member linked to an ERPNext customer |
+
+---
+
+## SEPA Batch UI
+
+**Module:** `verenigingen.verenigingen_payments.api.sepa_batch_ui`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `load_unpaid_invoices(date_range, membership_type, limit)` | Login | -- | Loads unpaid invoices for batch creation |
+| `get_invoice_mandate_info(invoice)` | Login | -- | Returns SEPA mandate info for an invoice |
+| `validate_invoice_mandate(invoice, member)` | Login | -- | Validates mandate eligibility for an invoice |
+| `get_batch_analytics(batch_name)` | Login | -- | Returns analytics for a batch |
+| `preview_sepa_xml(batch_name)` | Login | -- | Previews SEPA XML that would be generated |
+| `create_sepa_batch_validated(**params)` | Login | -- | Creates a validated SEPA batch |
+| `validate_batch_invoices(invoice_list)` | Login | -- | Validates a list of invoices for batching |
+| `get_sepa_validation_constraints()` | Login | -- | Returns SEPA validation constraint rules |
+
+---
+
+## SEPA Batch UI (Secure)
+
+**Module:** `verenigingen.verenigingen_payments.api.sepa_batch_ui_secure`
+
+Security-hardened versions of the SEPA batch UI endpoints with additional permission checks.
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `load_unpaid_invoices_secure(date_range, membership_type, limit)` | Login | -- | Secure version of `load_unpaid_invoices` |
+| `get_invoice_mandate_info_secure(invoice)` | Login | -- | Secure version of `get_invoice_mandate_info` |
+| `validate_invoice_mandate_secure(invoice, member)` | Login | -- | Secure version of `validate_invoice_mandate` |
+| `get_batch_analytics_secure(batch_name)` | Login | -- | Secure version of `get_batch_analytics` |
+| `preview_sepa_xml_secure(batch_name)` | Login | -- | Secure version of `preview_sepa_xml` |
+| `create_sepa_batch_validated_secure(**params)` | Login | -- | Secure version of `create_sepa_batch_validated` |
+| `validate_batch_invoices_secure(invoice_list)` | Login | -- | Secure version of `validate_batch_invoices` |
+| `get_sepa_validation_constraints_secure()` | Login | -- | Secure version of `get_sepa_validation_constraints` |
+| `sepa_security_health_check()` | Login | -- | Returns SEPA security system health status |
+
+---
+
+## SEPA Batch Workflow Controller
+
+**Module:** `vereinigingen.vereinigingen_payments.api.dd_batch_workflow_controller`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `validate_batch_for_approval(batch_name)` | Login | -- | Validates a batch is ready for approval |
+| `approve_batch(batch_name, approval_notes)` | Login | -- | Approves a direct debit batch |
+| `reject_batch(batch_name, rejection_reason)` | Login | -- | Rejects a direct debit batch |
+| `get_batch_approval_history(batch_name)` | Login | -- | Returns approval history for a batch |
+| `trigger_sepa_generation(batch_name)` | Login | -- | Triggers SEPA XML file generation for a batch |
+| `get_batches_pending_approval()` | Login | -- | Lists all batches awaiting approval |
+
+---
+
+## SEPA Batch Optimizer
+
+**Module:** `verenigingen.verenigingen_payments.api.dd_batch_optimizer`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `create_optimal_batches(target_date, config)` | Login | -- | Creates optimally sized batches for a target date |
+| `validate_all_pending_invoices()` | Login | -- | Validates all pending invoices for batch eligibility |
+| `get_batching_preview(config)` | Login | -- | Previews batch grouping without creating |
+| `update_batch_optimization_config(new_config)` | Login | -- | Updates batch optimization configuration |
+
+---
+
+## SEPA Batch Scheduler
+
+**Module:** `verenigingen.vereinigingen_payments.api.dd_batch_scheduler`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_batch_creation_schedule()` | Login | -- | Returns the configured batch creation schedule |
+
+Note: `daily_batch_optimization()` is a scheduled task (not whitelisted), called by the Frappe scheduler.
+
+---
+
+## SEPA Batch Notifications
+
+**Module:** `verenigingen.vereinigingen_payments.api.sepa_batch_notifications`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `test_notification_system()` | Login | -- | Tests the SEPA batch notification system |
+
+---
+
+## SEPA Mandate Management
+
+**Module:** `verenigingen.verenigingen_payments.api.sepa_mandate_management`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `create_missing_sepa_mandates(dry_run)` | Login | -- | Creates SEPA mandates for members that lack them |
+| `fix_specific_member_sepa_mandate(member_name)` | Login | -- | Fixes SEPA mandate for a specific member |
+| `periodic_sepa_mandate_child_table_sync()` | Login | -- | Syncs SEPA mandate child table records |
+| `detect_sepa_mandate_inconsistencies()` | Login | -- | Detects inconsistencies in SEPA mandate data |
+
+---
+
+## SEPA Health
+
+**Module:** `verenigingen.api.sepa_health`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_sepa_health()` | Login | -- | Returns health status of SEPA subsystem (Redis, pending batches, unreconciled, recent uploads) |
+
+---
+
+## SEPA Phantom Hash Admin
+
+**Module:** `vereinigingen.api.sepa_phantom_hash_admin`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `mark_phantom_hash_abandoned(log_name, reason)` | Login | -- | Marks a phantom hash log entry as abandoned |
+| `retry_phantom_attachment(log_name)` | Login | -- | Retries attachment of a phantom hash |
+
+---
+
+## Direct Debit Batch API
+
+**Module:** `vereinigingen.vereinigingen_payments.api.dd_batch_api`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_batch_list_with_security(filters)` | Login | -- | Lists DD batches with security filtering |
+| `get_batch_details_with_security(batch_id)` | Login | -- | Returns batch details with security checks |
+| `get_batch_conflicts(batch_id)` | Login | -- | Returns conflicts detected for a batch |
+| `get_eligible_invoices(filters)` | Login | -- | Returns invoices eligible for direct debit |
+| `apply_conflict_resolutions(batch_id, resolutions)` | Login | -- | Applies resolutions to batch conflicts |
+| `escalate_conflicts(batch_id, conflicts)` | Login | -- | Escalates unresolvable conflicts |
+
+---
+
+## Document Portal
+
+**Module:** `verenigingen.api.document_portal`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_upload_context()` | Login | -- | Returns context for the document upload UI |
+| `upload_document(...)` | Login | -- | Uploads a document to an organization |
+| `get_organization_documents(organization_type, organization_name)` | Login | -- | Lists documents for an organization |
+| `can_upload_to_organization(organization_type, organization_name)` | Login | -- | Checks upload permission for an organization |
+| `get_browsable_documents(...)` | Login | -- | Returns documents available for browsing |
+| `delete_document(document_name)` | Login | -- | Deletes a document |
+
+---
+
+## Volunteer Application
+
+**Module:** `verenigingen.api.volunteer_application`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `submit_volunteer_application(**data)` | Guest | -- | Submits a public volunteer application |
+
+---
+
+## Volunteer Skills
+
+**Module:** `vereinigingen.api.volunteer_skills`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_skills_overview()` | Login | `@standard_api` | Returns aggregated skills overview |
+| `search_volunteers_advanced(filters)` | Login | `@high_security_api` | Searches volunteers with advanced filters (accesses personal data) |
+| `get_skill_recommendations(volunteer_name, limit)` | Login | `@standard_api` | Returns skill recommendations for a volunteer |
+| `get_skill_gaps_analysis()` | Login | `@standard_api` | Returns organizational skill gaps analysis |
+| `export_skills_data(format_type)` | Login | `@high_security_api` | Exports skills data (JSON format) |
+
+---
+
+## Team Management
+
+**Module:** `vereinigingen.api.team_management`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_team_members(team)` | Login | -- | Returns members of a team |
+| `sync_team_with_volunteers(team_name)` | Login | -- | Syncs team membership with volunteer records |
+| `get_role_profile_preview(team_name)` | Login | -- | Previews role profile that would be applied |
+| `bulk_apply_team_role_profiles(team_name)` | Login | -- | Applies role profiles to all team members |
+
+---
+
+## Team Admin Utilities
+
+**Module:** `vereinigingen.api.team_admin_utilities`
+
+Note: This module is listed in `whitelist_files.txt` but contains no `@frappe.whitelist()` endpoints itself (helper functions only).
+
+---
+
+## Expense Claim Queries
+
+**Module:** `vereinigingen.api.expense_claim_queries`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_user_accessible_chapters_for_expenses(...)` | Login | `@standard_api(REPORTING)` | Returns chapters the user can file expenses for |
+| `get_chapter_expense_approvers(...)` | Login | `@standard_api(REPORTING)` | Returns expense approvers for a chapter |
+| `get_team_expense_approvers(...)` | Login | `@standard_api(REPORTING)` | Returns expense approvers for a team |
+
+---
+
+## Email Template Manager
+
+**Module:** `verenigingen.api.email_template_manager`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `create_comprehensive_email_templates()` | Login | -- | Creates/updates all standard email templates |
+| `test_email_template(template_name, test_context)` | Login | -- | Tests rendering of an email template |
+
+Note: `send_template_email()` and `get_email_template()` are internal helper functions (not whitelisted).
+
+---
+
+## Membership Email Templates
+
+**Module:** `verenigingen.api.membership_email_templates`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `create_default_email_templates()` | Login | -- | Creates default membership email templates |
+
+---
+
+## Overdue Application Notifications
+
+**Module:** `verenigingen.api.overdue_application_notifications`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `send_overdue_notifications(**kwargs)` | Login | -- | Sends notifications for overdue applications |
+
+---
+
+## Dashboard Charts
+
+**Module:** `verenigingen.api.dashboard_charts`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_member_age_distribution_chart()` | Login | `@standard_api(REPORTING)` | Returns member age distribution chart data |
+
+---
+
+## eBoekhouden Integration
+
+### eBoekhouden Account Manager
+
+**Module:** `vereinigingen.e_boekhouden.api.eboekhouden_account_manager`
+
+Listed in `whitelist_files.txt`. See the [eBoekhouden API Integration Guide](api/EBOEKHOUDEN_API_GUIDE.md) for detailed documentation.
+
+### eBoekhouden Migration
+
+**Module:** `vereinigingen.e_boekhouden.api.eboekhouden_migration`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `mass_cancel_migrations(names)` | Login | -- | Cancels multiple migration records |
+
+### eBoekhouden Migration Redesign
+
+**Module:** `verenigingen.e_boekhouden.api.eboekhouden_migration_redesign`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_migration_statistics()` | Login | -- | Returns migration statistics |
+| `validate_migration_readiness()` | Login | -- | Validates system readiness for migration |
+
+### eBoekhouden Clean Reimport
+
+**Module:** `verenigingen.e_boekhouden.api.eboekhouden_clean_reimport`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `preview_clean_import(from_date, to_date)` | Login | -- | Previews what a clean import would do |
+| `execute_clean_import(confirm, from_date, to_date)` | Login | -- | Executes a clean reimport of transactions |
+| `setup_enhanced_infrastructure()` | Login | -- | Sets up enhanced migration infrastructure |
+
+### eBoekhouden Item Mapping Tool
+
+**Module:** `vereinigingen.e_boekhouden.api.eboekhouden_item_mapping_tool`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_unmapped_accounts(company)` | Login | -- | Returns accounts without item mappings |
+| `create_mapping(...)` | Login | -- | Creates a new item mapping |
+
+### eBoekhouden Date Fields Setup
+
+**Module:** `verenigingen.e_boekhouden.api.setup_eboekhouden_date_fields`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `setup_date_range_fields()` | Login | -- | Sets up custom date range fields |
+
+---
+
+## Performance and Monitoring
+
+### Performance Measurement
+
+**Module:** `verenigingen.api.performance_measurement`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `measure_payment_history_performance(member_count)` | Login | -- | Measures payment history query performance |
+| `count_payment_mixin_complexity()` | Login | -- | Analyzes payment mixin code complexity |
+| `measure_database_query_patterns()` | Login | `@standard_api(UTILITY)` | Measures database query performance patterns |
+| `run_comprehensive_performance_analysis()` | Login | `@standard_api(UTILITY)` | Runs comprehensive performance analysis |
+
+### Performance Measurement API
+
+**Module:** `verenigingen.api.performance_measurement_api`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `measure_member_performance(member_name)` | Login | `@high_security_api(MEMBER_DATA)` | Measures performance for a specific member |
+| `measure_payment_history_performance(member_name)` | Login | -- | Measures payment history performance |
+| `measure_sepa_mandate_performance(member_name)` | Login | -- | Measures SEPA mandate performance |
+| `generate_comprehensive_performance_report(sample_size)` | Login | `@standard_api(UTILITY)` | Generates full performance report |
+| `collect_performance_baselines(sample_size)` | Login | `@standard_api(UTILITY)` | Collects performance baselines |
+| `analyze_system_bottlenecks()` | Login | -- | Analyzes system bottlenecks |
+| `get_performance_summary()` | Login | `@standard_api(UTILITY)` | Returns performance summary |
+| `benchmark_current_performance()` | Login | -- | Benchmarks current system performance |
+| `test_measurement_infrastructure()` | Login | -- | Tests measurement infrastructure |
+
+### Infrastructure Validator
+
+**Module:** `verenigingen.api.infrastructure_validator`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `validate_performance_infrastructure()` | Login | `@standard_api(UTILITY)` | Validates all performance infrastructure components |
+
+### Performance Dashboard Activator
+
+**Module:** `verenigingen.api.performance_dashboard_activator`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| Endpoint available | Login | `@standard_api(UTILITY)` | Activates performance dashboard |
+
+### Performance Convenience
+
+**Module:** `vereinigingen.api.performance_convenience`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 4 endpoints | Login | `@standard_api(UTILITY)` / `@high_security_api(MEMBER_DATA)` | Convenience wrappers for performance measurement |
+
+### Performance API Validator
+
+**Module:** `vereinigingen.api.performance_api_validator`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 1 endpoint | Login | -- | Validates performance API endpoints |
+
+---
+
+## Security Monitoring
+
+### Unified Security Monitoring
+
+**Module:** `verenigingen.api.unified_security_monitoring`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_unified_monitoring_overview()` | Login | `@standard_api(REPORTING)` | Returns overview of all monitoring systems |
+| `get_integrated_security_metrics(hours_back)` | Login | `@high_security_api(ADMIN)` | Returns security metrics for the given time window |
+| `get_monitoring_system_health()` | Login | `@standard_api(UTILITY)` | Returns health of monitoring components |
+| `trigger_unified_security_test()` | Login | `@high_security_api(ADMIN)` | Triggers a unified security test |
+
+### Security Monitoring Dashboard
+
+**Module:** `vereinigingen.api.security_monitoring_dashboard`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `get_security_dashboard_data(hours_back)` | Login | `@high_security_api(ADMIN)` | Returns security dashboard data |
+| `get_security_metrics_summary()` | Login | `@standard_api(REPORTING)` | Returns security metrics summary |
+
+---
+
+## Workspace Health and Validation
+
+### Workspace Health
+
+**Module:** `vereinigingen.api.workspace_health`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| `diagnose_and_fix(workspace_name, ...)` | Login | `@high_security_api(ADMIN)` | Diagnoses and fixes workspace issues |
+| `health_check(workspace_name)` | Login | `@high_security_api(ADMIN)` | Runs health check on a workspace |
+| `quick_fix(workspace_name)` | Login | `@high_security_api(ADMIN)` | Applies quick fixes to workspace |
+
+### Workspace Content Validator
+
+**Module:** `vereinigingen.api.workspace_content_validator`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 2 endpoints | Login | `@standard_api(UTILITY)` | Validates workspace content |
+
+### Workspace Validator Enhanced
+
+**Module:** `vereinigingen.api.workspace_validator_enhanced`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 1 endpoint | Login | -- | Enhanced workspace validation |
+
+---
+
+## System Utilities
+
+### Check Account Types
+
+**Module:** `vereinigingen.api.check_account_types`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 1 endpoint | Login | `@standard_api(REPORTING)` | Checks account type configuration |
+| 1 endpoint | Login | `@high_security_api(ADMIN)` | Admin account type operations |
+
+### Fix Stuck Dues Schedule
+
+**Module:** `vereinigingen.api.fix_stuck_dues_schedule`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 4 endpoints | Login | -- | Diagnoses and fixes stuck dues schedules |
+
+### Database Index Manager
+
+**Module:** `vereinigingen.api.database_index_manager_phase5a`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 1 endpoint | Login | `@development_only_api(UTILITY)` | Manages database indexes (dev only) |
+
+### Update Prepare System Button
+
+**Module:** `verenigingen.api.update_prepare_system_button`
+
+| Endpoint | Auth | Security Decorator | Description |
+|---|---|---|---|
+| 1 endpoint | Login | -- | Updates the "Prepare System" button configuration |
+
+---
+
+## Security Decorator Reference
+
+The app uses the following security decorators (defined in `verenigingen.utils.security_decorators`):
+
+| Decorator | Purpose |
+|---|---|
+| `@standard_api(operation_type=...)` | Standard authenticated endpoint with audit logging |
+| `@high_security_api(operation_type=...)` | High-security endpoint with stricter checks and audit trail |
+| `@critical_api(operation_type=...)` | Critical operations (financial, admin) with enhanced logging |
+| `@sensitive_data_api(operation_type=...)` | Endpoints accessing sensitive personal data |
+| `@development_only_api(operation_type=...)` | Only available in development mode |
+| `@member_portal_api(operation_type=...)` | Member portal endpoints |
+
+**Operation types:** `FINANCIAL`, `MEMBER_DATA`, `ADMIN`, `REPORTING`, `UTILITY`
+
+---
+
+## Notes
+
+- All Frappe API endpoints use `POST` by default unless `methods=["GET", "POST"]` is specified.
+- The `@frappe.whitelist(allow_guest=True)` flag makes an endpoint accessible without authentication.
+- Endpoints without `allow_guest=True` require the user to be logged in; Frappe returns HTTP 403 otherwise.
+- Response format follows Frappe conventions: the return value is wrapped in `{"message": <return_value>}`.
+- Error responses use Frappe's standard exception format with `exc_type` and `message` fields.
+- The `whitelist_files.txt` file contains the complete list of all whitelisted function paths across the entire app (including DocType controllers, utilities, and non-API modules).
