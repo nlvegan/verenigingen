@@ -2,92 +2,158 @@
 
 ## Overview
 
-This guide provides comprehensive testing standards and best practices for the Verenigingen application, based on the enhanced testing framework implemented in 2025.
+This guide covers testing standards and best practices for the Verenigingen application. Tests are organized into domain-specific subdirectories and use two base classes depending on the testing scenario.
 
-## Enhanced Testing Framework
+## Test Directory Structure
 
-### VereningingenTestCase: The New Standard
+After the Phase 3 reorganization (2026-03-09), tests are organized into domain subdirectories under `verenigingen/tests/`:
 
-All tests should inherit from `VereningingenTestCase` instead of `unittest.TestCase` or `FrappeTestCase`:
+```
+vereinigingen/tests/
+├── payment/              # 62 files -- Mollie, SEPA batches, payment entries, reconciliation
+├── member/               # 37 files -- Member lifecycle, approval, merge, status transitions
+├── sepa/                 # 32 files -- SEPA mandate, direct debit, XML generation
+├── chapter/              # 21 files -- Chapter management, board, assignment, finance
+├── security/             # 20 files -- API security, permissions, CSRF, auth
+├── donor/                # 18 files -- Donation processing, donor management
+├── financial/            # 9 files  -- Billing, invoicing, fee calculations
+├── email/                # 9 files  -- Email templates, notifications
+├── volunteer/            # 5 files  -- Volunteer portal, assignments
+├── backend/              # Categorized backend tests
+│   ├── business_logic/   #   Core business rule tests
+│   ├── components/       #   Component-level tests
+│   ├── comprehensive/    #   Full-coverage suites
+│   ├── features/         #   Feature-specific tests
+│   ├── integration/      #   Cross-module integration tests
+│   ├── optimization/     #   Performance optimization tests
+│   ├── performance/      #   Benchmarks and load tests
+│   ├── portal/           #   Portal page tests
+│   ├── security/         #   Backend security tests
+│   ├── unit/             #   Isolated unit tests
+│   ├── validation/       # 20 files -- IBAN, field, input validation
+│   └── workflows/        #   Workflow state machine tests
+├── fixtures/             # Test data factories
+│   └── enhanced_test_factory.py  # EnhancedTestDataFactory + EnhancedTestCase
+├── utils/                # Test utilities and base classes
+│   └── base.py           # VereningingenTestCase
+├── api/                  # API endpoint tests
+├── contracts/            # API contract tests
+├── e_boekhouden/         # eBoekhouden integration tests
+├── e2e/                  # End-to-end tests
+├── frontend/             # JavaScript/UI tests
+├── integration/          # Cross-service integration tests
+├── services/             # Service layer tests
+├── unit/                 # Isolated unit tests
+├── reports/              # Report tests
+└── workflows/            # Workflow tests
+```
+
+Top-level `tests/` contains 8 cross-cutting files (e.g., `__init__.py`, `base_test_case.py`, test runners).
+
+## Base Classes
+
+### VereningingenTestCase (standard tests)
+
+Use for most tests -- integration tests, UI/form testing, tests requiring extensive mocking:
 
 ```python
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 class TestMyFeature(VereningingenTestCase):
-    """Test suite for specific feature"""
-
     def setUp(self):
-        """Set up test data using factory methods"""
         super().setUp()
-
-        # Use factory methods for consistent test data
         self.test_member = self.create_test_member(
-            first_name="Test",
-            last_name="User",
-            email="test@example.com"
+            first_name="Test", last_name="User", email="test@example.com"
         )
         # Document automatically tracked for cleanup
 
-    def test_feature_functionality(self):
-        """Test specific feature"""
-        # Test implementation
+    def test_feature(self):
         self.assertTrue(some_condition)
-
-    # No tearDown needed - automatic cleanup handled by base class
+    # No tearDown needed -- automatic cleanup handled by base class
 ```
 
-### Key Benefits
+Key features:
+- Automatic document cleanup in reverse creation order
+- Factory methods for consistent test data
+- Customer record cleanup for member-related tests
 
-#### Automatic Document Cleanup
+### EnhancedTestCase (business logic validation)
 
-- **All documents tracked**: Every document created is automatically tracked
-- **Reverse dependency cleanup**: Documents cleaned up in reverse creation order
-- **Customer cleanup**: Automatic customer record cleanup for member-related tests
-- **No manual tearDown**: Base class handles all cleanup automatically
-
-#### Factory Methods
-
-Consistent test data generation with proper relationships:
+Use for tests that must catch real production issues -- business rule validation, field safety, data integrity:
 
 ```python
-# Core entities with all required fields
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+class TestCriticalLogic(EnhancedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.member = self.create_test_member(
+            first_name="Test", last_name="User", email="test@example.com"
+        )
+
+    def test_business_rule(self):
+        # Field references validated against DocType schemas
+        # Business rules enforced (e.g., age validation for volunteers)
+        self.assertFieldEqual(self.member, "status", "Active")
+```
+
+Key features:
+- **Field Validator**: Validates all field references against DocType schemas before document creation
+- **Business rule enforcement**: Age validation, required fields, etc.
+- **Deterministic generation**: Uses configurable seeds for reproducible test scenarios
+- **Faker integration**: Generates realistic but clearly marked test data
+- Real database testing without inappropriate mocks
+
+### When to Use Which
+
+| Scenario | Base Class |
+|----------|-----------|
+| Standard feature tests | `VereningingenTestCase` |
+| Integration tests with mocking | `VereningingenTestCase` |
+| UI/form testing | `VereningingenTestCase` |
+| Business rule validation | `EnhancedTestCase` |
+| Field safety validation | `EnhancedTestCase` |
+| Production bug discovery | `EnhancedTestCase` |
+| Core business logic (Member lifecycle, SEPA) | `EnhancedTestCase` |
+
+## Factory Methods
+
+Both base classes provide factory methods for creating test data:
+
+```python
+# Member
 member = self.create_test_member(
-    first_name="John",
-    last_name="Doe",
-    email="john.doe@example.com",
-    birth_date="1990-01-01"  # Automatically handles validation
+    first_name="John", last_name="Doe",
+    email="john.doe@example.com", birth_date="1990-01-01"
 )
 
-# Related entities with proper linkage
+# Volunteer (linked to member)
 volunteer = self.create_test_volunteer(
     member=member.name,
     volunteer_name=member.full_name,
     email=member.email
 )
 
-# Geographic entities
+# Chapter (auto-creates region)
 chapter = self.create_test_chapter(
     chapter_name="Test Chapter",
-    postal_codes="1000-9999"  # Handles region creation automatically
+    postal_codes="1000-9999"
 )
 
-# Financial entities
+# Membership (can control submission status)
 membership = self.create_test_membership(
     member=member.name,
     membership_type="Standard",
-    docstatus=1  # Can control submission status
+    docstatus=1
 )
 ```
 
-#### Mock Banking Support
-
-Realistic test data with full validation compliance:
+### Mock Banking Support
 
 ```python
-# Generate valid test IBANs with proper MOD-97 checksums
 from verenigingen.utils.iban_validator import generate_test_iban
 
-# Test banks that pass full IBAN validation
+# Generate valid test IBANs with proper MOD-97 checksums
 test_iban = generate_test_iban("TEST")  # NL13TEST0123456789
 mock_iban = generate_test_iban("MOCK")  # NL82MOCK0123456789
 demo_iban = generate_test_iban("DEMO")  # NL93DEMO0123456789
@@ -100,392 +166,184 @@ mandate = self.create_sepa_mandate(
 )
 ```
 
-#### Enhanced Assertions
+## Running Tests
 
-Domain-specific assertions for better test readability:
+**Tests must be run via Frappe's test runner, not direct Python execution.**
 
-```python
-# Standard assertions work as expected
-self.assertTrue(condition)
-self.assertEqual(expected, actual)
+```bash
+cd ~/frappe-bench
 
-# Enhanced assertions for better error messages
-self.assertFieldEqual(document, "field_name", expected_value)
-self.assertDocumentValid(document)
+# Run all tests for the app
+bench --site veg11.veganisme.org run-tests --app verenigingen
+
+# Run a specific domain directory
+bench --site veg11.veganisme.org run-tests \
+  --module verenigingen.tests.member
+
+# Run a specific test file
+bench --site veg11.veganisme.org run-tests \
+  --module verenigingen.tests.payment.test_mollie_payment
+
+# Run tests for a DocType
+bench --site veg11.veganisme.org run-tests --doctype "Member"
+
+# Run parallel tests for faster execution
+bench --site veg11.veganisme.org run-parallel-tests --app verenigingen
 ```
 
-#### Performance Monitoring
+### Custom Test Runners
 
-Built-in performance tracking:
-
-```python
-def test_performance_critical_operation(self):
-    """Test that operation stays within performance bounds"""
-
-    # Monitor query count
-    with self.assertQueryCount(10):  # Fail if more than 10 queries
-        result = perform_complex_operation()
-
-    # Built-in timing available via base class
-    # Execution time automatically logged
+```bash
+cd ~/frappe-bench/apps/verenigingen
+./run_controller_tests.sh       # Run controller tests
+./run_mollie_e2e_tests.sh       # Run Mollie integration tests
 ```
 
-## Testing Standards and Requirements
+## Mandatory Test Patterns
 
-### Mandatory Test Patterns
-
-#### 1. Use VereningingenTestCase
+### Use Factory Methods (not manual document creation)
 
 ```python
-# ✅ Correct - Enhanced base class
-class TestMyFeature(VereningingenTestCase):
-    pass
+# CORRECT -- factory method with automatic cleanup
+member = self.create_test_member(first_name="Test", email="test@example.com")
 
-# ❌ Never - Legacy patterns
-class TestMyFeature(unittest.TestCase):  # Missing cleanup
-class TestMyFeature(FrappeTestCase):     # No factory methods
+# WRONG -- manual creation, no cleanup, missing fields
+member = frappe.get_doc({"doctype": "Member", "first_name": "Test"})
+member.insert(ignore_permissions=True)
 ```
 
-#### 2. Use Factory Methods
+### Read DocType JSON Before Writing Tests
+
+Always check the DocType JSON to identify required fields (`"reqd": 1`) and exact field names before writing test code.
+
+### Let Frappe Validate
 
 ```python
-# ✅ Correct - Factory method with automatic cleanup
-member = self.create_test_member(
-    first_name="Test",
-    email="test@example.com"
-)
-
-# ❌ Never - Manual document creation
-member = frappe.get_doc({
-    "doctype": "Member",
-    "first_name": "Test"
-    # Missing required fields, no cleanup
-})
-member.insert(ignore_permissions=True)  # Permission violation
-```
-
-#### 3. Read DocType JSON First
-
-**CRITICAL**: Always read the DocType JSON file before writing any code that creates/modifies documents:
-
-```python
-# Step 1: Use Read tool to examine DocType JSON
-# Step 2: Identify required fields ("reqd": 1)
-# Step 3: Use exact field names from JSON
-# Step 4: Write code with proper field values
-
-# ✅ Example after reading Member.json
-member = self.create_test_member(
-    first_name="Test",        # From JSON: "fieldname": "first_name", "reqd": 1
-    last_name="User",         # From JSON: "fieldname": "last_name", "reqd": 1
-    email="test@example.com", # From JSON: "fieldname": "email", "reqd": 1
-    birth_date="1990-01-01"   # From JSON: "fieldname": "birth_date", "reqd": 1
-)
-```
-
-#### 4. Never Bypass Validation
-
-```python
-# ✅ Correct - Let Frappe validate
-doc = frappe.new_doc("DocType")
-doc.field1 = "value"
+# CORRECT
+doc = frappe.new_doc("Member")
+doc.field = "value"
 doc.save()  # Frappe validation runs
 
-# ❌ Never - Bypass validation
-doc.save(ignore_validate=True)    # Skips business rules
-doc.insert(ignore_permissions=True)  # Violates security model
-frappe.db.sql("INSERT INTO ...")  # Bypasses ORM entirely
+# WRONG
+doc.save(ignore_validate=True)
+doc.insert(ignore_permissions=True)
+frappe.db.sql("INSERT INTO ...")
 ```
 
-#### 5. Document Tracking
+### Track Custom Documents
 
 ```python
-# ✅ Automatic tracking with factory methods
-member = self.create_test_member()  # Automatically tracked
-
-# ✅ Manual tracking when needed
+# Factory methods auto-track. For custom documents:
 custom_doc = frappe.get_doc({...})
 custom_doc.insert()
 self.track_doc("DocType", custom_doc.name)  # Manual tracking
 ```
 
-### Forbidden Patterns
-
-#### Permission Violations
+## Forbidden Patterns
 
 ```python
-# ❌ NEVER use these patterns
+# NEVER use these in tests:
 doc.insert(ignore_permissions=True)
 doc.save(ignore_permissions=True)
-doc.submit(ignore_permissions=True)
-
-# ❌ NEVER bypass validation
 doc.save(ignore_validate=True)
-doc.insert(ignore_validate=True)
-
-# ❌ NEVER use direct SQL for CRUD
 frappe.db.sql("INSERT INTO tabDocType ...")
 frappe.db.sql("UPDATE tabDocType SET ...")
 frappe.db.sql("DELETE FROM tabDocType ...")
 ```
 
-#### Legacy Test Patterns
+The `test-quality-enforcer` and `block-inappropriate-mocks` pre-commit hooks will reject:
+- Inappropriate business logic mocking
+- Mock abuse patterns
+- Tests that bypass validation
 
-```python
-# ❌ NEVER use these base classes
-class TestMyFeature(unittest.TestCase):     # No cleanup
-class TestMyFeature(FrappeTestCase):        # No factory methods
-class TestMyFeature(TestCase):              # Ambiguous
+## Writing New Tests
 
-# ❌ NEVER use manual cleanup
-def tearDown(self):
-    frappe.db.sql("DELETE FROM ...")  # Direct SQL
-    # Manual cleanup is error-prone and incomplete
-```
-
-## Test Organization Structure
-
-### Current Directory Structure (2025)
-
-```
-verenigingen/tests/
-├── backend/
-│   ├── business_logic/          # ✅ Phase 1 Complete
-│   │   ├── test_critical_business_logic.py
-│   │   ├── test_fee_functionality.py
-│   │   └── test_application_submission.py
-│   ├── components/              # ✅ Phase 2 Complete
-│   │   ├── test_member_portal_integration.py
-│   │   ├── test_sepa_mandate_creation.py
-│   │   └── [50+ component tests]
-│   ├── integration/             # ✅ Phase 3 Complete
-│   │   ├── test_suspension_integration.py  # ✅ Working
-│   │   ├── test_member_contact_request_integration.py  # 🚧 Doctype missing
-│   │   └── test_volunteer_portal_integration.py
-│   ├── workflows/               # ✅ Phase 3 Complete
-│   │   ├── test_member_lifecycle_simple.py  # ✅ Working
-│   │   ├── test_volunteer_journey.py  # 🚧 Workflow methods missing
-│   │   └── test_enhanced_membership_lifecycle.py
-│   └── validation/              # Individual validation tests
-├── fixtures/                    # Test data factories
-│   ├── enhanced_test_factory.py
-│   └── test_data_factory.py
-├── frontend/                    # JavaScript tests
-├── utils/                       # Test utilities and base classes
-│   ├── base.py                  # VereningingenTestCase
-│   └── test_runner.py
-└── workflows/                   # Complex workflow tests
-```
-
-### Migration Status
-
-#### ✅ Completed Phases:
-
-- **Phase 1**: Critical business logic tests migrated to VereningingenTestCase
-- **Phase 2**: Core component tests migrated with factory methods
-- **Phase 3**: Workflow and integration tests migrated and tested
-
-#### 🚧 Ongoing Work:
-
-- **Permission Cleanup**: Remove remaining `ignore_permissions=True` violations
-- **DocType Fixes**: Address tests for missing doctypes
-- **Complex Workflows**: Fix advanced workflow framework dependencies
-
-## Running Tests
-
-### Test Execution Requirements
-
-**CRITICAL**: Tests must be run via Frappe's test runner, not direct Python execution:
-
-```bash
-# ✅ Correct - Use Frappe test runner
-bench --site dev.veganisme.net run-tests --app verenigingen --module test_module
-
-# ✅ Run specific test suites
-bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.business_logic.test_critical_business_logic
-
-# ❌ NEVER - Direct Python execution fails
-python test_file.py  # Fails with "ModuleNotFoundError: No module named 'frappe'"
-```
-
-### Test Categories
-
-#### Quick Validation (30 seconds)
-
-```bash
-bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_validation_regression
-```
-
-#### Core Functionality (1-2 minutes)
-
-```bash
-bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_critical_business_logic
-bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_iban_validator
-```
-
-#### Workflow Tests (2-5 minutes)
-
-```bash
-bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.workflows.test_member_lifecycle_simple
-bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.integration.test_suspension_integration
-```
-
-#### Custom Test Runners
-
-```bash
-# Organized test runners from scripts/testing/runners/
-python scripts/testing/runners/run_volunteer_portal_tests.py --suite core
-python scripts/testing/runners/regression_test_runner.py
-```
-
-### Working Test Examples
-
-#### Successfully Migrated Tests:
-
-1. **test_member_lifecycle_simple.py** - ✅ Complete 10-stage lifecycle test
-2. **test_suspension_integration.py** - ✅ All 8 integration tests pass
-3. **test_critical_business_logic.py** - ✅ Core business logic validation
-4. **test_fee_functionality.py** - ✅ Fee calculation and tracking
-
-## Common Issues and Solutions
-
-### Test Failures Due to Validation
-
-#### Problem: Test fails with validation errors
-
-```
-frappe.exceptions.ValidationError: Missing required field 'birth_date'
-```
-
-#### Solution: Read DocType JSON and provide required fields
-
-```python
-# Step 1: Read DocType JSON file to identify required fields
-# Step 2: Update factory method or test data
-
-# ✅ Correct approach
-member = self.create_test_member(
-    first_name="Test",
-    last_name="User",
-    email="test@example.com",
-    birth_date="1990-01-01"  # Required field from JSON
-)
-```
-
-### Permission Errors
-
-#### Problem: Permission denied errors in tests
-
-```
-frappe.exceptions.PermissionError: Not permitted to create Member
-```
-
-#### Solution: Use proper test user setup or factory methods
-
-```python
-# ✅ Factory methods handle permissions properly
-member = self.create_test_member()  # Uses proper user context
-
-# ✅ Or set up proper test user
-with self.set_user("test@example.com"):
-    # Test operations with specific user
-    pass
-```
-
-### Database Schema Issues
-
-#### Problem: Unknown column errors
-
-```
-pymysql.err.OperationalError: (1054, "Unknown column 'field_name' in 'SELECT'")
-```
-
-#### Solution: Check DocType exists and field names are correct
-
-```python
-# ✅ Verify DocType exists
-if frappe.db.exists("DocType", "DocType Name"):
-    # DocType exists, check field names in JSON
-
-# ✅ Use correct field names from DocType JSON
-```
-
-## Creating New Tests
-
-### Test Creation Checklist
-
-1. **✅ Read DocType JSON** files for any documents you'll create
-2. **✅ Inherit from VereningingenTestCase**
-3. **✅ Use factory methods** for test data creation
-4. **✅ Let base class handle cleanup** (no manual tearDown)
-5. **✅ Use proper field names** from DocType JSON files
-6. **✅ Avoid permission violations** (`ignore_permissions=True`)
-7. **✅ Test via Frappe test runner** (not direct Python)
-
-### Template for New Tests
+### Template
 
 ```python
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 class TestMyNewFeature(VereningingenTestCase):
-    """Test suite for my new feature"""
+    """Test suite for my new feature."""
 
     def setUp(self):
-        """Set up test data using factory methods"""
         super().setUp()
-
-        # Create test data using factory methods
         self.test_member = self.create_test_member(
             first_name="TestFeature",
             last_name="User",
             email="testfeature@example.com"
         )
-        # Automatic cleanup handled by base class
 
     def test_feature_creation(self):
-        """Test that feature can be created successfully"""
-        # Arrange
+        """Test that feature can be created successfully."""
         initial_count = frappe.db.count("My DocType")
-
-        # Act
         result = create_my_feature(self.test_member.name)
-
-        # Assert
         self.assertTrue(result.get("success"))
         self.assertEqual(frappe.db.count("My DocType"), initial_count + 1)
 
     def test_feature_validation(self):
-        """Test feature validation rules"""
-        # Test implementation with proper assertions
+        """Test feature validation rules."""
         with self.assertRaises(frappe.ValidationError):
             create_invalid_feature()
-
-    def test_feature_edge_cases(self):
-        """Test edge cases and error handling"""
-        # Edge case testing
-        pass
-
-# No manual tearDown needed - automatic cleanup
 ```
 
-## Best Practices Summary
+### Where to Put New Tests
 
-### Do's ✅
+Place new test files in the appropriate domain subdirectory:
 
-- **Always** inherit from VereningingenTestCase
-- **Always** read DocType JSON files before writing tests
-- **Always** use factory methods for test data
-- **Always** run tests via Frappe test runner
-- **Always** use exact field names from DocType JSON
-- **Always** let Frappe validation run (no bypassing)
+| Domain | Directory | Examples |
+|--------|-----------|---------|
+| Member lifecycle, approval | `tests/member/` | Signup, merge, status |
+| Payments, Mollie | `tests/payment/` | Payment entries, reconciliation |
+| SEPA mandates, batches | `tests/sepa/` | Mandate creation, XML export |
+| Chapter management | `tests/chapter/` | Board, assignments, finance |
+| Donations | `tests/donor/` | Donor CRUD, reporting |
+| Email/notifications | `tests/email/` | Templates, delivery |
+| Volunteer management | `tests/volunteer/` | Assignments, portal |
+| Security/permissions | `tests/security/` | Auth, CSRF, API guards |
+| Financial/billing | `tests/financial/` | Invoices, fees |
+| IBAN, field validation | `tests/backend/validation/` | Validators |
+| Cross-module integration | `tests/backend/integration/` | Multi-service flows |
+| eBoekhouden | `tests/e_boekhouden/` | Accounting sync |
 
-### Don'ts ❌
+### Checklist
 
-- **Never** use `ignore_permissions=True` in tests
-- **Never** use `ignore_validate=True` in tests
-- **Never** use direct SQL for document CRUD
-- **Never** guess field names (read JSON first)
-- **Never** use manual tearDown methods
-- **Never** run tests with direct Python execution
+1. Read DocType JSON files for any documents you will create
+2. Inherit from `VereningingenTestCase` or `EnhancedTestCase`
+3. Use factory methods for test data creation
+4. Let the base class handle cleanup (no manual tearDown)
+5. Use exact field names from DocType JSON files
+6. Do not bypass permissions or validation
+7. Run tests via Frappe test runner (not direct Python)
 
-This enhanced testing framework provides robust, maintainable tests that follow Frappe best practices and ensure high code quality across the Verenigingen application.
+## Common Issues and Solutions
+
+### Validation Error: Missing Required Field
+
+```
+frappe.exceptions.ValidationError: Missing required field 'birth_date'
+```
+
+Read the DocType JSON and provide all required fields to the factory method.
+
+### Permission Denied
+
+```
+frappe.exceptions.PermissionError: Not permitted to create Member
+```
+
+Use factory methods (they handle permissions) or set up a proper test user context.
+
+### Unknown Column
+
+```
+pymysql.err.OperationalError: (1054, "Unknown column 'field_name'")
+```
+
+Check that the DocType exists and field names match the JSON schema exactly.
+
+## Related Documentation
+
+- `docs/development/ERROR_HANDLING_CONVENTIONS.md` -- Error handling patterns
+- `docs/development/SERVICE_INFRASTRUCTURE_USAGE_GUIDE.md` -- Service layer usage
+- `CLAUDE.md` -- Transaction handling, coding standards, naming conventions

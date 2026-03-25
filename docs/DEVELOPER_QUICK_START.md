@@ -1,22 +1,25 @@
-# 🛠️ Developer Quick Start Guide
+# Developer Quick Start Guide
 
 Fast-track guide for developers to set up, understand, and contribute to the Verenigingen codebase.
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [🎯 Prerequisites](#-prerequisites)
-- [⚡ Quick Setup](#-quick-setup)
-- [🏗️ Development Environment](#️-development-environment)
-- [📁 Codebase Overview](#-codebase-overview)
-- [🔧 Development Workflow](#-development-workflow)
-- [🧪 Testing](#-testing)
-- [📚 Key Concepts](#-key-concepts)
-- [🚀 Contributing](#-contributing)
-- [📞 Getting Help](#-getting-help)
+- [Prerequisites](#prerequisites)
+- [Quick Setup](#quick-setup)
+- [Development Environment](#development-environment)
+- [Codebase Overview](#codebase-overview)
+- [Service Layer](#service-layer)
+- [Development Workflow](#development-workflow)
+- [Code Formatting and Linting](#code-formatting-and-linting)
+- [Pre-commit Hooks](#pre-commit-hooks)
+- [Testing](#testing)
+- [Key Concepts](#key-concepts)
+- [Contributing](#contributing)
+- [Getting Help](#getting-help)
 
-## 🎯 Prerequisites
+## Prerequisites
 
-### ✅ Required Knowledge
+### Required Knowledge
 
 - **Python 3.10+**: Object-oriented programming and web frameworks
 - **JavaScript ES6+**: Modern frontend development
@@ -24,32 +27,26 @@ Fast-track guide for developers to set up, understand, and contribute to the Ver
 - **Web Technologies**: HTML5, CSS3, REST APIs
 - **Version Control**: Git workflows and branching strategies
 
-### 🛠️ Required Tools
+### Required Tools
 
 ```bash
-# Essential development tools
-python3.10+         # Python runtime
-node.js 16+          # JavaScript runtime
-git                  # Version control
-mysql/mariadb        # Database server
-redis                # Caching and queues
-supervisor           # Process management
-
-# Recommended editors
-# VS Code with Python, Frappe, and Vue extensions
-# PyCharm Professional
-# Vim/Neovim with appropriate plugins
+python3.10+         # Python runtime (3.10, 3.11, or 3.12)
+node.js 16+         # JavaScript runtime
+git                 # Version control
+mysql/mariadb       # Database server
+redis               # Caching and queues
+supervisor          # Process management
 ```
 
-### 📚 Recommended Background
+### Recommended Background
 
 - **Frappe Framework**: [Official Documentation](https://frappeframework.com/docs)
 - **ERPNext**: Basic understanding of ERP concepts
 - **Dutch Business**: Understanding of Dutch non-profit and business practices
 
-## ⚡ Quick Setup
+## Quick Setup
 
-### 🚀 30-Minute Development Setup
+### 30-Minute Development Setup
 
 ```bash
 # 1. Install Frappe Bench (if not installed)
@@ -71,7 +68,6 @@ bench use dev.verenigingen.local
 bench get-app erpnext --branch version-15
 bench get-app payments
 bench get-app hrms
-bench get-app crm
 
 # 5. Install Verenigingen
 bench get-app https://github.com/0spinboson/verenigingen
@@ -91,75 +87,55 @@ bench --site dev.verenigingen.local clear-cache
 bench start
 ```
 
-### 🌐 Access Your Development Environment
+### Access Your Development Environment
 
 - **Site**: http://dev.verenigingen.local:8000
 - **Admin Login**: Administrator / (password set during setup)
-- **Developer Tools**: http://dev.verenigingen.local:8000/app/website
 
-### ⚡ Daily Development Commands
+### Daily Development Commands
 
 ```bash
-# Start development with hot reload
-bench start
-
-# Build assets after changes
-bench build --app verenigingen
-
-# Run migrations after code changes
-bench --site dev.verenigingen.local migrate
-
-# Clear cache after framework changes
-bench --site dev.verenigingen.local clear-cache
-
-# Restart after Python changes
-bench restart
+bench start                                          # Start with hot reload
+bench build --app verenigingen                       # Build assets
+bench --site dev.verenigingen.local migrate          # Run migrations
+bench --site dev.verenigingen.local clear-cache      # Clear cache
+bench restart                                        # Restart services
 ```
 
-## 🏗️ Development Environment
+## Development Environment
 
-### 🔧 IDE Configuration
-
-#### VS Code Setup
+### IDE Configuration (VS Code)
 
 ```json
 // .vscode/settings.json
 {
   "python.defaultInterpreter": "./env/bin/python",
   "python.linting.enabled": true,
-  "python.linting.pylintEnabled": true,
   "python.formatting.provider": "black",
-  "editor.formatOnSave": true,
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "editor.rulers": [110],
   "files.associations": {
     "*.py": "python",
     "*.js": "javascript",
-    "*.html": "html",
-    "*.css": "css"
+    "*.html": "html"
   }
 }
 ```
 
-#### Recommended Extensions
+Recommended extensions:
 
 ```bash
-# VS Code extensions for Verenigingen development
 code --install-extension ms-python.python
+code --install-extension ms-python.black-formatter
+code --install-extension charliermarsh.ruff
 code --install-extension esbenp.prettier-vscode
 code --install-extension bradlc.vscode-tailwindcss
-code --install-extension ms-vscode.vscode-json
 ```
 
-### 🛠️ Pre-commit Hooks
-
-```bash
-# Install pre-commit hooks (already configured)
-pre-commit install
-
-# Test pre-commit hooks
-pre-commit run --all-files
-```
-
-### 🐛 Debugging Setup
+### Debugging
 
 ```python
 # Add to any Python file for debugging
@@ -173,222 +149,345 @@ import IPython; IPython.embed()
 tail -f ~/frappe-bench/logs/worker.error.log
 ```
 
-## 📁 Codebase Overview
+## Codebase Overview
 
-### 🏗️ Architecture Overview
+### Directory Structure
 
 ```
 verenigingen/
-├── 📁 verenigingen/              # Main app package
-│   ├── 📁 api/                   # REST API endpoints
-│   ├── 📁 doctype/               # Business objects (Member, Volunteer, etc.)
-│   ├── 📁 fixtures/              # Initial data and configuration
-│   ├── 📁 public/                # Static assets (CSS, JS, images)
-│   ├── 📁 templates/             # HTML templates and pages
-│   ├── 📁 utils/                 # Utility functions and helpers
-│   └── 📁 www/                   # Public web pages
-├── 📁 docs/                      # Documentation
-├── 📁 scripts/                   # Development and deployment scripts
-└── 📁 tests/                     # Test suites
+├── verenigingen/                # Main app package
+│   ├── api/                    # REST API endpoints (@frappe.whitelist)
+│   ├── commands/               # CLI commands (bench commands)
+│   ├── config/                 # App configuration
+│   ├── constants/              # Constants and enums
+│   ├── e_boekhouden/           # eBoekhouden accounting integration
+│   ├── email/                  # Email templates and logic
+│   ├── events/                 # Document event handlers (hooks)
+│   ├── fixtures/               # Initial data and configuration
+│   ├── hooks/                  # Frappe hook implementations
+│   ├── integrations/           # External integrations
+│   ├── mijnrood_sync/          # MijnRood external DB sync
+│   ├── monitoring/             # Health checks, dashboards
+│   ├── overrides/              # ERPNext/Frappe overrides
+│   ├── pages/                  # Custom desk pages
+│   ├── patches/                # Database migration patches
+│   ├── payments/               # Payment processing (Mollie, SEPA)
+│   ├── public/                 # Static assets (CSS, JS, images)
+│   ├── reports/                # Custom reports
+│   ├── repositories/           # Data access layer
+│   ├── schemas/                # Validation schemas
+│   ├── services/               # Business logic service layer
+│   ├── setup/                  # App installation setup
+│   ├── tasks/                  # Scheduled background tasks
+│   ├── templates/              # HTML/Jinja2 templates and portal pages
+│   ├── tests/                  # Test suites (domain-organized)
+│   ├── translations/           # i18n translation files
+│   └── utils/                  # Shared utility functions
+├── docs/                       # Developer and user documentation
+├── scripts/                    # Dev/deployment/validation scripts
+│   ├── security/               # Security scanning scripts
+│   ├── testing/                # Test runner scripts
+│   └── validation/             # Pre-commit validator scripts
+├── pyproject.toml              # Python config (Black, ruff, isort, deps)
+├── .pre-commit-config.yaml     # Pre-commit hook definitions
+├── package.json                # Node.js dependencies
+├── tailwind.config.js          # Tailwind CSS configuration
+└── pytest.ini                  # Test configuration
 ```
 
-### 🔑 Key Components
+### Key Components
 
-#### 📊 Doctypes (Business Objects)
+#### DocTypes (Business Objects)
+
+```
+Member                    # Member records and lifecycle
+Membership                # Member subscriptions and billing
+Volunteer                 # Volunteer profiles and assignments
+Chapter                   # Geographic organization units
+Direct Debit Batch        # SEPA payment processing
+Membership Dues Schedule  # Recurring fee management
+```
+
+#### API Modules (`verenigingen/api/`)
+
+```
+membership_application.py        # Public-facing member applications
+membership_application_review.py # Admin review/approval
+payment_processing.py            # Payment and financial operations
+sepa_batch_ui.py                 # SEPA direct debit management
+volunteer_api.py                 # Volunteer coordination
+```
+
+## Service Layer
+
+The service layer (`verenigingen/services/`) contains business logic organized by domain. See `docs/development/SERVICE_INFRASTRUCTURE_USAGE_GUIDE.md` for full details.
+
+### Layout
+
+```
+services/
+├── infrastructure/         # Base classes, factory, field validation
+├── member/                 # Member domain (largest)
+│   ├── account/            # User account creation
+│   ├── application/        # Membership application processing
+│   ├── approval/           # Membership approval/creation
+│   ├── chapter/            # Chapter assignment
+│   ├── core/               # Lifecycle, status management
+│   ├── display/            # Member display/formatting
+│   ├── donor/              # Donor operations
+│   ├── financial/          # Financial operations
+│   ├── history/            # History tracking managers
+│   ├── identification/     # Member ID generation
+│   ├── integration/        # External system integration
+│   ├── lifecycle/          # Status notifications
+│   ├── payment/            # Payment processing
+│   ├── testing/            # Test helpers
+│   ├── utils/              # Member-specific utilities
+│   └── validation/         # Input validation
+├── account/                # Account operations
+├── approval/               # Approval workflows
+├── billing/                # Billing and invoicing
+├── chapter/                # Chapter management
+├── communication/          # Email/notification services
+├── csv_import/             # CSV/data import services
+├── document/               # Document operations
+├── donation/               # Donation processing
+├── monitoring/             # Health monitoring
+├── payment/                # Payment processing
+├── termination/            # Membership termination
+└── volunteer/              # Volunteer management
+```
+
+### Singleton Pattern
+
+Most services use a module-level singleton with a getter function:
 
 ```python
-# Core doctypes and their purposes
-Member                 # Member records and lifecycle
-Membership            # Member subscriptions and billing
-Volunteer             # Volunteer profiles and assignments
-Chapter               # Geographic organization
-Direct_Debit_Batch    # SEPA payment processing
+_service_instance = None
+
+def get_member_lifecycle_service() -> MemberLifecycleService:
+    global _service_instance
+    if _service_instance is None:
+        _service_instance = MemberLifecycleService()
+    return _service_instance
 ```
 
-#### 🔌 API Modules
+Usage:
 
 ```python
-# Key API modules
-membership_application.py    # Member application processing
-payment_processing.py       # Payment and financial operations
-sepa_batch_ui.py           # SEPA direct debit management
-volunteer_api.py           # Volunteer coordination
+from verenigingen.services.member.core.member_lifecycle_service import (
+    get_member_lifecycle_service,
+)
+
+service = get_member_lifecycle_service()
+result = service.approve_application(member)
 ```
 
-#### 🧰 Utilities
+## Development Workflow
 
-```python
-# Important utility modules
-utils/validation/          # Input validation and sanitization
-utils/eboekhouden/        # eBoekhouden integration
-utils/migration/          # Data migration tools
-utils/performance/        # Performance optimization
+### Git Workflow
+
+The main branch is `develop`. Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>[optional scope]: <description>
 ```
 
-### 📋 Configuration Files
-
-```yaml
-# Important configuration files
-hooks.py                  # App configuration and event hooks
-pyproject.toml           # Python package configuration
-package.json             # Node.js dependencies
-tailwind.config.js       # CSS framework configuration
-```
-
-## 🔧 Development Workflow
-
-### 🌿 Git Workflow
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
 ```bash
-# 1. Create feature branch
-git checkout -b feature/new-feature-name
+# Create feature branch
+git checkout -b feat/new-feature develop
 
-# 2. Make changes and commit
-git add .
-git commit -m "Add new feature: description"
+# Commit with conventional commit message
+git commit -m "feat(member): add bulk status update endpoint"
 
-# 3. Push and create pull request
-git push origin feature/new-feature-name
-# Create PR on GitHub
-
-# 4. After review, merge to main
-git checkout main
-git pull origin main
-git branch -d feature/new-feature-name
+# Push and create PR against develop
+git push -u origin feat/new-feature
 ```
 
-### 🔄 Development Cycle
+### Creating New Features
+
+#### Adding a New DocType
 
 ```bash
-# Daily development workflow
-# 1. Start development environment
-bench start
-
-# 2. Make code changes
-# 3. Test changes
-bench --site dev.verenigingen.local execute verenigingen.tests.utils.quick_validation.run_quick_tests
-
-# 4. Build assets if needed
-bench build --app verenigingen
-
-# 5. Commit changes
-git add . && git commit -m "Description of changes"
-```
-
-### 📦 Creating New Features
-
-#### 🆕 Adding New Doctype
-
-```bash
-# Create new doctype
+# Via UI: Desk > DocType > New DocType (recommended)
+# Or via bench:
 bench --site dev.verenigingen.local make-doctype "New Doctype Name"
 
-# Edit the generated files:
-# - verenigingen/doctype/new_doctype_name/new_doctype_name.json
-# - verenigingen/doctype/new_doctype_name/new_doctype_name.py
-
-# Add to hooks.py if needed
-# Migrate
+# After editing the generated files:
 bench --site dev.verenigingen.local migrate
 ```
 
-#### 🔌 Adding New API Endpoint
+#### Adding a New API Endpoint
 
 ```python
-# Create new file: verenigingen/api/my_new_api.py
+# Create: verenigingen/api/my_new_api.py
 import frappe
 
-@frappe.whitelist()
-def my_new_endpoint(param1, param2):
-    """API endpoint description"""
-    # Validate inputs
-    # Process logic
-    # Return response
+@frappe.whitelist()  # MUST be outermost decorator
+def my_endpoint(param1: str, param2: str = "") -> dict:
+    """Endpoint description."""
+    # Business logic via service layer
     return {"success": True, "data": result}
 ```
 
-#### 🎨 Adding New Portal Page
+**Critical**: `@frappe.whitelist()` must always be the outermost (first/top) decorator. See `CLAUDE.md` for the full explanation.
 
-```python
-# Create page files:
-# verenigingen/templates/pages/my_page.html
-# verenigingen/templates/pages/my_page.py
+## Code Formatting and Linting
 
-def get_context(context):
-    context.title = "My Page"
-    context.data = get_page_data()
-    return context
+### Formatter: Black
+
+```
+Line length: 110
+Target: Python 3.10, 3.11
 ```
 
-## 🧪 Testing
-
-### ⚡ Quick Testing
+Configured in `pyproject.toml` under `[tool.black]`.
 
 ```bash
-# Run all quick tests
-bench --site dev.verenigingen.local execute verenigingen.tests.utils.quick_validation.run_quick_tests
+# Check formatting
+black --check .
 
-# Run specific test module
-bench --site dev.verenigingen.local run-tests --app verenigingen --module verenigingen.tests.backend.validation.test_iban_validator
-
-# Run comprehensive tests
-python scripts/testing/runners/regression_test_runner.py
+# Auto-format
+black .
 ```
 
-### 🧪 Test Categories
+### Linter: Ruff (replaces flake8 + isort)
+
+```
+Line length: 110
+Target: Python 3.10
+Rules: E, W (pycodestyle), F (pyflakes), I (isort)
+```
+
+Configured in `pyproject.toml` under `[tool.ruff]`.
 
 ```bash
-# Business logic tests
-bench --site dev.verenigingen.local run-tests --app verenigingen --module verenigingen.tests.backend.business_logic
+# Check
+ruff check .
 
-# Security tests
-bench --site dev.verenigingen.local run-tests --app verenigingen --module verenigingen.tests.backend.security
-
-# Integration tests
-bench --site dev.verenigingen.local run-tests --app verenigingen --module verenigingen.tests.backend.integration
-
-# Performance tests
-python verenigingen/tests/backend/performance/test_api_optimization_comprehensive.py
+# Auto-fix
+ruff check --fix .
 ```
 
-### ✏️ Writing Tests
+### Import Sorting: isort (via ruff)
 
-```python
-# Example test file: test_my_feature.py
-import frappe
-import unittest
+isort is configured for Black compatibility (`profile = "black"`, line length 110). Ruff handles import sorting via its `I` rules, so a separate isort invocation is not needed.
 
-class TestMyFeature(unittest.TestCase):
-    def setUp(self):
-        """Set up test data"""
-        pass
+### JavaScript: ESLint
 
-    def test_my_functionality(self):
-        """Test description"""
-        # Arrange
-        test_data = {"field": "value"}
-
-        # Act
-        result = my_function(test_data)
-
-        # Assert
-        self.assertTrue(result.get("success"))
-        self.assertEqual(result.get("data"), expected_value)
-
-    def tearDown(self):
-        """Clean up test data"""
-        pass
+```bash
+npx eslint "**/*.js"
+npx eslint --fix "**/*.js"
 ```
 
-## 📚 Key Concepts
+### Pylint (deep analysis, pre-push only)
 
-### 🏗️ Frappe Framework Patterns
+Threshold: 7.0. Runs only on `pre-push` stage, not on every commit.
+
+## Pre-commit Hooks
+
+### Installation
+
+```bash
+cd ~/frappe-bench/apps/verenigingen
+python -m pip install pre-commit
+pre-commit install
+```
+
+### Hook Stages
+
+| Stage | When | What Runs |
+|-------|------|-----------|
+| `pre-commit` | Every commit | Fast validators (~30 checks): Black, ruff, ESLint, Bandit security scan, field validators, template validators, import path validator, test quality enforcer |
+| `pre-push` | Before pushing | Slower validators: Pylint (threshold 7.0), API security validator, JS-Python parameter validator, method resolution, runtime import check, Jest tests, coverage reports |
+| `manual` | On demand | Comprehensive validation suites, performance validators |
+
+### Running Hooks Manually
+
+```bash
+# All pre-commit stage checks
+pre-commit run --all-files
+
+# Specific validator
+pre-commit run ruff --all-files
+pre-commit run ast-field-analyzer --all-files
+
+# Pre-push stage validators
+pre-commit run --hook-stage pre-push --all-files
+
+# Manual stage validators
+pre-commit run comprehensive-validation --all-files
+```
+
+### Key Pre-commit Hooks
+
+**Code Quality:**
+- `black` -- Python formatting (line-length 110)
+- `ruff` -- Python linting (10-100x faster than flake8)
+- `eslint` -- JavaScript linting
+- `pylint` -- Deep static analysis (pre-push, threshold 7.0)
+
+**Security:**
+- `bandit-focused` -- Fast security scan on critical files
+- `whitelist-type-safety` -- Validates @whitelist parameter types (Frappe v15+)
+- `api-security-validator` -- Checks API security decorators (pre-push)
+- `insecure-api-detector` -- Finds unprotected API endpoints (pre-push)
+- `permission-bypass-validator` -- Detects `ignore_permissions=True` without justification
+
+**Field/DocType Validation:**
+- `ast-field-analyzer` -- AST-based field reference validation
+- `doctype-field-validator` -- DocType field attribute access validation
+- `sql-field-validator` -- SQL query field validation
+- `template-field-validator` -- HTML/JavaScript template field validation
+- `javascript-doctype-validator` -- JS DocType field validation (pre-push)
+
+**Test Quality:**
+- `test-quality-enforcer` -- Blocks mock abuse, enforces real integration testing
+- `block-inappropriate-mocks` -- Prevents business logic mocking
+
+**Other:**
+- `import-path-validator` -- Validates Python import paths exist
+- `child-table-creation-validator` -- Detects incorrect child table patterns
+- `frappe-hooks-validator` -- Validates Frappe hooks and event handlers
+
+### Known Hook Issues
+
+- `whitelist-type-safety` has widespread pre-existing failures. Use `SKIP=whitelist-type-safety` when needed.
+- `javascript-doctype-validator` has a broken import. Use `SKIP=javascript-doctype-validator` when pushing.
+- Pre-push Jest hook has 3 pre-existing test failures. Use `SKIP=jest-testing` when pushing.
+- `insecure-api-detector` false positive on `database_index_manager_phase5a.py`. Use `SKIP=insecure-api-detector` when pushing.
+
+## Testing
+
+```bash
+# Run all tests for the app
+cd ~/frappe-bench
+bench --site veg11.veganisme.org run-tests --app verenigingen
+
+# Run tests for a specific module
+bench --site veg11.veganisme.org run-tests \
+  --module verenigingen.tests.member.test_member_lifecycle
+
+# Run tests for a specific doctype
+bench --site veg11.veganisme.org run-tests --doctype "Member"
+```
+
+See `docs/DEVELOPER_TESTING_GUIDE.md` for full testing documentation including directory structure, base classes, and factory methods.
+
+## Key Concepts
+
+### Frappe Document Lifecycle
 
 ```python
-# Document lifecycle
 class Member(Document):
     def validate(self):
-        """Called before save"""
+        """Called before save -- validate data"""
+        pass
+
+    def before_save(self):
+        """Called before writing to DB"""
         pass
 
     def on_submit(self):
@@ -398,8 +497,11 @@ class Member(Document):
     def on_cancel(self):
         """Called when document is cancelled"""
         pass
+```
 
-# Database operations
+### Database Operations
+
+```python
 # Create
 doc = frappe.new_doc("Member")
 doc.update(data)
@@ -410,196 +512,84 @@ doc = frappe.get_doc("Member", member_name)
 docs = frappe.get_all("Member", filters={"status": "Active"})
 
 # Update
-doc.update(new_data)
+doc.field = "new value"
 doc.save()
 
 # Delete
 frappe.delete_doc("Member", member_name)
 ```
 
-### 🔌 API Patterns
+### API Patterns
 
 ```python
-# Standard API endpoint
 @frappe.whitelist()
-def my_api_endpoint(param1, param2=None):
-    """API endpoint with validation and error handling"""
-    try:
-        # Validate permissions
-        if not frappe.has_permission("Member", "read"):
-            frappe.throw("Insufficient permissions")
+def my_endpoint(param1: str, param2: str = "") -> dict:
+    """Always validate permissions and inputs."""
+    if not frappe.has_permission("Member", "read"):
+        frappe.throw("Insufficient permissions")
 
-        # Validate inputs
-        if not param1:
-            frappe.throw("param1 is required")
-
-        # Process request
-        result = process_data(param1, param2)
-
-        # Return response
-        return {"success": True, "data": result}
-
-    except Exception as e:
-        frappe.log_error(f"API Error: {str(e)}")
-        return {"success": False, "error": str(e)}
+    result = process_data(param1, param2)
+    return {"success": True, "data": result}
 ```
 
-### 🎨 Frontend Patterns
+### Frontend Patterns
 
 ```javascript
-// Frappe frontend patterns
-// Call API from JavaScript
 frappe.call({
   method: "verenigingen.api.my_api.my_endpoint",
-  args: {
-    param1: "value1",
-    param2: "value2",
-  },
+  args: { param1: "value1", param2: "value2" },
   callback: function (response) {
     if (response.message.success) {
-      // Handle success
       console.log(response.message.data);
     } else {
-      // Handle error
       frappe.msgprint(response.message.error);
     }
   },
 });
 ```
 
-## 🚀 Contributing
+## Contributing
 
-### 📋 Contribution Guidelines
+### Pre-Implementation Checklist
 
-1. **Read [CLAUDE.md](../CLAUDE.md)** for detailed development guidelines
-2. **Follow code style**: Black formatting, type hints, docstrings
-3. **Write tests**: All new features require tests
-4. **Update docs**: Include documentation updates with features
-5. **Security first**: Review [SECURITY.md](../SECURITY.md) requirements
+Before writing new code:
 
-### 🐛 Bug Reports
+1. **Search for existing utilities** -- Check `services/`, `utils/` for similar functionality
+2. **Find similar features** -- Study how comparable functionality is already implemented
+3. **Check the service layer** -- Does a service already exist for this domain?
+4. **Confirm conventions** -- Naming, error handling (see `docs/development/ERROR_HANDLING_CONVENTIONS.md`), transaction patterns (see `CLAUDE.md`)
 
-```markdown
-# Bug report template
+### Guidelines
 
-## Environment
+1. Read `CLAUDE.md` for detailed development guidelines
+2. Follow code style: Black formatting (110 char), type hints, docstrings
+3. Write tests: All new features require tests
+4. `@frappe.whitelist()` must always be the outermost decorator
+5. Business logic belongs in the service layer, not in API endpoints or controllers
+6. Use `safe_child_table_update()` for child table writes
 
-- Verenigingen version:
-- ERPNext version:
-- Browser/OS:
+## Getting Help
 
-## Steps to Reproduce
-
-1.
-2.
-3.
-
-## Expected vs Actual Behavior
-
-**Expected**:
-**Actual**:
-
-## Additional Context
-
-(screenshots, logs, etc.)
-```
-
-### ✨ Feature Requests
-
-```markdown
-# Feature request template
-
-## Problem Statement
-
-Describe the problem this feature would solve
-
-## Proposed Solution
-
-Describe your proposed solution
-
-## Alternatives Considered
-
-Other approaches you've considered
-
-## Additional Context
-
-Use cases, mockups, examples
-```
-
-## 📞 Getting Help
-
-### 🆘 Support Channels
-
-1. **Documentation**: Start with [docs/](../docs/) for comprehensive guides
-2. **Code Examples**: Check existing similar implementations
-3. **GitHub Issues**: Search existing issues before creating new ones
-4. **Community**: Frappe Framework community forums
-5. **Professional Support**: Available for complex integrations
-
-### 🔍 Debugging Resources
+### Debugging Resources
 
 ```bash
 # View system logs
 tail -f ~/frappe-bench/logs/worker.error.log
 
 # Database console
-bench --site dev.verenigingen.local mariadb
+bench --site veg11.veganisme.org mariadb
 
 # Python console with Frappe context
-bench --site dev.verenigingen.local console
-
-# Performance profiling
-bench --site dev.verenigingen.local execute verenigingen.utils.performance_utils.profile_request
+bench --site veg11.veganisme.org console
 ```
 
-### 📚 Learning Resources
+### Related Documentation
 
-- **[Frappe Framework Docs](https://frappeframework.com/docs)**
-- **[ERPNext Documentation](https://docs.erpnext.com)**
-- **[Verenigingen API Docs](API_DOCUMENTATION.md)**
-- **[Python Best Practices](https://docs.python-guide.org/)**
-- **[Vue.js Guide](https://vuejs.org/guide/)** (for frontend development)
-
----
-
-## 🎯 Quick Reference
-
-### ⚡ Daily Commands
-
-```bash
-bench start                 # Start development server
-bench build                 # Build assets
-bench migrate               # Run database migrations
-bench restart               # Restart all services
-bench clear-cache           # Clear application cache
-```
-
-### 🧪 Testing Commands
-
-```bash
-# Quick tests
-bench --site dev.verenigingen.local execute verenigingen.tests.utils.quick_validation.run_quick_tests
-
-# Specific module tests
-bench --site dev.verenigingen.local run-tests --app verenigingen --module MODULE_NAME
-
-# All tests
-python scripts/testing/runners/regression_test_runner.py
-```
-
-### 🐛 Debugging Commands
-
-```bash
-# Error logs
-tail -f ~/frappe-bench/logs/worker.error.log
-
-# Database console
-bench --site dev.verenigingen.local mariadb
-
-# Python console
-bench --site dev.verenigingen.local console
-```
-
----
-
-**Ready to contribute?** Check out the [open issues](https://github.com/0spinboson/verenigingen/issues) and [development board](../CLAUDE.md) for tasks that need attention!
+- `CLAUDE.md` -- Comprehensive project instructions and conventions
+- `docs/DEVELOPER_TESTING_GUIDE.md` -- Test framework and patterns
+- `docs/development/ERROR_HANDLING_CONVENTIONS.md` -- Error handling patterns
+- `docs/development/SERVICE_INFRASTRUCTURE_USAGE_GUIDE.md` -- Service layer guide
+- `docs/development/TYPING_CONVENTIONS.md` -- Type hint conventions
+- `docs/API_DOCUMENTATION.md` -- API reference
+- [Frappe Framework Docs](https://frappeframework.com/docs)
+- [ERPNext Documentation](https://docs.erpnext.com)
