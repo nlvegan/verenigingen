@@ -13,6 +13,7 @@
   "tussenvoegsel",
   "last_name",
   "pronouns",
+  "gender",
   "aanhef",
   "column_break_8",
   "image",
@@ -119,6 +120,8 @@
   "column_break_37",
   "custom_field_3",
   "custom_field_4",
+  "procurios_import_data_section",
+  "procurios_data",
   "health_check_section",
   "custom_needs_health_check",
   "address_optimization_section",
@@ -918,6 +921,25 @@
   {
    "fieldname": "column_break_xrft",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gender",
+   "fieldtype": "Select",
+   "label": "Gender",
+   "options": "\nMale\nFemale\nOther\nPrefer not to say"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "procurios_import_data_section",
+   "fieldtype": "Section Break",
+   "label": "Procurios Import Data"
+  },
+  {
+   "fieldname": "procurios_data",
+   "fieldtype": "Table",
+   "label": "Procurios Data",
+   "options": "Procurios Member Data",
+   "read_only": 1
   }
  ],
  "links": [

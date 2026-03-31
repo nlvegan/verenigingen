@@ -1,0 +1,46 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "creation": "2026-03-31 10:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "procurios_value",
+    "column_break_1",
+    "member_status"
+  ],
+  "fields": [
+    {
+      "fieldname": "procurios_value",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Procurios Value",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "member_status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Member Status",
+      "options": "Active\nPending\nExpired\nSuspended\nBanned\nDeceased\nQuit\nRejected",
+      "reqd": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 1,
+  "links": [],
+  "modified": "2026-03-31 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Procurios Status Mapping",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "creation",
+  "sort_order": "ASC",
+  "states": []
+}
