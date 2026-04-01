@@ -1,0 +1,283 @@
+{
+  "actions": [],
+  "autoname": "naming_series:",
+  "creation": "2026-03-31 10:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "naming_series",
+    "import_configuration_section",
+    "csv_file",
+    "encoding",
+    "csv_delimiter",
+    "column_break_config1",
+    "import_gender",
+    "default_status",
+    "test_mode",
+    "status_mapping_section",
+    "status_mapping",
+    "address_handling_section",
+    "import_addresses",
+    "preferred_address_type",
+    "preview_section",
+    "preview_data",
+    "progress_section",
+    "import_status",
+    "progress_percentage",
+    "rows_processed",
+    "total_rows",
+    "column_break_progress1",
+    "members_created",
+    "members_skipped",
+    "last_processed_at",
+    "error_section",
+    "error_log",
+    "top_errors_summary",
+    "import_info_section",
+    "import_date",
+    "descriptive_name"
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "fieldtype": "Select",
+      "hidden": 1,
+      "label": "Naming Series",
+      "options": "PROC-IMP-.YYYY.-.####.",
+      "default": "PROC-IMP-.YYYY.-.####."
+    },
+    {
+      "fieldname": "import_configuration_section",
+      "fieldtype": "Section Break",
+      "label": "Import Configuration"
+    },
+    {
+      "fieldname": "csv_file",
+      "fieldtype": "Attach",
+      "label": "CSV File",
+      "reqd": 1
+    },
+    {
+      "default": "auto-detect",
+      "fieldname": "encoding",
+      "fieldtype": "Select",
+      "label": "Encoding",
+      "options": "auto-detect\nutf-8\nutf-8-sig\niso-8859-1\nwindows-1252"
+    },
+    {
+      "default": "Semicolon",
+      "fieldname": "csv_delimiter",
+      "fieldtype": "Select",
+      "label": "CSV Delimiter",
+      "options": "Comma\nSemicolon\nTab"
+    },
+    {
+      "fieldname": "column_break_config1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "fieldname": "import_gender",
+      "fieldtype": "Check",
+      "label": "Import Gender",
+      "description": "Map Geslacht to Member gender field. When disabled, stored in Procurios data table."
+    },
+    {
+      "default": "Active",
+      "fieldname": "default_status",
+      "fieldtype": "Select",
+      "label": "Default Member Status",
+      "options": "Active\nPending",
+      "description": "Status assigned when no status mapping matches"
+    },
+    {
+      "default": "0",
+      "fieldname": "test_mode",
+      "fieldtype": "Check",
+      "label": "Test Mode",
+      "description": "Process only first 25 rows for validation"
+    },
+    {
+      "fieldname": "status_mapping_section",
+      "fieldtype": "Section Break",
+      "label": "Status Mapping",
+      "collapsible": 1,
+      "description": "Map Procurios Type/status values to Member status"
+    },
+    {
+      "fieldname": "status_mapping",
+      "fieldtype": "Table",
+      "label": "Status Mapping",
+      "options": "Procurios Status Mapping"
+    },
+    {
+      "fieldname": "address_handling_section",
+      "fieldtype": "Section Break",
+      "label": "Address Handling"
+    },
+    {
+      "default": "1",
+      "fieldname": "import_addresses",
+      "fieldtype": "Check",
+      "label": "Import Addresses",
+      "description": "Create Address records from Procurios address fields"
+    },
+    {
+      "default": "Standaardadres",
+      "depends_on": "eval:doc.import_addresses",
+      "fieldname": "preferred_address_type",
+      "fieldtype": "Select",
+      "label": "Primary Address Type",
+      "options": "Standaardadres\nPostadres\nFactuuradres",
+      "description": "Which Procurios address type to link as primary_address"
+    },
+    {
+      "depends_on": "eval:doc.import_status == 'Ready for Import'",
+      "fieldname": "preview_section",
+      "fieldtype": "Section Break",
+      "label": "Data Preview"
+    },
+    {
+      "fieldname": "preview_data",
+      "fieldtype": "Code",
+      "label": "Preview Data",
+      "options": "JSON",
+      "read_only": 1
+    },
+    {
+      "depends_on": "eval:['Queued', 'In Progress', 'Completed', 'Failed'].includes(doc.import_status)",
+      "fieldname": "progress_section",
+      "fieldtype": "Section Break",
+      "label": "Import Progress"
+    },
+    {
+      "default": "Pending",
+      "fieldname": "import_status",
+      "fieldtype": "Select",
+      "label": "Import Status",
+      "options": "Pending\nValidating\nReady for Import\nQueued\nIn Progress\nCompleted\nFailed",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "progress_percentage",
+      "fieldtype": "Percent",
+      "label": "Progress",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "rows_processed",
+      "fieldtype": "Int",
+      "label": "Rows Processed",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "total_rows",
+      "fieldtype": "Int",
+      "label": "Total Rows",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_progress1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "0",
+      "fieldname": "members_created",
+      "fieldtype": "Int",
+      "label": "Members Created",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "members_skipped",
+      "fieldtype": "Int",
+      "label": "Members Skipped",
+      "read_only": 1
+    },
+    {
+      "fieldname": "last_processed_at",
+      "fieldtype": "Datetime",
+      "label": "Last Processed At",
+      "read_only": 1
+    },
+    {
+      "depends_on": "eval:['Completed', 'Failed'].includes(doc.import_status)",
+      "fieldname": "error_section",
+      "fieldtype": "Section Break",
+      "label": "Error Log"
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    },
+    {
+      "fieldname": "top_errors_summary",
+      "fieldtype": "Small Text",
+      "label": "Top Errors Summary",
+      "read_only": 1
+    },
+    {
+      "fieldname": "import_info_section",
+      "fieldtype": "Section Break",
+      "label": "Import Information",
+      "hidden": 1
+    },
+    {
+      "fieldname": "import_date",
+      "fieldtype": "Date",
+      "label": "Import Date",
+      "read_only": 1
+    },
+    {
+      "fieldname": "descriptive_name",
+      "fieldtype": "Data",
+      "label": "Descriptive Name",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "is_submittable": 1,
+  "links": [],
+  "modified": "2026-03-31 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Procurios CSV Import",
+  "naming_rule": "By \"Naming Series\" field",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
