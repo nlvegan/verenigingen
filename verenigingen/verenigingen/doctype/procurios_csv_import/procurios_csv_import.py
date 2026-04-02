@@ -19,8 +19,8 @@ from verenigingen.utils.csv_import_processor import (
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 
 ADDRESS_TYPE_MAP = {
-    "Standaardadres": "Office",
-    "Postadres": "Shipping",
+    "Standaardadres": "Personal",
+    "Postadres": "Postal",
     "Factuuradres": "Billing",
 }
 
