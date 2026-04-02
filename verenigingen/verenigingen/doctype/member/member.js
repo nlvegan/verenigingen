@@ -378,44 +378,20 @@ frappe.ui.form.on('Member', {
 			}, 1000); // Longer delay to ensure form is fully loaded
 		}
 
-		// Auto-populate volunteer_details_html field on form load
-		// Check if data is available from backend via onload
-		if (!frm.doc.__islocal) {
-			setTimeout(() => {
-				// Check if we have the HTML content from onload
-				if (frm.doc.__onload && frm.doc.__onload.volunteer_details_html) {
-					const html_content = frm.doc.__onload.volunteer_details_html;
+		// Populate volunteer_details_html from onload data
+		if (frm.fields_dict.volunteer_details_html) {
+			const field = frm.fields_dict.volunteer_details_html;
+			const html_content =
+				!frm.doc.__islocal &&
+				frm.doc.__onload &&
+				frm.doc.__onload.volunteer_details_html;
 
-					// Try using Frappe's field API first
-					if (frm.fields_dict && frm.fields_dict.volunteer_details_html) {
-						const field = frm.fields_dict.volunteer_details_html;
-
-						if (field.df && field.df.fieldtype === 'HTML') {
-							// For HTML fields, set content using the html method if available
-							if (typeof field.html === 'function') {
-								field.html(html_content);
-							} else if (field.$wrapper && field.$wrapper.length > 0) {
-								// Use the wrapper to set content
-								field.$wrapper.html(html_content);
-							} else if (field.$input && field.$input.length > 0) {
-								// Some HTML fields use $input
-								field.$input.html(html_content);
-							}
-
-							// Ensure field is visible
-							if (typeof field.toggle === 'function') {
-								field.toggle(true);
-							}
-						}
-					}
-
-					// Fallback to direct DOM manipulation
-					const field_element = $('[data-fieldname="volunteer_details_html"]');
-					if (field_element.length > 0) {
-						field_element.html(html_content);
-					}
-				}
-			}, 1000); // Longer delay to ensure form is fully loaded
+			if (html_content) {
+				field.html(html_content);
+			} else {
+				// Clear stale content from previously viewed member
+				field.html("");
+			}
 		}
 
 		// Display amendment status
