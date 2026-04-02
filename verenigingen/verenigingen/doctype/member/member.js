@@ -378,20 +378,13 @@ frappe.ui.form.on('Member', {
 			}, 1000); // Longer delay to ensure form is fully loaded
 		}
 
-		// Populate volunteer_details_html from onload data
-		if (frm.fields_dict.volunteer_details_html) {
-			const field = frm.fields_dict.volunteer_details_html;
-			const html_content =
-				!frm.doc.__islocal &&
-				frm.doc.__onload &&
-				frm.doc.__onload.volunteer_details_html;
-
-			if (html_content) {
-				field.html(html_content);
-			} else {
-				// Clear stale content from previously viewed member
-				field.html("");
-			}
+		// Fetch volunteer details fresh from server to avoid stale cache
+		if (!frm.doc.__islocal && frm.fields_dict.volunteer_details_html) {
+			frm.call("get_volunteer_details_html").then((r) => {
+				frm.fields_dict.volunteer_details_html.html(r.message || "");
+			});
+		} else if (frm.fields_dict.volunteer_details_html) {
+			frm.fields_dict.volunteer_details_html.html("");
 		}
 
 		// Display amendment status

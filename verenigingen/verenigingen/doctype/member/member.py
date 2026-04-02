@@ -279,6 +279,15 @@ class Member(
 
         return get_member_address_display_service().get_address_members_html(self)
 
+    @frappe.whitelist()
+    def get_volunteer_details_html(self) -> str:
+        """Get HTML content for volunteer details field."""
+        from verenigingen.services.member.display.member_volunteer_display_service import (
+            get_member_volunteer_display_service,
+        )
+
+        return get_member_volunteer_display_service().generate_volunteer_details_html(self) or ""
+
     def _get_status_color(self, status):
         """Get Bootstrap color class for member status - delegated to member_status_service"""
         from verenigingen.services.member.core.member_status_service import get_member_status_color
