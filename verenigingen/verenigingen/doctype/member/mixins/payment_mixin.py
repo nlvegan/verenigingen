@@ -317,22 +317,20 @@ class PaymentMixin:
         Track IBAN changes in history.
 
         NOTE: Cannot delegate to external manager during save due to recursion issues.
-        Keeps inline implementation but uses atomic SQL updates for consistency.
+        Keeps inline implementation. Deactivates old entries via in-memory mutation
+        (not SQL UPDATE) so Frappe's child table save persists the changes.
         """
         try:
             # Get old IBAN from database
             old_iban = frappe.db.get_value("Member", self.name, "iban")
 
             if old_iban and old_iban != self.iban:
-                # Deactivate all previous IBAN history records atomically
-                frappe.db.sql(
-                    """
-                    UPDATE `tabMember IBAN History`
-                    SET is_active = 0, to_date = %s
-                    WHERE parent = %s AND is_active = 1 AND iban = %s
-                    """,
-                    (today(), self.name, old_iban),
-                )
+                # Deactivate previous IBAN history records in memory so Frappe
+                # persists the change when saving the child table.
+                for row in self.iban_history:
+                    if row.is_active and row.iban == old_iban:
+                        row.is_active = 0
+                        row.to_date = today()
 
                 # Add new IBAN history record
                 self.append(

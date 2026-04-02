@@ -186,8 +186,11 @@ function load_membership_details(frm) {
 
 				// Set current amount
 				frappe.call({
-					method: 'get_billing_amount',
-					doc: membership,
+					method: 'run_doc_method',
+					args: {
+						docs: JSON.stringify(membership),
+						method: 'get_billing_amount'
+					},
 					callback(amount_result) {
 						if (amount_result.message) {
 							frm.set_value('current_amount', amount_result.message);

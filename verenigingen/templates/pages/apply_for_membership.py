@@ -39,6 +39,15 @@ def get_context(context):
     # Set page title
     context.title = context.page_title
 
+    # Get verenigingen settings (needed for both member and non-member paths)
+    settings = frappe.get_single("Verenigingen Settings")
+
+    # Set step-related context (always needed since template JS references them)
+    enable_volunteer = getattr(settings, "enable_volunteer_signup", None)
+    context.enable_volunteer_signup = enable_volunteer if enable_volunteer is not None else 1
+    context.total_steps = 6 if context.enable_volunteer_signup else 5
+    context.step_width = 100 / context.total_steps
+
     # Check if user is already a member
     if frappe.session.user != "Guest":
         existing_member = get_current_user_member_name()
@@ -46,9 +55,6 @@ def get_context(context):
             context.already_member = True
             context.member_name = existing_member
             return context
-
-    # Get verenigingen settings
-    settings = frappe.get_single("Verenigingen Settings")
     context.settings = {
         "enable_chapter_management": settings.enable_chapter_management,
         "company_name": frappe.get_value("Company", settings.company, "company_name"),
@@ -57,15 +63,8 @@ def get_context(context):
     # Add income calculator settings
     populate_income_calculator_context(context, settings)
 
-    # Application form configuration
-    # Check field explicitly - 0 means disabled, None/missing means use default (enabled)
-    enable_volunteer = getattr(settings, "enable_volunteer_signup", None)
-    context.enable_volunteer_signup = enable_volunteer if enable_volunteer is not None else 1
+    # Volunteer step label (step count already set above the early-return guard)
     context.volunteer_step_label = getattr(settings, "volunteer_step_label", None) or "Volunteer"
-
-    # Calculate step count for JavaScript (must be in context for script block access)
-    context.total_steps = 6 if context.enable_volunteer_signup else 5
-    context.step_width = 100 / context.total_steps
 
     # Available countries (comma-separated string to list)
     countries_str = getattr(settings, "available_countries", None) or "Netherlands,Belgium,Germany,Other"

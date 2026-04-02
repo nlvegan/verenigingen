@@ -3408,6 +3408,33 @@ function add_consolidated_dues_schedule_buttons(frm) {
 					__('Membership & Dues')
 				);
 
+				// Add amendment request buttons
+				if (frm.doc.current_membership_plan) {
+					frm.add_custom_button(
+						__('Adjust Dues Rate'),
+						() => {
+							frappe.new_doc('Contribution Amendment Request', {
+								membership: frm.doc.current_membership_plan,
+								amendment_type: 'Fee Change',
+								effective_date: frappe.datetime.get_today()
+							});
+						},
+						__('Membership & Dues')
+					);
+
+					frm.add_custom_button(
+						__('Adjust Billing Interval'),
+						() => {
+							frappe.new_doc('Contribution Amendment Request', {
+								membership: frm.doc.current_membership_plan,
+								amendment_type: 'Billing Interval Change',
+								effective_date: frappe.datetime.get_today()
+							});
+						},
+						__('Membership & Dues')
+					);
+				}
+
 				// Update current dues schedule field
 				frm.set_value('current_dues_schedule', schedule.name);
 			}
