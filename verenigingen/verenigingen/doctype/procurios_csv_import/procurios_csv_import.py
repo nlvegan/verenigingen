@@ -47,7 +47,7 @@ class ProcuriosCSVImport(Document):
     def _parser(self) -> SecureCSVParser:
         if not hasattr(self, "__parser"):
             encoding = None if self.encoding == "auto-detect" else self.encoding
-            self.__parser = SecureCSVParser(encoding=encoding)
+            self.__parser = SecureCSVParser(encoding=encoding, delimiter=self.csv_delimiter)
         return self.__parser
 
     def validate(self):
@@ -143,6 +143,7 @@ class ProcuriosCSVImport(Document):
                 {
                     "doctype": "Member",
                     "member_id": member_id,
+                    "procurios_id": row.get("procurios_id", ""),
                     "first_name": row.get("first_name", ""),
                     "last_name": row.get("last_name", ""),
                     "tussenvoegsel": row.get("tussenvoegsel", ""),

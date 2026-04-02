@@ -16,7 +16,8 @@ class TestProcuriosDataValidator(IntegrationTestCase):
     def test_map_row_maps_native_fields(self):
         """Native Procurios fields map to correct Member fields."""
         row = {
-            "Systeem ID": "12345",
+            "NVV-relatienummer": "12345",
+            "Procurios relatie ID": "99001",
             "Voornaam": "Jan",
             "Tussenvoegsel": "van der",
             "Volledige naam": "Jan van der Berg",
@@ -29,12 +30,19 @@ class TestProcuriosDataValidator(IntegrationTestCase):
         mapped = self.validator.map_row_data(row, row_num=1)
 
         self.assertEqual(mapped["member_id"], "12345")
+        self.assertEqual(mapped["procurios_id"], "99001")
         self.assertEqual(mapped["first_name"], "Jan")
         self.assertEqual(mapped["tussenvoegsel"], "van der")
         self.assertEqual(mapped["email"], "jan@example.com")
         self.assertEqual(mapped["birth_date"], "1985-03-15")
         self.assertEqual(mapped["iban"], "NL91ABNA0417164300")
         self.assertEqual(mapped["member_since"], "2020-01-01")
+
+    def test_systeem_id_maps_to_procurios_id(self):
+        """Systeem ID also maps to procurios_id."""
+        row = {"Systeem ID": "55555", "Voornaam": "Test", "Volledige naam": "Test User"}
+        mapped = self.validator.map_row_data(row, row_num=1)
+        self.assertEqual(mapped["procurios_id"], "55555")
 
     def test_map_row_derives_last_name(self):
         """Last name is derived from Volledige naam minus Voornaam and Tussenvoegsel."""
@@ -120,11 +128,17 @@ class TestProcuriosDataValidator(IntegrationTestCase):
         """Unknown fields default to Other."""
         self.assertEqual(self.validator.categorize_field("Opnummerveld relaties"), "Other")
 
-    def test_validate_row_requires_systeem_id(self):
-        """Validation fails when Systeem ID is missing."""
+    def test_validate_row_requires_identifier(self):
+        """Validation fails when both NVV-relatienummer and Procurios ID are missing."""
         row = {"first_name": "Jan", "last_name": "Berg", "row_number": 1}
         errors = self.validator.validate_row(row, row_num=1)
-        self.assertTrue(any("Systeem ID" in e or "member_id" in e for e in errors))
+        self.assertTrue(any("identifier" in e.lower() for e in errors))
+
+    def test_validate_row_accepts_procurios_id_only(self):
+        """Validation passes with only procurios_id (no member_id)."""
+        row = {"procurios_id": "99001", "first_name": "Jan", "last_name": "Berg", "row_number": 1}
+        errors = self.validator.validate_row(row, row_num=1)
+        self.assertEqual(errors, [])
 
     def test_validate_row_requires_name(self):
         """Validation fails when both first_name and last_name are missing."""

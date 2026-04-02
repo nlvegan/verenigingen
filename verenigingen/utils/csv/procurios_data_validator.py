@@ -16,7 +16,9 @@ class ProcuriosDataValidator:
 
     # Procurios column name (case-insensitive) -> Member field name
     NATIVE_FIELD_MAPPING = {
-        "systeem id": "member_id",
+        "nvv-relatienummer": "member_id",
+        "systeem id": "procurios_id",
+        "procurios relatie id": "procurios_id",
         "voornaam": "first_name",
         "tussenvoegsel": "tussenvoegsel",
         "e-mailadres": "email",
@@ -196,8 +198,10 @@ class ProcuriosDataValidator:
         """Validate a mapped row. Returns list of error messages."""
         errors = []
 
-        if not row.get("member_id"):
-            errors.append(f"Row {row_num}: Missing required field Systeem ID (member_id)")
+        if not row.get("member_id") and not row.get("procurios_id"):
+            errors.append(
+                f"Row {row_num}: At least one identifier required (NVV-relatienummer or Procurios relatie ID)"
+            )
 
         if not row.get("first_name") and not row.get("last_name"):
             errors.append(f"Row {row_num}: At least one name field (Voornaam or last name) is required")
@@ -241,6 +245,9 @@ class ProcuriosDataValidator:
         if field_name in ("birth_date", "member_since"):
             return parse_date(value) or value
         if field_name == "iban":
+            # Procurios exports IBAN as "IBAN / BIC" — strip the BIC part
+            if "/" in value:
+                value = value.split("/")[0].strip()
             return value.upper().replace(" ", "")
         if field_name == "email":
             return value.lower().strip()

@@ -21,6 +21,7 @@
   "birth_date",
   "age",
   "member_id",
+  "procurios_id",
   "member_since",
   "address_section",
   "primary_address",
@@ -146,6 +147,12 @@
    "label": "Member ID",
    "read_only_depends_on": "eval:!doc.__islocal",
    "unique": 1
+  },
+  {
+   "fieldname": "procurios_id",
+   "fieldtype": "Data",
+   "label": "Procurios ID",
+   "description": "Procurios CRM relation ID"
   },
   {
    "collapsible": 1,
