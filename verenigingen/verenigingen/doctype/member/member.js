@@ -378,17 +378,20 @@ frappe.ui.form.on('Member', {
 			}, 1000); // Longer delay to ensure form is fully loaded
 		}
 
-		// Fetch volunteer details fresh from server to avoid stale cache
+		// Fetch volunteer details fresh from server with explicit member name
 		if (frm.fields_dict.volunteer_details_html) {
 			frm.fields_dict.volunteer_details_html.html("");
 		}
 		if (!frm.doc.__islocal && frm.fields_dict.volunteer_details_html) {
 			const current_name = frm.doc.name;
-			frm.call("get_volunteer_details_html").then((r) => {
-				// Guard: only apply if user hasn't navigated away
-				if (frm.doc.name === current_name) {
-					frm.fields_dict.volunteer_details_html.html(r.message || "");
-				}
+			frappe.call({
+				method: "verenigingen.verenigingen.doctype.member.member.get_volunteer_details_html_for_member",
+				args: { member_name: current_name },
+				callback: (r) => {
+					if (frm.doc.name === current_name) {
+						frm.fields_dict.volunteer_details_html.html(r.message || "");
+					}
+				},
 			});
 		}
 

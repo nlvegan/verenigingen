@@ -945,6 +945,17 @@ def assign_member_id(member_name: str):
     return get_member_id_service().assign_member_id(member_name)
 
 
+@frappe.whitelist()
+def get_volunteer_details_html_for_member(member_name: str) -> str:
+    """Get volunteer details HTML for a specific member by name."""
+    from verenigingen.services.member.display.member_volunteer_display_service import (
+        get_member_volunteer_display_service,
+    )
+
+    member_doc = frappe.get_doc("Member", member_name)
+    return get_member_volunteer_display_service().generate_volunteer_details_html(member_doc) or ""
+
+
 # =============================================================================
 # BACKWARD COMPATIBILITY RE-EXPORTS (TECH DEBT)
 # =============================================================================
