@@ -139,6 +139,7 @@
       "label": "Data Preview"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "preview_data",
       "fieldtype": "Code",
       "label": "Preview Data",
@@ -152,6 +153,7 @@
       "label": "Import Progress"
     },
     {
+      "allow_on_submit": 1,
       "default": "Pending",
       "fieldname": "import_status",
       "fieldtype": "Select",
@@ -160,6 +162,7 @@
       "read_only": 1
     },
     {
+      "allow_on_submit": 1,
       "default": "0",
       "fieldname": "progress_percentage",
       "fieldtype": "Percent",
@@ -167,6 +170,7 @@
       "read_only": 1
     },
     {
+      "allow_on_submit": 1,
       "default": "0",
       "fieldname": "rows_processed",
       "fieldtype": "Int",
@@ -174,6 +178,7 @@
       "read_only": 1
     },
     {
+      "allow_on_submit": 1,
       "default": "0",
       "fieldname": "total_rows",
       "fieldtype": "Int",
@@ -185,6 +190,7 @@
       "fieldtype": "Column Break"
     },
     {
+      "allow_on_submit": 1,
       "default": "0",
       "fieldname": "members_created",
       "fieldtype": "Int",
@@ -192,6 +198,7 @@
       "read_only": 1
     },
     {
+      "allow_on_submit": 1,
       "default": "0",
       "fieldname": "members_skipped",
       "fieldtype": "Int",
@@ -199,6 +206,7 @@
       "read_only": 1
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "last_processed_at",
       "fieldtype": "Datetime",
       "label": "Last Processed At",
@@ -211,12 +219,14 @@
       "label": "Error Log"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "error_log",
       "fieldtype": "Long Text",
       "label": "Error Log",
       "read_only": 1
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "top_errors_summary",
       "fieldtype": "Small Text",
       "label": "Top Errors Summary",
