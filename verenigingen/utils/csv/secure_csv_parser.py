@@ -37,14 +37,22 @@ class SecureCSVParser:
     - BOM handling for UTF-8 files
     """
 
-    def __init__(self, encoding: Optional[str] = None):
+    DELIMITER_MAP = {
+        "Comma": ",",
+        "Semicolon": ";",
+        "Tab": "\t",
+    }
+
+    def __init__(self, encoding: Optional[str] = None, delimiter: Optional[str] = None):
         """
-        Initialize parser with optional encoding override.
+        Initialize parser with optional encoding and delimiter overrides.
 
         Args:
             encoding: Force specific encoding (default: auto-detect)
+            delimiter: Force specific delimiter name e.g. "Semicolon" (default: auto-detect)
         """
         self.encoding = encoding
+        self.delimiter = self.DELIMITER_MAP.get(delimiter) if delimiter else None
 
     def read_csv_file(self, file_url: str) -> List[Dict]:
         """
@@ -390,42 +398,45 @@ class SecureCSVParser:
         Raises:
             frappe.ValidationError: If CSV cannot be parsed
         """
-        # Try to detect delimiter, with fallback to common delimiters
-        sample = csvfile.read(1024)
-        csvfile.seek(0)
-
         data = []
         reader = None
 
-        # Try to detect delimiter
-        try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-            reader = csv.DictReader(csvfile, dialect=dialect)
+        # Use explicit delimiter if set, otherwise auto-detect
+        if self.delimiter:
+            reader = csv.DictReader(csvfile, delimiter=self.delimiter)
             data = list(reader)
-        except csv.Error:
-            # Fallback: try common delimiters one by one
+        else:
+            # Try to detect delimiter, with fallback to common delimiters
+            sample = csvfile.read(1024)
             csvfile.seek(0)
-            for delimiter in [",", ";", "\t"]:
-                try:
-                    csvfile.seek(0)
-                    reader = csv.DictReader(csvfile, delimiter=delimiter)
-                    # Test if we can read at least one row
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) > 1:  # At least 2 columns
+
+        if not self.delimiter:
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+                reader = csv.DictReader(csvfile, dialect=dialect)
+                data = list(reader)
+            except csv.Error:
+                # Fallback: try common delimiters one by one
+                csvfile.seek(0)
+                for delimiter in [",", ";", "\t"]:
+                    try:
                         csvfile.seek(0)
                         reader = csv.DictReader(csvfile, delimiter=delimiter)
-                        data = [first_row] + list(reader)
-                        break
-                except (csv.Error, ValueError):
-                    continue
+                        first_row = next(reader, None)
+                        if first_row and len(first_row) > 1:
+                            csvfile.seek(0)
+                            reader = csv.DictReader(csvfile, delimiter=delimiter)
+                            data = [first_row] + list(reader)
+                            break
+                    except (csv.Error, ValueError):
+                        continue
 
-            if not data:
-                # If all delimiters fail, throw error
-                frappe.throw(
-                    _(
-                        "Could not determine CSV delimiter. Please ensure your file uses comma (,), semicolon (;), or tab delimiters."
+                if not data:
+                    frappe.throw(
+                        _(
+                            "Could not determine CSV delimiter. Please ensure your file uses comma (,), semicolon (;), or tab delimiters."
+                        )
                     )
-                )
 
         # Filter out completely empty rows and clean data
         filtered_data = []
