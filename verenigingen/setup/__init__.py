@@ -489,14 +489,18 @@ def _seed_default_document_categories(settings):
         {
             "category_name": "Policy",
             "category_icon": "📋",
-            "folder_keywords": "programmacommissie, minimumprogramma",
+            "folder_keywords": "statuten, huishoudelijk reglement, programma, platform, perspectieven, jaarplanning, basisgroepvoorzitters, aangenomen stukken",
         },
         {
             "category_name": "Meeting Minutes",
             "category_icon": "📝",
-            "folder_keywords": "bestuursvergadering, ledenvergadering, conferentie, congres, kaderdag, notulen",
+            "folder_keywords": "notulen, congres, aggregaat, conferentie, kaderdag, vergadering, bestuursvergadering, ledenvergadering, congrescommissie",
         },
-        {"category_name": "Financial Report", "category_icon": "💰"},
+        {
+            "category_name": "Financial Report",
+            "category_icon": "💰",
+            "folder_keywords": "financien, jaarrekening, begroting, kascontrole",
+        },
         {
             "category_name": "Intern Bulletin",
             "category_icon": "📰",

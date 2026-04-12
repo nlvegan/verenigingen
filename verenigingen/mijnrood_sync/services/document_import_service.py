@@ -113,6 +113,179 @@ class DocumentImportService:
         )
         return {"success": True, "message": message}
 
+    def auto_classify_folder_mappings(self) -> dict:
+        """Auto-classify document_type and chapter on folder mapping rows.
+
+        Only fills in rows where document_type is blank (preserves manual edits).
+        Uses folder path keywords to infer document_type from Board Document
+        Categories, and matches chapter names against folder path segments.
+
+        Subfolders that would inherit the same classification as their parent
+        are left blank — the import's _resolve_mapped_folder() handles inheritance.
+
+        Returns:
+            Summary dict with success, message, counts.
+        """
+        rows = self.settings.document_folder_mapping or []
+        if not rows:
+            return {"success": False, "message": _("No folder mappings found. Fetch folders first.")}
+
+        keyword_map = self._load_category_keywords()
+        chapter_names = self._load_chapter_names()
+        national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+
+        # Build parent lookup from folder paths
+        row_by_id = {row.mijnrood_folder_id: row for row in rows}
+        parent_map = self._build_parent_map(rows)
+
+        # Pre-compute inferred values for all rows so parent lookups are consistent
+        inferred: dict[int, tuple[str, str | None]] = {}
+        for row in rows:
+            path = (row.folder_path or row.folder_name or "").lower()
+            inferred[row.mijnrood_folder_id] = (
+                self._infer_document_type(path, keyword_map),
+                self._infer_chapter(path, chapter_names, national_chapter),
+            )
+
+        # Track which rows were already manually configured before this run
+        manually_set = {row.mijnrood_folder_id for row in rows if row.document_type}
+
+        classified = 0
+        skipped_inherited = 0
+        skipped_already_set = 0
+
+        # Sort by path depth so parents are processed before children
+        sorted_rows = sorted(rows, key=lambda r: (r.folder_path or "").count("/"))
+
+        for row in sorted_rows:
+            if row.mijnrood_folder_id in manually_set:
+                skipped_already_set += 1
+                continue
+
+            inferred_type, inferred_chapter = inferred[row.mijnrood_folder_id]
+
+            # Check if parent has the same classification — if so, leave blank (inherit)
+            parent_id = parent_map.get(row.mijnrood_folder_id)
+            if parent_id and parent_id in row_by_id:
+                parent_row = row_by_id[parent_id]
+                # Use parent's actual values if manually set, otherwise inferred
+                if parent_id in manually_set:
+                    parent_type = parent_row.document_type
+                    parent_chapter = parent_row.chapter
+                else:
+                    parent_type = parent_row.document_type or inferred[parent_id][0]
+                    parent_chapter = inferred[parent_id][1]
+
+                if inferred_type == parent_type and inferred_chapter == parent_chapter:
+                    skipped_inherited += 1
+                    continue
+
+            row.organization_type = "Chapter"
+            row.chapter = inferred_chapter or national_chapter
+            row.document_type = inferred_type
+            classified += 1
+
+        self.settings.save()
+
+        message = _(
+            "Auto-classified {0} folders ({1} left blank for inheritance, {2} already configured)"
+        ).format(classified, skipped_inherited, skipped_already_set)
+        return {"success": True, "message": message}
+
+    def _build_parent_map(self, rows: list) -> dict[int, int | None]:
+        """Build folder_id -> parent_folder_id map from folder paths.
+
+        Walks the path segments to find the parent row. A folder with path
+        "A / B / C" has parent path "A / B".
+        """
+        path_to_id: dict[str, int] = {}
+        for row in rows:
+            if row.folder_path:
+                path_to_id[row.folder_path] = row.mijnrood_folder_id
+
+        parent_map: dict[int, int | None] = {}
+        for row in rows:
+            if not row.folder_path or " / " not in row.folder_path:
+                parent_map[row.mijnrood_folder_id] = None
+                continue
+
+            # Walk up: "A / B / C" -> try "A / B", skip year folders not in table
+            parent_path = row.folder_path.rsplit(" / ", 1)[0]
+            while parent_path and parent_path not in path_to_id:
+                if " / " not in parent_path:
+                    parent_path = None
+                    break
+                parent_path = parent_path.rsplit(" / ", 1)[0]
+
+            parent_map[row.mijnrood_folder_id] = path_to_id.get(parent_path) if parent_path else None
+
+        return parent_map
+
+    @staticmethod
+    def _load_category_keywords() -> dict[str, list[str]]:
+        """Load category -> keywords from Board Document Categories."""
+        from verenigingen.utils.folder_category_detector import _load_keyword_map
+
+        return _load_keyword_map()
+
+    @staticmethod
+    def _load_chapter_names() -> dict[str, str]:
+        """Load lowercase chapter name -> actual chapter name mapping."""
+        chapters = frappe.get_all("Chapter", fields=["name"], filters={"status": "Active"})
+        return {c.name.lower(): c.name for c in chapters}
+
+    @staticmethod
+    def _infer_document_type(path_lower: str, keyword_map: dict[str, list[str]]) -> str:
+        """Match folder path against category keywords. Returns best match or 'Other'."""
+        if not path_lower:
+            return "Other"
+
+        for category, keywords in keyword_map.items():
+            for keyword in keywords:
+                if keyword in path_lower:
+                    return category
+
+        return "Other"
+
+    @staticmethod
+    def _infer_chapter(
+        path_lower: str, chapter_names: dict[str, str], national_chapter: str | None
+    ) -> str | None:
+        """Infer chapter from folder path segments.
+
+        Checks path segments against chapter names. National synonyms
+        (landelijk, landelijk bestuur, commissies, etc.) map to the
+        national chapter. Returns None if no match found.
+        """
+        national_synonyms = {
+            "landelijk",
+            "landelijk bestuur",
+            "commissies",
+            "congrescommissie",
+            "strijdterreinen",
+            "de socialisten",
+            "nationaal",
+            "algemeen",
+            "congres",
+        }
+
+        # Split path into segments and check each
+        segments = [s.strip() for s in path_lower.split("/")]
+
+        for segment in segments:
+            if segment in national_synonyms:
+                return national_chapter
+
+            if segment in chapter_names:
+                return chapter_names[segment]
+
+            # Partial match: segment contains a chapter name
+            for ch_lower, ch_name in chapter_names.items():
+                if ch_lower in segment:
+                    return ch_name
+
+        return national_chapter
+
     def import_all(self, dry_run: bool = False) -> dict:
         """Main entry point for document import.
 

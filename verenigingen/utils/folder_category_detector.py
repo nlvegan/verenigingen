@@ -14,20 +14,35 @@ import frappe
 # Hardcoded fallback used only when Settings is unreachable (e.g. during
 # installation before after_install runs). Matches the seed defaults.
 _FALLBACK_KEYWORDS: dict[str, list[str]] = {
+    "Policy": [
+        "statuten",
+        "huishoudelijk reglement",
+        "programma",
+        "platform",
+        "perspectieven",
+        "jaarplanning",
+        "basisgroepvoorzitters",
+        "aangenomen stukken",
+    ],
     "Meeting Minutes": [
+        "notulen",
+        "congres",
+        "aggregaat",
+        "conferentie",
+        "kaderdag",
+        "vergadering",
         "bestuursvergadering",
         "ledenvergadering",
-        "conferentie",
-        "congres",
-        "kaderdag",
-        "notulen",
+        "congrescommissie",
     ],
     "Intern Bulletin": [
         "intern bulletin",
     ],
-    "Policy": [
-        "programmacommissie",
-        "minimumprogramma",
+    "Financial Report": [
+        "financien",
+        "jaarrekening",
+        "begroting",
+        "kascontrole",
     ],
 }
 

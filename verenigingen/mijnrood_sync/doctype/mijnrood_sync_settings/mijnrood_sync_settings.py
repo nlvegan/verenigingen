@@ -366,6 +366,21 @@ class MijnRoodSyncSettings(Document):
         return team_name
 
     @frappe.whitelist()
+    def auto_classify_folders(self):
+        """Auto-classify document_type and chapter on folder mapping rows.
+
+        Infers document_type from folder path keywords (matched against
+        Board Document Categories) and chapter from folder name matching.
+        Only fills rows where document_type is blank — preserves manual edits.
+        Subfolders that match their parent's classification are left blank
+        to use inheritance during import.
+        """
+        from verenigingen.mijnrood_sync.services.document_import_service import DocumentImportService
+
+        service = DocumentImportService(settings=self)
+        return service.auto_classify_folder_mappings()
+
+    @frappe.whitelist()
     def fetch_document_folders(self):
         """Fetch document folders from MijnRood and populate the mapping table.
 

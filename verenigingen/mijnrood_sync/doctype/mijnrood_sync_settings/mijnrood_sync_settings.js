@@ -177,6 +177,38 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             );
         }, __("Document Import"));
 
+        // Auto-Classify folder mappings
+        if (frm.doc.document_folder_mapping && frm.doc.document_folder_mapping.length) {
+            frm.add_custom_button(__("Auto-Classify"), function () {
+                frappe.confirm(
+                    __("Auto-classify folder mappings? This will infer document types and chapters from folder names. Only blank rows will be updated — manual edits are preserved."),
+                    function () {
+                        frappe.call({
+                            method: "auto_classify_folders",
+                            doc: frm.doc,
+                            freeze: true,
+                            freeze_message: __("Classifying folders..."),
+                            callback: function (r) {
+                                if (r.message && r.message.success) {
+                                    frappe.show_alert({
+                                        message: r.message.message,
+                                        indicator: "green",
+                                    });
+                                } else {
+                                    frappe.msgprint({
+                                        title: __("Classification Failed"),
+                                        indicator: "red",
+                                        message: r.message ? r.message.message : __("Unknown error"),
+                                    });
+                                }
+                                frm.reload_doc();
+                            },
+                        });
+                    }
+                );
+            }, __("Document Import"));
+        }
+
         // Import Documents from MijnRood
         frm.add_custom_button(__("Import Documents"), function () {
             frappe.confirm(
