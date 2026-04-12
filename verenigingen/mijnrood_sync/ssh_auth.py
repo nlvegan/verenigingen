@@ -1,7 +1,7 @@
 """
 Shared SSH authentication helpers for MijnRood sync.
 
-Used by both the database client (sshtunnel) and SFTP client (paramiko).
+Used by both the database client and SFTP client (both use paramiko).
 Extracts the key parsing and auth kwargs logic to avoid duplication.
 """
 
@@ -51,7 +51,7 @@ def build_ssh_auth_kwargs(settings) -> dict:
     - 'pkey': parsed paramiko.PKey (if key auth configured)
     - 'password': str (if password-only auth)
 
-    The caller decides how to pass these to sshtunnel or paramiko.Transport.
+    The caller decides how to pass these to paramiko.Transport.
 
     Authentication priority: stored key > key file > password.
 
@@ -68,8 +68,13 @@ def build_ssh_auth_kwargs(settings) -> dict:
     passphrase = settings.get_password("ssh_password") if settings.ssh_password else None
 
     # Priority 1: stored key (in Frappe's encrypted password store)
-    stored_key = settings.get_password("ssh_private_key") if settings.ssh_private_key else None
-    if stored_key:
+    stored_key = None
+    if settings.ssh_private_key:
+        try:
+            stored_key = settings.get_password("ssh_private_key")
+        except frappe.ValidationError:
+            logger.debug("ssh_private_key field set but no key in password store — skipping")
+    if stored_key and stored_key.strip().startswith("-----BEGIN"):
         pkey = parse_pkey_from_string(stored_key, passphrase)
         result["pkey"] = pkey
         logger.info("Using stored SSH private key (parsed in-memory)")

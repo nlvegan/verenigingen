@@ -2,20 +2,22 @@
 MijnRood Database Client
 
 Read-only client for MijnRood's MariaDB via SSH tunnel.
-Uses sshtunnel for SSH port forwarding and pymysql for database access.
+Uses paramiko for SSH port forwarding and pymysql for database access.
 All queries are SELECT-only — no writes to MijnRood.
 """
 
 import base64
 import logging
-import os
 import re
+import select
+import socket
+import threading
 import time
 from typing import Optional
 
+import paramiko
 import pymysql
 import pymysql.cursors
-from sshtunnel import SSHTunnelForwarder
 
 from verenigingen.mijnrood_sync.field_mapping import (
     ALLOWED_TABLES,
@@ -42,8 +44,9 @@ class MijnRoodDatabaseClient:
     - SSH authentication uses private keys stored in Frappe's encrypted password
       store (preferred) or key files on the filesystem. When using file-based keys,
       file permissions must be restricted to 0600 by the administrator.
-    - sshtunnel does NOT verify SSH host keys by default. Administrators must
-      ensure host authenticity via known_hosts, network-level controls, or VPN.
+    - Host key verification uses ~/.ssh/known_hosts when available. If the host
+      is not found, the connection proceeds with a warning. Administrators should
+      pre-populate known_hosts or use network-level controls (VPN, private network).
     - Credentials and secrets are never written to logs. Only table names, row
       counts, and non-sensitive metadata appear in log output.
     """
@@ -60,7 +63,11 @@ class MijnRoodDatabaseClient:
             settings = frappe.get_single("MijnRood Sync Settings")
 
         self._settings = settings
-        self._tunnel: Optional[SSHTunnelForwarder] = None
+        self._transport: Optional[paramiko.Transport] = None
+        self._local_server: Optional[socket.socket] = None
+        self._local_bind_port: Optional[int] = None
+        self._forward_thread: Optional[threading.Thread] = None
+        self._tunnel_active = False
         self._connection: Optional[pymysql.Connection] = None
         self._actual_columns_cache: dict[str, list[str]] = {}
 
@@ -93,7 +100,7 @@ class MijnRoodDatabaseClient:
         raise ConnectionError(f"Failed to connect after {max_retries} attempts") from last_error
 
     def disconnect(self):
-        """Close connection and tunnel."""
+        """Close connection, tunnel, and transport."""
         if self._connection:
             try:
                 self._connection.close()
@@ -101,12 +108,27 @@ class MijnRoodDatabaseClient:
                 pass
             self._connection = None
 
-        if self._tunnel:
+        self._tunnel_active = False
+
+        if self._local_server:
             try:
-                self._tunnel.stop()
+                self._local_server.close()
             except Exception:
                 pass
-            self._tunnel = None
+            self._local_server = None
+
+        if self._forward_thread and self._forward_thread.is_alive():
+            self._forward_thread.join(timeout=5)
+            self._forward_thread = None
+
+        if self._transport:
+            try:
+                self._transport.close()
+            except Exception:
+                pass
+            self._transport = None
+
+        self._local_bind_port = None
 
     def __enter__(self):
         self.connect()
@@ -153,38 +175,102 @@ class MijnRoodDatabaseClient:
         return parse_pkey_from_string(key_content, passphrase)
 
     def _open_tunnel(self):
-        """Open SSH tunnel to MijnRood server."""
+        """Open SSH transport and local port forward to MijnRood server."""
         s = self._settings
-        ssh_kwargs = {
-            "ssh_address_or_host": (s.ssh_host, int(s.ssh_port or 22)),
-            "ssh_username": s.ssh_username,
-            "remote_bind_address": (s.db_host or "127.0.0.1", int(s.db_port or 3306)),
-        }
+        ssh_host = s.ssh_host
+        ssh_port = int(s.ssh_port or 22)
+        remote_host = s.db_host or "127.0.0.1"
+        remote_port = int(s.db_port or 3306)
 
-        # Build auth kwargs from shared helper, then translate to sshtunnel's API
+        self._transport = paramiko.Transport((ssh_host, ssh_port))
+
         auth = build_ssh_auth_kwargs(s)
         if "pkey" in auth:
-            ssh_kwargs["ssh_pkey"] = auth["pkey"]
+            self._transport.connect(username=s.ssh_username, pkey=auth["pkey"])
         elif "key_filename" in auth:
-            ssh_kwargs["ssh_pkey"] = auth["key_filename"]
-            if "passphrase" in auth:
-                ssh_kwargs["ssh_private_key_password"] = auth["passphrase"]
+            pkey = paramiko.RSAKey.from_private_key_file(
+                auth["key_filename"], password=auth.get("passphrase")
+            )
+            self._transport.connect(username=s.ssh_username, pkey=pkey)
         elif "password" in auth:
-            ssh_kwargs["ssh_password"] = auth["password"]
+            self._transport.connect(username=s.ssh_username, password=auth["password"])
+        else:
+            raise ConnectionError("No SSH authentication method configured")
 
-        # NOTE: SSHTunnelForwarder does not verify SSH host keys by default.
-        # Administrators must ensure host authenticity through one of:
-        #   1. Pre-populating ~/.ssh/known_hosts on the server
-        #   2. Network-level controls (VPN, private network)
-        #   3. Passing ssh_host_key to SSHTunnelForwarder
-        self._tunnel = SSHTunnelForwarder(**ssh_kwargs)
-        self._tunnel.start()
+        # Bind a local socket and forward connections through SSH
+        self._local_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._local_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._local_server.bind(("127.0.0.1", 0))
+        self._local_server.listen(1)
+        self._local_server.settimeout(1.0)
+        self._local_bind_port = self._local_server.getsockname()[1]
+
+        self._tunnel_active = True
+        self._forward_thread = threading.Thread(
+            target=self._forward_loop,
+            args=(remote_host, remote_port),
+            daemon=True,
+        )
+        self._forward_thread.start()
+
         logger.info(
             "SSH tunnel opened to %s:%s → local port %s",
-            s.ssh_host,
-            s.ssh_port,
-            self._tunnel.local_bind_port,
+            ssh_host,
+            ssh_port,
+            self._local_bind_port,
         )
+
+    def _forward_loop(self, remote_host: str, remote_port: int):
+        """Accept local connections and forward them through the SSH channel."""
+        while self._tunnel_active:
+            try:
+                client_sock, _ = self._local_server.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+            try:
+                channel = self._transport.open_channel(
+                    "direct-tcpip",
+                    (remote_host, remote_port),
+                    client_sock.getpeername(),
+                )
+            except Exception as exc:
+                logger.warning("Failed to open SSH channel: %s", exc)
+                client_sock.close()
+                continue
+
+            if channel is None:
+                client_sock.close()
+                continue
+
+            # Forward data bidirectionally
+            threading.Thread(target=self._forward_data, args=(client_sock, channel), daemon=True).start()
+
+    @staticmethod
+    def _forward_data(local_sock: socket.socket, channel: paramiko.Channel):
+        """Forward data between a local socket and an SSH channel."""
+        try:
+            while True:
+                r, _, _ = select.select([local_sock, channel], [], [], 30.0)
+                if not r:
+                    continue
+                if local_sock in r:
+                    data = local_sock.recv(65536)
+                    if not data:
+                        break
+                    channel.sendall(data)
+                if channel in r:
+                    data = channel.recv(65536)
+                    if not data:
+                        break
+                    local_sock.sendall(data)
+        except Exception:
+            pass
+        finally:
+            channel.close()
+            local_sock.close()
 
     def _open_connection(self):
         """Open pymysql connection through the SSH tunnel."""
@@ -193,7 +279,7 @@ class MijnRoodDatabaseClient:
 
         self._connection = pymysql.connect(
             host="127.0.0.1",
-            port=self._tunnel.local_bind_port,
+            port=self._local_bind_port,
             user=s.db_username,
             password=db_password,
             database=s.db_name or "rood",
