@@ -326,14 +326,14 @@ def get_quick_actions(member, membership, volunteer):
         )
 
     # Volunteer-specific actions
-    if volunteer:
+    if volunteer and frappe.db.exists("DocType", "Volunteer Expense"):
         try:
             # Check for pending expense claims
             pending_expenses = frappe.db.count(
                 "Volunteer Expense",
                 filters={
                     "volunteer": volunteer.name,
-                    "status": "Draft",  # Now all pending expenses are in Draft status
+                    "status": "Draft",
                 },
             )
 
@@ -357,7 +357,6 @@ def get_quick_actions(member, membership, volunteer):
                 )
         except Exception as e:
             frappe.log_error(f"Error checking volunteer expenses: {str(e)}")
-            # Add a generic volunteer expenses link if error occurs
             actions.append(
                 {
                     "title": _("Volunteer Expenses"),
