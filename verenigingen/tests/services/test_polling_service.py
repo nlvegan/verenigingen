@@ -213,3 +213,49 @@ class TestComputeChangeTags(EnhancedTestCase):
             compute_change_tags("Approved", "admin_member", [{"field": "email"}]),
             "Approved",
         )
+
+
+class TestRunSyncCallsCorrelator(EnhancedTestCase):
+    """Verify run_sync invokes the application-approval correlator after polling."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodPollingService()
+
+    @patch("verenigingen.mijnrood_sync.services.polling_service.ApplicationApprovalCorrelator")
+    @patch.object(MijnRoodPollingService, "_poll_division_contacts", return_value=0)
+    @patch.object(MijnRoodPollingService, "_poll_table")
+    @patch("verenigingen.mijnrood_sync.services.polling_service.MijnRoodDatabaseClient")
+    @patch("verenigingen.mijnrood_sync.services.polling_service.frappe")
+    def test_run_sync_invokes_correlator_with_sync_run_id(
+        self, mock_frappe, mock_client_cls, mock_poll_table, mock_poll_dc, mock_correlator_cls
+    ):
+        """run_sync calls correlator.correlate(sync_run_id) once all tables are polled,
+        and the returned count is reflected in totals."""
+        # Arrange settings
+        settings = MagicMock()
+        settings.tables_to_sync = '["admin_member"]'
+        mock_frappe.get_single.return_value = settings
+        mock_frappe.db.count.return_value = 0
+
+        # Log + client stubs
+        log_doc = MagicMock()
+        mock_frappe.new_doc.return_value = log_doc
+        mock_client_cls.return_value.__enter__.return_value = mock_client_cls.return_value
+
+        mock_poll_table.return_value = {
+            "new": 1, "changed": 0, "deleted": 1, "unchanged": 0, "rows_scanned": 1,
+        }
+        mock_correlator = MagicMock()
+        mock_correlator.correlate.return_value = 1
+        mock_correlator_cls.return_value = mock_correlator
+
+        # Act
+        totals = self.service.run_sync()
+
+        # Assert
+        mock_correlator.correlate.assert_called_once()
+        # sync_run_id is a positional str argument
+        call_args = mock_correlator.correlate.call_args
+        self.assertEqual(len(call_args.args[0]), 12)  # uuid4().hex[:12]
+        self.assertEqual(totals.get("approved"), 1)

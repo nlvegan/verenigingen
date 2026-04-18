@@ -122,6 +122,7 @@ class MijnRoodPollingService(StatefulService):
             "new": 0,
             "changed": 0,
             "deleted": 0,
+            "approved": 0,
             "unchanged": 0,
             "rows_scanned": 0,
         }
@@ -141,6 +142,15 @@ class MijnRoodPollingService(StatefulService):
                 dc_events = self._poll_division_contacts(client, settings, sync_run_id)
                 totals["changed"] += dc_events
 
+                # Correlate application→member approvals emitted in this run
+                # Use module-level lazy reference so the name can be patched in tests.
+                # Module __getattr__ populates __dict__ on first access; if patched the
+                # mock is already in __dict__ and __getattr__ is never called.
+                if "ApplicationApprovalCorrelator" not in globals():
+                    globals()["ApplicationApprovalCorrelator"] = __getattr__("ApplicationApprovalCorrelator")
+                approvals = ApplicationApprovalCorrelator().correlate(sync_run_id)
+                totals["approved"] += approvals
+
             # Update sync log
             completed_at = now_datetime()
             duration = (completed_at - started_at).total_seconds()
@@ -159,8 +169,12 @@ class MijnRoodPollingService(StatefulService):
 
             # Update settings
             pending_count = frappe.db.count("MijnRood Sync Event", {"status": "Pending"})
-            msg = _("Synced {0} tables: {1} new, {2} changed, {3} deleted").format(
-                len(tables), totals["new"], totals["changed"], totals["deleted"]
+            msg = _("Synced {0} tables: {1} new, {2} changed, {3} deleted, {4} approved").format(
+                len(tables),
+                totals["new"],
+                totals["changed"],
+                totals["deleted"],
+                totals["approved"],
             )
             settings.db_set(
                 {
@@ -698,3 +712,20 @@ def get_polling_service() -> MijnRoodPollingService:
     if _service_instance is None:
         _service_instance = MijnRoodPollingService()
     return _service_instance
+
+
+def __getattr__(name: str):
+    """Lazy module-level attribute loader.
+
+    Resolves ApplicationApprovalCorrelator on first access to avoid a circular
+    import: application_approval_correlator imports compute_change_tags from this
+    module, so a top-level import here would create a cycle. Module __getattr__
+    defers resolution until after both modules are fully initialised.
+    """
+    if name == "ApplicationApprovalCorrelator":
+        from verenigingen.mijnrood_sync.services.application_approval_correlator import (  # noqa: PLC0415
+            ApplicationApprovalCorrelator as _cls,
+        )
+
+        return _cls
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
