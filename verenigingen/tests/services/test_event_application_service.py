@@ -2672,3 +2672,86 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
 
         # Should not raise
         self.service._notify_board_membership_change("MEM-001", {11})
+
+
+class TestPromoteApplicationMember(EnhancedTestCase):
+    """Tests for the shared _promote_application_member() helper.
+
+    This helper centralizes the promotion logic so both the correlator-driven
+    _apply_approved path and the apply-time _try_promote_application safety net
+    set member.status = "Active" (previously an omission in _try_promote_application).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch.object(MijnRoodEventApplicationService, "_create_related_records", return_value=[])
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_sets_member_status_active_for_active_mijnrood_status(self, mock_frappe, mock_related):
+        """When new_data.current_membership_status_id is an active id, member.status → Active."""
+        mock_frappe._ = frappe._
+        event = MagicMock()
+        event.name = "EVT-PROMOTE-1"
+
+        with patch(
+            "verenigingen.services.csv_import.member_import_service.get_member_import_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.create_or_update_member.return_value = ("updated", "MEM-001")
+            mock_get_svc.return_value = mock_svc
+
+            old_data = {"id": 42, "email": "jane@example.com"}
+            new_data = {"id": 1234, "email": "jane@example.com", "current_membership_status_id": 1}
+            row_data = {"member_id": "1234", "email": "jane@example.com"}
+
+            result = self.service._promote_application_member(
+                "MEM-001", old_data, new_data, row_data, event
+            )
+
+        self.assertTrue(result["success"])
+        # Verify set_value updated BOTH application_status AND status
+        # (one call with a dict containing both keys)
+        updates = None
+        for call in mock_frappe.db.set_value.call_args_list:
+            if call.args[0] == "Member" and isinstance(call.args[2], dict):
+                updates = call.args[2]
+                break
+        self.assertIsNotNone(updates, "Expected a dict-update set_value call on Member")
+        self.assertEqual(updates.get("application_status"), "Approved")
+        self.assertEqual(updates.get("status"), "Active")
+
+    @patch.object(MijnRoodEventApplicationService, "_create_related_records", return_value=[])
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_logs_warning_for_unexpected_mijnrood_status(self, mock_frappe, mock_related):
+        """An unexpected status_id (e.g. terminated during promotion) logs and does
+        NOT overwrite member.status — only application_status flips."""
+        mock_frappe._ = frappe._
+        event = MagicMock()
+        event.name = "EVT-PROMOTE-2"
+
+        with patch(
+            "verenigingen.services.csv_import.member_import_service.get_member_import_service"
+        ) as mock_get_svc:
+            mock_svc = MagicMock()
+            mock_svc.create_or_update_member.return_value = ("updated", "MEM-001")
+            mock_get_svc.return_value = mock_svc
+
+            old_data = {"id": 42, "email": "jane@example.com"}
+            # status_id=3 is "opgezegd" (terminated) — unexpected on a promotion
+            new_data = {"id": 1234, "email": "jane@example.com", "current_membership_status_id": 3}
+            row_data = {"member_id": "1234", "email": "jane@example.com"}
+
+            self.service._promote_application_member(
+                "MEM-001", old_data, new_data, row_data, event
+            )
+
+        # The single set_value call should carry application_status but NOT status
+        updates = None
+        for call in mock_frappe.db.set_value.call_args_list:
+            if call.args[0] == "Member" and isinstance(call.args[2], dict):
+                updates = call.args[2]
+                break
+        self.assertIsNotNone(updates)
+        self.assertEqual(updates.get("application_status"), "Approved")
+        self.assertNotIn("status", updates)

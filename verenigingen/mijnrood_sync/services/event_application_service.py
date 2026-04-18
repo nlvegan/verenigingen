@@ -763,17 +763,90 @@ class MijnRoodEventApplicationService(StatefulService):
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
 
+    def _promote_application_member(
+        self,
+        member_name: str,
+        old_data: dict,
+        new_data: dict,
+        row_data: dict,
+        event,
+    ) -> dict:
+        """Promote a local Pending Member to Approved/Active using MijnRood data.
+
+        Shared by:
+        - _apply_approved (correlator-driven path, preferred)
+        - _try_promote_application (apply-time cross-run safety net)
+
+        Handles:
+        1. Field sync via MemberImportService.create_or_update_member
+        2. Flipping application_status to Approved AND member.status to Active
+           (the latter was missing in the original _try_promote_application and
+           prevented Membership + Dues Schedule creation downstream)
+        3. Running the standard related-records side effects (chapter, address,
+           Mollie, Membership + Dues Schedule, user account, notes)
+        """
+        from verenigingen.services.csv_import.member_import_service import (
+            get_member_import_service,
+        )
+
+        service = get_member_import_service()
+        status, updated_name = service.create_or_update_member(
+            row_data=row_data,
+            import_doc_name=f"MijnRood Sync: {event.name}",
+        )
+        if status not in ("created", "updated"):
+            return {
+                "success": False,
+                "message": _("Application promotion failed: {0}").format(status),
+            }
+
+        old_member_id = old_data.get("id")
+        new_member_id = new_data.get("id")
+
+        updates = {
+            "application_status": "Approved",
+            "review_notes": (
+                f"Approved via MijnRood (event {event.name}). "
+                f"Application id {old_member_id} → member_id {new_member_id}."
+            ),
+        }
+
+        # Flip member.status to Active if the MijnRood status is recognized as active.
+        # For unexpected status ids on a promotion (e.g. terminated), log and leave
+        # member.status alone — this shouldn't happen in practice.
+        status_id = safe_int(new_data.get("current_membership_status_id"))
+        if status_id is not None and status_id in get_active_status_ids():
+            updates["status"] = "Active"
+        elif status_id is not None:
+            self.logger.warning(
+                "Promotion event %s carries unexpected MijnRood status id %s for member %s; "
+                "leaving member.status unchanged",
+                event.name,
+                status_id,
+                updated_name,
+            )
+
+        frappe.db.set_value("Member", updated_name, updates, update_modified=False)
+
+        event.linked_member = updated_name
+
+        related_msgs = self._create_related_records(updated_name, row_data, event)
+
+        messages = [
+            _("Application {0} promoted (id {1} → member_id {2})").format(
+                updated_name, old_member_id, new_member_id
+            )
+        ]
+        messages.extend(related_msgs)
+        return {"success": True, "message": "; ".join(messages)}
+
     def _try_promote_application(self, event, row_data: dict) -> Optional[dict]:
-        """Handle MijnRood application→member promotion.
+        """Handle MijnRood application→member promotion (apply-time safety net).
 
-        When MijnRood approves an application, the admin_membership_application
-        row is deleted and a new admin_member row is created with a different ID
-        (different table, different auto-increment sequence). The polling service
-        detects a "Deleted" event for the application and a "New" event for the
-        member. The "New" event hits an email conflict because the Member (created
-        from the application event) has the old application's member_id.
-
-        Detection: email match where existing member has application_status=Pending.
+        This runs when the correlator didn't pair events at poll time (rare:
+        cross-run split or low-confidence match). Detection: email match where
+        the existing member has application_status=Pending. Promotion itself
+        is delegated to _promote_application_member.
 
         Returns:
             Result dict if promotion was handled, None if not a promotion.
@@ -792,55 +865,26 @@ class MijnRoodEventApplicationService(StatefulService):
         new_member_id = row_data.get("member_id")
 
         self.logger.info(
-            "Promoting application %s (member_id %s → %s) via event %s",
+            "Promoting application %s (member_id %s → %s) via event %s (apply-time fallback)",
             match.name,
             old_member_id,
             new_member_id,
             event.name,
         )
 
-        # Delegate to MemberImportService — it will find the existing member
-        # by email (member_id won't match) and update all fields, including
-        # overwriting member_id with the new admin_member ID.
-        from verenigingen.services.csv_import.member_import_service import get_member_import_service
+        # Build a minimal old_data stub — the safety-net path doesn't have the
+        # original application row handy. _promote_application_member only uses
+        # old_data["id"] for the log message, so this is adequate.
+        old_data_stub = {"id": old_member_id}
+        # Build a new_data stub from row_data so the status-flip path works.
+        # The apply-time path may not have current_membership_status_id —
+        # default to 1 (active) which is correct for a promotion.
+        new_data_stub = {
+            "id": new_member_id,
+            "current_membership_status_id": 1,
+        }
 
-        service = get_member_import_service()
-        status, member_name = service.create_or_update_member(
-            row_data=row_data,
-            import_doc_name=f"MijnRood Sync: {event.name}",
-        )
-
-        if status not in ("created", "updated"):
-            return {
-                "success": False,
-                "message": _("Application promotion failed: {0}").format(status),
-            }
-
-        # Clear application-specific fields now that the member is promoted
-        frappe.db.set_value(
-            "Member",
-            member_name,
-            {
-                "application_status": "Approved",
-                "review_notes": (
-                    f"Approved via MijnRood (event {event.name}). "
-                    f"Application member_id {old_member_id} → member_id {new_member_id}."
-                ),
-            },
-        )
-
-        event.linked_member = member_name
-
-        # Create related records (address, Mollie, membership + dues)
-        related_msgs = self._create_related_records(member_name, row_data, event)
-
-        messages = [
-            _("Application {0} promoted to member (ID {1} → {2})").format(
-                member_name, old_member_id, new_member_id
-            )
-        ]
-        messages.extend(related_msgs)
-        return {"success": True, "message": "; ".join(messages)}
+        return self._promote_application_member(match.name, old_data_stub, new_data_stub, row_data, event)
 
     def _apply_new_division(self, event) -> dict:
         """Create or update a Chapter from MijnRood admin_division data."""
