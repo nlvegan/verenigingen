@@ -46,7 +46,7 @@
       "in_list_view": 1,
       "in_standard_filter": 1,
       "label": "Event Type",
-      "options": "New\nChanged\nDeleted",
+      "options": "New\nChanged\nDeleted\nApproved",
       "reqd": 1
     },
     {
@@ -192,7 +192,7 @@
   ],
   "index_web_pages_for_search": 0,
   "links": [],
-  "modified": "2026-02-11 10:00:00",
+  "modified": "2026-04-18 10:00:00",
   "modified_by": "Administrator",
   "module": "MijnRood Sync",
   "name": "MijnRood Sync Event",
