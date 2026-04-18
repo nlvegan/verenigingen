@@ -71,6 +71,8 @@ def compute_change_tags(event_type: str, table: str, changed_fields: list | None
         return _NEW_TABLE_LABELS.get(table, "New")
     if event_type == "Deleted":
         return "Deleted"
+    if event_type == "Approved":
+        return "Approved"
     # Changed
     if not changed_fields:
         return ""

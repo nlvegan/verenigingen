@@ -17,7 +17,10 @@ from unittest.mock import MagicMock, call, patch
 
 import frappe
 
-from verenigingen.mijnrood_sync.services.polling_service import MijnRoodPollingService
+from verenigingen.mijnrood_sync.services.polling_service import (
+    MijnRoodPollingService,
+    compute_change_tags,
+)
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -192,3 +195,21 @@ class TestPollDivisionContacts(EnhancedTestCase):
         # 100 changed (gained div 2), 300 new → 2 events; 200 unchanged
         self.assertEqual(count, 2)
         self.assertEqual(mock_create_event.call_count, 2)
+
+
+class TestComputeChangeTags(EnhancedTestCase):
+    """Tests for compute_change_tags()."""
+
+    def test_approved_event_returns_approved_tag(self):
+        """Approved events produce an 'Approved' tag regardless of table or fields."""
+        self.assertEqual(
+            compute_change_tags("Approved", "admin_member", None),
+            "Approved",
+        )
+
+    def test_approved_event_ignores_changed_fields(self):
+        """Changed fields (which shouldn't normally exist on Approved) don't leak into the tag."""
+        self.assertEqual(
+            compute_change_tags("Approved", "admin_member", [{"field": "email"}]),
+            "Approved",
+        )
