@@ -2755,3 +2755,107 @@ class TestPromoteApplicationMember(EnhancedTestCase):
         self.assertIsNotNone(updates)
         self.assertEqual(updates.get("application_status"), "Approved")
         self.assertNotIn("status", updates)
+
+
+class TestApplyApproved(EnhancedTestCase):
+    """Tests for _apply_approved() — correlator-driven promotion."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch.object(MijnRoodEventApplicationService, "_promote_application_member")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_uses_linked_member_when_set(self, mock_frappe, mock_promote):
+        """When event.linked_member is set, promote that member directly."""
+        mock_frappe._ = frappe._
+        mock_promote.return_value = {"success": True, "message": "promoted"}
+
+        event = MagicMock()
+        event.linked_member = "MEM-001"
+        event.old_data = json.dumps({"id": 42, "email": "jane@example.com", "last_name": "Doe"})
+        event.new_data = json.dumps({
+            "id": 1234, "email": "jane@example.com", "last_name": "Doe",
+            "current_membership_status_id": 1,
+        })
+
+        result = self.service._apply_approved(event)
+
+        self.assertTrue(result["success"])
+        mock_promote.assert_called_once()
+        # First arg is member_name
+        self.assertEqual(mock_promote.call_args.args[0], "MEM-001")
+
+    @patch.object(MijnRoodEventApplicationService, "_promote_application_member")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_falls_back_to_application_id_lookup(self, mock_frappe, mock_promote):
+        """Without linked_member, locate by application_id = f'MR-APP-{old_id}'."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = "MEM-002"
+        mock_promote.return_value = {"success": True, "message": "promoted"}
+
+        event = MagicMock()
+        event.linked_member = None
+        event.old_data = json.dumps({"id": 99, "email": "jane@example.com", "last_name": "Doe"})
+        event.new_data = json.dumps({
+            "id": 5678, "email": "jane@example.com", "last_name": "Doe",
+            "current_membership_status_id": 1,
+        })
+
+        result = self.service._apply_approved(event)
+
+        self.assertTrue(result["success"])
+        # First get_value call should be for application_id
+        first_call = mock_frappe.db.get_value.call_args_list[0]
+        self.assertEqual(first_call.args[0], "Member")
+        self.assertEqual(first_call.args[1], {"application_id": "MR-APP-99"})
+        self.assertEqual(mock_promote.call_args.args[0], "MEM-002")
+
+    @patch.object(MijnRoodEventApplicationService, "_apply_new_member")
+    @patch.object(MijnRoodEventApplicationService, "_promote_application_member")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_falls_through_to_new_member_when_not_found(
+        self, mock_frappe, mock_promote, mock_apply_new
+    ):
+        """If no existing member can be located, fall through to _apply_new_member."""
+        mock_frappe._ = frappe._
+        mock_frappe.db.get_value.return_value = None
+        mock_apply_new.return_value = {"success": True, "message": "created"}
+
+        event = MagicMock()
+        event.linked_member = None
+        event.old_data = json.dumps({"id": 99, "email": "ghost@example.com", "last_name": "Doe"})
+        event.new_data = json.dumps({
+            "id": 5678, "email": "ghost@example.com", "last_name": "Doe",
+            "current_membership_status_id": 1,
+        })
+
+        result = self.service._apply_approved(event)
+
+        self.assertTrue(result["success"])
+        mock_apply_new.assert_called_once_with(event)
+        mock_promote.assert_not_called()
+
+
+class TestApplyEventDispatchesApproved(EnhancedTestCase):
+    """Verify apply_event dispatches Approved events to _apply_approved."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    @patch.object(MijnRoodEventApplicationService, "_apply_approved")
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_approved_event_routes_to_apply_approved(self, mock_frappe, mock_apply_approved):
+        """apply_event('...') with event_type='Approved' calls _apply_approved."""
+        mock_frappe._ = frappe._
+        event_doc = MagicMock()
+        event_doc.status = "Approved"
+        event_doc.event_type = "Approved"
+        mock_frappe.get_doc.return_value = event_doc
+        mock_apply_approved.return_value = {"success": True, "message": "ok"}
+
+        result = self.service.apply_event("EVT-APPROVED-1")
+
+        self.assertTrue(result["success"])
+        mock_apply_approved.assert_called_once_with(event_doc)

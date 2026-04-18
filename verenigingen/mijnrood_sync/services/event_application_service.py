@@ -62,6 +62,8 @@ class MijnRoodEventApplicationService(StatefulService):
                 result = self._apply_changed(event)
             elif event.event_type == "Deleted":
                 result = self._apply_deleted(event)
+            elif event.event_type == "Approved":
+                result = self._apply_approved(event)
             else:
                 result = {"success": False, "message": _("Unknown event type: {0}").format(event.event_type)}
 
@@ -1115,6 +1117,70 @@ class MijnRoodEventApplicationService(StatefulService):
             "success": True,
             "message": _("Deleted event recorded. Member deletion requires manual review."),
         }
+
+    # ─── Approved (correlator-synthesized) ─────────────────────────────
+
+    def _apply_approved(self, event) -> dict:
+        """Apply an Approved event synthesized by the approval correlator.
+
+        The event's old_data is the deleted application row; new_data is the
+        newly-created admin_member row. We locate the local Pending Member
+        that was created when the application first synced, then delegate to
+        _promote_application_member for the actual promotion.
+        """
+        new_data = safe_json_load(event.new_data)
+        old_data = safe_json_load(event.old_data)
+        if not new_data:
+            return {"success": False, "message": _("No new data in approved event")}
+
+        row_data = self._map_mijnrood_to_member_fields(new_data)
+
+        member_name = self._locate_application_member(old_data or {}, new_data, event.linked_member)
+        if not member_name:
+            # Fall through to fresh creation — defensive, shouldn't happen in
+            # practice because the application event already created a Pending
+            # Member that the correlator linked to this event.
+            self.logger.warning(
+                "Approved event %s could not locate a Pending Member; falling "
+                "through to _apply_new_member",
+                event.name,
+            )
+            return self._apply_new_member(event)
+
+        return self._promote_application_member(member_name, old_data or {}, new_data, row_data, event)
+
+    def _locate_application_member(
+        self, old_data: dict, new_data: dict, linked_member: Optional[str]
+    ) -> Optional[str]:
+        """Locate the local Pending Member for an Approved event.
+
+        Order:
+          1. event.linked_member (set by the correlator).
+          2. Lookup by application_id = f'MR-APP-{old_data.id}' — matches what
+             _apply_new_membership_application stamps onto the Member.
+          3. Lookup by normalized email.
+          4. None → caller falls through.
+        """
+        if linked_member:
+            return linked_member
+
+        app_id = old_data.get("id")
+        if app_id is not None:
+            match = frappe.db.get_value(
+                "Member",
+                {"application_id": f"MR-APP-{app_id}"},
+                "name",
+            )
+            if match:
+                return match
+
+        email = (new_data.get("email") or old_data.get("email") or "").strip()
+        if email:
+            match = frappe.db.get_value("Member", {"email": email}, "name")
+            if match:
+                return match
+
+        return None
 
     def _check_and_handle_termination(
         self,
