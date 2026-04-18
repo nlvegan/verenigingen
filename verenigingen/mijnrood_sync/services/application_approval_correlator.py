@@ -76,7 +76,40 @@ class ApplicationApprovalCorrelator(StatefulService):
                 else:
                     remaining_deletions.append(d)
 
-        # Pass 2 comes in Task 4 — for now, unmatched remain unmatched
+        # Pass 2 — Email + last-name match (fallback)
+        email_index = {}
+        for c in creations:
+            if c["name"] in paired_creation_names:
+                continue
+            c_email = self._field(c["new_data"], "email")
+            if c_email:
+                email_index.setdefault(c_email.lower(), []).append(c)
+
+        for d in remaining_deletions:
+            d_email = self._field(d["old_data"], "email")
+            if not d_email:
+                continue
+            candidates = [
+                c for c in email_index.get(d_email.lower(), []) if c["name"] not in paired_creation_names
+            ]
+            if len(candidates) != 1:
+                if len(candidates) > 1:
+                    self.logger.warning(
+                        "Ambiguous email match for deletion %s (email=%s): %d candidates",
+                        d["name"],
+                        d_email,
+                        len(candidates),
+                    )
+                continue
+
+            c = candidates[0]
+            if not self._passes_confidence_check(d, c):
+                continue
+
+            self._collapse_pair(d, c, sync_run_id)
+            paired_creation_names.add(c["name"])
+            pairs_collapsed += 1
+
         return pairs_collapsed
 
     # ─── Candidate loading ────────────────────────────────────────────
@@ -156,6 +189,46 @@ class ApplicationApprovalCorrelator(StatefulService):
             {"status": "Ignored", "review_notes": note},
             update_modified=False,
         )
+
+    def _passes_confidence_check(self, deletion: dict, creation: dict) -> bool:
+        """Confirm an email-based pair via last-name agreement and veto rules."""
+        d_last = (self._field(deletion["old_data"], "last_name") or "").lower()
+        c_last = (self._field(creation["new_data"], "last_name") or "").lower()
+        if d_last != c_last:
+            self.logger.info(
+                "Last-name mismatch blocks pair %s ↔ %s: %r vs %r",
+                deletion["name"],
+                creation["name"],
+                d_last,
+                c_last,
+            )
+            return False
+
+        d_mollie = self._field(deletion["old_data"], "mollie_customer_id")
+        c_mollie = self._field(creation["new_data"], "mollie_customer_id")
+        if d_mollie and c_mollie and d_mollie != c_mollie:
+            self.logger.info(
+                "Mollie-ID mismatch vetoes pair %s ↔ %s: %s vs %s",
+                deletion["name"],
+                creation["name"],
+                d_mollie,
+                c_mollie,
+            )
+            return False
+
+        d_dob = self._field(deletion["old_data"], "date_of_birth")
+        c_dob = self._field(creation["new_data"], "date_of_birth")
+        if d_dob and c_dob and d_dob != c_dob:
+            self.logger.info(
+                "DOB mismatch blocks pair %s ↔ %s: %s vs %s",
+                deletion["name"],
+                creation["name"],
+                d_dob,
+                c_dob,
+            )
+            return False
+
+        return True
 
     def _build_summary(self, old_data: dict, new_data: dict) -> str:
         """Human-readable summary for the synthesized Approved event."""
