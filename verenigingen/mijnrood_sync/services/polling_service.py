@@ -24,6 +24,9 @@ from verenigingen.mijnrood_sync.field_mapping import (
     TABLE_PRIMARY_KEY,
     get_status_labels,
 )
+from verenigingen.mijnrood_sync.services.application_approval_correlator import (
+    ApplicationApprovalCorrelator,
+)
 from verenigingen.mijnrood_sync.utils import safe_int
 from verenigingen.services.infrastructure.base_service import StatefulService
 
@@ -143,11 +146,6 @@ class MijnRoodPollingService(StatefulService):
                 totals["changed"] += dc_events
 
                 # Correlate application→member approvals emitted in this run
-                # Use module-level lazy reference so the name can be patched in tests.
-                # Module __getattr__ populates __dict__ on first access; if patched the
-                # mock is already in __dict__ and __getattr__ is never called.
-                if "ApplicationApprovalCorrelator" not in globals():
-                    globals()["ApplicationApprovalCorrelator"] = __getattr__("ApplicationApprovalCorrelator")
                 approvals = ApplicationApprovalCorrelator().correlate(sync_run_id)
                 totals["approved"] += approvals
 
@@ -712,20 +710,3 @@ def get_polling_service() -> MijnRoodPollingService:
     if _service_instance is None:
         _service_instance = MijnRoodPollingService()
     return _service_instance
-
-
-def __getattr__(name: str):
-    """Lazy module-level attribute loader.
-
-    Resolves ApplicationApprovalCorrelator on first access to avoid a circular
-    import: application_approval_correlator imports compute_change_tags from this
-    module, so a top-level import here would create a cycle. Module __getattr__
-    defers resolution until after both modules are fully initialised.
-    """
-    if name == "ApplicationApprovalCorrelator":
-        from verenigingen.mijnrood_sync.services.application_approval_correlator import (  # noqa: PLC0415
-            ApplicationApprovalCorrelator as _cls,
-        )
-
-        return _cls
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

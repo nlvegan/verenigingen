@@ -25,7 +25,6 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from verenigingen.mijnrood_sync.services.polling_service import compute_change_tags
 from verenigingen.services.infrastructure.base_service import StatefulService
 
 
@@ -174,7 +173,7 @@ class ApplicationApprovalCorrelator(StatefulService):
         event.old_data = json.dumps(old_data)
         event.new_data = json.dumps(new_data)
         event.change_summary = summary
-        event.change_tags = compute_change_tags("Approved", "admin_member", None)
+        event.change_tags = "Approved"
         event.detected_at = now_datetime()
         event.sync_run_id = sync_run_id
         # Security: System-internal synthesized event creation, runs in scheduler/background context
