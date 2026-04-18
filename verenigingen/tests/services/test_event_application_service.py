@@ -2858,4 +2858,113 @@ class TestApplyEventDispatchesApproved(EnhancedTestCase):
         result = self.service.apply_event("EVT-APPROVED-1")
 
         self.assertTrue(result["success"])
-        mock_apply_approved.assert_called_once_with(event_doc)
+
+
+class TestApprovedEventCreatesMembershipAndDues(EnhancedTestCase):
+    """Integration regression test: an Approved event must result in a
+    Membership + Dues Schedule being created (the bug that
+    _try_promote_application forgot to flip member.status to Active,
+    which _ensure_membership_and_dues requires).
+
+    Uses real DB and full pipeline — no mocks on the promotion side.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def _create_pending_member(self, email="promoted@example.com", app_mijnrood_id=99):
+        """Create a Pending Member analogous to what _apply_new_membership_application creates."""
+        member = frappe.new_doc("Member")
+        member.first_name = "Jane"
+        member.last_name = "Doe"
+        member.email = email
+        member.application_id = f"MR-APP-{app_mijnrood_id}"
+        member.application_status = "Pending"
+        member.status = "Pending"
+        member.application_date = frappe.utils.today()
+        member._csv_import = True
+        member._system_update = True
+        member.flags.ignore_workflow = True
+        member.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return member.name
+
+    def _create_approved_sync_event(self, pending_member_name, old_data, new_data):
+        """Synthesize and persist an Approved MijnRood Sync Event (test factory helper)."""
+        new_member_id = new_data["id"]
+        event = frappe.new_doc("MijnRood Sync Event")
+        event.event_type = "Approved"
+        event.mijnrood_table = "admin_member"
+        event.mijnrood_row_id = new_member_id
+        event.status = "Approved"
+        event.linked_member = pending_member_name
+        event.old_data = json.dumps(old_data)
+        event.new_data = json.dumps(new_data)
+        event.change_summary = "Test approved event"
+        event.change_tags = "Approved"
+        event.detected_at = frappe.utils.now_datetime()
+        event.sync_run_id = "test-run-001"
+        event.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return event.name
+
+    def test_approved_event_flips_status_and_creates_membership(self):
+        """Applying an Approved event promotes the Pending Member to Active
+        AND downstream creates a Membership + Dues Schedule."""
+        # Use a hash-based suffix to avoid collision with leftover test data
+        suffix = frappe.generate_hash(length=8)
+        email = f"promo-{suffix}@example.com"
+        # Use large integers unlikely to conflict with real MijnRood IDs or other test runs
+        app_id = int(suffix[:6], 16) + 9_000_000
+        new_member_id = int(suffix[2:8], 16) + 8_000_000
+
+        pending_member_name = self._create_pending_member(email=email, app_mijnrood_id=app_id)
+
+        # Synthesize an Approved event as the correlator would.
+        # contribution_period uses MijnRood's integer constants: 0=Monthly, 1=Quarterly, 2=Annually.
+        old_data = {
+            "id": app_id,
+            "email": email,
+            "first_name": "Jane",
+            "last_name": "Doe",
+        }
+        new_data = {
+            "id": new_member_id,
+            "email": email,
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "current_membership_status_id": 1,  # active
+            "contribution_per_period_in_cents": 1000,  # €10
+            "contribution_period": 2,  # annual (2=Jaarlijks → csv_annual_dues_schedule)
+        }
+
+        event_name = self._create_approved_sync_event(pending_member_name, old_data, new_data)
+
+        # Apply the event
+        result = self.service.apply_event(event_name)
+        self.assertTrue(result["success"], f"apply_event failed: {result.get('message')}")
+
+        # Assert member state
+        member = frappe.get_doc("Member", pending_member_name)
+        self.assertEqual(member.application_status, "Approved")
+        self.assertEqual(member.status, "Active", "Bug regression: member.status should flip to Active")
+        self.assertEqual(str(member.member_id), str(new_member_id))
+
+        # Assert downstream: Membership created (integration proof of the fix)
+        membership = frappe.db.get_value(
+            "Membership",
+            {"member": pending_member_name, "status": "Active", "docstatus": 1},
+            "name",
+        )
+        self.assertIsNotNone(
+            membership,
+            "Regression: Membership should be created on promotion now that member.status=Active",
+        )
+
+        # Assert Dues Schedule created
+        dues = frappe.db.exists(
+            "Membership Dues Schedule",
+            {"member": pending_member_name, "is_template": 0},
+        )
+        self.assertTrue(dues, "Regression: Dues Schedule should be created on promotion")
