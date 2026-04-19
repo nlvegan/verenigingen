@@ -191,6 +191,31 @@ frappe.ui.form.on("MijnRood Sync Settings", {
                 },
             });
             d.show();
+
+            // Suppress browser autofill on the passphrase input.
+            // Chrome ignores autocomplete="off" on password fields but DOES
+            // respect autocomplete="new-password". We also randomise `name`
+            // so the browser can't pattern-match to saved credentials for
+            // this site. data-lpignore / data-form-type handle LastPass
+            // and 1Password.
+            const $input = d.fields_dict.ssh_passphrase.$input;
+            if ($input) {
+                const random_name = "passphrase_" + Math.random().toString(36).slice(2);
+                $input.attr({
+                    autocomplete: "new-password",
+                    name: random_name,
+                    "data-lpignore": "true",
+                    "data-form-type": "other",
+                    "data-1p-ignore": "true",
+                });
+                // Clear any value the browser may have autofilled before the
+                // attribute change took effect. A second clear handles Chrome's
+                // delayed autofill, which sometimes fires after DOM attach.
+                $input.val("");
+                setTimeout(() => {
+                    if (!$input.is(":focus")) $input.val("");
+                }, 100);
+            }
         }, __("SSH Tunnel"));
 
         // Fetch Document Folders from MijnRood
