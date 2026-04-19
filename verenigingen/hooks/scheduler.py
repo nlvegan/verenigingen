@@ -114,16 +114,17 @@ scheduler_events = {
         # Expense history cleanup
         "verenigingen.services.volunteer.expense_history_batch_processor.cleanup_orphaned_expense_history",
     ],
-}
-
-# =========================================================================
-# CRON JOBS - High frequency tasks
-# =========================================================================
-cron = {
-    # Financial history batch processing - every 30 seconds (reduced from 10s to cut scheduler overhead)
-    "*/30 * * * * *": [
-        "verenigingen.utils.financial_history_batch_processor.schedule_financial_history_processing"
-    ],
-    # MijnRood sync - poll remote DB for member changes every 15 minutes
-    "*/15 * * * *": ["verenigingen.mijnrood_sync.tasks.run_mijnrood_sync"],
+    # =========================================================================
+    # CRON JOBS - High frequency tasks
+    # =========================================================================
+    # NOTE: must be nested inside scheduler_events under the "cron" key — a
+    # sibling module-level `cron` variable is not read by Frappe's sync_jobs.
+    "cron": {
+        # Financial history batch processing - every 30 seconds (reduced from 10s to cut scheduler overhead)
+        "*/30 * * * * *": [
+            "verenigingen.utils.financial_history_batch_processor.schedule_financial_history_processing"
+        ],
+        # MijnRood sync - poll remote DB for member changes every 15 minutes
+        "*/15 * * * *": ["verenigingen.mijnrood_sync.tasks.run_mijnrood_sync"],
+    },
 }

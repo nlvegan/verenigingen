@@ -41,7 +41,7 @@ from verenigingen.hooks.portal import (
     update_website_context,
     website_context,
 )
-from verenigingen.hooks.scheduler import cron, scheduler_events
+from verenigingen.hooks.scheduler import scheduler_events
 
 # =============================================================================
 # APP METADATA
