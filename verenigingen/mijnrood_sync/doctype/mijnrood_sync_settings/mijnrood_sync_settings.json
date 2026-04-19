@@ -11,6 +11,7 @@
   "ssh_username",
   "column_break_ssh",
   "ssh_private_key_path",
+  "ssh_credentials_status",
   "ssh_private_key",
   "ssh_password",
   "database_section",
@@ -88,15 +89,23 @@
    "label": "SSH Private Key Path"
   },
   {
-   "description": "Paste the SSH private key content directly. Stored encrypted. Use the 'Set SSH Key' button for multi-line paste. Takes priority over Key Path.",
+   "description": "Use the 'Set SSH Key' and 'Set SSH Passphrase' buttons in the toolbar to update credentials. Values are stored encrypted.",
+   "fieldname": "ssh_credentials_status",
+   "fieldtype": "HTML",
+   "label": "SSH Credentials"
+  },
+  {
+   "description": "Paste the SSH private key content directly. Stored encrypted. Use the 'Set SSH Key' button for multi-line paste. Takes priority over Key Path. Hidden in the form to prevent browser password-manager prompts.",
    "fieldname": "ssh_private_key",
    "fieldtype": "Password",
+   "hidden": 1,
    "label": "SSH Private Key"
   },
   {
-   "description": "SSH key passphrase (if key is encrypted) or SSH password",
+   "description": "SSH key passphrase (if key is encrypted) or SSH password. Hidden in the form to prevent browser password-manager prompts.",
    "fieldname": "ssh_password",
    "fieldtype": "Password",
+   "hidden": 1,
    "label": "SSH Password / Passphrase"
   },
   {
@@ -285,7 +294,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-02-11 22:49:10.599742",
+ "modified": "2026-04-19 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "MijnRood Sync",
  "name": "MijnRood Sync Settings",

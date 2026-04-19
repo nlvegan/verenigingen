@@ -14,6 +14,25 @@ frappe.ui.form.on("MijnRood Sync Settings", {
     },
 
     refresh(frm) {
+        // Render a small status indicator for the SSH credentials — the
+        // underlying Password fields are hidden to prevent browser
+        // password-manager prompts, so admins need a way to tell whether
+        // a key/passphrase is currently configured.
+        const status_wrapper = frm.get_field("ssh_credentials_status")?.$wrapper;
+        if (status_wrapper) {
+            const dot = (set) =>
+                `<span style="color:${set ? "#28a745" : "#adb5bd"}">●</span>`;
+            const key_set = !!frm.doc.ssh_private_key;
+            const passphrase_set = !!frm.doc.ssh_password;
+            status_wrapper.html(
+                `<div class="text-muted" style="padding:6px 0">
+                    ${dot(key_set)} ${__("Private key")}: <b>${key_set ? __("set") : __("not set")}</b>
+                    &nbsp;·&nbsp;
+                    ${dot(passphrase_set)} ${__("Passphrase")}: <b>${passphrase_set ? __("set") : __("not set")}</b>
+                </div>`
+            );
+        }
+
         frm.add_custom_button(__("Test Connection"), function () {
             frappe.call({
                 method: "test_connection",
@@ -140,6 +159,33 @@ frappe.ui.form.on("MijnRood Sync Settings", {
                     d.hide();
                     frappe.show_alert({
                         message: __("SSH key set. Save the document to store it encrypted."),
+                        indicator: "green",
+                    });
+                },
+            });
+            d.show();
+        }, __("SSH Tunnel"));
+
+        // Set SSH Passphrase — dialog avoids exposing a password input on the
+        // main form, which would otherwise trigger browser save-password prompts.
+        frm.add_custom_button(__("Set SSH Passphrase"), function () {
+            const d = new frappe.ui.Dialog({
+                title: __("Set SSH Passphrase"),
+                fields: [
+                    {
+                        fieldname: "ssh_passphrase",
+                        fieldtype: "Password",
+                        label: __("Passphrase"),
+                        description: __("Passphrase for the encrypted SSH key, or the SSH account password. Leave blank to clear."),
+                    },
+                ],
+                primary_action_label: __("Save"),
+                primary_action(values) {
+                    frm.set_value("ssh_password", values.ssh_passphrase || "");
+                    frm.dirty();
+                    d.hide();
+                    frappe.show_alert({
+                        message: __("Passphrase updated. Save the document to store it encrypted."),
                         indicator: "green",
                     });
                 },
