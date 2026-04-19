@@ -144,11 +144,26 @@ class FrappeHooksValidator:
     def _validate_scheduler_events(self, scheduler_events: Dict):
         """Validate scheduler_events methods"""
         print("  ⏰ Validating scheduler_events...")
-        
+
         for schedule, methods in scheduler_events.items():
+            # Cron entries are a nested dict: {cron_expression: [methods...]}.
+            # The cron keys are not method paths — unwrap to the inner lists.
+            if isinstance(methods, dict):
+                for cron_expr, cron_methods in methods.items():
+                    if isinstance(cron_methods, str):
+                        cron_methods = [cron_methods]
+                    for method in cron_methods:
+                        if isinstance(method, str):
+                            self._validate_method_path(
+                                method,
+                                f"scheduler_events[{schedule}][{cron_expr}]",
+                                "scheduler_events",
+                            )
+                continue
+
             if isinstance(methods, str):
                 methods = [methods]
-                
+
             for method in methods:
                 if isinstance(method, str):
                     self._validate_method_path(
