@@ -145,7 +145,24 @@ class TestHooksImportSafety(unittest.TestCase):
         scheduler = load_hooks_submodule("scheduler")
 
         self.assertTrue(hasattr(scheduler, "scheduler_events"))
-        self.assertTrue(hasattr(scheduler, "cron"))
+        # Regression: a top-level `cron` variable is silently ignored by
+        # Frappe's sync_jobs (which reads only `scheduler_events`). Cron
+        # entries must live inside scheduler_events["cron"].
+        self.assertFalse(
+            hasattr(scheduler, "cron"),
+            "Top-level `cron` in hooks/scheduler.py is dead code — Frappe "
+            "only reads scheduler_events. Move entries into scheduler_events['cron'].",
+        )
+        self.assertIn(
+            "cron",
+            scheduler.scheduler_events,
+            "scheduler_events must contain a 'cron' key with {expression: [methods]} entries.",
+        )
+        self.assertIsInstance(
+            scheduler.scheduler_events["cron"],
+            dict,
+            "scheduler_events['cron'] must be a dict of {cron_expression: [method_paths]}.",
+        )
 
     def test_permissions_exports(self):
         """hooks/permissions.py should have expected exports."""
@@ -290,7 +307,9 @@ class TestSchedulerHandlerResolution(unittest.TestCase):
         """Load scheduler_events once for all tests."""
         scheduler_module = load_hooks_submodule("scheduler")
         cls.scheduler_events = scheduler_module.scheduler_events
-        cls.cron = scheduler_module.cron
+        # Cron entries live inside scheduler_events["cron"] — anything else is
+        # silently ignored by Frappe. Default to empty to be robust to absence.
+        cls.cron = scheduler_module.scheduler_events.get("cron", {})
 
     def _resolve_handler(self, handler_string: str):
         """Attempt to resolve a handler string to a callable."""
@@ -307,6 +326,10 @@ class TestSchedulerHandlerResolution(unittest.TestCase):
         missing_handlers = []
 
         for frequency, handlers in self.scheduler_events.items():
+            # cron is a nested {expression: [methods]} dict — handled by
+            # test_all_cron_handlers_exist; skip here to avoid iterating keys.
+            if frequency == "cron" or isinstance(handlers, dict):
+                continue
             for handler in handlers:
                 result = self._resolve_handler(handler)
                 if result is None or (isinstance(result, tuple) and result[0] is None):
@@ -325,6 +348,8 @@ class TestSchedulerHandlerResolution(unittest.TestCase):
         whitespace_errors = []
 
         for frequency, handlers in self.scheduler_events.items():
+            if frequency == "cron" or isinstance(handlers, dict):
+                continue  # cron entries are validated by test_all_cron_handlers_exist
             for handler in handlers:
                 if handler != handler.strip():
                     whitespace_errors.append(f"{frequency}: '{handler}' has whitespace")
@@ -523,8 +548,19 @@ class TestHooksDataIntegrity(unittest.TestCase):
 
         for frequency, handlers in scheduler_events.items():
             self.assertIn(frequency, valid_frequencies, f"Invalid frequency: {frequency}")
-            self.assertIsInstance(handlers, list, f"Handlers should be list for {frequency}")
 
+            if frequency == "cron":
+                # cron is a dict of {cron_expression: [method_paths]}
+                self.assertIsInstance(handlers, dict, "scheduler_events['cron'] must be a dict")
+                for expression, methods in handlers.items():
+                    self.assertIsInstance(expression, str, f"cron key must be string: {expression}")
+                    self.assertIsInstance(methods, list, f"cron methods must be list for {expression}")
+                    for method in methods:
+                        self.assertIsInstance(method, str, f"cron method should be string: {method}")
+                        self.assertIn(".", method, f"cron method should be dotted path: {method}")
+                continue
+
+            self.assertIsInstance(handlers, list, f"Handlers should be list for {frequency}")
             for handler in handlers:
                 self.assertIsInstance(handler, str, f"Handler should be string: {handler}")
                 self.assertIn(".", handler, f"Handler should be dotted path: {handler}")
@@ -623,7 +659,6 @@ class TestHooksPackageImport(unittest.TestCase):
             "update_website_context",
             # From scheduler.py
             "scheduler_events",
-            "cron",
             # App metadata
             "app_name",
             "app_title",
@@ -750,10 +785,14 @@ class TestCronExpressionValidation(unittest.TestCase):
         except Exception as e:
             return False, f"unexpected error: {type(e).__name__}: {e}"
 
+    def _get_cron(self):
+        """Load cron entries from scheduler_events (the only place Frappe reads)."""
+        scheduler = load_hooks_submodule("scheduler")
+        return scheduler.scheduler_events.get("cron", {})
+
     def test_all_cron_expressions_semantically_valid(self):
         """All cron expressions should be semantically valid (using croniter)."""
-        scheduler = load_hooks_submodule("scheduler")
-        cron = scheduler.cron
+        cron = self._get_cron()
 
         invalid_expressions = []
         for expression in cron.keys():
@@ -767,24 +806,23 @@ class TestCronExpressionValidation(unittest.TestCase):
                 + "\n".join(invalid_expressions)
             )
 
-    def test_cron_uses_6_field_format_with_seconds(self):
-        """Document that we use 6-field cron format (with seconds)."""
-        scheduler = load_hooks_submodule("scheduler")
-        cron = scheduler.cron
+    def test_cron_uses_5_or_6_field_format(self):
+        """Cron expressions should be 5- or 6-field (with or without seconds)."""
+        cron = self._get_cron()
 
-        # Verify we're using 6-field format
+        # Both formats are valid; some tasks use 6-field (with seconds)
+        # for sub-minute precision, others use 5-field (standard cron).
         for expression in cron.keys():
             fields = expression.split()
-            self.assertEqual(
+            self.assertIn(
                 len(fields),
-                6,
-                f"Expected 6-field cron (with seconds), got {len(fields)} fields: {expression}",
+                (5, 6),
+                f"Expected 5- or 6-field cron, got {len(fields)} fields: {expression}",
             )
 
     def test_cron_handlers_not_empty(self):
         """Each cron expression should have at least one handler."""
-        scheduler = load_hooks_submodule("scheduler")
-        cron = scheduler.cron
+        cron = self._get_cron()
 
         for expression, handlers in cron.items():
             self.assertIsInstance(handlers, list)
@@ -806,6 +844,67 @@ class TestCronExpressionValidation(unittest.TestCase):
                 is_valid,
                 f"Expected '{expression}' ({desc}) to be invalid, but it passed validation"
             )
+
+
+class TestCronNestingRegression(unittest.TestCase):
+    """Regression: cron entries must live inside scheduler_events['cron'].
+
+    Frappe's sync_jobs reads only `scheduler_events` from the hooks module
+    (see frappe.core.doctype.scheduled_job_type.scheduled_job_type.sync_jobs).
+    A sibling `cron` module attribute — no matter how well-formed — is
+    silently ignored, and its entries never become Scheduled Job Type rows.
+
+    This bug silently stalled the */15 MijnRood sync and the */30s financial
+    history batch processor for an extended period; no error, no log, just
+    absence. Pin the corrected structure here so a future refactor can't
+    re-introduce it.
+    """
+
+    def test_hooks_package_has_no_top_level_cron(self):
+        """verenigingen.hooks must not expose a top-level `cron` attribute."""
+        hooks = importlib.import_module("verenigingen.hooks")
+        self.assertFalse(
+            hasattr(hooks, "cron"),
+            "Top-level `cron` in verenigingen.hooks is not read by Frappe's "
+            "sync_jobs. Move its entries into scheduler_events['cron'].",
+        )
+
+    def test_scheduler_submodule_has_no_top_level_cron(self):
+        """hooks/scheduler.py must not expose a top-level `cron` variable."""
+        scheduler = load_hooks_submodule("scheduler")
+        self.assertFalse(
+            hasattr(scheduler, "cron"),
+            "Top-level `cron` in hooks/scheduler.py is dead code. Move its "
+            "entries into scheduler_events['cron'].",
+        )
+
+    def test_scheduler_events_contains_cron_key(self):
+        """scheduler_events['cron'] must exist and be a non-empty dict."""
+        scheduler = load_hooks_submodule("scheduler")
+        self.assertIn("cron", scheduler.scheduler_events)
+        cron = scheduler.scheduler_events["cron"]
+        self.assertIsInstance(cron, dict)
+        self.assertGreater(len(cron), 0, "At least one cron entry should be registered.")
+
+    def test_known_cron_tasks_are_registered(self):
+        """Specific high-value cron tasks must be reachable via scheduler_events['cron'].
+
+        These tasks regressed silently when cron was a sibling variable. Pin them.
+        """
+        scheduler = load_hooks_submodule("scheduler")
+        cron = scheduler.scheduler_events.get("cron", {})
+
+        all_methods = {m for methods in cron.values() for m in methods}
+
+        expected = {
+            "verenigingen.mijnrood_sync.tasks.run_mijnrood_sync",
+            "verenigingen.utils.financial_history_batch_processor.schedule_financial_history_processing",
+        }
+        missing = expected - all_methods
+        self.assertFalse(
+            missing,
+            f"Expected cron tasks not registered in scheduler_events['cron']: {missing}",
+        )
 
 
 class TestImportSideEffectGuards(unittest.TestCase):
