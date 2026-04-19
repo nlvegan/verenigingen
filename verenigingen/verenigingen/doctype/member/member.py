@@ -518,15 +518,9 @@ class Member(
             # Lazy import to avoid circular dependency
             from verenigingen.services.customer_handling_service import CustomerHandlingService
 
-            try:
-                customer_name = CustomerHandlingService().create_customer_for_member(
-                    self, suppress_messages=False
-                )
-            except Exception:
-                # Customer creation failure must not prevent member insertion.
-                # The operator can create/link the customer manually later.
-                frappe.log_error(frappe.get_traceback(), f"Customer creation failed for Member {self.name}")
-                customer_name = None
+            customer_name = CustomerHandlingService().create_customer_for_member(
+                self, suppress_messages=False
+            )
             if customer_name:
                 self.customer = customer_name
                 # Security: Direct db_set required in after_insert hook.

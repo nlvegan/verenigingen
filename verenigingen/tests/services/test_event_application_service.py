@@ -2866,12 +2866,25 @@ class TestApprovedEventCreatesMembershipAndDues(EnhancedTestCase):
     _try_promote_application forgot to flip member.status to Active,
     which _ensure_membership_and_dues requires).
 
-    Uses real DB and full pipeline — no mocks on the promotion side.
+    Uses real DB for the promotion pipeline. Customer creation inside
+    Member.after_insert is mocked out — it's an unrelated side effect that
+    depends on Selling Settings configuration (which varies across test
+    environments) and is not part of this regression's scope.
     """
 
     def setUp(self):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
+        # Patch out Customer creation; Member.after_insert calls this and the
+        # test env has a group-type customer_group in Selling Settings that
+        # would fail ERPNext's Customer validation. Out of scope for this test.
+        self._customer_patcher = patch(
+            "verenigingen.services.customer_handling_service.CustomerHandlingService"
+            ".create_customer_for_member",
+            return_value=None,
+        )
+        self._customer_patcher.start()
+        self.addCleanup(self._customer_patcher.stop)
 
     def _create_pending_member(self, email="promoted@example.com", app_mijnrood_id=99):
         """Create a Pending Member analogous to what _apply_new_membership_application creates."""
