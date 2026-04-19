@@ -22,6 +22,7 @@ app_include_js = [
     "/assets/verenigingen/js/member_portal_redirect.js",
     "/assets/verenigingen/js/utils/iban-validator.js",
     "/assets/verenigingen/js/utils/iban-masking.js",
+    "/assets/verenigingen/js/utils/password_autofill_suppression.js",
     "/assets/verenigingen/js/member_age_chart.js",
 ]
 

@@ -54,6 +54,8 @@
 
 frappe.ui.form.on('E-Boekhouden Settings', {
 	refresh(frm) {
+		verenigingen.suppressPasswordAutofill(frm, ['api_token']);
+
 		// Add custom buttons for testing
 		frm
 			.add_custom_button(__('Test REST API Connection'), () => {

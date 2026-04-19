@@ -8,6 +8,14 @@ frappe.ui.form.on("Ponto Settings", {
 			return;
 		}
 
+		verenigingen.suppressPasswordAutofill(frm, [
+			"sandbox_client_secret",
+			"production_client_secret",
+			"ibanity_client_secret",
+			"ibanity_key_passphrase",
+			"signature_key_passphrase",
+		]);
+
 		// Add custom button for fetching accounts
 		if (!frm.is_new()) {
 			frm.add_custom_button(__("Test Connection"), function () {
