@@ -2,6 +2,9 @@
 Payment processing utilities for membership applications
 """
 
+import random
+import string
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, today
@@ -143,15 +146,12 @@ def create_customer_for_member(member):
     if not frappe.has_permission("Contact", "create"):
         frappe.throw(_("Insufficient permissions to create Contact"))
 
-    # Use a named savepoint so we can detect rollback without swallowing the exception.
-    # frappe.database.savepoint(catch=Exception) rolls back AND silently suppresses the
-    # exception, which would leave the member with a dangling customer link pointing at
-    # a rolled-back Customer record. Using the lower-level API lets us rollback and still
-    # propagate the error.
-    import random
-    import string
-
-    savepoint_name = "cust_" + "".join(random.sample(string.ascii_lowercase, 8))
+    # Manual savepoint: Frappe's `savepoint(catch=Exception)` context manager rolls
+    # back and *suppresses* the exception, leaving the caller with a rolled-back
+    # Customer doc and no error signal. We want to roll back AND re-raise so the
+    # caller knows creation failed. The naming convention matches Frappe's own
+    # savepoint helper in frappe.database.database.savepoint().
+    savepoint_name = "".join(random.sample(string.ascii_lowercase, 10))
     frappe.db.savepoint(savepoint_name)
     try:
         # Create Customer record (without direct email/mobile - these come from Contact via fetch_from)
@@ -175,19 +175,18 @@ def create_customer_for_member(member):
 
         # Set primary contact - ERPNext will automatically populate email_id/mobile_no via fetch_from
         customer.db_set("customer_primary_contact", contact.name, update_modified=False)
-
-        frappe.db.release_savepoint(savepoint_name)
-        frappe.logger().info(
-            f"Created Customer {customer.name} with Contact {contact.name} for Member {member.name}"
-        )
-        return customer
-
     except Exception as e:
         frappe.db.rollback(save_point=savepoint_name)
         frappe.log_error(
             f"Failed to create Customer for Member {member.name}: {str(e)}", "Customer Creation Error"
         )
         raise
+
+    frappe.db.release_savepoint(savepoint_name)
+    frappe.logger().info(
+        f"Created Customer {customer.name} with Contact {contact.name} for Member {member.name}"
+    )
+    return customer
 
 
 def get_membership_item(membership_type):
