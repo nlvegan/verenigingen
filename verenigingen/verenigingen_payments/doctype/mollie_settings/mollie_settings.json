@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "profile_id",
+  "credentials_status",
   "test_mode",
   "enable_subscriptions",
   "encryption_key",
@@ -51,6 +52,12 @@
    "label": "Mollie Profile ID"
   },
   {
+   "fieldname": "credentials_status",
+   "fieldtype": "HTML",
+   "label": "Credentials Status",
+   "description": "Use the 'Set API Keys', 'Set Webhook Secrets', and 'Set Backend Credentials' buttons in the toolbar to update. Values are stored encrypted."
+  },
+  {
    "fieldname": "column_break_3",
    "fieldtype": "Column Break"
   },
@@ -58,13 +65,15 @@
    "description": "Test API key from Mollie Dashboard (starts with test_)",
    "fieldname": "test_secret_key",
    "fieldtype": "Password",
-   "label": "Mollie API Test Secret Key"
+   "label": "Mollie API Test Secret Key",
+   "hidden": 1
   },
   {
    "description": "Live API key from Mollie Dashboard (starts with live_) - only used when Test Mode is unchecked",
    "fieldname": "live_secret_key",
    "fieldtype": "Password",
-   "label": "Mollie API Live Secret Key"
+   "label": "Mollie API Live Secret Key",
+   "hidden": 1
   },
   {
    "default": "1",
@@ -157,7 +166,8 @@
    "description": "Secret key from Mollie for test webhook signature verification",
    "fieldname": "testing_webhook_secret_key",
    "fieldtype": "Password",
-   "label": "Testing Webhook Secret Key"
+   "label": "Testing Webhook Secret Key",
+   "hidden": 1
   },
   {
    "fieldname": "column_break_webhook_security",
@@ -167,7 +177,8 @@
    "description": "Secret key from Mollie for live webhook signature verification",
    "fieldname": "live_webhook_secret_key",
    "fieldtype": "Password",
-   "label": "Live Webhook Secret Key"
+   "label": "Live Webhook Secret Key",
+   "hidden": 1
   },
   {
    "default": "100",
@@ -193,7 +204,8 @@
    "description": "OAuth access token for Mollie organization API",
    "fieldname": "organization_access_token",
    "fieldtype": "Password",
-   "label": "Organization Access Token"
+   "label": "Organization Access Token",
+   "hidden": 1
   },
   {
    "fieldname": "column_break_backend",
@@ -211,7 +223,8 @@
    "description": "Secret for verifying backend webhook signatures",
    "fieldname": "backend_webhook_secret",
    "fieldtype": "Password",
-   "label": "Backend Webhook Secret"
+   "label": "Backend Webhook Secret",
+   "hidden": 1
   },
   {
    "fieldname": "reconciliation_section",
@@ -274,7 +287,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-02-14 08:47:16.763893",
+ "modified": "2026-04-19 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen Payments",
  "name": "Mollie Settings",

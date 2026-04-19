@@ -7,9 +7,16 @@ frappe.ui.form.on('Mollie Settings', {
 		add_custom_buttons(frm);
 		setup_form_indicators(frm);
 
-		// Disable browser autocomplete on all password/sensitive fields
-		// Firefox aggressively tries to fill these with login credentials
-		disable_autofill(frm);
+		// Render credentials status + secret-setting buttons. The actual
+		// Password fields are `hidden: 1` in the DocType so browsers can't
+		// autofill them or prompt to save on form save.
+		render_credentials_status(frm);
+		add_credential_buttons(frm);
+
+		// Suppress autofill on adjacent non-Password fields (profile_id,
+		// organization_id) that browsers' "looks like a login form"
+		// heuristics may otherwise target.
+		verenigingen.suppressPasswordAutofill(frm, ['profile_id', 'organization_id']);
 	},
 
 	test_mode(frm) {
@@ -241,66 +248,98 @@ frappe.ui.form.on('Mollie Settings', 'before_save', (frm) => {
 	}
 });
 
-function disable_autofill(frm) {
-	// Firefox aggressively autofills password fields with saved login credentials.
-	// This function uses multiple strategies to prevent that behavior.
+function render_credentials_status(frm) {
+	const wrapper = frm.get_field('credentials_status')?.$wrapper;
+	if (!wrapper) return;
+	const dot = (set) => `<span style="color:${set ? '#28a745' : '#adb5bd'}">●</span>`;
+	const row = (label, set) =>
+		`<div style="margin:2px 0">${dot(set)} ${label}: <b>${set ? __('set') : __('not set')}</b></div>`;
+	wrapper.html(
+		`<div class="text-muted" style="padding:6px 0">
+			${row(__('Test API key'), !!frm.doc.test_secret_key)}
+			${row(__('Live API key'), !!frm.doc.live_secret_key)}
+			${row(__('Test webhook secret'), !!frm.doc.testing_webhook_secret_key)}
+			${row(__('Live webhook secret'), !!frm.doc.live_webhook_secret_key)}
+			${row(__('Organization access token'), !!frm.doc.organization_access_token)}
+			${row(__('Backend webhook secret'), !!frm.doc.backend_webhook_secret)}
+		</div>`
+	);
+}
 
-	const sensitive_fields = [
-		'profile_id',
-		'test_secret_key',
-		'live_secret_key',
-		'testing_webhook_secret_key',
-		'live_webhook_secret_key',
-		'organization_access_token',
-		'backend_webhook_secret',
-		'organization_id'
-	];
+function add_credential_buttons(frm) {
+	frm.add_custom_button(__('Set API Keys'), () => {
+		open_credentials_dialog(frm, __('Set Mollie API Keys'), [
+			{ fieldname: 'test_secret_key', label: __('Test Secret Key') },
+			{ fieldname: 'live_secret_key', label: __('Live Secret Key') },
+		]);
+	}, __('Credentials'));
 
-	// Strategy 1: Add hidden honeypot fields to catch autofill
-	// Firefox will fill these instead of real fields
-	const form = frm.page.wrapper.find('form');
-	if (!form.find('#autofill-trap').length) {
-		form.prepend(`
-			<div id="autofill-trap" style="position:absolute;left:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">
-				<input type="text" name="fake-username-field" tabindex="-1" autocomplete="username">
-				<input type="password" name="fake-password-field" tabindex="-1" autocomplete="current-password">
-			</div>
-		`);
-	}
+	frm.add_custom_button(__('Set Webhook Secrets'), () => {
+		open_credentials_dialog(frm, __('Set Mollie Webhook Secrets'), [
+			{ fieldname: 'testing_webhook_secret_key', label: __('Testing Webhook Secret Key') },
+			{ fieldname: 'live_webhook_secret_key', label: __('Live Webhook Secret Key') },
+		]);
+	}, __('Credentials'));
 
-	// Strategy 2: Set autocomplete attributes on real fields
-	sensitive_fields.forEach(fieldname => {
-		const field = frm.fields_dict[fieldname];
-		if (field && field.$input) {
-			// 'new-password' tells browser this is NOT a login form
-			field.$input.attr('autocomplete', 'new-password');
-			// Attributes for password managers
-			field.$input.attr('data-lpignore', 'true');
-			field.$input.attr('data-1p-ignore', 'true');
-			field.$input.attr('data-form-type', 'other');
-		}
+	frm.add_custom_button(__('Set Backend Credentials'), () => {
+		open_credentials_dialog(frm, __('Set Mollie Backend Credentials'), [
+			{ fieldname: 'organization_access_token', label: __('Organization Access Token') },
+			{ fieldname: 'backend_webhook_secret', label: __('Backend Webhook Secret') },
+		]);
+	}, __('Credentials'));
+}
+
+function open_credentials_dialog(frm, title, specs) {
+	// Build a dialog whose fields mirror the hidden DocType Password fields.
+	// Browser autofill is blocked per-input via autocomplete="new-password",
+	// randomised `name`, and data-* flags for LastPass/1Password.
+	const fields = specs.map((s) => ({
+		fieldname: s.fieldname,
+		fieldtype: 'Password',
+		label: s.label,
+		description: __('Leave blank to keep existing value.'),
+	}));
+
+	const d = new frappe.ui.Dialog({
+		title: title,
+		fields: fields,
+		primary_action_label: __('Save'),
+		primary_action(values) {
+			let dirty = false;
+			specs.forEach((s) => {
+				const new_val = (values[s.fieldname] || '').trim();
+				if (new_val) {
+					frm.set_value(s.fieldname, new_val);
+					dirty = true;
+				}
+			});
+			if (dirty) frm.dirty();
+			d.hide();
+			render_credentials_status(frm);
+			frappe.show_alert({
+				message: __('Credentials updated. Save the document to store them encrypted.'),
+				indicator: 'green',
+			});
+		},
 	});
+	d.show();
 
-	// Strategy 3: Clear any autofilled values that don't match saved doc
-	// Run after a brief delay to catch Firefox's autofill
-	setTimeout(() => {
-		sensitive_fields.forEach(fieldname => {
-			const field = frm.fields_dict[fieldname];
-			if (field && field.$input) {
-				const input_val = field.$input.val();
-				const doc_val = frm.doc[fieldname] || '';
-
-				// If input has a value but doc doesn't, Firefox autofilled it
-				if (input_val && !doc_val) {
-					field.$input.val('');
-				}
-				// For password fields, Frappe uses placeholder bullets
-				// so we need to check if it was tampered with
-				if (field.df.fieldtype === 'Password' && doc_val && input_val !== doc_val) {
-					// Restore the masked value indicator
-					field.refresh();
-				}
-			}
+	// Apply anti-autofill to each password input in the dialog.
+	specs.forEach((s) => {
+		const $input = d.fields_dict[s.fieldname]?.$input;
+		if (!$input) return;
+		const random_name = s.fieldname + '_' + Math.random().toString(36).slice(2);
+		$input.attr({
+			autocomplete: 'new-password',
+			name: random_name,
+			'data-lpignore': 'true',
+			'data-form-type': 'other',
+			'data-1p-ignore': 'true',
 		});
-	}, 100);
+		const clear_if_spurious = () => {
+			if (!$input.is(':focus')) $input.val('');
+		};
+		clear_if_spurious();
+		setTimeout(clear_if_spurious, 100);
+	});
 }
