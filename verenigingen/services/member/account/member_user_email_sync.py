@@ -42,9 +42,7 @@ def sync_user_email_on_member_update(doc, method=None):
     old_user = (doc.user or "").strip()
 
     if not new_email:
-        frappe.logger().debug(
-            f"Member {doc.name}: email cleared, skipping User rename (user={old_user})"
-        )
+        frappe.logger().debug(f"Member {doc.name}: email cleared, skipping User rename (user={old_user})")
         return
 
     if old_user.lower() == new_email:
@@ -71,6 +69,9 @@ def sync_user_email_on_member_update(doc, method=None):
         frappe.flags[_SYNC_FLAG] = True
         from frappe.model.rename_doc import rename_doc
 
+        # Security: System-triggered rename authorized by Member write permission
+        # (portal users typically lack rename perm on User). Conflict with another
+        # existing User is blocked above to prevent privilege merges.
         rename_doc("User", old_user, new_email, merge=False, ignore_permissions=True)
         # Keep Member.user aligned with the renamed User; also normalize
         # Member.email so both fields agree on casing with User.name.
