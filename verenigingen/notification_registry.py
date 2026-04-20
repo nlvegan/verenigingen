@@ -236,6 +236,20 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_DOCUMENT_FIELD,
     },
+    "chapter_member_transferred_in": {
+        "label": "Chapter Member Transferred In",
+        "category": CATEGORY_CHAPTER,
+        "description": "Sent to board when a member transfers into the chapter from another chapter.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "chapter_member_transferred_out": {
+        "label": "Chapter Member Transferred Out",
+        "category": CATEGORY_CHAPTER,
+        "description": "Sent to board when a member transfers out of the chapter to another chapter.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     # =========================================================================
     # PAYMENT NOTIFICATIONS
     # =========================================================================
