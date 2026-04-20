@@ -116,17 +116,26 @@ class MollieSyncService(StatelessService):
         customer_name: str,
         mollie_data: Dict[str, Any],
     ) -> None:
-        """Update Customer document with Mollie fields."""
-        customer = frappe.get_doc("Customer", customer_name)
+        """Update Customer document with Mollie fields.
 
+        Uses frappe.db.set_value (direct DB write) rather than customer.save()
+        because the Mollie fields are pure data with no downstream hooks. A full
+        save fires Customer.on_update -> create_primary_contact() ->
+        frappe.set_value("Contact", ..., "is_primary_contact", 1), which can
+        raise TimestampMismatchError when the Contact was modified earlier in
+        the same request (e.g., name propagation) and the doc cache serves a
+        stale copy.
+        """
+        values = {}
         if mollie_data.get("custom_mollie_customer_id"):
-            customer.custom_mollie_customer_id = mollie_data["custom_mollie_customer_id"]
+            values["custom_mollie_customer_id"] = mollie_data["custom_mollie_customer_id"]
         if mollie_data.get("custom_mollie_subscription_id"):
-            customer.custom_mollie_subscription_id = mollie_data["custom_mollie_subscription_id"]
+            values["custom_mollie_subscription_id"] = mollie_data["custom_mollie_subscription_id"]
         if mollie_data.get("custom_subscription_status"):
-            customer.custom_subscription_status = mollie_data["custom_subscription_status"]
+            values["custom_subscription_status"] = mollie_data["custom_subscription_status"]
 
-        customer.save()
+        if values:
+            frappe.db.set_value("Customer", customer_name, values)
 
     def validate_mollie_data_preservation(
         self,
