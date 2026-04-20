@@ -30,12 +30,14 @@ def parse_pkey_from_string(key_content: str, passphrase: str | None = None) -> p
     Raises:
         ValueError: If the key cannot be parsed as any supported type.
     """
-    key_classes = (
+    key_classes = [
         paramiko.RSAKey,
         paramiko.Ed25519Key,
         paramiko.ECDSAKey,
-        paramiko.DSSKey,
-    )
+    ]
+    # DSSKey removed in paramiko 4.0; skip if unavailable
+    if hasattr(paramiko, "DSSKey"):
+        key_classes.append(paramiko.DSSKey)
     for key_class in key_classes:
         try:
             return key_class.from_private_key(io.StringIO(key_content), password=passphrase)
