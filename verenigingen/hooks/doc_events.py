@@ -63,6 +63,7 @@ doc_events = {
         "on_update": [
             "verenigingen.services.chapter.chapter_role_events.on_member_on_update",
             "verenigingen.services.field_sync_service.sync_fields",
+            "verenigingen.services.member.account.member_user_email_sync.sync_user_email_on_member_update",
         ],
     },
     "Chapter Member": {
