@@ -129,7 +129,11 @@ class EmailService(StatelessService):
             # Check Email Configuration early - before any template loading
             # This prevents template-not-found errors when email is disabled
             config_service = self._get_config_service()
-            if config_service and not config_service.is_email_enabled():
+            is_enabled = config_service.is_email_enabled() if config_service else True
+            print(
+                f"\nDEBUG send_templated_email: template={template_name!r}, config_service={config_service!r}, is_enabled={is_enabled}"
+            )
+            if config_service and not is_enabled:
                 self.logger.info("Email sending disabled via Email Configuration - skipping templated email")
                 return OperationResult.ok({"skipped": True, "reason": "Email disabled in configuration"})
 
@@ -139,6 +143,7 @@ class EmailService(StatelessService):
 
             # Load and validate template
             template = self._get_template(template_name)
+            print(f"DEBUG send_templated_email: template found={template is not None}")
             if not template:
                 return OperationResult.fail(f"Email template '{template_name}' not found")
 
@@ -492,7 +497,11 @@ class EmailService(StatelessService):
                 return OperationResult.fail("Subject and content are required")
 
             # Check if email account is configured
-            if not self._has_active_email_account():
+            has_account = self._has_active_email_account()
+            print(
+                f"\nDEBUG email_service._send_email_internal: recipients={recipients}, subject={subject[:50]!r}, has_account={has_account}"
+            )
+            if not has_account:
                 self.logger.warning(
                     f"No active email account configured. Email not queued.\n"
                     f"Recipients: {recipients}\n"

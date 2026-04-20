@@ -1,0 +1,240 @@
+{
+ "actions": [],
+ "autoname": "format:MBR-{YYYY}-{MM}-{#####}",
+ "creation": "2026-04-20 11:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_input",
+  "date_from",
+  "date_to",
+  "batch_strategy",
+  "column_input",
+  "status",
+  "cancel_requested",
+  "triggered_by",
+  "section_progress",
+  "total_payments",
+  "last_processed_index",
+  "column_progress",
+  "total_succeeded",
+  "total_skipped",
+  "total_failed",
+  "section_times",
+  "started_at",
+  "completed_at",
+  "column_times",
+  "job_id",
+  "section_error",
+  "last_error",
+  "section_payments",
+  "payments"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_input",
+   "fieldtype": "Section Break",
+   "label": "Run Configuration"
+  },
+  {
+   "fieldname": "date_from",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "From Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_to",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "To Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_strategy",
+   "fieldtype": "Select",
+   "label": "Batch Strategy",
+   "options": "Month\nWeek\nDay",
+   "default": "Month",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_input",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Queued\nFetching\nProcessing\nCompleted\nFailed\nTimed Out\nCancelled",
+   "default": "Queued",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancel_requested",
+   "fieldtype": "Check",
+   "label": "Cancel Requested",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "triggered_by",
+   "fieldtype": "Link",
+   "label": "Triggered By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_progress",
+   "fieldtype": "Section Break",
+   "label": "Progress"
+  },
+  {
+   "fieldname": "total_payments",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Payments",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_processed_index",
+   "fieldtype": "Int",
+   "label": "Last Processed Index",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_progress",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_succeeded",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Succeeded",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_skipped",
+   "fieldtype": "Int",
+   "label": "Skipped",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_failed",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Failed",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_times",
+   "fieldtype": "Section Break",
+   "label": "Timing"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_times",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "job_id",
+   "fieldtype": "Data",
+   "label": "Background Job ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_error",
+   "fieldtype": "Section Break",
+   "label": "Errors",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Long Text",
+   "label": "Last Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_payments",
+   "fieldtype": "Section Break",
+   "label": "Payments"
+  },
+  {
+   "fieldname": "payments",
+   "fieldtype": "Table",
+   "label": "Payments",
+   "options": "Mollie Bulk Run Payment"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-20 11:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Mollie Bulk Run",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Staff",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

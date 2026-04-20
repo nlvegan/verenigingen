@@ -775,6 +775,66 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ============================================================= -->
+            <!-- Bulk Runs Panel (chronological, resumable, observable)        -->
+            <!-- ============================================================= -->
+            <div class="bg-white border-2 border-black p-4 mb-6" id="bulk-runs-panel">
+                <h3 class="text-lg font-semibold text-black mb-2">
+                    <i class="fa fa-history mr-2"></i>{{ _("Bulk Runs (chronological import)") }}
+                </h3>
+                <p class="text-black mb-4">
+                    {{ _("Start a new run for a date range. Payments are sorted oldest-first and processed with a persistent, resumable log — close this tab any time and the run keeps going.") }}
+                </p>
+
+                <!-- Start new run -->
+                <div class="brutal-section-dark mb-4">
+                    <h4 class="font-semibold mb-3">{{ _("Start a new run") }}</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">{{ _("From") }}</label>
+                            <input type="date" id="bulk-run-date-from"
+                                   class="w-full px-3 py-2 border-2 border-black bg-white text-black">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">{{ _("To") }}</label>
+                            <input type="date" id="bulk-run-date-to"
+                                   class="w-full px-3 py-2 border-2 border-black bg-white text-black">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">{{ _("Batch") }}</label>
+                            <select id="bulk-run-batch-strategy"
+                                    class="w-full px-3 py-2 border-2 border-black bg-white text-black">
+                                <option value="Month">{{ _("Month") }}</option>
+                                <option value="Week">{{ _("Week") }}</option>
+                                <option value="Day">{{ _("Day") }}</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end">
+                            <button id="bulk-run-start-btn" type="button"
+                                    class="w-full px-4 py-2 bg-black text-white border-2 border-black hover:bg-gray-800">
+                                <i class="fa fa-play mr-1"></i>{{ _("Start run") }}
+                            </button>
+                        </div>
+                    </div>
+                    <div id="bulk-run-start-feedback" class="text-sm"></div>
+                </div>
+
+                <!-- Recent runs -->
+                <div class="brutal-section-dark">
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="font-semibold">{{ _("Recent runs") }}</h4>
+                        <button id="bulk-run-refresh-btn" type="button"
+                                class="px-3 py-1 text-sm border-2 border-black bg-white hover:bg-gray-100">
+                            <i class="fa fa-refresh mr-1"></i>{{ _("Refresh") }}
+                        </button>
+                    </div>
+                    <div id="bulk-runs-list" class="text-sm">
+                        <p class="text-gray-600">{{ _("Loading…") }}</p>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
@@ -1199,7 +1259,11 @@ function displayBulkPaymentsResults(data) {
     if (filteredByDuplicate > 0) filterParts.push(`${filteredByDuplicate} duplicates`);
 
     if (isGlobalMode) {
-        const displayText = `${totalPaymentsFound} found, ${orphanedCount} orphaned (${processableOrphanedCount} processable)`;
+        const nonProcessable = orphanedCount - processableOrphanedCount;
+        const nonProcessableNote = nonProcessable > 0
+            ? ` — ${nonProcessable} already imported, non-EUR, or not yet paid`
+            : '';
+        const displayText = `${totalPaymentsFound} found, ${orphanedCount} orphaned (${processableOrphanedCount} net-new to process${nonProcessableNote})`;
         document.getElementById('bulk-total-payments').textContent = displayText;
     } else if (filterParts.length > 0) {
         const displayText = `${totalPaymentsFound} found → ${totalPaymentsMatched} matched (filtered: ${filterParts.join(', ')})`;
@@ -2225,5 +2289,157 @@ function displayRecoveryResults(data) {
         }, 1500);
     }
 }
+
+// ============================================================================
+// BULK RUNS PANEL
+// ============================================================================
+
+(function () {
+    const API_START = "verenigingen.api.mollie_bulk_run_api.start_bulk_run";
+    const API_LIST = "verenigingen.api.mollie_bulk_run_api.list_recent_bulk_runs";
+    const API_CANCEL = "verenigingen.api.mollie_bulk_run_api.request_cancel";
+    const API_RESUME = "verenigingen.api.mollie_bulk_run_api.resume_bulk_run";
+
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function statusBadgeColor(status) {
+        switch (status) {
+            case 'Completed': return 'background:#16a34a;color:#fff;';
+            case 'Processing':
+            case 'Fetching':
+            case 'Queued': return 'background:#2563eb;color:#fff;';
+            case 'Failed':
+            case 'Timed Out': return 'background:#dc2626;color:#fff;';
+            case 'Cancelled': return 'background:#6b7280;color:#fff;';
+            default: return 'background:#e5e7eb;color:#000;';
+        }
+    }
+
+    function renderRuns(runs) {
+        const container = document.getElementById('bulk-runs-list');
+        if (!runs || runs.length === 0) {
+            container.innerHTML = '<p class="text-gray-600">{{ _("No runs yet — start one above.") }}</p>';
+            return;
+        }
+        const rows = runs.map(r => {
+            const pct = r.percentage || 0;
+            const deskLink = `/app/mollie-bulk-run/${encodeURIComponent(r.name)}`;
+            const badge = `<span style="${statusBadgeColor(r.status)};padding:2px 8px;border-radius:2px;font-size:0.75rem;font-weight:600">${escapeHtml(r.status)}</span>`;
+            const actions = [];
+            if (r.active) {
+                actions.push(`<button class="bulk-run-cancel-btn text-xs underline" data-run="${escapeHtml(r.name)}">{{ _("Cancel") }}</button>`);
+            }
+            if (r.resumable) {
+                actions.push(`<button class="bulk-run-resume-btn text-xs underline" data-run="${escapeHtml(r.name)}">{{ _("Resume") }}</button>`);
+            }
+            return `<tr style="border-bottom:1px solid #000">
+                <td class="p-2"><a href="${deskLink}" target="_blank" style="font-weight:600">${escapeHtml(r.name)}</a></td>
+                <td class="p-2">${escapeHtml(r.date_from || '')} → ${escapeHtml(r.date_to || '')}</td>
+                <td class="p-2">${badge}</td>
+                <td class="p-2">
+                    <div style="background:#e5e7eb;height:8px;width:120px;border:1px solid #000">
+                        <div style="background:#000;height:100%;width:${pct}%;"></div>
+                    </div>
+                    <span class="text-xs">${r.last_processed_index || 0} / ${r.total_payments || 0} (${pct}%)</span>
+                </td>
+                <td class="p-2 text-xs">
+                    ✓ ${r.total_succeeded || 0}
+                    &nbsp;⊘ ${r.total_skipped || 0}
+                    &nbsp;✗ ${r.total_failed || 0}
+                </td>
+                <td class="p-2 text-xs">${actions.join(' &nbsp; ')}</td>
+            </tr>`;
+        }).join('');
+        container.innerHTML = `<table class="w-full text-sm" style="border-collapse:collapse">
+            <thead><tr style="border-bottom:2px solid #000;text-align:left">
+                <th class="p-2">{{ _("Name") }}</th>
+                <th class="p-2">{{ _("Range") }}</th>
+                <th class="p-2">{{ _("Status") }}</th>
+                <th class="p-2">{{ _("Progress") }}</th>
+                <th class="p-2">{{ _("Outcome") }}</th>
+                <th class="p-2">{{ _("Actions") }}</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+
+        container.querySelectorAll('.bulk-run-cancel-btn').forEach(btn => {
+            btn.addEventListener('click', () => cancelRun(btn.dataset.run));
+        });
+        container.querySelectorAll('.bulk-run-resume-btn').forEach(btn => {
+            btn.addEventListener('click', () => resumeRun(btn.dataset.run));
+        });
+    }
+
+    function refreshRuns() {
+        frappe.call({
+            method: API_LIST,
+            args: { limit: 20 },
+            callback: (r) => renderRuns(r.message || []),
+        });
+    }
+
+    function startRun() {
+        const dateFrom = document.getElementById('bulk-run-date-from').value;
+        const dateTo = document.getElementById('bulk-run-date-to').value;
+        const batch = document.getElementById('bulk-run-batch-strategy').value;
+        const feedback = document.getElementById('bulk-run-start-feedback');
+
+        if (!dateFrom || !dateTo) {
+            feedback.innerHTML = '<span style="color:#dc2626">{{ _("Please pick both dates.") }}</span>';
+            return;
+        }
+        feedback.innerHTML = '<span>{{ _("Queuing…") }}</span>';
+        frappe.call({
+            method: API_START,
+            args: { date_from: dateFrom, date_to: dateTo, batch_strategy: batch },
+            callback: (r) => {
+                if (r.message && r.message.run_name) {
+                    feedback.innerHTML = `<span style="color:#16a34a">{{ _("Started") }}: <a href="/app/mollie-bulk-run/${encodeURIComponent(r.message.run_name)}" target="_blank">${escapeHtml(r.message.run_name)}</a></span>`;
+                    refreshRuns();
+                }
+            },
+            error: (err) => {
+                feedback.innerHTML = `<span style="color:#dc2626">${escapeHtml((err && err.message) || err)}</span>`;
+            },
+        });
+    }
+
+    function cancelRun(runName) {
+        if (!confirm(`{{ _("Request cancel for") }} ${runName}?`)) return;
+        frappe.call({ method: API_CANCEL, args: { run_name: runName }, callback: refreshRuns });
+    }
+
+    function resumeRun(runName) {
+        frappe.call({ method: API_RESUME, args: { run_name: runName }, callback: refreshRuns });
+    }
+
+    function initBulkRunsPanel() {
+        const startBtn = document.getElementById('bulk-run-start-btn');
+        if (!startBtn) return; // page may not have the panel
+        startBtn.addEventListener('click', startRun);
+        document.getElementById('bulk-run-refresh-btn').addEventListener('click', refreshRuns);
+        refreshRuns();
+
+        // Live progress via publish_realtime — updates the row in-place
+        if (window.frappe && frappe.realtime && frappe.realtime.on) {
+            frappe.realtime.on('mollie_bulk_run_progress', () => refreshRuns());
+        }
+
+        // Gentle polling fallback every 20s for any active runs
+        setInterval(refreshRuns, 20000);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initBulkRunsPanel);
+    } else {
+        initBulkRunsPanel();
+    }
+})();
+
 </script>
 {% endblock %}

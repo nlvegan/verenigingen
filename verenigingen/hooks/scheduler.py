@@ -61,6 +61,8 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
         # Payment plans
         "verenigingen.verenigingen_payments.doctype.payment_plan.payment_plan.process_overdue_installments",
+        # Mollie bulk run cleanup (stuck-runner detection)
+        "verenigingen.verenigingen_payments.services.mollie_bulk_run_service.mark_stale_runs_timed_out",
         # Security and monitoring
         "verenigingen.utils.security.audit_logging.cleanup_old_audit_logs",
         "verenigingen.utils.alert_manager.run_daily_checks",
