@@ -280,6 +280,146 @@ class CommunicationManager(BaseManager):
             )
             return False
 
+    def notify_board_of_member_joined(self, member_id: str) -> bool:
+        """Notify all active board members that a regular member joined (or transferred in).
+
+        Reads ``frappe.flags.chapter_transfer`` to decide whether to use the
+        transfer-specific template.  This is the board-facing counterpart to
+        ``notify_member_added`` (which emails only the joining member).
+
+        Returns True if at least one email was queued.
+        """
+        enabled = self._board_lifecycle_notifications_enabled()
+        print(
+            f"\nDEBUG notify_board_of_member_joined: member_id={member_id}, enabled={enabled}, board_members={len(self.chapter_doc.board_members)}"
+        )
+        if not enabled:
+            return False
+
+        transfer = frappe.flags.get("chapter_transfer") or {}
+        is_transfer_in = transfer.get("member") == member_id and transfer.get("to") == self.chapter_name
+        template_name = (
+            "chapter_board_member_transferred_in" if is_transfer_in else "chapter_board_member_joined"
+        )
+        notification_key = "chapter_member_transferred_in" if is_transfer_in else "chapter_member_joined"
+        other_chapter = transfer.get("from") if is_transfer_in else None
+
+        return self._dispatch_board_lifecycle_notification(
+            member_id=member_id,
+            template_name=template_name,
+            notification_key=notification_key,
+            other_chapter=other_chapter,
+            effective_date=frappe.utils.today(),
+        )
+
+    def notify_board_of_member_left(self, member_id: str, leave_reason: str = None) -> bool:
+        """Notify all active board members that a regular member left (or transferred out).
+
+        Reads ``frappe.flags.chapter_transfer`` to decide whether to use the
+        transfer-specific template.  This is the board-facing counterpart to
+        ``notify_member_removed`` (which emails only the leaving member).
+
+        Returns True if at least one email was queued.
+        """
+        if not self._board_lifecycle_notifications_enabled():
+            return False
+
+        transfer = frappe.flags.get("chapter_transfer") or {}
+        is_transfer_out = transfer.get("member") == member_id and transfer.get("from") == self.chapter_name
+        template_name = (
+            "chapter_board_member_transferred_out" if is_transfer_out else "chapter_board_member_left"
+        )
+        notification_key = "chapter_member_transferred_out" if is_transfer_out else "chapter_member_left"
+        other_chapter = transfer.get("to") if is_transfer_out else None
+
+        return self._dispatch_board_lifecycle_notification(
+            member_id=member_id,
+            template_name=template_name,
+            notification_key=notification_key,
+            other_chapter=other_chapter,
+            effective_date=frappe.utils.today(),
+            leave_reason=leave_reason,
+        )
+
+    def _board_lifecycle_notifications_enabled(self) -> bool:
+        """Gate: returns True only if none of the suppression rules fire."""
+        if getattr(frappe.flags, "is_bulk_import", False):
+            return False
+        if getattr(frappe.flags, "suppress_chapter_notifications", False):
+            return False
+        setting_value = frappe.db.get_single_value(
+            "Verenigingen Settings", "send_chapter_assignment_notifications"
+        )
+        return bool(setting_value)
+
+    def _dispatch_board_lifecycle_notification(
+        self,
+        member_id: str,
+        template_name: str,
+        notification_key: str,
+        other_chapter: str,
+        effective_date: str,
+        leave_reason: str = None,
+    ) -> bool:
+        """Send an email template to every active board member of this chapter.
+
+        Board member rows carry a pre-fetched ``email`` field (fetched from
+        ``volunteer.email``), so no additional lookup is needed.
+        Returns True if at least one email was queued.
+        """
+        try:
+            from verenigingen.services.communication.email_service import get_email_service
+
+            recipients = []
+            seen: set = set()
+            for board_row in self.chapter_doc.board_members or []:
+                print(
+                    f"DEBUG board_row: is_active={board_row.is_active}, email={board_row.email!r}, volunteer={board_row.volunteer!r}"
+                )
+                if not board_row.is_active:
+                    continue
+                email = board_row.email
+                if email and email not in seen:
+                    recipients.append(email)
+                    seen.add(email)
+
+            print(f"DEBUG _dispatch_board_lifecycle_notification: recipients={recipients}")
+            if not recipients:
+                return False
+
+            member_doc = frappe.get_doc("Member", member_id)
+            member_name = member_doc.full_name or (
+                f"{member_doc.first_name or ''} {member_doc.last_name or ''}".strip() or member_id
+            )
+
+            context = {
+                "member_name": member_name,
+                "member_id": member_id,
+                "member_link": frappe.utils.get_url(f"/app/member/{member_id}"),
+                "chapter_name": self.chapter_name,
+                "other_chapter": other_chapter,
+                "effective_date": frappe.utils.formatdate(effective_date),
+                "leave_reason": leave_reason,
+            }
+
+            result = get_email_service().send_templated_email(
+                template_name=template_name,
+                recipients=recipients,
+                context=context,
+                reference_doctype="Chapter",
+                reference_name=self.chapter_name,
+                notification_key=notification_key,
+            )
+            return result.success if result else False
+
+        except Exception as e:
+            self.log_action(
+                "Failed to dispatch board lifecycle notification",
+                {"member": member_id, "template": template_name, "error": str(e)},
+                "error",
+            )
+            return False
+
     def send_bulk_notification(
         self, template_name: str, recipients: List[str], subject: str, context: Dict, batch_size: int = 50
     ) -> Dict:

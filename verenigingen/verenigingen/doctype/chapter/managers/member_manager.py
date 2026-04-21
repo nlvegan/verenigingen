@@ -208,6 +208,14 @@ class MemberManager(BaseManager):
                     # Log but don't fail - notification failures shouldn't prevent member addition
                     frappe.logger().warning(f"Failed to send notification for member {member_id}: {str(e)}")
 
+            # Notify the board of the new member (independent of member's own notification)
+            try:
+                self.chapter_doc.communication_manager.notify_board_of_member_joined(member_id)
+            except Exception as e:
+                frappe.logger().warning(
+                    f"Failed to send board notification for member join {member_id}: {str(e)}"
+                )
+
             self.log_action(
                 "Member added", {"member": member_id, "member_name": member_doc.full_name, "enabled": enabled}
             )
@@ -659,6 +667,14 @@ class MemberManager(BaseManager):
                     frappe.logger().warning(
                         f"Failed to send removal notification for member {member_id}: {str(e)}"
                     )
+
+            # Notify the board of the member leaving (independent of member's own notification)
+            try:
+                self.chapter_doc.communication_manager.notify_board_of_member_left(member_id, leave_reason)
+            except Exception as e:
+                frappe.logger().warning(
+                    f"Failed to send board notification for member leave {member_id}: {str(e)}"
+                )
 
             self.log_action(
                 f"Member {action}",
