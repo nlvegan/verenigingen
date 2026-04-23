@@ -271,6 +271,54 @@ class TestMollieBulkRun(EnhancedTestCase):
         self.assertEqual(run.payments[0].row_status, "Blocked")
         self.assertGreaterEqual(run.payments[0].attempts, 3)
 
+    # --- Desk auto-enqueue on insert ---------------------------------------
+
+    def _create_run_without_skip_flag(self):
+        run = frappe.get_doc(
+            {
+                "doctype": "Mollie Bulk Run",
+                "date_from": "2021-01-01",
+                "date_to": "2021-03-31",
+                "batch_strategy": "Month",
+                "status": "Queued",
+            }
+        )
+        run.insert(ignore_permissions=True)
+        return run
+
+    def _create_run_with_skip_flag(self):
+        run = frappe.get_doc(
+            {
+                "doctype": "Mollie Bulk Run",
+                "date_from": "2021-01-01",
+                "date_to": "2021-03-31",
+                "batch_strategy": "Month",
+                "status": "Queued",
+            }
+        )
+        run.flags.skip_auto_enqueue = True
+        run.insert(ignore_permissions=True)
+        return run
+
+    def test_desk_save_auto_enqueues_run(self):
+        """Creating a Queued run from the desk (no skip flag) triggers enqueue_run."""
+        with patch(
+            "verenigingen.verenigingen_payments.services.mollie_bulk_run_service.enqueue_run",
+            return_value="job-desk-123",
+        ) as enq:
+            run = self._create_run_without_skip_flag()
+
+        enq.assert_called_once_with(run.name)
+
+    def test_skip_auto_enqueue_flag_respected(self):
+        """API-driven creation sets skip_auto_enqueue to control timing of enqueue."""
+        with patch(
+            "verenigingen.verenigingen_payments.services.mollie_bulk_run_service.enqueue_run"
+        ) as enq:
+            self._create_run_with_skip_flag()
+
+        enq.assert_not_called()
+
     # --- Stale run cleanup --------------------------------------------------
 
     def test_mark_stale_runs_timed_out(self):

@@ -51,6 +51,8 @@ def start_bulk_run(date_from: str, date_to: str, batch_strategy: str = "Month") 
             "triggered_by": frappe.session.user,
         }
     )
+    # Suppress after_insert auto-enqueue (we enqueue explicitly below to capture job_id)
+    run.flags.skip_auto_enqueue = True
     # Security: Access gate enforced by _check_access above (Admin / Staff / Treasurer roles).
     # Insert bypass needed because Mollie Bulk Run has no explicit Create perm for Staff role,
     # but the action is authorized by the role-based API gate.
