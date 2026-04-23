@@ -216,3 +216,23 @@ class TestMollieFetchLayer(EnhancedTestCase):
 
         # Garbage → None (graceful)
         self.assertIsNone(svc._parse_datetime("not-a-datetime"))
+
+    def test_parse_datetime_strips_tzinfo_for_mariadb(self):
+        """Regression: Mollie returns '+00:00' tz suffix; MariaDB DATETIME rejects it."""
+        # Z suffix form
+        dt_z = svc._parse_datetime("2022-11-02T17:55:20Z")
+        self.assertIsNotNone(dt_z)
+        self.assertIsNone(dt_z.tzinfo, "tzinfo must be stripped for DATETIME storage")
+
+        # Explicit +00:00 form (as seen in the production error)
+        dt_plus = svc._parse_datetime("2022-11-02T17:55:20+00:00")
+        self.assertIsNotNone(dt_plus)
+        self.assertIsNone(dt_plus.tzinfo)
+
+        # Non-UTC offset converts to UTC before stripping
+        dt_offset = svc._parse_datetime("2022-11-02T19:55:20+02:00")
+        self.assertIsNotNone(dt_offset)
+        self.assertIsNone(dt_offset.tzinfo)
+        # 19:55 +02:00 == 17:55 UTC
+        self.assertEqual(dt_offset.hour, 17)
+        self.assertEqual(dt_offset.minute, 55)

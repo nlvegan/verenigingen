@@ -22,7 +22,7 @@ Blocked and skipped.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import frappe
 from frappe import _
@@ -189,15 +189,25 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
 
 
 def _parse_datetime(value):
+    """Parse Mollie's ISO-8601 datetime string into a MariaDB-friendly naive datetime.
+
+    Mollie returns tz-aware values like '2022-11-02T17:55:20+00:00'; MariaDB's
+    DATETIME column rejects the tz suffix. Convert to UTC and strip tzinfo so
+    the value persists cleanly.
+    """
     if not value:
         return None
     if isinstance(value, datetime):
-        return value
-    text = str(value).replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(text)
-    except ValueError:
-        return None
+        dt = value
+    else:
+        text = str(value).replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 # ---------------------------------------------------------------------------
