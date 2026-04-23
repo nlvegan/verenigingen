@@ -258,6 +258,28 @@ def _process_rows(run) -> None:
 
         row.attempts = (row.attempts or 0) + 1
 
+        # Idempotency shortcut: if a Bank Transaction already exists for this
+        # payment, the import side of the pipeline is done — skip entirely.
+        # This avoids the orchestrator's "try to retrofit PE/SI" path which
+        # can report Failed when member resolution or invoice matching
+        # stumbles on an already-imported orphan.
+        existing_bt = frappe.db.get_value(
+            "Bank Transaction",
+            {"reference_number": row.payment_id, "docstatus": ["!=", 2]},
+            "name",
+        )
+        if existing_bt:
+            row.bank_transaction = existing_bt
+            row.row_status = "Skipped"
+            row.message = f"Bank Transaction {existing_bt} already exists for {row.payment_id}"
+            row.processed_at = now_datetime()
+            skipped += 1
+            idx += 1
+            if idx % PROGRESS_CHECKPOINT_INTERVAL == 0 or idx == total:
+                _checkpoint(run, idx, succeeded, skipped, failed, total)
+                run.reload()
+            continue
+
         try:
             result = orchestrator.process_payment(row.payment_id)
             _apply_result_to_row(row, result)
@@ -302,14 +324,19 @@ def _apply_result_to_row(row, result) -> None:
     if result.member:
         row.member = result.member
 
-    status_map = {
-        "success": "Success",
-        "already_processed": "Success",
-        "skipped": "Skipped",
-        "needs_review": "Skipped",
-        "error": "Failed",
-    }
-    row.row_status = status_map.get(result.status, "Failed")
+    # Orchestrator statuses: success, already_processed, skipped, needs_review,
+    # partial (BT xor PE present but not both), error (no docs, or unresolvable).
+    # "partial" with a BT means the import side is done — treat as Skipped, not Failed.
+    if result.status in ("success", "already_processed"):
+        row.row_status = "Success"
+    elif result.status in ("skipped", "needs_review"):
+        row.row_status = "Skipped"
+    elif result.status == "partial":
+        row.row_status = "Skipped" if result.bank_transaction else "Failed"
+    elif result.status == "error":
+        row.row_status = "Skipped" if result.bank_transaction else "Failed"
+    else:
+        row.row_status = "Failed"
 
     if result.error:
         row.message = result.error[:1000]

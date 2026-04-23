@@ -44,11 +44,16 @@ class TestMollieBulkRun(EnhancedTestCase):
         return run
 
     def _sample_payments(self, n=5):
-        """Fake Mollie payment dicts sorted ASC by paid_at."""
+        """Fake Mollie payment dicts sorted ASC by paid_at.
+
+        Uses a unique prefix per test so rows committed during svc.execute_bulk_run
+        (which calls frappe.db.commit() at checkpoints) don't leak cross-test.
+        """
         base = datetime(2021, 1, 1, 12, 0, 0)
+        unique = frappe.generate_hash(length=8)
         return [
             {
-                "id": f"tr_test{i:03d}",
+                "id": f"tr_test_{unique}_{i:03d}",
                 "paid_at": base.replace(day=1 + i).isoformat(),
                 "created_at": base.replace(day=1 + i).isoformat(),
                 "amount_value": 10.0 + i,
@@ -169,7 +174,7 @@ class TestMollieBulkRun(EnhancedTestCase):
 
         def fake_process(pid):
             # Flip cancel flag on the 3rd call so we see it at the next checkpoint (every 10)
-            idx = int(pid.replace("tr_test", ""))
+            idx = int(pid.rsplit("_", 1)[-1])
             if idx == 2:
                 frappe.db.set_value(
                     "Mollie Bulk Run", run.name, "cancel_requested", 1, update_modified=False
@@ -199,7 +204,7 @@ class TestMollieBulkRun(EnhancedTestCase):
 
         def fake_first(pid):
             processed_round_one.append(pid)
-            idx = int(pid.replace("tr_test", ""))
+            idx = int(pid.rsplit("_", 1)[-1])
             if idx == 2:
                 frappe.db.set_value(
                     "Mollie Bulk Run", run.name, "cancel_requested", 1, update_modified=False
@@ -270,6 +275,106 @@ class TestMollieBulkRun(EnhancedTestCase):
         run.reload()
         self.assertEqual(run.payments[0].row_status, "Blocked")
         self.assertGreaterEqual(run.payments[0].attempts, 3)
+
+    # --- Idempotency: existing BT → Skipped, not Failed --------------------
+
+    def _create_test_bt(self, reference_number):
+        """Create a Bank Transaction matching a Mollie payment ID (test factory)."""
+        bt = frappe.get_doc(
+            {
+                "doctype": "Bank Transaction",
+                "date": "2021-01-01",
+                "deposit": 10.0,
+                "description": "Test BT for bulk run shortcut",
+                "reference_number": reference_number,
+                "status": "Unreconciled",
+            }
+        )
+        bt.insert(ignore_permissions=True)
+        return bt
+
+    def test_existing_bt_short_circuits_orchestrator(self):
+        """When a Bank Transaction already exists for a payment, the orchestrator
+        is not called. Verified by creating a real BT matching the payment_id."""
+        run = self._create_test_run()
+        payments = self._sample_payments(1)
+        pid = payments[0]["id"]
+
+        bt = self._create_test_bt(reference_number=pid)
+
+        calls = []
+
+        def fake_process(pid_):
+            calls.append(pid_)
+            return _mk_result(pid_, "success")
+
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
+            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
+            "MolliePaymentOrchestrator.process_payment",
+            side_effect=fake_process,
+        ):
+            svc.execute_bulk_run(run.name)
+
+        self.assertEqual(calls, [], "Orchestrator must not be called when BT exists")
+
+        run.reload()
+        self.assertEqual(run.status, "Completed")
+        self.assertEqual(run.total_skipped, 1)
+        self.assertEqual(run.payments[0].row_status, "Skipped")
+        self.assertEqual(run.payments[0].bank_transaction, bt.name)
+
+    def test_partial_status_with_existing_bt_maps_to_skipped(self):
+        """Orchestrator partial (BT present, PE missing) → Skipped, not Failed."""
+        # Direct unit-test of the mapping function, independent of the full run loop.
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        row.attempts = 0
+
+        result = _mk_result(
+            "tr_test001",
+            "partial",
+            bank_transaction="BT-EXISTING-002",
+            error="Partial processing: missing Payment Entry",
+        )
+        svc._apply_result_to_row(row, result)
+        self.assertEqual(row.row_status, "Skipped")
+
+    def test_error_with_bt_maps_to_skipped(self):
+        """Orchestrator error but BT is present → Skipped (import-side already done)."""
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        result = _mk_result(
+            "tr_test002",
+            "error",
+            bank_transaction="BT-EXISTING-003",
+            error="Cannot determine member",
+        )
+        svc._apply_result_to_row(row, result)
+        self.assertEqual(row.row_status, "Skipped")
+
+    def test_error_without_bt_still_maps_to_failed(self):
+        """Orchestrator error with no BT → Failed (unchanged behavior)."""
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        result = _mk_result(
+            "tr_test003",
+            "error",
+            error="Cannot determine member",
+        )
+        svc._apply_result_to_row(row, result)
+        self.assertEqual(row.row_status, "Failed")
+
+    def test_partial_without_bt_still_maps_to_failed(self):
+        """Orchestrator partial but no BT → Failed (something genuinely went wrong)."""
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        result = _mk_result("tr_test004", "partial", error="invoice lookup failed")
+        svc._apply_result_to_row(row, result)
+        self.assertEqual(row.row_status, "Failed")
 
     # --- Desk auto-enqueue on insert ---------------------------------------
 
