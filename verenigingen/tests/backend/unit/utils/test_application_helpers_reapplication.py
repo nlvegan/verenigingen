@@ -9,7 +9,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
-from verenigingen.utils.application_helpers import (
+from verenigingen.services.member.approval.application_helpers import (
     _append_chapter_notes,
     _apply_custom_contribution_fee,
     _sanitize_application_names,

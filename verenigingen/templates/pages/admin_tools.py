@@ -615,6 +615,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.services.billing.invoice_management.cleanup_orphaned_membership_data",
     # Dues schedule health management
     "verenigingen.services.billing.dues_schedule_health_manager.sync_all_member_fields",
+    "verenigingen.services.billing.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
     # Data integrity management
     "verenigingen.utils.orphaned_child_table_cleanup.verify_child_table_indexes",
     "verenigingen.utils.orphaned_child_table_cleanup.create_missing_parent_indexes",

@@ -10,8 +10,7 @@ import unittest
 import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 import json
 from importlib import import_module
 from verenigingen.templates.pages.admin_tools import (
@@ -47,54 +46,137 @@ class TestAdminToolsSecurity(VereningingenTestCase):
             self.assertRegex(method, r'^verenigingen\.')
             self.assertIn('.', method)
             
-        # Ensure no dangerous patterns (but allow legitimate words like "imported_data")
-        dangerous_patterns = ['__', 'eval', 'exec', 'compile']
+        # Ensure no dangerous patterns. Substring matches false-positive on legitimate
+        # names (e.g. ``cleanup_imported_data`` contains ``import``,
+        # ``member_import_cleanup`` contains ``import``); the strong guarantee that
+        # these strings can't reach arbitrary code is provided by
+        # test_allowed_methods_resolve, which actually imports each one.
+        dangerous_patterns = ['eval(', 'exec(', 'compile(']
         for method in ALLOWED_ADMIN_METHODS:
             for pattern in dangerous_patterns:
                 self.assertNotIn(pattern, method)
-        
-        # Check for dangerous import patterns more specifically
+            # Block dunder-attribute access via the dotted path
+            for component in method.split('.'):
+                self.assertFalse(
+                    component.startswith('__') and component.endswith('__'),
+                    f"Method {method} contains dunder component '{component}'",
+                )
+
+    def test_allowed_methods_resolve(self):
+        """Every method in ALLOWED_ADMIN_METHODS must import + resolve to a callable.
+
+        Catches bugs like a referenced module being moved/renamed without updating
+        the allow-list — string literals are invisible to AST-based import validators.
+        """
+        unresolved = []
         for method in ALLOWED_ADMIN_METHODS:
-            # Avoid false positives like "imported_data" but catch actual import statements
-            if 'import' in method and not 'imported' in method:
-                self.fail(f"Method {method} contains suspicious 'import' pattern")
+            module_path, function_name = method.rsplit('.', 1)
+            try:
+                module = import_module(module_path)
+            except ImportError as e:
+                unresolved.append(f"{method}: module not found ({e})")
+                continue
+            func = getattr(module, function_name, None)
+            if func is None:
+                unresolved.append(f"{method}: function missing in {module_path}")
+            elif not callable(func):
+                unresolved.append(f"{method}: resolved object is not callable")
+        if unresolved:
+            self.fail(
+                "ALLOWED_ADMIN_METHODS contains unresolvable entries:\n  - "
+                + "\n  - ".join(unresolved)
+            )
+
+    def test_ui_tool_methods_are_allowed_and_resolve(self):
+        """Every method wired to a UI button in get_context() must be in
+        ALLOWED_ADMIN_METHODS and resolve at import time.
+
+        Catches the inverse bug: a tool button whose method string is not in
+        the allow-list, which would fail at click time with "Method not allowed".
+        """
+        # Build a mock context object with attribute assignment
+        class _Ctx:
+            pass
+
+        # Run get_context as Administrator to bypass the role check
+        original_user = frappe.session.user
+        frappe.set_user("Administrator")
+        try:
+            ctx = _Ctx()
+            get_context(ctx)
+        finally:
+            frappe.set_user(original_user)
+
+        # Collect every method string from every *_tools list on the context
+        ui_methods = set()
+        for attr_name in dir(ctx):
+            if attr_name.endswith('_tools'):
+                tools = getattr(ctx, attr_name, None)
+                if isinstance(tools, list):
+                    for tool in tools:
+                        if isinstance(tool, dict) and 'method' in tool:
+                            ui_methods.add(tool['method'])
+
+        self.assertGreater(len(ui_methods), 0, "Expected at least one UI tool method")
+
+        # Every UI method must be in the allow-list
+        not_allowed = ui_methods - ALLOWED_ADMIN_METHODS
+        self.assertFalse(
+            not_allowed,
+            f"UI tool methods missing from ALLOWED_ADMIN_METHODS (clicks will fail "
+            f"with 'Method not allowed'):\n  - " + "\n  - ".join(sorted(not_allowed)),
+        )
+
+        # Every UI method must resolve at import time
+        unresolved = []
+        for method in ui_methods:
+            module_path, function_name = method.rsplit('.', 1)
+            try:
+                module = import_module(module_path)
+            except ImportError as e:
+                unresolved.append(f"{method}: module not found ({e})")
+                continue
+            if not callable(getattr(module, function_name, None)):
+                unresolved.append(f"{method}: function missing or not callable")
+        if unresolved:
+            self.fail(
+                "UI tool methods do not resolve:\n  - " + "\n  - ".join(unresolved)
+            )
+
+    @patch('frappe.has_permission', return_value=False)
+    @patch('frappe.get_roles', return_value=['Employee'])
+    def test_execute_admin_tool_permission_denied(self, _mock_roles, _mock_has_perm):
+        """A non-admin, non-System Manager user is denied at the permission gate.
+
+        ``execute_admin_tool`` is wrapped with @critical_api which runs its own
+        framework-level check before the function body. That check raises
+        ``verenigingen.utils.error_handling.PermissionError`` (not
+        ``frappe.PermissionError`` — they are separate classes). Either flavor
+        satisfies the security contract: the call is denied before any tool
+        logic runs.
+        """
+        from verenigingen.utils.error_handling import PermissionError as VPermErr
+
+        original_user = frappe.session.user
+        frappe.set_user("Guest")  # not "Administrator" — fails the user==Administrator check
+        try:
+            with self.assertRaises((frappe.PermissionError, VPermErr)):
+                execute_admin_tool("verenigingen.utils.some_method")
+        finally:
+            frappe.set_user(original_user)
     
-    def test_execute_admin_tool_permission_denied(self):
-        """Test permission checking in execute_admin_tool with real users"""
-        # Test with regular user (no admin permissions)
-        # VereningingenTestCase handles permissions automatically
-        
-        # Ensure user has only basic role
-        user_doc = frappe.get_doc("User", "test_user@example.com")
-        if not DocumentExistenceValidator.check_document_exists("User", "test_user@example.com"):
-            user_doc = frappe.get_doc({
-                "doctype": "User",
-                "email": "test_user@example.com",
-                "first_name": "Test",
-                "last_name": "User",
-                "enabled": 1
-            })
-            user_doc.insert()
-        
-        # Clear existing roles and add only Employee
-        user_doc.roles = []
-        user_doc.add_roles("Employee")
-        
+    @patch('frappe.log_error')
+    def test_execute_admin_tool_method_not_allowed(self, _mock_log):
+        """Test that non-whitelisted methods are blocked.
+
+        ``frappe.log_error`` is patched: admin_tools logs the unauthorized
+        attempt before throwing, and earlier tests in this module mock
+        ``importlib.import_module``, which can poison Frappe's controller
+        cache for "Error Log" and break the framework log_error call.
+        """
         with self.assertRaises(frappe.PermissionError) as context:
-            execute_admin_tool("verenigingen.utils.some_method")
-        
-        self.assertIn("Insufficient permissions", str(context.exception))
-    
-    def test_execute_admin_tool_method_not_allowed(self):
-        """Test that non-whitelisted methods are blocked"""
-        # Admin user already set in setUp
-        
-        # Try to execute a non-whitelisted method
-        result = execute_admin_tool("os.system")
-        
-        # Should be blocked even for admin users
-        self.assertFalse(result.get('success'))
-        self.assertIn('not allowed', result.get('error', '').lower())
+            execute_admin_tool("os.system")
+        self.assertIn("not allowed", str(context.exception).lower())
     
     @patch('frappe.log_error')
     def test_execute_admin_tool_logs_unauthorized_attempts(self, mock_log):
@@ -111,48 +193,56 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         self.assertIn("Unauthorized admin tool execution attempt", call_args[0])
         self.assertIn("Administrator", call_args[0])
     
-    def test_execute_admin_tool_module_path_validation(self):
-        """Test that module paths are validated"""
-        # Admin user already set in setUp
-        
-        # Try various invalid module paths
+    @patch('frappe.log_error')
+    def test_execute_admin_tool_module_path_validation(self, _mock_log):
+        """Module paths not under verenigingen./frappe. are rejected.
+
+        Each invalid path is temporarily added to ALLOWED_ADMIN_METHODS to
+        bypass the allow-list gate so the secondary module-path-prefix gate
+        (admin_tools.py:736) is the one under test. We add+discard directly
+        rather than ``patch.object(set, '__contains__')`` because Python 3.12
+        forbids patching dunders on built-in set instances.
+        """
         invalid_paths = [
             "subprocess.call",
-            "eval.something", 
+            "eval.something",
             "../../../etc/passwd",
-            "builtins.eval"
+            "builtins.eval",
         ]
-        
         for path in invalid_paths:
-            # Add to allowed list to bypass first check
-            with patch.object(ALLOWED_ADMIN_METHODS, '__contains__', return_value=True):
+            ALLOWED_ADMIN_METHODS.add(path)
+            try:
                 with self.assertRaises(frappe.PermissionError):
                     execute_admin_tool(path)
+            finally:
+                ALLOWED_ADMIN_METHODS.discard(path)
     
     @patch('importlib.import_module')
-    def test_execute_admin_tool_whitelist_decorator_check(self, mock_import):
-        """Test that functions must have whitelist decorator"""
-        # Admin user already set in setUp
-        
-        # Create a mock function without whitelist decorator
-        mock_func = MagicMock()
-        mock_func.__func_is_whitelisted__ = False
-        
+    def test_explicit_allowance_bypasses_whitelist_attribute(self, mock_import):
+        """Methods in ALLOWED_ADMIN_METHODS execute even without the
+        ``__func_is_whitelisted__`` attribute.
+
+        This locks in the intentional behavior at admin_tools.py:750/801: the
+        ALLOWED_ADMIN_METHODS set is the authoritative gate, and a method
+        present there bypasses the whitelist-attribute check (with an audit log
+        warning). The "Method not allowed" gate is covered separately by
+        test_execute_admin_tool_method_not_allowed.
+        """
+        mock_func = MagicMock(return_value={"ok": True})
+        # Explicitly no __func_is_whitelisted__ attribute
+        del mock_func.__func_is_whitelisted__
+
         mock_module = MagicMock()
         mock_module.test_function = mock_func
         mock_import.return_value = mock_module
-        
-        # Add to allowed methods
+
         test_method = "verenigingen.test.test_function"
         ALLOWED_ADMIN_METHODS.add(test_method)
-        
         try:
-            with self.assertRaises(frappe.PermissionError) as context:
-                execute_admin_tool(test_method)
-            
-            self.assertIn("not properly whitelisted", str(context.exception))
+            result = execute_admin_tool(test_method)
+            self.assertTrue(result['success'])
+            mock_func.assert_called_once()
         finally:
-            # Clean up
             ALLOWED_ADMIN_METHODS.discard(test_method)
     
     @patch('frappe.logger')
@@ -176,69 +266,81 @@ class TestAdminToolsSecurity(VereningingenTestCase):
             mock_import.return_value = mock_module
             
             execute_admin_tool(test_method)
-            
-            # Check audit logging
+
+            # Check audit logging — admin_tools emits a pre-execution
+            # "Admin tool executed: …" log and a post-execution
+            # "Admin tool completed successfully: …" log. Walk all calls.
             mock_logger.info.assert_called()
-            call_args = mock_logger.info.call_args[0][0]
-            self.assertIn("Admin tool executed", call_args)
-            self.assertIn(test_method, call_args)
+            messages = [c.args[0] for c in mock_logger.info.call_args_list if c.args]
+            self.assertTrue(
+                any("Admin tool executed" in m for m in messages),
+                f"Expected pre-execution audit log, got: {messages}",
+            )
+            self.assertTrue(
+                any(test_method in m for m in messages),
+                f"Expected method name in audit log, got: {messages}",
+            )
     
-    def test_execute_admin_tool_argument_validation(self):
-        """Test that arguments are properly validated"""
-        # Admin user already set in setUp
-        
-        # Test with various invalid argument types
+    @patch('frappe.log_error')
+    def test_execute_admin_tool_argument_validation(self, _mock_log):
+        """JSON args that don't decode to a dict are rejected.
+
+        Uses ``get_system_health`` as a real allowed, side-effect-free method
+        and patches ``json.loads`` to return a list. The dict-shape gate at
+        admin_tools.py:844 should fire and the outer ``except Exception``
+        surfaces it as ``success=False``.
+
+        We deliberately do NOT patch ``importlib.import_module``: combining it
+        with ``patch('json.loads', ...)`` makes admin_tools take the no-args
+        branch (likely an import-machinery interaction), bypassing the very
+        gate this test exercises.
+        """
+        test_method = "verenigingen.utils.performance_dashboard.get_system_health"
+        self.assertIn(test_method, ALLOWED_ADMIN_METHODS)
+
+        with patch('json.loads', return_value=["list", "not", "dict"]):
+            result = execute_admin_tool(test_method, '{"forced":"to_parse"}')
+        self.assertFalse(result['success'])
+    
+    @patch('frappe.log_error')
+    def test_execute_admin_tool_error_sanitization(self, _mock_log):
+        """Errors are sanitized in production mode, exposed in developer mode.
+
+        ``frappe.conf`` is a frappe._dict, not an object with ``__dict__`` —
+        ``patch.object(frappe.conf, 'developer_mode', ...)`` raises
+        ``TypeError: 'NoneType' object is not subscriptable``. Save/restore
+        the key directly instead.
+        """
         test_method = list(ALLOWED_ADMIN_METHODS)[0] if ALLOWED_ADMIN_METHODS else None
         if not test_method:
             self.skipTest("No allowed methods to test")
-        
-        with patch('importlib.import_module') as mock_import:
-            mock_func = MagicMock()
-            mock_func.__func_is_whitelisted__ = True
-            
-            mock_module = MagicMock()
-            setattr(mock_module, test_method.split('.')[-1], mock_func)
-            mock_import.return_value = mock_module
-            
-            # Test with invalid JSON
-            result = execute_admin_tool(test_method, "invalid json {]")
-            self.assertFalse(result['success'])
-            
-            # Test with non-dict args after parsing
-            with patch('json.loads', return_value=["list", "not", "dict"]):
-                with self.assertRaises(frappe.ValidationError):
-                    execute_admin_tool(test_method, '["list"]')
-    
-    def test_execute_admin_tool_error_sanitization(self):
-        """Test that errors are sanitized in production mode"""
-        # Admin user already set in setUp
-        
-        test_method = list(ALLOWED_ADMIN_METHODS)[0] if ALLOWED_ADMIN_METHODS else None
-        if not test_method:
-            self.skipTest("No allowed methods to test")
-        
+
+        original_dev_mode = frappe.conf.get('developer_mode')
         with patch('importlib.import_module') as mock_import:
             mock_func = MagicMock(side_effect=Exception("Sensitive database error with passwords"))
             mock_func.__func_is_whitelisted__ = True
-            
             mock_module = MagicMock()
             setattr(mock_module, test_method.split('.')[-1], mock_func)
             mock_import.return_value = mock_module
-            
-            # Test in production mode
-            with patch.object(frappe.conf, 'developer_mode', 0):
+
+            try:
+                # Production mode → sanitized error
+                frappe.conf['developer_mode'] = 0
                 result = execute_admin_tool(test_method)
-                
                 self.assertFalse(result['success'])
                 self.assertNotIn("password", result['error'].lower())
                 self.assertEqual(result['error'], "An error occurred while executing the tool")
-            
-            # Test in developer mode
-            with patch.object(frappe.conf, 'developer_mode', 1):
+
+                # Developer mode → raw error
+                frappe.conf['developer_mode'] = 1
                 result = execute_admin_tool(test_method)
-                
                 self.assertFalse(result['success'])
                 self.assertIn("Sensitive database error", result['error'])
+            finally:
+                if original_dev_mode is None:
+                    frappe.conf.pop('developer_mode', None)
+                else:
+                    frappe.conf['developer_mode'] = original_dev_mode
 
 
 class TestAdminToolsContext(VereningingenTestCase):
@@ -329,10 +431,15 @@ class TestRCEPrevention(VereningingenTestCase):
         frappe.session.user = self.original_user
         super().tearDown()
     
-    def test_prevent_code_injection_attempts(self):
-        """Test various code injection attempts are blocked"""
-        # Admin user already set in setUp
-        
+    @patch('frappe.log_error')
+    def test_prevent_code_injection_attempts(self, _mock_log):
+        """Test various code injection attempts are blocked.
+
+        ``frappe.log_error`` is patched: each blocked attempt logs a
+        security alert before throwing, and we don't want those test-time
+        log writes to interact with Frappe's controller cache (see
+        test_execute_admin_tool_method_not_allowed for the same reason).
+        """
         injection_attempts = [
             "__import__('os').system('rm -rf /')",
             "eval('malicious code')",
@@ -341,23 +448,22 @@ class TestRCEPrevention(VereningingenTestCase):
             "verenigingen.utils'; __import__('os').system('ls'); '",
             "verenigingen.utils.invoice_management'; import os; os.system('whoami'); '",
         ]
-        
         for attempt in injection_attempts:
-            result = execute_admin_tool(attempt)
-            self.assertFalse(result.get('success', False), 
-                           f"Injection attempt should be blocked: {attempt}")
-    
-    def test_prevent_path_traversal(self):
-        """Test that path traversal attempts are blocked"""
-        # Admin user already set in setUp
-        
+            with self.assertRaises(
+                frappe.PermissionError,
+                msg=f"Injection attempt should be blocked: {attempt}",
+            ):
+                execute_admin_tool(attempt)
+
+    @patch('frappe.log_error')
+    def test_prevent_path_traversal(self, _mock_log):
+        """Test that path traversal attempts are blocked."""
         traversal_attempts = [
             "../../../etc/passwd",
             "..\\..\\..\\windows\\system32\\config\\sam",
             "verenigingen/../../../sensitive_module",
             "verenigingen/./././../../../evil",
         ]
-        
         for attempt in traversal_attempts:
             with self.assertRaises((frappe.PermissionError, ValueError)):
                 execute_admin_tool(attempt)
