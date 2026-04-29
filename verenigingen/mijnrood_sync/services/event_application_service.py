@@ -310,9 +310,6 @@ class MijnRoodEventApplicationService(StatefulService):
         Uses MollieSyncService which handles validation, Customer creation
         if needed, and writing IDs to both Member and Customer records.
 
-        For terminated members, corrects subscription_status after the service
-        call (the service hard-codes "active" which is wrong for non-active members).
-
         Returns:
             Human-readable status message, or None if skipped.
         """
@@ -335,16 +332,6 @@ class MijnRoodEventApplicationService(StatefulService):
                 "custom_subscription_status": sub_status,
             }
             get_mollie_sync_service().sync_mollie_data(member_doc, mollie_data)
-
-            # MollieSyncService hard-codes subscription_status="active" — correct it
-            if subscription_id and is_terminal:
-                frappe.db.set_value(
-                    "Member",
-                    member_name,
-                    "subscription_status",
-                    "canceled",
-                    update_modified=False,
-                )
 
             self.logger.info("Mollie data synced for member %s (terminal=%s)", member_name, is_terminal)
             return _("Mollie data synced")

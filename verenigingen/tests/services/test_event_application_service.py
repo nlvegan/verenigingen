@@ -1058,12 +1058,9 @@ class TestEnsureMollieData(EnhancedTestCase):
             call_args = mock_svc.sync_mollie_data.call_args
             mollie_data = call_args[0][1]
             self.assertEqual(mollie_data["custom_subscription_status"], "canceled")
-
-            # Also verify subscription_status overridden on Member
-            mock_frappe.db.set_value.assert_called_once_with(
-                "Member", "MEM-001", "subscription_status", "canceled",
-                update_modified=False,
-            )
+            # MollieSyncService now honors the canceled status from mollie_data,
+            # so no post-call override on Member is needed.
+            mock_frappe.db.set_value.assert_not_called()
 
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_member_without_subscription_gets_none_status(self, mock_frappe):

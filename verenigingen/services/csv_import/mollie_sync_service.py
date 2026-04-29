@@ -63,7 +63,9 @@ class MollieSyncService(StatelessService):
                 member_doc.mollie_customer_id = mollie_data["custom_mollie_customer_id"]
             if mollie_data.get("custom_mollie_subscription_id"):
                 member_doc.mollie_subscription_id = mollie_data["custom_mollie_subscription_id"]
-                member_doc.subscription_status = "active"
+                # Honor caller-supplied status (e.g. "canceled" for terminated members);
+                # default to "active" if no status given but a subscription exists.
+                member_doc.subscription_status = mollie_data.get("custom_subscription_status") or "active"
 
             member_doc.save()
 
@@ -125,14 +127,16 @@ class MollieSyncService(StatelessService):
         raise TimestampMismatchError when the Contact was modified earlier in
         the same request (e.g., name propagation) and the doc cache serves a
         stale copy.
+
+        Note: subscription status is stored on Member.subscription_status — Customer
+        has no equivalent column, so custom_subscription_status is intentionally
+        ignored here.
         """
         values = {}
         if mollie_data.get("custom_mollie_customer_id"):
             values["custom_mollie_customer_id"] = mollie_data["custom_mollie_customer_id"]
         if mollie_data.get("custom_mollie_subscription_id"):
             values["custom_mollie_subscription_id"] = mollie_data["custom_mollie_subscription_id"]
-        if mollie_data.get("custom_subscription_status"):
-            values["custom_subscription_status"] = mollie_data["custom_subscription_status"]
 
         if values:
             frappe.db.set_value("Customer", customer_name, values)
