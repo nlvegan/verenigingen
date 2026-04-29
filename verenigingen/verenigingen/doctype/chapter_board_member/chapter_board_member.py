@@ -91,20 +91,24 @@ class ChapterBoardMember(Document):
         if not user:
             return
 
-        # Check if this volunteer is on any other ACTIVE boards
+        # Check if this volunteer is on any other ACTIVE boards.
+        # Frappe's "is" filter operator accepts only "set" / "not set"; "null"
+        # was rejected with `'is' operator only supports 'set' and 'not set'`.
+        # The DocType is "Chapter Board Member" — "Verenigingen Chapter Board
+        # Member" is the role name, not the DocType.
         active_board_positions = frappe.db.count(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             {
                 "volunteer": self.volunteer,
                 "name": ["!=", self.name],
                 "is_active": 1,
-                "to_date": ["is", "null"],
+                "to_date": ["is", "not set"],
             },
         )
 
         # Also check for positions with future end dates
         future_positions = frappe.db.count(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             {
                 "volunteer": self.volunteer,
                 "name": ["!=", self.name],
