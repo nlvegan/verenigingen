@@ -37,6 +37,8 @@ Security:
 - Reverts status on failure for retry safety
 """
 
+import random
+import string
 from typing import TYPE_CHECKING, Any, Dict
 
 import frappe
@@ -118,39 +120,50 @@ class TerminationExecutionService(StatelessService):
                 f"This service only handles Membership Termination Request documents."
             )
 
-        # Use savepoint for atomic execution — works both standalone (Frappe's
-        # implicit request transaction) and when called from within an existing
-        # transaction (e.g. MijnRood sync event processor). FOR UPDATE locks
-        # still work within savepoints.
+        # Manage savepoint manually rather than using frappe.database.savepoint(),
+        # whose default catch=Exception silently swallows any exception inside the
+        # with-block. Manual management lets us roll back AND re-raise so the
+        # outer caller (and _handle_error) sees the real failure.
+        # Works both standalone (Frappe's implicit request transaction) and when
+        # called from within an existing transaction (e.g. MijnRood sync event
+        # processor). FOR UPDATE locks still work within savepoints.
+        savepoint_name = "".join(random.sample(string.ascii_lowercase, 10))
+        frappe.db.savepoint(savepoint_name)
         try:
-            with frappe.database.savepoint():
-                # STEP 1: Idempotency check with database-level locking
-                # FOR UPDATE lock prevents race conditions in concurrent execution
-                if self._check_idempotency_with_lock(termination_request):
-                    return True  # Already executed, skip duplicate
+            # STEP 1: Idempotency check with database-level locking
+            # FOR UPDATE lock prevents race conditions in concurrent execution
+            if self._check_idempotency_with_lock(termination_request):
+                self._release_savepoint_safe(savepoint_name)
+                return True  # Already executed, skip duplicate
 
-                self.logger.info(f"Starting termination execution for {termination_request.name}")
+            self.logger.info(f"Starting termination execution for {termination_request.name}")
 
-                # STEP 2: Pre-execution validation - minimal checks for retry safety
-                self._validate_preconditions(termination_request)
+            # STEP 2: Pre-execution validation - minimal checks for retry safety
+            self._validate_preconditions(termination_request)
 
-                # STEP 3: Execute system updates using declarative operations
-                results = self.execute_system_updates(termination_request)
+            # STEP 3: Execute system updates using declarative operations
+            results = self.execute_system_updates(termination_request)
 
-                # STEP 4: Update execution tracking fields and status
-                self._update_tracking(termination_request, results)
-                termination_request.status = "Executed"
+            # STEP 4: Update execution tracking fields and status
+            self._update_tracking(termination_request, results)
+            termination_request.status = "Executed"
 
-                # STEP 5: Save changes (use flags to avoid validation issues and recursion)
-                termination_request.flags.ignore_validate_update_after_submit = True
-                termination_request.flags.skip_status_change_hook = True  # Prevent recursive execution
-                termination_request.save()
+            # STEP 5: Save changes (use flags to avoid validation issues and recursion)
+            termination_request.flags.ignore_validate_update_after_submit = True
+            termination_request.flags.skip_status_change_hook = True  # Prevent recursive execution
+            termination_request.save()
 
-                # Add audit trail entry
-                termination_request.add_audit_entry(
-                    "Termination Executed",
-                    f"System updates completed: {len(results.get('actions_taken', []))} actions",
-                )
+            # Add audit trail entry
+            termination_request.add_audit_entry(
+                "Termination Executed",
+                f"System updates completed: {len(results.get('actions_taken', []))} actions",
+            )
+
+            # Body completed successfully. Release the savepoint, but tolerate
+            # MySQL complaining the savepoint no longer exists — that just means
+            # an inner operation did its own commit. The work is already
+            # persisted at this point, so we still treat this as success.
+            self._release_savepoint_safe(savepoint_name)
 
             self.logger.info(f"Termination execution completed for {termination_request.name}")
 
@@ -169,6 +182,18 @@ class TerminationExecutionService(StatelessService):
 
         except Exception as e:
             self.logger.error(f"Savepoint rolled back for {termination_request.name} due to error: {str(e)}")
+
+            # Roll back the savepoint to discard any partial work. If a nested
+            # call already released or rolled back the savepoint (e.g. via an
+            # inner commit), MySQL will raise — swallow that secondary error so
+            # we surface the original one through _handle_error.
+            try:
+                frappe.db.rollback(save_point=savepoint_name)
+            except Exception as rollback_error:
+                self.logger.warning(
+                    f"Savepoint {savepoint_name} could not be rolled back "
+                    f"(may have been released by a nested commit): {rollback_error}"
+                )
 
             # Error recovery - revert status and re-raise
             self._handle_error(termination_request, e)
@@ -300,6 +325,22 @@ class TerminationExecutionService(StatelessService):
     # ========================================================================
     # HELPER METHODS (Private)
     # ========================================================================
+
+    def _release_savepoint_safe(self, savepoint_name: str) -> None:
+        """Release a savepoint, tolerating "does not exist" errors.
+
+        If a nested operation did its own commit, the savepoint will already
+        have been released by MySQL. Surfacing that as a failure would be
+        misleading — the body succeeded and its writes are persisted, so we
+        only log the cleanup hiccup and continue.
+        """
+        try:
+            frappe.db.release_savepoint(savepoint_name)
+        except Exception as cleanup_error:
+            self.logger.warning(
+                f"Savepoint {savepoint_name} could not be released "
+                f"(likely already released by an inner commit): {cleanup_error}"
+            )
 
     def _check_idempotency_with_lock(self, termination_request: "Document") -> bool:
         """Check if termination was already executed with database-level locking.

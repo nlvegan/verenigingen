@@ -82,9 +82,11 @@ def cancel_dues_schedule_safe(dues_schedule_name):
             frappe.logger().warning(
                 f"Dues schedule {dues_schedule_name} has docstatus=2 but status={dues_schedule.status}, updating status"
             )
-            # Direct update to fix inconsistency
+            # Direct update to fix inconsistency. No explicit commit: this function
+            # is invoked from within TerminationExecutionService's savepoint block,
+            # and a commit here would release that savepoint, causing
+            # "SAVEPOINT does not exist" on context-manager exit.
             frappe.db.set_value("Membership Dues Schedule", dues_schedule_name, "status", "Cancelled")
-            frappe.db.commit()
             return True
 
         # Normal cancellation process
@@ -119,13 +121,13 @@ def cancel_dues_schedule_safe(dues_schedule_name):
 
             # Fallback: manual status update (safer approach)
             try:
-                # Update status directly through database to avoid validation issues
+                # Update status directly through database to avoid validation issues.
+                # No explicit commit here either — see the docstatus==2 branch above.
                 frappe.db.set_value(
                     "Membership Dues Schedule",
                     dues_schedule_name,
                     {"status": "Cancelled", "end_date": frappe.utils.today()},
                 )
-                frappe.db.commit()
                 frappe.logger().info(f"Cancelled dues schedule {dues_schedule_name} using fallback method")
                 return True
 

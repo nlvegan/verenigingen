@@ -476,6 +476,62 @@ class TestTerminationExecutionService(EnhancedTestCase):
             TerminationExecutionService().execute(unsubmitted_request)
 
     # ========================================================================
+    # Savepoint regression tests (TERM-REQ-26-04-6256)
+    # ========================================================================
+
+    def test_inner_commit_does_not_break_savepoint_release(self):
+        """Regression: an inner operation that commits must not propagate a
+        'SAVEPOINT does not exist' error out of execute().
+
+        The original bug: cancel_dues_schedule_safe called frappe.db.commit()
+        on its fallback paths, which released the savepoint that
+        TerminationExecutionService.execute() had opened. The contextmanager's
+        release_savepoint() then failed with MySQL 1305, which propagated as
+        a ValidationError.
+
+        After the fix, execute() releases the savepoint via a
+        does-not-exist-tolerant helper, so a stray inner commit no longer
+        masquerades as a termination failure.
+        """
+        request = self._create_approved_termination_request()
+
+        # Simulate an inner operation that does its own commit by raising
+        # OperationalError(1305) from release_savepoint, mirroring what MySQL
+        # does when the savepoint has already been released.
+        def fake_release(name):
+            # Mimic MySQL: savepoint was implicitly dropped by an inner commit
+            raise Exception("(1305, 'SAVEPOINT %s does not exist')" % name)
+
+        with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
+            with patch.object(frappe.db, 'release_savepoint', side_effect=fake_release):
+                # Must NOT raise — the body succeeded; only the cleanup hiccupped
+                result = TerminationExecutionService().execute(request)
+                self.assertTrue(result, "Execution should succeed despite cleanup error")
+
+    def test_inner_commit_swallowed_only_when_body_succeeded(self):
+        """When the body itself raises, a cleanup error must not mask the real failure.
+
+        If execute_system_updates throws AND the savepoint is also gone (e.g.
+        an earlier inner commit released it), execute() should still surface
+        the original execution error via _handle_error, not the savepoint
+        cleanup error.
+        """
+        request = self._create_approved_termination_request()
+
+        with patch('frappe.db.begin'), patch('frappe.db.commit'), patch('frappe.db.rollback'):
+            with patch.object(
+                TerminationExecutionService,
+                'execute_system_updates',
+                side_effect=Exception("Real failure inside body"),
+            ):
+                with self.assertRaises(Exception) as ctx:
+                    TerminationExecutionService().execute(request)
+
+                # The user-facing error must reference the real cause, not
+                # the savepoint cleanup error.
+                self.assertIn("Real failure inside body", str(ctx.exception))
+
+    # ========================================================================
     # Performance Tests
     # ========================================================================
 
