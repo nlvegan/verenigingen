@@ -488,6 +488,32 @@ def _grant_chapter_member_permissions(chapter_name, member_doc):
         frappe.logger("events").warning(f"Failed to grant chapter permissions: {str(e)}")
 
 
+def cleanup_chapter_user_permissions_for_admins(doc, method=None):
+    """Remove redundant Chapter User Permission rows when a user becomes admin/staff.
+
+    Wired to User.on_update / after_insert. When a user's role profile is changed
+    to one that includes admin/staff roles (Verenigingen Administrator etc.), any
+    pre-existing Chapter User Permission rows from earlier chapter membership grants
+    must be cleared — otherwise Frappe's User Permission scoping blocks them from
+    creating new Chapters and from opening settings docs that link to chapters
+    outside their personal membership (frappe/permissions.py:256 hardcodes
+    create=0 for users scoped by User Permissions). Admins already get unrestricted
+    access via permission_query_conditions, so the rows are also redundant.
+    """
+    from verenigingen.utils.constants import Roles
+
+    if doc.name in ("Administrator", "Guest"):
+        return
+
+    user_roles = {r.role for r in (doc.roles or [])}
+    if not user_roles & Roles.ADMIN_ROLES:
+        return
+
+    rows = frappe.get_all("User Permission", filters={"user": doc.name, "allow": "Chapter"}, pluck="name")
+    for name in rows:
+        frappe.delete_doc("User Permission", name, ignore_permissions=True)
+
+
 def _revoke_chapter_member_permissions(chapter_name, member_doc):
     """Revoke chapter-specific permissions from former member"""
     try:

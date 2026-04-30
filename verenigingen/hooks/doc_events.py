@@ -261,10 +261,12 @@ doc_events = {
             "verenigingen.utils.security.cache_invalidation.invalidate_user_role_cache_on_user_update",
             "verenigingen.services.field_sync_service.sync_fields",
             "verenigingen.utils.user_desk_settings.ensure_desk_settings_for_role_profile",
+            "verenigingen.events.subscribers.chapter_subscribers.cleanup_chapter_user_permissions_for_admins",
         ],
         "after_insert": [
             "verenigingen.utils.security.cache_invalidation.invalidate_user_role_cache_on_user_update",
             "verenigingen.utils.user_desk_settings.ensure_desk_settings_for_role_profile",
+            "verenigingen.events.subscribers.chapter_subscribers.cleanup_chapter_user_permissions_for_admins",
         ],
     },
     "Role Profile": {
