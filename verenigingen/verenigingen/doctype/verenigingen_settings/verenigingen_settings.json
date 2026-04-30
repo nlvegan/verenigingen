@@ -319,6 +319,7 @@
    "description": "This chapter will be treated as the National Board with restricted access",
    "fieldname": "national_board_chapter",
    "fieldtype": "Link",
+   "ignore_user_permissions": 1,
    "label": "National Board Chapter",
    "options": "Chapter"
   },

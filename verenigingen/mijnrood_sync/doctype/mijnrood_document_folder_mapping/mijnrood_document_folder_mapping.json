@@ -54,10 +54,10 @@
       "width": "120px"
     },
     {
-      "default": "Landelijk",
       "depends_on": "eval:doc.organization_type=='Chapter'",
       "fieldname": "chapter",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "in_list_view": 1,
       "label": "Chapter",
       "options": "Chapter",
@@ -67,6 +67,7 @@
       "depends_on": "eval:doc.organization_type=='Team'",
       "fieldname": "team",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "label": "Team",
       "options": "Team",
       "width": "120px"
@@ -75,6 +76,7 @@
       "depends_on": "eval:doc.organization_type=='Movement'",
       "fieldname": "movement",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "label": "Movement",
       "options": "Movement",
       "width": "120px"
