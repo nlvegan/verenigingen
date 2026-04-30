@@ -43,3 +43,4 @@ verenigingen.patches.v2_1.backfill_sync_event_change_tags
 verenigingen.patches.v2_1.rename_terminated_status_to_quit
 verenigingen.patches.v2_1.enable_desk_settings_for_volunteers
 verenigingen.patches.v2_1.add_ing_checkout_and_mollie_bulk_run_critical_operation_rules
+verenigingen.patches.v2_1.cleanup_admin_chapter_user_permissions

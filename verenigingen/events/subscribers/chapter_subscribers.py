@@ -455,10 +455,21 @@ def _grant_chapter_member_permissions(chapter_name, member_doc):
         if not member_doc.user:
             return
 
-        # Grant chapter member permissions
+        # Skip admin/staff users: their role-based permission_query_conditions already
+        # grant unrestricted access (verenigingen/permissions.py get_*_permission_query),
+        # so adding a User Permission row is redundant. Worse, with the default
+        # apply_to_all_doctypes=1, that row cascades through every Link-to-Chapter
+        # everywhere — including the Chapter doctype itself — and Frappe hardcodes
+        # create=0 for users scoped by User Permissions (frappe/permissions.py:256),
+        # blocking admins from creating new chapters or opening settings docs that
+        # link to chapters outside their own membership.
+        from verenigingen.utils.constants import Roles
+
+        if any(role in Roles.ADMIN_ROLES for role in frappe.get_roles(member_doc.user)):
+            return
+
         from frappe.permissions import add_user_permission
 
-        # Add user permission for the chapter
         if not frappe.db.exists(
             "User Permission", {"user": member_doc.user, "allow": "Chapter", "for_value": chapter_name}
         ):
