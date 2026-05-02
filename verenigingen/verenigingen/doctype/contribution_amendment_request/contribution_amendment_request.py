@@ -10,6 +10,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
+    self_service_api,
     standard_api,
 )
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
@@ -451,9 +452,14 @@ class ContributionAmendmentRequest(Document):
         approval_service.reject_amendment(rejection_reason)
 
     @frappe.whitelist()
-    @high_security_api(operation_type=OperationType.FINANCIAL, self_service_only=True)
+    @self_service_api(operation_type=OperationType.FINANCIAL)
     def apply_amendment(self):
-        """Apply the approved amendment - delegates to service."""
+        """Apply the approved amendment - delegates to service.
+
+        Self-service: a member may apply their own approved amendment.
+        Auth tier is LOW (any authenticated user); ownership is enforced by
+        SelfServiceAccessController via the document's `member` field.
+        """
         from verenigingen.services.approval import ContributionAmendmentApprovalService
 
         approval_service = ContributionAmendmentApprovalService(self)

@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, List
 
 import frappe
 from frappe import _
+from frappe.model.document import Document
 
 from verenigingen.utils.error_handling import (
     PermissionError as VPermissionError,
@@ -737,6 +738,34 @@ class APISecurityFramework:
         return headers
 
 
+def _extract_doc_self_service_kwargs(args: tuple) -> Dict[str, Any]:
+    """Extract member-identifying fields from a Document positional arg.
+
+    When @api_security_framework wraps a Document instance method (called via
+    frappe.handler.run_doc_method), the document is passed as args[0] and the
+    request kwargs do not contain the member/volunteer fields the self-service
+    validator looks for. Surface those fields from the document so the
+    validator can verify ownership against the calling user.
+
+    Returns an empty dict for non-doc-method calls (whitelisted module-level
+    functions), preserving existing behaviour.
+    """
+    if not args or not isinstance(args[0], Document):
+        return {}
+
+    doc = args[0]
+    extracted: Dict[str, Any] = {}
+
+    # Direct identifiers on the document itself
+    for field in ("member", "member_name", "volunteer"):
+        value = getattr(doc, field, None)
+        if value:
+            extracted[field] = value
+            break
+
+    return extracted
+
+
 # Global framework instance
 _security_framework = None
 
@@ -826,8 +855,13 @@ def api_security_framework(
 
                 # Self-service validation (if enabled)
                 if self_service_only:
+                    # Doc-method calls (run_doc_method) pass the document as args[0]
+                    # and have no member/volunteer kwarg — surface it from the doc so
+                    # the validator can match it against the caller's member.
+                    self_service_kwargs = {**_extract_doc_self_service_kwargs(args), **kwargs}
+
                     framework._validate_self_service_access(
-                        implicit_allowed=self_service_implicit_allowed, **kwargs
+                        implicit_allowed=self_service_implicit_allowed, **self_service_kwargs
                     )
 
                     # Enhanced content validation for TOCTOU protection
@@ -1106,6 +1140,51 @@ def standard_api(
             self_service_only=self_service_only,
             max_request_size=max_request_size,
         )
+
+
+def self_service_api(
+    operation_type: OperationType = OperationType.MEMBER_DATA,
+    implicit_allowed: bool = False,
+    audit_level: str = "standard",
+):
+    """
+    Decorator for endpoints a user can only invoke on their OWN data.
+
+    Use for: member fee/type adjustments, profile updates, expense submissions,
+    or any other action where the caller acts on a record they own. Sits below
+    @standard_api (MEDIUM) on the auth ladder so plain `Verenigingen Member`
+    users can call it — ownership is enforced by SelfServiceAccessController,
+    not by role tier.
+
+    Auth model:
+        - Authentication required (rejects Guest)
+        - LOW security level — any authenticated user passes auth
+        - self_service_only=True — caller's member must match the target
+
+    Args:
+        operation_type: Classification for rate limiting / audit context
+        implicit_allowed: If True, endpoint may operate on session user's
+            member without an explicit member parameter (e.g. portal endpoints
+            that derive the member from frappe.session.user). Default False
+            requires the target member be passed explicitly or be available
+            on a Document positional arg (for doc-method calls).
+        audit_level: "standard" (default), "detailed", or "minimal"
+
+    Example:
+        @frappe.whitelist()
+        @self_service_api(operation_type=OperationType.FINANCIAL,
+                          implicit_allowed=True)
+        def submit_fee_adjustment_request(new_amount, reason=""):
+            member = get_current_user_member_name()  # session-derived
+            ...
+    """
+    return api_security_framework(
+        security_level=SecurityLevel.LOW,
+        operation_type=operation_type,
+        self_service_only=True,
+        self_service_implicit_allowed=implicit_allowed,
+        audit_level=audit_level,
+    )
 
 
 def utility_api(func_or_operation_type=None, *, operation_type: OperationType = OperationType.UTILITY):

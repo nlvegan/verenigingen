@@ -11,7 +11,11 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_portal_utils import setup_portal_context
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    self_service_api,
+    standard_api,
+)
 from verenigingen.utils.settings_utils import populate_income_calculator_context
 
 # Default fallback fee amount in EUR
@@ -312,9 +316,14 @@ def can_member_adjust_fee(member, settings):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def submit_fee_adjustment_request(new_amount, reason="", effective_date=None):
-    """Submit a fee adjustment request from member portal"""
+    """Submit a fee adjustment request from member portal.
+
+    Self-service: member is derived from session via get_current_user_member_name().
+    Auth tier is LOW (any authenticated user); ownership is implicit (the
+    function only ever operates on the caller's own member record).
+    """
     # Get member using standardized utility
     member = get_current_user_member_name()
     if not member:
@@ -719,7 +728,7 @@ def get_available_membership_types():
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@self_service_api(operation_type=OperationType.FINANCIAL, implicit_allowed=True)
 def submit_membership_type_change_request(
     new_membership_type, reason="", effective_date=None, requested_amount=None
 ):
@@ -727,6 +736,10 @@ def submit_membership_type_change_request(
 
     Note: effective_date parameter is ignored - type changes always take effect
     at the end of the current billing period (next_invoice_date on dues schedule).
+
+    Self-service: member is derived from session via get_current_user_member_name().
+    Auth tier is LOW (any authenticated user); ownership is implicit (the
+    function only ever operates on the caller's own member record).
     """
     # Get member using standardized utility
     member = get_current_user_member_name()
