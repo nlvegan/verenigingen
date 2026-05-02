@@ -298,6 +298,7 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
                 # Real validation rejects invalid names
                 print(f"Real validation rejects: '{holder_name}'")
     
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch('frappe.sendmail')  # KEEP: External service mock
     def test_mandate_notifications_real_triggers(self, mock_sendmail):
         """Test mandate notification triggers with real business logic"""

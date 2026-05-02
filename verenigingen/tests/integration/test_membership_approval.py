@@ -595,6 +595,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         )
 
         with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch("frappe.sendmail"):
                 with patch("frappe.db.get_single_value") as mock_settings:
                     mock_settings.side_effect = lambda doctype, field, *args: {
@@ -645,6 +646,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             member.reload()
 
         with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch("frappe.sendmail"):
                 with patch("frappe.db.get_single_value") as mock_settings:
                     mock_settings.side_effect = lambda doctype, field, *args: {

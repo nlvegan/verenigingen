@@ -297,6 +297,7 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         }
 
         # Only mock external SMTP service (infrastructure, not business logic)
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail") as mock_sendmail:
             try:
                 # This calls REAL PaymentGatewayFactory and REAL Mollie test API
@@ -400,6 +401,7 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         print("💳 Processing authentic payment webhook...")
 
         # Only mock external services (SMTP), not business logic
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail") as mock_sendmail:
             try:
                 # This calls REAL payment processing business logic

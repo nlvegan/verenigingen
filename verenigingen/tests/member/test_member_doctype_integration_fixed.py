@@ -254,6 +254,7 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
         })
         self.assertTrue(schedule_exists)
     
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch('frappe.sendmail')  # KEEP: External service mock (appropriate)
     def test_member_notifications_real_triggers(self, mock_sendmail):
         """Test member notification triggers with real business logic"""

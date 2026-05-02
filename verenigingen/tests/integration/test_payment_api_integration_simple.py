@@ -67,6 +67,7 @@ class TestPaymentAPIIntegrationSimple(EnhancedTestCase):
             # Performance baseline following A+ standards  
             with self.assertQueryCount(4000):  # Realistic baseline for payment processing with overdue member analysis
                 # Mock only external SMTP service (legitimate mock)
+                # Mock justified: External Service - SMTP delivery, not business logic
                 with patch('frappe.sendmail') as mock_smtp:
                     result = send_overdue_payment_reminders(
                         reminder_type="Test Reminder",

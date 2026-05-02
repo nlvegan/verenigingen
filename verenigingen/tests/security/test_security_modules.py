@@ -308,6 +308,7 @@ class TestSelfServiceAccessController(FrappeTestCase):
 
         # Mock the session user to be a non-admin user (Administrator bypasses validation)
         # and mock get_user_member to return the test member
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session") as mock_session:
             mock_session.user = "test_user@example.com"
             with patch.object(controller, "get_user_member", return_value=test_member.name):

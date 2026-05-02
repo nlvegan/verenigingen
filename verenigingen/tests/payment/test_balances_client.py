@@ -224,6 +224,7 @@ class TestBalancesClient(EnhancedTestCase):
 
         with patch.object(self.client, 'get_balance', return_value=Balance(mock_balance)):
             with patch.object(self.client, 'list_balance_transactions', return_value=[BalanceTransaction(mock_transactions[0])]):
+                # Mock justified: Infrastructure - background task / realtime channel
                 with patch('frappe.publish_realtime') as mock_publish:
                     changes = self.client.monitor_balance_changes(balance_id, threshold_amount=1000.0)
 
@@ -327,6 +328,7 @@ class TestBalancesClientCacheBehavior(unittest.TestCase):
         with patch.object(self.client, 'get_balance') as mock_get_balance, \
              patch.object(self.client, 'list_balance_transactions') as mock_list_tx, \
              patch.object(self.client, 'invalidate_cache') as mock_invalidate, \
+             # Mock justified: Infrastructure - background task / realtime channel
              patch('frappe.publish_realtime'):
 
             # Configure mocks

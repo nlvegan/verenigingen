@@ -201,6 +201,7 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
 
         # Run as Administrator (which has System Manager role and passes security framework checks)
         # Mock only external email service (appropriate per testing standards)
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail"):
             result = create_contact_request(
                 member=self.test_member.name,

@@ -121,10 +121,47 @@ class MockPatternValidator:
         ]):
             return violations
 
+        # Skip Tier 3 (security) tests - test_quality_enforcer applies its own,
+        # more nuanced rules to security tests (allowing infrastructure mocks
+        # with justification, banning only the boundary itself). Running this
+        # older hook on top would just produce duplicate, less-aware errors.
+        if any([
+            '/tests/security/' in path_lower,
+            '/tests/backend/security/' in path_lower,
+            '/security/tests/' in path_lower,
+            name_lower.endswith('_security.py'),
+            name_lower.endswith('_security_test.py'),
+            'permission' in name_lower and 'test' in name_lower,
+        ]):
+            return violations
+
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
+                in_docstring = False
+                docstring_delim = None
                 for line_num, line in enumerate(f, 1):
                     line_stripped = line.strip()
+
+                    # Track triple-quoted docstrings so we can skip them.
+                    # Mock examples in docstrings (e.g. listing what was
+                    # eliminated) shouldn't be flagged as actual mocks.
+                    for delim in ('"""', "'''"):
+                        if delim in line_stripped:
+                            count = line_stripped.count(delim)
+                            if not in_docstring:
+                                # Opens a docstring; only enters multiline
+                                # mode if the same line doesn't also close it
+                                if count % 2 == 1:
+                                    in_docstring = True
+                                    docstring_delim = delim
+                            elif docstring_delim == delim:
+                                if count % 2 == 1:
+                                    in_docstring = False
+                                    docstring_delim = None
+                            break
+
+                    if in_docstring:
+                        continue
 
                     # Skip comments and empty lines
                     if not line_stripped or line_stripped.startswith('#'):

@@ -242,6 +242,7 @@ class TestMemberDoctypeIntegration(EnhancedTestCase):
             self.assertEqual(contact.email_id, member.email)
             self.assertEqual(contact.mobile_no, member.contact_number)
     
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch('frappe.sendmail')  # KEEP: External service mock (appropriate)
     def test_member_notification_real_triggers(self, mock_sendmail):
         """Test member notification triggers with real business logic"""

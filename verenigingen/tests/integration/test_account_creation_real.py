@@ -109,6 +109,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         manager = AccountCreationManager(request_doc.name)
         
         # Mock only external services, keep all business logic real
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             with self.as_user(self.admin_user.email):
                 # Process complete pipeline - no mocking of business logic
@@ -181,6 +182,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         # Skip employee-specific assertions if ESS role doesn't exist
         if not has_ess_role:
             # Just verify the pipeline completes without ESS
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail'):
                 with self.as_user(self.admin_user.email):
                     manager.process_complete_pipeline()
@@ -192,6 +194,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
             "Should require employee creation for member with volunteer record and ESS role")
 
         # Process complete pipeline
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user(self.admin_user.email):
                 manager.process_complete_pipeline()
@@ -244,6 +247,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         # Test processing with limited permissions should fail
         manager = AccountCreationManager(request_doc.name)
         
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user(limited_user.email):
                 # Should raise permission error during processing
@@ -284,6 +288,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         
         manager = AccountCreationManager(request_doc.name)
         
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user(role_limited_user.email):
                 # Should fail during role validation
@@ -314,6 +319,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         # Process first request successfully
         manager1 = AccountCreationManager(request1.name)
         
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user(self.admin_user.email):
                 manager1.process_complete_pipeline()
@@ -342,6 +348,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         # Process second request - should handle existing user gracefully
         manager2 = AccountCreationManager(request2.name)
         
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user(self.admin_user.email):
                 manager2.process_complete_pipeline()
@@ -374,6 +381,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         # Process should fail due to invalid email
         manager = AccountCreationManager(request_doc.name)
         
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user(self.admin_user.email):
                 with self.assertRaises(frappe.ValidationError):
@@ -429,6 +437,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         # Process account creation as admin_user
         manager = AccountCreationManager(request_doc.name)
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user(self.admin_user.email):
                 manager.process_complete_pipeline()
@@ -478,6 +487,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         manager = AccountCreationManager(request_doc.name)
         
         # Simulate background job processing
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user("Administrator"):  # Background jobs run as Administrator
                 manager.process_complete_pipeline()

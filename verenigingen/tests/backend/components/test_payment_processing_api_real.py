@@ -128,6 +128,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
         
         return invoice
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic 
     def test_send_overdue_payment_reminders_success_real_business_logic(self, mock_sendmail):
         """Test successful payment reminder sending with REAL business logic and REAL overdue data (NO DATABASE MOCKS)"""
@@ -155,6 +156,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
         # Verify email was actually sent (infrastructure properly mocked)
         mock_sendmail.assert_called()
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
     def test_send_overdue_payment_reminders_with_chapter_notification_real_logic(self, mock_sendmail):
         """Test payment reminders with chapter notifications using REAL business logic and REAL data (NO DATABASE MOCKS)"""
@@ -182,6 +184,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
             # Chapter notification should have been sent with real data
             self.assertTrue(mock_sendmail.called, "Should send real chapter notification email")
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
     def test_send_overdue_payment_reminders_partial_failure_real_logic(self, mock_sendmail):
         """Test payment reminders with failures using REAL business logic and REAL data (NO DATABASE MOCKS)"""
@@ -281,6 +284,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
                 self.assertTrue(isinstance(result, (dict, str)), 
                               f"Real business logic should handle file error appropriately, got: {message}")
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
     def test_execute_bulk_payment_action_send_reminders_real_logic(self, mock_sendmail):
         """Test bulk action: send reminders using REAL business logic and REAL data"""
@@ -307,6 +311,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
                              "Should process real overdue payments")
             mock_sendmail.assert_called()
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock only email infrastructure
     def test_send_payment_reminder_email_with_template_real_logic(self, mock_sendmail):
         """Test sending payment reminder with REAL email template from database (NO DATABASE MOCKS)"""
@@ -339,6 +344,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
         else:
             self.assertTrue(True, "Real business logic executed email validation")
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock only email infrastructure
     def test_send_payment_reminder_email_fallback_html_real_logic(self, mock_sendmail):
         """Test sending payment reminder with HTML fallback using REAL member data"""

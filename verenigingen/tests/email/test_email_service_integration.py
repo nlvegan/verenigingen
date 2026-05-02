@@ -131,6 +131,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
         }
 
         # Mock frappe.sendmail to capture the email
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = self.email_service.send_templated_email(
                 template_name="test_member_approval",
@@ -155,6 +156,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
     def test_email_service_notification_mapping(self):
         """Test EmailService notification type mapping"""
         # Mock frappe.sendmail
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = self.email_service.send_notification(
                 notification_type="member_approval",
@@ -198,6 +200,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             })
 
         # Mock frappe.sendmail to capture emails
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = self.email_service.send_bulk_emails(
                 email_batch=email_batch,
@@ -246,6 +249,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             "bank_name": "Test Bank"
         }
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = send_sepa_email(
                 recipients=[self.test_member.email],
@@ -261,6 +265,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
 
     def test_compatibility_layer_member_notifications(self):
         """Test member notification compatibility layer"""
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = send_member_notification(
                 member_name=self.test_member.name,
@@ -277,6 +282,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
         """Test chapter email compatibility layer"""
         recipients = [self.test_member.email]
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = send_chapter_email(
                 chapter_name=self.test_chapter.name,
@@ -303,6 +309,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             "unsafe_content": "javascript:alert('xss')"
         }
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = self.email_service.send_templated_email(
                 template_name="test_member_approval",
@@ -328,6 +335,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
         # Clear cache first
         self.email_service.template_cache.clear()
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             # First call - should load template
             start_time = time.time()
@@ -369,6 +377,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             "reference_name": self.test_member.name
         })
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             result = self.email_service.send_templated_email(
                 template_name="test_member_approval",
@@ -409,6 +418,7 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             "current_date": now_datetime().strftime("%d-%m-%Y"),  # Dutch date format
         }
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             result = self.email_service.send_templated_email(
                 template_name="test_member_approval",
@@ -498,6 +508,7 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
 
     def test_member_status_change_notification_flow(self):
         """Test complete member status change notification flow"""
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             # Import the event handler
             from verenigingen.events.subscribers.member_subscribers import handle_status_change_notifications
@@ -519,6 +530,7 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
 
     def test_member_lifecycle_notification_flow(self):
         """Test member lifecycle notification flow"""
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             from verenigingen.events.subscribers.member_subscribers import handle_lifecycle_notifications
 

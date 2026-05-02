@@ -171,6 +171,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
             })
             return True
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail', side_effect=mock_send_email):
             # Test 1: New Member Creation Notification
             member = self.factory.create_test_member(
@@ -540,6 +541,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
                 sent_communications.append(communication_log)
                 return True
 
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail', side_effect=mock_send_email_with_outcomes):
             for scenario in delivery_scenarios:
                 try:

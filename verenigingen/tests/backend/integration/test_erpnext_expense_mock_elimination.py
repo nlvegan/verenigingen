@@ -345,6 +345,7 @@ class TestERPNextExpenseMockElimination(EnhancedTestCase):
                     print(f"ℹ️  Real ERPNext submission requirement: {str(e)}")
                     # This reveals real business requirements
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # KEEP: External service mock
     def test_real_expense_approval_notification(self, mock_sendmail):
         """Test real expense approval workflow with email notifications"""

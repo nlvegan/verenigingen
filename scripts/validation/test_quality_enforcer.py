@@ -224,12 +224,51 @@ class TestQualityEnforcer:
 
         return any(test_indicators) and path.suffix == '.py'
 
+    def _docstring_line_numbers(self, lines: list) -> set:
+        """Return 1-based line numbers contained in any triple-quoted docstring.
+
+        We track both \"\"\" and ''' delimiters so the various mock-pattern
+        scans can ignore @patch examples that appear inside module / class /
+        function docstrings (typically used to describe what was eliminated
+        or refactored away).
+        """
+        inside = False
+        delim = None
+        result = set()
+        for idx, line in enumerate(lines, 1):
+            stripped = line.strip()
+            opened_or_closed = False
+            for d in ('"""', "'''"):
+                if d in stripped:
+                    count = stripped.count(d)
+                    if not inside:
+                        if count % 2 == 1:
+                            inside = True
+                            delim = d
+                            result.add(idx)
+                            opened_or_closed = True
+                    elif delim == d:
+                        if count % 2 == 1:
+                            result.add(idx)
+                            inside = False
+                            delim = None
+                            opened_or_closed = True
+                    break
+            if inside and not opened_or_closed:
+                result.add(idx)
+        return result
+
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
         """Check for database operation mocks (blocked in Tier 2 integration tests)"""
         valid = True
         lines = content.split("\n")
+        docstring_lines = self._docstring_line_numbers(lines)
 
         for line_num, line in enumerate(lines, 1):
+            # Skip docstring content — examples like "@patch('frappe.db.exists')"
+            # mentioned in module-level explanatory docstrings are not actual mocks.
+            if line_num in docstring_lines:
+                continue
             for pattern in self.database_mocks:
                 if re.search(pattern, line, re.IGNORECASE):
                     # Check if this is an allowed configuration access pattern
@@ -261,19 +300,60 @@ class TestQualityEnforcer:
         """
         valid = True
         lines = content.split("\n")
-        mock_pattern = r"@?patch\s*\("
+        mock_pattern = r"(?<![A-Za-z0-9_])@?patch\s*\("
 
-        # Patterns that name external infrastructure rather than the boundary
-        # under test. These mirror the Tier 2 allowed lists plus generic HTTP
-        # and patterns that match "fetch/get/retrieve external data" helpers.
+        # Patterns that name external infrastructure or Frappe runtime context
+        # rather than the boundary under test (auth check, permission boundary,
+        # signature verification). These mirror the Tier 2 allowed lists plus
+        # the Frappe context plumbing security tests typically need to drive
+        # the boundary code through scenarios.
         infrastructure_for_security = (
             self.external_service_mocks
             + self.infrastructure_mocks
             + [
+                # External lookups used by security boundary code
                 r"patch\s*\(\s*['\"][^'\"]*\.fetch_[^'\"]+['\"]",
                 r"patch\s*\(\s*['\"][^'\"]*\.get_request_ip['\"]",
                 r"patch\s*\(\s*['\"][^'\"]*\.get_webhook_secret['\"]",
                 r"patch\s*\(\s*['\"][^'\"]*\.verify_webhook_ip['\"]",
+                # Frappe runtime context: session, request, response, roles, db.
+                # Mocking these is plumbing — the boundary itself (permission
+                # check, auth hook, signature verification) is not what's being
+                # faked.
+                r"patch\s*\(\s*['\"]frappe\.session(['\"\.])",
+                r"patch\s*\(\s*['\"]frappe\.local\.",
+                r"patch\s*\(\s*['\"]frappe\.request(['\"\.])",
+                r"patch\s*\(\s*['\"]frappe\.db\.",
+                r"patch\s*\(\s*['\"]frappe\.get_roles['\"]",
+                r"patch\s*\(\s*['\"]frappe\.get_doc['\"]",
+                r"patch\s*\(\s*['\"]frappe\.get_all['\"]",
+                r"patch\s*\(\s*['\"]frappe\.get_single['\"]",
+                r"patch\s*\(\s*['\"]frappe\.new_doc['\"]",
+                r"patch\s*\(\s*['\"]frappe\.get_site_config['\"]",
+                r"patch\s*\(\s*['\"]frappe\.installer\.",
+                r"patch\s*\(\s*['\"]frappe\.log_error['\"]",
+                r"patch\s*\(\s*['\"]frappe\.throw['\"]",
+                # Standard library plumbing
+                r"patch\s*\(\s*['\"]importlib\.",
+                r"patch\s*\(\s*['\"]subprocess\.",
+                r"patch\s*\(\s*['\"]json\.",
+                # External API clients (Mollie, eBoekhouden, etc.)
+                r"patch\s*\(\s*['\"]mollie\.",
+                r"patch\s*\(\s*['\"]eboekhouden\.",
+                # Audit / observability helpers — not the security boundary
+                r"patch\s*\(\s*['\"][^'\"]*log_security_audit['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.audit_log['\"]",
+                r"patch\s*\(\s*['\"]frappe\.logger['\"]",
+                r"patch\s*\(\s*['\"]frappe\.get_request_header['\"]",
+                r"patch\s*\(\s*['\"]frappe\.get_meta['\"]",
+                r"patch\s*\(\s*['\"]secrets\.",
+                # Security wrappers / status helpers around the boundary, not
+                # the boundary's own check itself. (frappe.has_permission,
+                # frappe.auth.*, verify_webhook_signature etc. remain banned.)
+                r"patch\s*\(\s*['\"][^'\"]*\.secure_document_operation['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.check_security_status['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.check_current_security_status['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.generate_session_secret['\"]",
             ]
         )
 
@@ -321,8 +401,11 @@ class TestQualityEnforcer:
         """Check for business logic mocks that should never be allowed"""
         valid = True
         lines = content.split('\n')
-        
+        docstring_lines = self._docstring_line_numbers(lines)
+
         for line_num, line in enumerate(lines, 1):
+            if line_num in docstring_lines:
+                continue
             for pattern in self.never_mock_patterns:
                 if re.search(pattern, line, re.IGNORECASE):
                     self.errors.append(

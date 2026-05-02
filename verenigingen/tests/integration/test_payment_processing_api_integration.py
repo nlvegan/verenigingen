@@ -89,6 +89,7 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         # Performance baseline from A+ testing patterns
         with self.assertQueryCount(500):  # Realistic baseline for payment processing
             # Mock only external SMTP service (legitimate mock)
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail') as mock_smtp:
                 result = send_overdue_payment_reminders(
                     reminder_type="Friendly Reminder",
@@ -212,6 +213,7 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         
         # Execute real bulk action
         with self.assertQueryCount(800):  # Bulk operation baseline
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail') as mock_smtp:  # Mock only SMTP
                 result = execute_bulk_payment_action(
                     action="Send Payment Reminders",
@@ -275,6 +277,7 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         
         # Send reminders with chapter notifications enabled
         with self.assertQueryCount(600):  # Chapter notification baseline
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail') as mock_smtp:  # Mock only SMTP
                 result = send_overdue_payment_reminders(
                     send_to_chapters=True,
@@ -356,6 +359,7 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         
         # Execute with performance monitoring
         with self.assertQueryCount(1500):  # Realistic baseline for 5+ members
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail'):  # Mock SMTP only
                 result = send_overdue_payment_reminders(
                     filters=frappe.as_json({"chapter": "Amsterdam"})
@@ -395,6 +399,7 @@ class TestPaymentProcessingAPISecurityIntegration(EnhancedTestCase):
         
         # Test with admin user (should work)
         with self.as_user("Administrator"):
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail'):  # Mock SMTP only
                 result = send_overdue_payment_reminders()
                 # Should succeed with proper permissions

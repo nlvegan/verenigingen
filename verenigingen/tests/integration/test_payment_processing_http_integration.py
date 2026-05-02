@@ -160,6 +160,7 @@ class TestPaymentProcessingHTTPIntegration(EnhancedTestCase):
         }
         
         # Mock only external SMTP service (legitimate mock)
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_smtp:
             # Make real HTTP request to payment processing API with API key auth
             print(f"DEBUG: Making POST request to: {self.api_base}/verenigingen.api.payment_processing.send_overdue_payment_reminders")

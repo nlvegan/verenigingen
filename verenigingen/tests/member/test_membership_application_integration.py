@@ -200,6 +200,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
             self._ensure_system_email_settings()
             
             # Mock infrastructure (email sending) to prevent actual emails during tests
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail') as mock_sendmail:
                 mock_sendmail.return_value = True
                 
@@ -227,6 +228,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         self._ensure_system_email_settings()
         
         # Only mock actual email infrastructure to prevent sending during tests
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             try:
                 send_approval_notification(
@@ -253,6 +255,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         self._ensure_system_email_settings()
         
         # Only mock email infrastructure to prevent actual sending during tests
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             # Run the complete approval workflow
             try:
@@ -290,6 +293,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         self._ensure_system_email_settings()
         
         # Only mock email infrastructure to prevent actual sending during tests
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             try:
                 # This should work without any parameter errors

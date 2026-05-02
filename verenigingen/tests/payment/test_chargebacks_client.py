@@ -185,6 +185,7 @@ class TestChargebacksClient(EnhancedTestCase):
         ]
         
         with patch.object(self.client, 'list_all_chargebacks', return_value=mock_chargebacks):
+            # Mock justified: Infrastructure - background task / realtime channel
             with patch('frappe.publish_realtime') as mock_publish:
                 analysis = self.client.analyze_chargeback_trends(period_days=30)
                 
@@ -221,6 +222,7 @@ class TestChargebacksClient(EnhancedTestCase):
         ]
         
         with patch.object(self.client, 'list_all_chargebacks', return_value=mock_chargebacks):
+            # Mock justified: Infrastructure - background task / realtime channel
             with patch('frappe.publish_realtime') as mock_publish:
                 analysis = self.client.analyze_chargeback_trends(period_days=30)
                 
@@ -340,6 +342,7 @@ class TestChargebacksClient(EnhancedTestCase):
         }
         
         with patch.object(self.client, 'get', return_value=mock_chargeback):
+            # Mock justified: Infrastructure - background task / realtime channel
             with patch('frappe.publish_realtime') as mock_publish:
                 result = self.client.handle_new_chargeback(payment_id, chargeback_id)
                 

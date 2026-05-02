@@ -266,6 +266,7 @@ class TestSettlementsClient(EnhancedTestCase):
             mock_chargebacks, # list_settlement_chargebacks
             mock_captures     # list_settlement_captures
         ]):
+            # Mock justified: Infrastructure - background task / realtime channel
             with patch('frappe.publish_realtime') as mock_publish:
                 result = self.client.reconcile_settlement(settlement_id)
                 
@@ -303,6 +304,7 @@ class TestSettlementsClient(EnhancedTestCase):
             mock_chargebacks,
             mock_captures
         ]):
+            # Mock justified: Infrastructure - background task / realtime channel
             with patch('frappe.publish_realtime') as mock_publish:
                 result = self.client.reconcile_settlement(settlement_id)
                 
@@ -372,6 +374,7 @@ class TestSettlementsClient(EnhancedTestCase):
         }
         
         with patch.object(self.client, 'get', return_value=mock_response):
+            # Mock justified: Infrastructure - background task / realtime channel
             with patch('frappe.publish_realtime') as mock_publish:
                 status = self.client.track_settlement_status(settlement_id)
                 

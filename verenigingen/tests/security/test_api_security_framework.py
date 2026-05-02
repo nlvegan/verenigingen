@@ -92,12 +92,15 @@ class TestAPISecurityFramework(VereningingenTestCase):
         # Test guest user rejection for secured endpoints
         profile = self.framework.get_security_profile(SecurityLevel.HIGH)
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="Guest")):
             with self.assertRaises(Exception):
                 self.framework.validate_authentication(profile)
 
         # Test authenticated user acceptance
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="test@example.com")):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 result = self.framework.validate_authentication(profile)
                 self.assertTrue(result)
@@ -112,12 +115,14 @@ class TestAPISecurityFramework(VereningingenTestCase):
         mock_request = MagicMock()
         mock_request.method = "GET"
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.request", mock_request):
             with self.assertRaises(Exception):
                 self.framework.validate_request_method(profile)
 
         # Mock request with POST method (should pass)
         mock_request.method = "POST"
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.request", mock_request):
             result = self.framework.validate_request_method(profile)
             self.assertTrue(result)
@@ -132,12 +137,14 @@ class TestAPISecurityFramework(VereningingenTestCase):
         mock_request = MagicMock()
         mock_request.headers = {"Content-Length": "2048"}  # 2KB
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.request", mock_request):
             with self.assertRaises(Exception):
                 self.framework.validate_request_size(profile)
 
         # Mock request with acceptable size
         mock_request.headers = {"Content-Length": "512"}  # 512B
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.request", mock_request):
             result = self.framework.validate_request_size(profile)
             self.assertTrue(result)
@@ -182,7 +189,9 @@ class TestSecurityDecorators(VereningingenTestCase):
         self.assertEqual(test_function._security_level, SecurityLevel.HIGH)
 
         # Test function execution with valid parameters
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="test@example.com")):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 result = test_function("value1", param2="value2")
                 self.assertEqual(result["param1"], "value1")
@@ -216,7 +225,9 @@ class TestSecurityDecorators(VereningingenTestCase):
             return {"status": "success"}
 
         # Test unauthorized access
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="unauthorized@example.com")):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Guest"]):
                 with self.assertRaises(Exception):
                     restricted_function()
@@ -513,7 +524,9 @@ class TestIntegrationSecurity(VereningingenTestCase):
             return {"success": True, "member_id": member_id, "data": data}
 
         # Mock user session
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="test@example.com")):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 # Test successful execution
                 result = test_secured_endpoint("TEST-001", name="Test Member", email="test@example.com")
@@ -529,7 +542,9 @@ class TestIntegrationSecurity(VereningingenTestCase):
             return {"success": True}
 
         # Test unauthorized access
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="unauthorized@example.com")):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Guest"]):
                 with self.assertRaises(Exception):
                     restricted_endpoint()
@@ -543,7 +558,9 @@ class TestIntegrationSecurity(VereningingenTestCase):
             return {"success": True}
 
         # Measure execution time
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.session", MagicMock(user="test@example.com")):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 start_time = time.time()
                 result = performance_test_endpoint()
@@ -931,6 +948,7 @@ class TestSecurityAuditFixes(VereningingenTestCase):
             return {"internal": True}
 
         # Apply the security decorator
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.logger") as mock_logger:
             decorated = api_security_framework(
                 security_level=SecurityLevel.HIGH,

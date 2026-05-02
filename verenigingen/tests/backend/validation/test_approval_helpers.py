@@ -325,6 +325,7 @@ class TestApproveMainFunction(EnhancedTestCase):
 
         return member
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")
     def test_approve_pending_member(self, _mock_sendmail):
         """Approving a pending member should set status to Approved/Active."""
@@ -344,6 +345,7 @@ class TestApproveMainFunction(EnhancedTestCase):
         self.assertEqual(member.application_status, "Approved")
         self.assertEqual(member.status, "Active")
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")
     def test_idempotent_approval(self, _mock_sendmail):
         """Calling approve on an already-approved member should return idempotent=True."""

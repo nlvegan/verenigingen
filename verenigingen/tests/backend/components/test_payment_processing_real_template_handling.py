@@ -82,6 +82,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         self.email_template = template
         return template
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # KEEP: External service mock
     def test_real_template_existence_validation(self, mock_sendmail):
         """Test email template existence with REAL database operations"""
@@ -123,6 +124,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
             # Real business logic may have additional validation
             print("ℹ️  Real business logic applied additional validation")
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # KEEP: External service mock
     def test_real_template_missing_fallback(self, mock_sendmail):
         """Test fallback behavior when template is missing using REAL database"""
@@ -215,6 +217,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         print(f"   Contains member name: {self.test_member.full_name in html_content}")
         print(f"   Contains amount: {'125.00' in html_content}")
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # KEEP: External service mock
     def test_multiple_template_types_real_database(self, mock_sendmail):
         """Test multiple reminder types with real template resolution"""
@@ -316,6 +319,7 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         self.assertIsNone(member_exists, "Test member should not exist")
         
         # Test real error handling
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail"):  # Mock only email service
             result = send_payment_reminder_email(
                 member_name=nonexistent_member,

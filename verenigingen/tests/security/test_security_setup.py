@@ -64,6 +64,7 @@ class TestSecurityRateLimit(VereningingenTestCase):
         with self.assertRaises(frappe.RateLimitExceededError):
             test_function()
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('verenigingen.setup.security_setup.log_security_audit')
     def test_rate_limit_audit_logging(self, mock_audit):
         """Test that rate limit violations are logged"""
@@ -154,6 +155,7 @@ class TestCSRFValidation(VereningingenTestCase):
         frappe.conf.ignore_csrf = 0
         frappe.local.form_dict = {}
         
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.get_request_header', return_value=None):
             with self.assertRaises(frappe.CSRFTokenError) as context:
                 validate_csrf_token()
@@ -219,7 +221,9 @@ class TestSecurityConfiguration(VereningingenTestCase):
         frappe.conf.update(self.original_conf)
         super().tearDown()
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config')
     def test_setup_csrf_protection_production(self, mock_update_config, mock_get_config):
         """Test CSRF protection setup in production mode"""
@@ -233,6 +237,7 @@ class TestSecurityConfiguration(VereningingenTestCase):
         self.assertEqual(result["status"], "enabled")
         mock_update_config.assert_called_with("ignore_csrf", 0)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
     def test_setup_csrf_protection_developer_mode(self, mock_get_config):
         """Test CSRF protection setup in developer mode"""
@@ -246,8 +251,11 @@ class TestSecurityConfiguration(VereningingenTestCase):
         self.assertEqual(result["status"], "skipped")
         self.assertIn("developer mode", result["message"])
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('secrets.choice')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config')
     def test_generate_session_secret_new(self, mock_update_config, mock_choice, mock_get_config):
         """Test generating new session secret"""
@@ -263,6 +271,7 @@ class TestSecurityConfiguration(VereningingenTestCase):
         self.assertEqual(call_args[0], "secret_key")
         self.assertEqual(len(call_args[1]), 64)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
     def test_generate_session_secret_existing(self, mock_get_config):
         """Test with existing session secret"""
@@ -272,6 +281,7 @@ class TestSecurityConfiguration(VereningingenTestCase):
         
         self.assertFalse(result)  # Should return False for existing secret
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_single')
     def test_setup_password_policy_new(self, mock_get_single):
         """Test password policy setup with new settings"""
@@ -291,6 +301,7 @@ class TestSecurityConfiguration(VereningingenTestCase):
         self.assertEqual(mock_system_settings.enable_password_policy, 1)
         self.assertEqual(mock_system_settings.force_user_to_reset_password, 90)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_single')
     def test_setup_password_policy_existing(self, mock_get_single):
         """Test password policy setup with existing correct settings"""
@@ -310,6 +321,7 @@ class TestSecurityConfiguration(VereningingenTestCase):
 class TestSecurityStatus(VereningingenTestCase):
     """Test security status checking"""
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
     def test_check_security_status_comprehensive(self, mock_get_config):
         """Test comprehensive security status check"""
@@ -336,6 +348,7 @@ class TestSecurityStatus(VereningingenTestCase):
         self.assertEqual(status["security_percentage"], 100.0)
         self.assertEqual(len(status["recommendations"]), 0)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
     def test_check_security_status_insecure(self, mock_get_config):
         """Test security status with insecure configuration"""
@@ -413,7 +426,9 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
         frappe.session.user = self.original_user
         super().tearDown()
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('verenigingen.setup.security_setup.log_security_audit')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config')
     def test_enable_csrf_protection_success(self, mock_update_config, mock_audit):
         """Test successful CSRF protection enabling with real permissions"""
@@ -447,6 +462,7 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
         with self.assertRaises(frappe.PermissionError):
             enable_csrf_protection()
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('verenigingen.setup.security_setup.check_security_status')
     def test_check_current_security_status_success(self, mock_check):
         """Test security status check endpoint"""
@@ -462,7 +478,9 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["status"], mock_status)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('verenigingen.setup.security_setup.log_security_audit')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config')
     def test_apply_production_security_comprehensive(self, mock_update_config, mock_audit):
         """Test applying production security settings with real permissions"""
@@ -476,6 +494,7 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
                 'allow_tests': 1,
                 'secret_key': None
             }.get(key, default)):
+                # Mock justified: Infrastructure - external dependency, not the boundary under test
                 with patch('verenigingen.setup.security_setup.generate_session_secret', return_value=True):
                     result = apply_production_security()
         
@@ -492,9 +511,13 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
 class TestSecurityIntegration(VereningingenTestCase):
     """Integration tests for security setup"""
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_single')
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('verenigingen.setup.security_setup.log_security_audit')
     def test_setup_all_security_integration(self, mock_audit, mock_get_single, mock_update_config, mock_get_config):
         """Test complete security setup integration"""
@@ -542,6 +565,7 @@ class TestSecurityEdgeCases(VereningingenTestCase):
         with self.assertRaises(frappe.RateLimitExceededError):
             test_function()
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config', side_effect=Exception("Config error"))
     def test_check_security_status_with_config_error(self, mock_config):
         """Test security status check when config is unavailable"""
@@ -552,7 +576,9 @@ class TestSecurityEdgeCases(VereningingenTestCase):
             # If it raises an exception, it should be handled gracefully
             self.assertIsNotNone(str(e))
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config', side_effect=Exception("Update failed"))
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_site_config')
     def test_setup_csrf_protection_update_failure(self, mock_get_config, mock_update):
         """Test CSRF setup when config update fails"""

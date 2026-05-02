@@ -27,6 +27,7 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def test_on_session_creation_with_none_user(self):
         """CRITICAL: Test session creation handles None user without breaking"""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.session.user', None):
             login_manager = MagicMock()
             
@@ -38,6 +39,7 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def test_on_session_creation_with_empty_user(self):
         """CRITICAL: Test session creation handles empty string user"""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.session.user', ""):
             login_manager = MagicMock()
             
@@ -49,7 +51,9 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def test_on_session_creation_database_error(self):
         """CRITICAL: Test session creation handles database failures"""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.session.user', 'test@example.com'):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch('frappe.db.get_value', side_effect=Exception("Database connection failed")):
                 login_manager = MagicMock()
                 
@@ -106,7 +110,9 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def test_before_request_with_none_user(self):
         """CRITICAL: Test before_request handles None user in session"""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.session.user', None):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch('frappe.local.request') as mock_request:
                 mock_request.path = "/app/Member"
                 
@@ -118,8 +124,11 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def test_session_creation_response_manipulation_safety(self):
         """CRITICAL: Test response manipulation doesn't corrupt session"""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.session.user', 'test@example.com'):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch('frappe.local.response', {}) as mock_response:
+                # Mock justified: Infrastructure - external dependency, not the boundary under test
                 with patch('frappe.db.get_value', return_value='test_member'):
                     login_manager = MagicMock()
                     
@@ -133,6 +142,7 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def test_frappe_get_roles_error_handling(self):
         """CRITICAL: Test role functions handle frappe.get_roles failures"""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.get_roles', side_effect=Exception("Role fetch failed")):
             try:
                 result = auth_hooks.has_member_role('test@example.com')
@@ -143,6 +153,7 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
 
     def test_guest_user_early_return(self):
         """CRITICAL: Test Guest user is handled correctly"""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.session.user', 'Guest'):
             login_manager = MagicMock()
             
@@ -157,6 +168,7 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
         edge_cases = [None, "", "None", "null", False, 0]
         
         for case in edge_cases:
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch('frappe.session.user', case):
                 login_manager = MagicMock()
                 

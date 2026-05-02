@@ -231,6 +231,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
         
         self.assertEqual(db_active_count, 1, "Database count matches object count")
     
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch('frappe.sendmail')  # KEEP: External service mock (appropriate)
     def test_member_notification_integration(self, mock_sendmail):
         """Test member notifications with external service mocking"""

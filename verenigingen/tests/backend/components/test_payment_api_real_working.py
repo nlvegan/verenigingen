@@ -70,6 +70,7 @@ class TestPaymentAPIRealWorking(EnhancedTestCase):
             # Clean up real template
             frappe.delete_doc("Email Template", template_name)
 
+    # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # Mock ONLY infrastructure, not business logic
     def test_payment_reminder_with_real_member_data(self, mock_sendmail):
         """Tests real member document retrieval - eliminates member document mocks"""

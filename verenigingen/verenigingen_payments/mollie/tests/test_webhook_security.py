@@ -231,6 +231,7 @@ class TestMollieWebhookSecurity(EnhancedTestCase):
         security_validation = self.simulate_mollie_webhook_security(webhook_data["webhook_payload"])
         valid_signature = security_validation["test_signature"]
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("mollie.api.client.Client"):
             # Test with valid signature (should log successful processing)
             valid_result = self.processor.process_payment_webhook(
@@ -302,12 +303,14 @@ class TestMollieWebhookSecurity(EnhancedTestCase):
         valid_signature = security_validation["test_signature"]
 
         # Process webhook first time
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("mollie.api.client.Client"):
             first_result = self.processor.process_payment_webhook(
                 webhook_payload=payload_json, signature=valid_signature
             )
 
         # Process same webhook again (should be idempotent)
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("mollie.api.client.Client"):
             second_result = self.processor.process_payment_webhook(
                 webhook_payload=payload_json, signature=valid_signature
@@ -354,6 +357,7 @@ class TestMollieWebhookSecurity(EnhancedTestCase):
 
         start_time = time.time()
         with self.assertQueryCount(self.webhook_performance_baselines["payload_processing"]):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("mollie.api.client.Client"):
                 result = self.processor.process_payment_webhook(
                     webhook_payload=payload_json, signature=valid_signature

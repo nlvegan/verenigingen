@@ -252,6 +252,7 @@ class TestInvoicesClient(FrappeTestCase):
         }
         
         with patch.object(self.client, 'get', return_value=mock_invoice):
+            # Mock justified: Infrastructure - background task / realtime channel
             with patch('frappe.publish_realtime') as mock_publish:
                 status = self.client.track_payment_status(invoice_id)
                 
