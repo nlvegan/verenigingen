@@ -95,8 +95,30 @@ class MockPatternValidator:
         """
         violations = []
 
-        # Skip base.py test utilities - they legitimately need ignore_permissions for fixtures
-        if 'tests/utils/base.py' in filepath or 'tests/fixtures/' in filepath:
+        # Skip helper / fixture files - they legitimately need ignore_permissions
+        # and DB writes to set up test state.
+        if any(marker in filepath for marker in (
+            'tests/utils/base.py',
+            'tests/fixtures/',
+            'tests/conftest',
+            'tests/setup/',
+            'tests/config/',
+        )):
+            return violations
+
+        # Skip Tier 1 (unit) tests - DB mocks are appropriate for testing
+        # isolated business logic. This mirrors the tier classification used by
+        # test_quality_enforcer so the two hooks agree on what counts as a
+        # unit test.
+        path_lower = filepath.lower().replace('\\', '/')
+        name_lower = Path(filepath).name.lower()
+        if any([
+            '/tests/unit/' in path_lower,
+            '/unit/tests/' in path_lower,
+            '/tests/backend/unit/' in path_lower,
+            name_lower.endswith('_unit.py'),
+            name_lower.endswith('_unit_test.py'),
+        ]):
             return violations
 
         try:
