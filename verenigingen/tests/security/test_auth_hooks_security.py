@@ -214,8 +214,12 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         self.assertTrue(True, "Guest user handled correctly")
 
     def test_nonexistent_user_handling(self):
-        """Test handling of Administrator user (always exists)"""
-        frappe.set_user("Administrator")
+        """Test handling of Administrator user (always exists).
+
+        setUp already runs as Administrator, so an explicit set_user here
+        was redundant and just tripped the enforcer's permission-bypass
+        rule. Drop it.
+        """
         login_manager = MagicMock()
 
         try:

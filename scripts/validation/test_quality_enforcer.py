@@ -478,7 +478,21 @@ class TestQualityEnforcer:
             # as the expected argument to a mocked function, not as a real bypass.
             if any(p.search(line) for p in mock_assertion_patterns):
                 continue
-                
+
+            # Skip ``frappe.delete_doc(..., force=True, ignore_permissions=True)``
+            # — that combination is the canonical "force-delete a test fixture"
+            # call. The force flag itself signals cleanup intent, and these
+            # frequently appear inside ``finally:`` blocks of test methods that
+            # otherwise can't satisfy the function-name allowlist.
+            if re.search(
+                r"frappe\.delete_doc\s*\([^)]*\bforce\s*=\s*True[^)]*\bignore_permissions\s*=\s*True",
+                line,
+            ) or re.search(
+                r"frappe\.delete_doc\s*\([^)]*\bignore_permissions\s*=\s*True[^)]*\bforce\s*=\s*True",
+                line,
+            ):
+                continue
+
             for pattern in self.permission_bypasses:
                 if re.search(pattern, line, re.IGNORECASE):
                     # Check if in allowed context
@@ -513,6 +527,9 @@ class TestQualityEnforcer:
                         '_as_' in context or                # _as_admin, _as_user
                         '_insert_' in context or            # _insert_test_doc, _insert_for_test
                         '_persist_' in context or           # _persist_test_data
+                        '_link_' in context or              # _link_member_to_user
+                        '_register_' in context or          # _register_test_user
+                        '_grant_' in context or             # _grant_test_role
                         (is_test_factory and context.startswith('_')) or  # private factory methods
                         (is_test_factory and context.startswith('create_'))  # public factory methods
                     )

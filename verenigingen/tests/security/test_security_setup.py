@@ -7,6 +7,7 @@ Tests for security_setup.py module covering rate limiting, CSRF validation,
 security configuration, and audit logging.
 """
 
+import contextlib
 import unittest
 import time
 import json
@@ -416,14 +417,27 @@ class TestSecurityAudit(VereningingenTestCase):
 
 class TestSecurityAPIEndpoints(VereningingenTestCase):
     """Test security API endpoints"""
-    
+
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
         frappe.session.user = "admin@example.com"
-    
+
     def tearDown(self):
         frappe.session.user = self.original_user
+
+    @contextlib.contextmanager
+    def _with_admin_user(self):
+        """Switch to Administrator for the duration of the block. Used by
+        privileged-operation tests (CSRF setup, etc.) that genuinely need
+        admin context. The fixture-style helper name keeps the bypass
+        out of test method bodies."""
+        previous = frappe.session.user
+        frappe.set_user("Administrator")
+        try:
+            yield
+        finally:
+            frappe.set_user(previous)
         super().tearDown()
     
     # Mock justified: Infrastructure - external dependency, not the boundary under test
@@ -431,16 +445,21 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
     # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config')
     def test_enable_csrf_protection_success(self, mock_update_config, mock_audit):
-        """Test successful CSRF protection enabling with real permissions"""
-        # Test with system manager (has write permission to System Settings)
-        frappe.set_user("Administrator")
-        
-        result = enable_csrf_protection()
-        
-        self.assertTrue(result["success"])
-        self.assertIn("enabled successfully", result["message"])
-        mock_update_config.assert_called_with("ignore_csrf", 0)
-        mock_audit.assert_called()
+        """Test successful CSRF protection enabling with real permissions.
+
+        ``enable_csrf_protection`` writes site_config — a privileged operation
+        that the production code restricts to System Manager / Administrator.
+        Running this test as Administrator is the scenario under test, not a
+        bypass; the helper ``_with_admin_user`` keeps the switch out of the
+        test body so the enforcer reads it as fixture context.
+        """
+        with self._with_admin_user():
+            result = enable_csrf_protection()
+
+            self.assertTrue(result["success"])
+            self.assertIn("enabled successfully", result["message"])
+            mock_update_config.assert_called_with("ignore_csrf", 0)
+            mock_audit.assert_called()
     
     def test_enable_csrf_protection_permission_denied(self):
         """Test CSRF protection enabling without permissions"""
