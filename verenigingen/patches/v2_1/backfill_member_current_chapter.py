@@ -12,7 +12,7 @@ import frappe
 
 
 def execute():
-    if not frappe.db.has_column("tabMember", "current_chapter"):
+    if not frappe.db.has_column("Member", "current_chapter"):
         # DocType reload from JSON hasn't run yet; bench migrate runs DB sync after
         # patches but JSON schema additions normally land before this patch executes.
         # Skip silently — the field will get populated on the next member save.
