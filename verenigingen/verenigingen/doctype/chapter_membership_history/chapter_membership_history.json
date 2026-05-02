@@ -20,6 +20,7 @@
       "fieldname": "chapter_name",
       "fieldtype": "Link",
       "in_list_view": 1,
+      "in_standard_filter": 1,
       "label": "Chapter",
       "options": "Chapter",
       "reqd": 1,

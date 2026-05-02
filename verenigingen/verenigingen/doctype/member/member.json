@@ -81,6 +81,7 @@
   "payment_history",
   "chapter_data_tab",
   "chapter_and_volunteer_activity_section",
+  "current_chapter",
   "current_chapter_display",
   "chapter_assigned_by",
   "previous_chapter",
@@ -143,7 +144,7 @@
   {
    "fieldname": "member_id",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Member ID",
    "read_only_depends_on": "eval:!doc.__islocal",
    "unique": 1
@@ -278,7 +279,6 @@
    "fieldname": "application_status",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "in_standard_filter": 1,
    "label": "Application Status",
    "options": "Pending\nUnder Review\nApproved\nRejected\nPayment Pending\nActive"
   },
@@ -391,6 +391,16 @@
    "label": "Member Details"
   },
   {
+   "description": "Primary chapter (auto-populated from active Chapter Membership History row). Displayed in the list view; full multi-chapter detail in Current Chapter(s) below.",
+   "fieldname": "current_chapter",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Current Chapter",
+   "no_copy": 1,
+   "options": "Chapter",
+   "read_only": 1
+  },
+  {
    "description": "Displays member's current chapter membership(s) based on Chapter Member relationships",
    "fieldname": "current_chapter_display",
    "fieldtype": "HTML",
@@ -475,6 +485,7 @@
   {
    "fieldname": "full_name",
    "fieldtype": "Data",
+   "in_standard_filter": 1,
    "label": "Full Name",
    "read_only": 1
   },
@@ -515,6 +526,7 @@
    "default": "Active",
    "fieldname": "status",
    "fieldtype": "Select",
+   "in_standard_filter": 1,
    "label": "Status",
    "options": "Pending\nActive\nRejected\nExpired\nSuspended\nBanned\nDeceased\nQuit",
    "read_only": 1
@@ -917,6 +929,7 @@
    "default": "0",
    "fieldname": "is_aspirant",
    "fieldtype": "Check",
+   "in_standard_filter": 1,
    "label": "Is Aspirant"
   },
   {

@@ -137,6 +137,15 @@ class MemberChapterDisplayService(StatelessService):
         try:
             chapters = self._get_current_chapters_optimized(member_doc)
 
+            # Maintain the flat current_chapter Link for list-view display and filtering.
+            # Picks the primary chapter; falls back to the first row when none is marked primary.
+            if hasattr(member_doc, "current_chapter"):
+                primary = next(
+                    (c for c in chapters if c.get("is_primary")),
+                    chapters[0] if chapters else None,
+                )
+                member_doc.current_chapter = primary["chapter"] if primary else None
+
             if not chapters:
                 # Use the custom field until the main field is fixed
                 field_name = (
