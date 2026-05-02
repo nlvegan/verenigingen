@@ -134,7 +134,9 @@ class EmailService(StatelessService):
                 f"\nDEBUG send_templated_email: template={template_name!r}, config_service={config_service!r}, is_enabled={is_enabled}"
             )
             if config_service and not is_enabled:
-                self.logger.info("Email sending disabled via Verenigingen Email Configuration - skipping templated email")
+                self.logger.info(
+                    "Email sending disabled via Verenigingen Email Configuration - skipping templated email"
+                )
                 return OperationResult.ok({"skipped": True, "reason": "Email disabled in configuration"})
 
             # Normalize recipients to list
@@ -477,7 +479,9 @@ class EmailService(StatelessService):
                     self._validate_notification_key(notification_key)
 
                     if not config_service.is_notification_enabled(notification_key):
-                        self.logger.info(f"Notification '{notification_key}' disabled in Verenigingen Email Configuration")
+                        self.logger.info(
+                            f"Notification '{notification_key}' disabled in Verenigingen Email Configuration"
+                        )
                         return OperationResult.ok(
                             {"skipped": True, "reason": f"Notification '{notification_key}' disabled"}
                         )
@@ -715,9 +719,7 @@ class EmailService(StatelessService):
                 }
             )
         except Exception as e:
-            self.logger.error(
-                f"Frappe Notification delegation failed ({notification_name}): {str(e)}"
-            )
+            self.logger.error(f"Frappe Notification delegation failed ({notification_name}): {str(e)}")
             return OperationResult.fail(f"Frappe Notification delegation failed: {str(e)}")
 
     def _record_cooldown(self, notification_key: str, recipients: List[str]) -> None:

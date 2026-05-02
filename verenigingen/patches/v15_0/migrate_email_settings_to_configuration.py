@@ -77,7 +77,9 @@ def execute():
     config.save()
 
     frappe.db.commit()
-    frappe.logger().info(f"Verenigingen Email Configuration created with {len(notification_types)} notification types")
+    frappe.logger().info(
+        f"Verenigingen Email Configuration created with {len(notification_types)} notification types"
+    )
 
 
 def _get_default_notification_types(old_settings: dict, existing_templates: set) -> list:

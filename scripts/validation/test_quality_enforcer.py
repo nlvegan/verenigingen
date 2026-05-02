@@ -108,17 +108,20 @@ class TestQualityEnforcer:
         """
         Determine which testing tier a file belongs to.
 
-        Tier 1 (Unit): tests/unit/, *_unit.py, *_unit_test.py
+        Tier 1 (Unit): tests/unit/, tests/**/unit/, *_unit.py, *_unit_test.py
         Tier 2 (Integration): tests/integration/, tests/, *_integration.py (default)
-        Tier 3 (Security): tests/security/, *_security.py, *_permission*.py
+        Tier 3 (Security): tests/security/, tests/**/security/, *_security.py, *_permission*.py
         """
         path_lower = file_path.lower()
         name = Path(file_path).name.lower()
 
         # Tier 3: Security tests - most restrictive
+        # Match any "/security/" segment under a tests dir (e.g. tests/security/,
+        # tests/backend/security/) so layout variants share the same rules.
         if any([
-            "tests/security/" in path_lower,
+            "/tests/security/" in path_lower,
             "/security/tests/" in path_lower,
+            "/tests/backend/security/" in path_lower,
             name.endswith("_security.py"),
             name.endswith("_security_test.py"),
             "permission" in name and "test" in name,
@@ -126,9 +129,11 @@ class TestQualityEnforcer:
             return TestTier.SECURITY
 
         # Tier 1: Unit tests - least restrictive
+        # Same pattern: any "/unit/" segment under a tests dir counts.
         if any([
-            "tests/unit/" in path_lower,
+            "/tests/unit/" in path_lower,
             "/unit/tests/" in path_lower,
+            "/tests/backend/unit/" in path_lower,
             name.endswith("_unit.py"),
             name.endswith("_unit_test.py"),
         ]):

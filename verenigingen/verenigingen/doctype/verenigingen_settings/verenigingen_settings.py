@@ -103,7 +103,9 @@ class VerenigingenSettings(Document):
         for field, replacement in deprecated_fields.items():
             value = getattr(self, field, None)
             if value:
-                deprecated_used.append(f"<li><b>{field}</b> → Verenigingen Email Configuration: {replacement}</li>")
+                deprecated_used.append(
+                    f"<li><b>{field}</b> → Verenigingen Email Configuration: {replacement}</li>"
+                )
 
         if deprecated_used:
             frappe.msgprint(

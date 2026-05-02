@@ -339,7 +339,9 @@ def create_system_notification(
 
         # Check if this notification type is enabled
         if not config_service.is_notification_enabled(notification_key):
-            frappe.logger().debug(f"Notification '{notification_key}' disabled in Verenigingen Email Configuration")
+            frappe.logger().debug(
+                f"Notification '{notification_key}' disabled in Verenigingen Email Configuration"
+            )
             return {
                 "success": True,
                 "skipped": True,

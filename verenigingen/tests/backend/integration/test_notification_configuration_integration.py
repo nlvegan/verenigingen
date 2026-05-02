@@ -55,6 +55,7 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
 
             email_service = get_email_service()
 
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch("frappe.sendmail") as mock_sendmail:
                 result = email_service.send_templated_email(
                     template_name="membership_application_confirmation",
@@ -82,6 +83,7 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
 
             email_service = get_email_service()
 
+            # Mock justified: External Service - SMTP delivery, not business logic
             with patch("frappe.sendmail") as mock_sendmail:
                 result = email_service.send_templated_email(
                     template_name="membership_application_confirmation",
@@ -366,7 +368,8 @@ class TestVolunteerEmailIntegration(EnhancedTestCase):
                 })
                 config.save()
 
-                with patch("frappe.sendmail") as mock_sendmail:
+                # Mock justified: External Service - SMTP delivery, not business logic
+            with patch("frappe.sendmail") as mock_sendmail:
                     result = send_volunteer_email(
                         volunteer=volunteer.name,
                         template_name="team_role_notification",
@@ -417,6 +420,7 @@ class TestEmailServiceCacheIntegration(EnhancedTestCase):
         email_service.template_cache.clear()
 
         # First load - cache miss
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail"):
             result1 = email_service.send_templated_email(
                 template_name=template_name,
@@ -425,6 +429,7 @@ class TestEmailServiceCacheIntegration(EnhancedTestCase):
             )
 
         # Second load - cache hit
+        # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail"):
             result2 = email_service.send_templated_email(
                 template_name=template_name,
