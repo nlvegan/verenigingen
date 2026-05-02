@@ -1,313 +1,199 @@
 """
-Test Self-Service Operations Security
+Unit tests for the self-service validator (SelfServiceAccessController).
 
-Tests the self_service_only parameter functionality in the API Security Framework
-to ensure volunteers can submit their own expenses but not access others' data.
+Companion to tests/security/test_self_service_doc_method_regression.py, which
+covers the wrapper end-to-end. This file unit-tests the validator's behaviour
+in isolation: explicit-target acceptance, cross-user rejection, implicit
+self-service rules, and the policy mapping that backs @self_service_api.
+
+The validator looks up the caller via frappe.session.user (NOT a `user=` kwarg)
+and identifies the target via the kwargs keys in
+SelfServiceAccessController.MEMBER_FIELDS — so all tests here drive the
+session with `frappe.set_user(...)` and pass `member=...` rather than the
+legacy `target_member=...`. Member→User linkage is via Member.email ==
+User.email (NOT Member.user).
 """
 
-import unittest
 import frappe
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.error_handling import PermissionError as VPermissionError
 from verenigingen.utils.security.api_security_framework import (
     APISecurityFramework,
-    standard_api
+    self_service_api,
+    standard_api,
 )
-from verenigingen.utils.security.types import SecurityLevel, OperationType
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.authorization_policy import AuthorizationPolicy
+from verenigingen.utils.security.types import OperationType, SecurityLevel
 
 
 class TestSelfServiceOperations(EnhancedTestCase):
-    """Test self-service operations security functionality"""
+    """Unit tests for SelfServiceAccessController via APISecurityFramework."""
 
     def setUp(self):
-        """Setup test environment"""
+        super().setUp()
         self.framework = APISecurityFramework()
-        self.volunteer_user = "volunteer@example.com"
-        self.treasurer_user = "treasurer@example.com"
 
-    def test_self_service_validation_same_user(self):
-        """Test that self-service validation passes for same user"""
-        # Create real test data
-        member = self.create_test_member(
-            first_name="Volunteer",
-            last_name="User",
-            birth_date="1990-01-01"
+    def _link_member_to_user(self, member, roles=("Verenigingen Volunteer",)):
+        """Create a User and link to member via Member.email == User.email.
+
+        SelfServiceAccessController.get_user_member() does:
+            frappe.db.get_value("Member", {"email": user}, "name")
+        so the link field is Member.email, not Member.user.
+        """
+        user = self.factory.create_user_with_roles(
+            email=f"selfservice-{member.name}-{self.uid}@example.com",
+            roles=list(roles),
         )
+        member.email = user.name
+        member.save(ignore_permissions=True)
+        return user
 
-        volunteer_user = self.create_test_user(
-            email=self.volunteer_user,
-            first_name="Volunteer",
-            last_name="User"
-        )
+    def _as_user(self, user_name):
+        """Context-manager-ish helper for test code clarity."""
 
-        # Link the member to the user (correct relationship)
-        member.user = volunteer_user.name
-        member.save()
+        class _Switcher:
+            def __init__(self, target):
+                self.target = target
+                self.original = None
 
-        # Should pass when volunteer accesses their own member record
-        result = self.framework._validate_self_service_access(
-            target_member=member.name,
-            user=volunteer_user.name
-        )
-        self.assertTrue(result)
+            def __enter__(self):
+                self.original = frappe.session.user
+                frappe.set_user(self.target)
+                return self
 
-    def test_self_service_validation_different_user(self):
-        """Test that self-service validation fails for different user"""
-        # Create two different members
-        member1 = self.create_test_member(
-            first_name="Member",
-            last_name="One",
-            birth_date="1990-01-01"
-        )
+            def __exit__(self, *exc):
+                frappe.set_user(self.original)
 
-        member2 = self.create_test_member(
-            first_name="Member",
-            last_name="Two",
-            birth_date="1991-01-01"
-        )
+        return _Switcher(user_name)
 
-        # Create user linked to member2
-        volunteer_user = self.create_test_user(
-            email=self.volunteer_user,
-            first_name="Volunteer",
-            last_name="User"
-        )
+    # --- _validate_self_service_access ---------------------------------------
 
-        # Link member2 to the user (correct relationship)
-        member2.user = volunteer_user.name
-        member2.save()
+    def test_owner_passes_with_explicit_member_kwarg(self):
+        """When session user owns the target member, validator returns True."""
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
 
-        # Should fail when volunteer tries to access member1's record
-        with self.assertRaises(Exception) as context:
-            self.framework._validate_self_service_access(
-                target_member=member1.name,
-                user=volunteer_user.name
-            )
-        self.assertIn("self-service", str(context.exception).lower())
+        with self._as_user(user.name):
+            self.assertTrue(self.framework._validate_self_service_access(member=member.name))
 
-    def test_self_service_validation_no_member_link(self):
-        """Test that self-service validation fails when user has no member link"""
-        # Create a member
-        member = self.create_test_member(
-            first_name="Member",
-            last_name="Test",
-            birth_date="1990-01-01"
-        )
+    def test_cross_user_explicit_member_is_rejected(self):
+        """Validator must reject explicit-target access to another member's record."""
+        owner = self.create_test_member(birth_date="1990-01-01")
+        intruder = self.create_test_member(birth_date="1991-02-02")
+        intruder_user = self._link_member_to_user(intruder)
 
-        # Create user with NO member link
-        volunteer_user = self.create_test_user(
-            email=self.volunteer_user,
-            first_name="Volunteer",
-            last_name="User"
-            # Note: no member_name parameter
-        )
+        with self._as_user(intruder_user.name):
+            with self.assertRaises(VPermissionError) as ctx:
+                self.framework._validate_self_service_access(member=owner.name)
+        self.assertIn("only perform this operation on your own data", str(ctx.exception))
 
-        # Should fail when user has no member record link
-        with self.assertRaises(Exception) as context:
-            self.framework._validate_self_service_access(
-                target_member=member.name,
-                user=volunteer_user.name
-            )
-        self.assertIn("member", str(context.exception).lower())
+    def test_implicit_default_rejects_when_no_target(self):
+        """No target kwarg + implicit_allowed=False → 'explicit member required'."""
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
 
-    def test_self_service_decorator_integration(self):
-        """Test that self_service_only parameter works with decorators"""
+        with self._as_user(user.name):
+            with self.assertRaises(VPermissionError) as ctx:
+                self.framework._validate_self_service_access()
+        self.assertIn("explicit member parameter", str(ctx.exception))
 
-        @standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
-        def mock_submit_expense(expense_data=None):
-            """Mock expense submission function"""
-            return {"success": True, "expense_id": "EXP-001"}
+    def test_implicit_allowed_passes_when_user_has_member(self):
+        """No target + implicit_allowed=True + user has linked Member → True."""
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
 
-        # Function should have the decorator applied
-        self.assertTrue(hasattr(mock_submit_expense, '_security_config'))
-
-        # Check that self_service_only is in the security config
-        security_config = getattr(mock_submit_expense, '_security_config', {})
-        self.assertTrue(security_config.get('self_service_only', False))
-
-    def test_volunteer_expense_submission_security_level(self):
-        """Test that volunteer expense submission uses appropriate security level"""
-        # Import the actual volunteer expense function
-        try:
-            from verenigingen.templates.pages.volunteer.expenses import submit_expense
-
-            # Check that it has the correct security configuration
-            if hasattr(submit_expense, '_security_config'):
-                config = submit_expense._security_config
-                # Should be MEDIUM level for volunteers with self_service_only
-                self.assertEqual(config.get('security_level'), SecurityLevel.MEDIUM)
-                self.assertTrue(config.get('self_service_only', False))
-            else:
-                # If not decorated, that's also valid as long as the function exists
-                self.assertTrue(callable(submit_expense))
-
-        except ImportError:
-            self.skipTest("Volunteer expense submission function not available")
-
-    def test_self_service_audit_logging(self):
-        """Test that self-service operations are properly logged"""
-        # Create real test data
-        member = self.create_test_member(
-            first_name="Test",
-            last_name="Member",
-            birth_date="1990-01-01"
-        )
-
-        volunteer_user = self.create_test_user(
-            email=self.volunteer_user,
-            first_name="Test",
-            last_name="Member"
-        )
-
-        # Link the member to the user (correct relationship)
-        member.user = volunteer_user.name
-        member.save()
-
-        # Test successful validation doesn't generate errors
-        try:
-            result = self.framework._validate_self_service_access(
-                target_member=member.name,
-                user=volunteer_user.name
-            )
-            self.assertTrue(result)
-        except Exception as e:
-            self.fail(f"Valid self-service access should not fail: {e}")
-
-    def test_self_service_parameter_types(self):
-        """Test that self_service_only parameter accepts correct types"""
-
-        # Should accept boolean True
-        @standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
-        def test_func_true():
-            pass
-
-        # Should accept boolean False
-        @standard_api(operation_type=OperationType.REPORTING, self_service_only=False)
-        def test_func_false():
-            pass
-
-        # Both should work without errors
-        self.assertTrue(hasattr(test_func_true, '_security_config'))
-        self.assertTrue(hasattr(test_func_false, '_security_config'))
-
-    def test_self_service_with_multiple_members(self):
-        """Test self-service validation with users who might have multiple member records"""
-        # Create test members
-        member1 = self.create_test_member(
-            first_name="Member",
-            last_name="One",
-            birth_date="1990-01-01"
-        )
-
-        member999 = self.create_test_member(
-            first_name="Member",
-            last_name="NineNineNine",
-            birth_date="1991-01-01"
-        )
-
-        # Create user linked to member1
-        volunteer_user = self.create_test_user(
-            email=self.volunteer_user,
-            first_name="Member",
-            last_name="One"
-        )
-
-        # Link member1 to the user (correct relationship)
-        member1.user = volunteer_user.name
-        member1.save()
-
-        # Should pass for correct member
-        result = self.framework._validate_self_service_access(
-            target_member=member1.name,
-            user=volunteer_user.name
-        )
-        self.assertTrue(result)
-
-        # Should fail for different member
-        with self.assertRaises(Exception):
-            self.framework._validate_self_service_access(
-                target_member=member999.name,
-                user=volunteer_user.name
+        with self._as_user(user.name):
+            self.assertTrue(
+                self.framework._validate_self_service_access(implicit_allowed=True)
             )
 
-    def test_self_service_security_level_requirements(self):
-        """Test that self-service operations have appropriate security level requirements"""
-        # Volunteers should have LOW level access
-        volunteer_levels = self.framework.ROLE_PROFILE_SECURITY_MAPPING.get("Verenigingen Volunteer", [])
-        self.assertIn(SecurityLevel.LOW, volunteer_levels)
-
-        # Standard APIs (MEDIUM level) should be accessible to volunteers for self-service
-        # This allows volunteers to submit expenses with self_service_only=True
-        self.assertIn(SecurityLevel.MEDIUM,
-                     self.framework.ROLE_PROFILE_SECURITY_MAPPING.get("Verenigingen Volunteer", []))
-
-    def test_self_service_without_authentication(self):
-        """Test that self-service operations require authentication"""
-        # Create a member for testing
-        member = self.create_test_member(
-            first_name="Test",
-            last_name="Member",
-            birth_date="1990-01-01"
+    def test_implicit_allowed_rejects_user_with_no_member_link(self):
+        """No target + implicit_allowed=True + user has NO Member → rejected."""
+        # User without a linked Member record
+        orphan_user = self.factory.create_user_with_roles(
+            email=f"selfservice-orphan-{self.uid}@example.com",
+            roles=["Verenigingen Member"],
         )
 
-        # Should fail for guest users
-        with self.assertRaises(Exception) as context:
-            self.framework._validate_self_service_access(
-                target_member=member.name,
-                user="Guest"
-            )
+        with self._as_user(orphan_user.name):
+            with self.assertRaises(VPermissionError) as ctx:
+                self.framework._validate_self_service_access(implicit_allowed=True)
+        self.assertIn("No member record found", str(ctx.exception))
 
-        # Error should mention authentication
-        error_msg = str(context.exception).lower()
-        self.assertTrue(any(word in error_msg for word in ["authentication", "guest", "access denied"]))
+    def test_administrator_bypasses_self_service(self):
+        """Administrator (and Guest) skip the self-service check by design.
 
-    def test_framework_supports_self_service_parameter(self):
-        """Test that the framework properly supports the self_service_only parameter"""
+        This is the documented behaviour in SelfServiceAccessController:
+            if current_user in ("Administrator", "Guest"): return True
+        It's also why self-service tests must NEVER run as Administrator —
+        the bug that triggered all this work was invisible under Admin.
+        """
+        owner = self.create_test_member(birth_date="1990-01-01")
+        # Don't link anyone — Administrator should pass regardless
+        with self._as_user("Administrator"):
+            self.assertTrue(self.framework._validate_self_service_access(member=owner.name))
 
-        # The framework should have the validation method
-        self.assertTrue(hasattr(self.framework, '_validate_self_service_access'))
+    # --- decorator wiring ---------------------------------------------------
 
-        # The method should be callable
-        self.assertTrue(callable(getattr(self.framework, '_validate_self_service_access')))
+    def test_self_service_decorator_runs_through_wrapper(self):
+        """A function decorated with self_service_only=True runs the wrapper
+        and reaches the inner function for the legitimate owner."""
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member)
 
-    def test_self_service_error_messages(self):
-        """Test that self-service validation provides meaningful error messages"""
-        # Create two different members
-        member1 = self.create_test_member(
-            first_name="Member",
-            last_name="One",
-            birth_date="1990-01-01"
-        )
+        @standard_api(operation_type=OperationType.MEMBER_DATA, self_service_only=True)
+        def fake_endpoint(member=None):
+            return {"ok": True, "member": member}
 
-        member2 = self.create_test_member(
-            first_name="Member",
-            last_name="Two",
-            birth_date="1991-01-01"
-        )
+        with self._as_user(user.name):
+            result = fake_endpoint(member=member.name)
+        self.assertEqual(result, {"ok": True, "member": member.name})
 
-        # Create user linked to member2
-        volunteer_user = self.create_test_user(
-            email=self.volunteer_user,
-            first_name="Member",
-            last_name="Two"
-        )
+    def test_self_service_decorator_blocks_other_member(self):
+        """Decorator-wrapped endpoint rejects cross-user access via VPermissionError."""
+        owner = self.create_test_member(birth_date="1990-01-01")
+        intruder = self.create_test_member(birth_date="1991-02-02")
+        intruder_user = self._link_member_to_user(intruder)
 
-        # Link member2 to the user (correct relationship)
-        member2.user = volunteer_user.name
-        member2.save()
+        @standard_api(operation_type=OperationType.MEMBER_DATA, self_service_only=True)
+        def fake_endpoint(member=None):
+            return {"ok": True}
 
-        try:
-            self.framework._validate_self_service_access(
-                target_member=member1.name,
-                user=volunteer_user.name
-            )
-            self.fail("Should have raised an exception")
-        except Exception as e:
-            error_msg = str(e).lower()
-            # Error message should be meaningful and mention self-service
-            self.assertTrue(len(error_msg) > 10)  # Not just a generic error
-            self.assertTrue(any(word in error_msg for word in ["self", "service", "access", "member"]))
+        with self._as_user(intruder_user.name):
+            with self.assertRaises(VPermissionError):
+                fake_endpoint(member=owner.name)
 
+    def test_self_service_api_decorator_uses_low_tier(self):
+        """@self_service_api is reachable by plain Verenigingen Member callers
+        (only LOW). This is the whole point of the helper — see
+        memory/project_self_service_api.md."""
+        member = self.create_test_member(birth_date="1990-01-01")
+        user = self._link_member_to_user(member, roles=["Verenigingen Member"])
 
-if __name__ == '__main__':
-    unittest.main()
+        @self_service_api(operation_type=OperationType.FINANCIAL)
+        def fake_endpoint(member=None):
+            return "ok"
+
+        with self._as_user(user.name):
+            self.assertEqual(fake_endpoint(member=member.name), "ok")
+
+    # --- policy introspection -----------------------------------------------
+
+    def test_volunteer_role_grants_medium_for_self_service_operations(self):
+        """Verenigingen Volunteer must grant MEDIUM — that's the role tier
+        @standard_api(self_service_only=True) endpoints (e.g. submit_expense)
+        depend on. Regression guard for accidental policy edits."""
+        policy = AuthorizationPolicy()
+        levels = policy.ROLE_PROFILE_SECURITY_MAPPING.get("Verenigingen Volunteer", [])
+        self.assertIn(SecurityLevel.MEDIUM, levels)
+        self.assertIn(SecurityLevel.LOW, levels)
+
+    def test_member_role_only_has_low(self):
+        """Verenigingen Member intentionally has only LOW — granting MEDIUM
+        would expose ~120 admin-flavoured @standard_api endpoints. Self-service
+        for plain members goes through @self_service_api (LOW + ownership-gated)
+        instead. Regression guard."""
+        policy = AuthorizationPolicy()
+        levels = policy.ROLE_PROFILE_SECURITY_MAPPING.get("Verenigingen Member", [])
+        self.assertEqual(levels, [SecurityLevel.LOW])
