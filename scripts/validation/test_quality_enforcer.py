@@ -512,6 +512,8 @@ class TestQualityEnforcer:
                         '_backup_' in context or            # backup helpers
                         '_with_' in context or              # _with_admin_user, _with_role
                         '_as_' in context or                # _as_admin, _as_user
+                        '_insert_' in context or            # _insert_test_doc, _insert_for_test
+                        '_persist_' in context or           # _persist_test_data
                         (is_test_factory and context.startswith('_')) or  # private factory methods
                         (is_test_factory and context.startswith('create_'))  # public factory methods
                     )
