@@ -24,7 +24,7 @@ fixtures = [
     # NOTIFICATIONS
     # =========================================================================
     # NOTE: Frappe Notifications are NOT included in fixtures.
-    # All notifications are handled by custom code that respects Email Configuration:
+    # All notifications are handled by custom code that respects Verenigingen Email Configuration:
     # - Member approval/rejection: member_subscribers.py, membership_application_review.py
     # - SEPA mandate: sepa_notifications.py
     # - Member status change: member_subscribers.py
@@ -32,7 +32,7 @@ fixtures = [
     # - New application (admin): application_notifications.py
     # - Expense approval: expense_handlers.py
     #
-    # This ensures the Email Configuration DocType is the single source of truth
+    # This ensures the Verenigingen Email Configuration DocType is the single source of truth
     # for all notification settings (enable/disable, cooldowns, recipients).
     # =========================================================================
     # WORKFLOWS

@@ -1,5 +1,5 @@
-// Email Configuration form script
-frappe.ui.form.on("Email Configuration", {
+// Verenigingen Email Configuration form script
+frappe.ui.form.on("Verenigingen Email Configuration", {
 	refresh: function (frm) {
 		// Add status indicator based on email mode
 		if (!frm.doc.master_email_enabled) {
@@ -100,7 +100,7 @@ frappe.ui.form.on("Email Configuration", {
 					],
 					function (values) {
 						frappe.call({
-							method: "verenigingen.verenigingen.doctype.email_configuration.email_configuration.send_test_email",
+							method: "verenigingen.verenigingen.doctype.verenigingen_email_configuration.verenigingen_email_configuration.send_test_email",
 							args: { recipient: values.recipient },
 							freeze: true,
 							freeze_message: __("Sending test email..."),
@@ -132,7 +132,7 @@ frappe.ui.form.on("Email Configuration", {
 			__("Sync Registry"),
 			function () {
 				frappe.call({
-					method: "verenigingen.verenigingen.doctype.email_configuration.email_configuration.discover_notification_keys",
+					method: "verenigingen.verenigingen.doctype.verenigingen_email_configuration.verenigingen_email_configuration.discover_notification_keys",
 					freeze: true,
 					freeze_message: __("Scanning codebase for notification keys..."),
 					callback: function (r) {
@@ -376,7 +376,7 @@ function show_sync_dialog(frm, data) {
 
 			// Add selected notification types
 			frappe.call({
-				method: "verenigingen.verenigingen.doctype.email_configuration.email_configuration.add_notification_types",
+				method: "verenigingen.verenigingen.doctype.verenigingen_email_configuration.verenigingen_email_configuration.add_notification_types",
 				args: { notification_types: JSON.stringify(selected) },
 				freeze: true,
 				freeze_message: __("Adding notification types..."),

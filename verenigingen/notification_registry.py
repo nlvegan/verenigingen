@@ -20,7 +20,7 @@ Usage:
 Adding new notification keys:
     1. Add the key to NOTIFICATION_KEYS below with all required fields
     2. Use the key in your code with notification_key="your_key"
-    3. Run "Sync Registry" in Email Configuration to add it to the database
+    3. Run "Sync Registry" in Verenigingen Email Configuration to add it to the database
 
 Naming Convention:
     Keys follow the pattern: {entity}_{action}[_{qualifier}]

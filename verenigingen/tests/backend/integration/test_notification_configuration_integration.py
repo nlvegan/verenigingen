@@ -2,7 +2,7 @@
 Integration tests for the Email/Notification Configuration System.
 
 Tests the complete notification flow from configuration to delivery:
-- Email Configuration → EmailConfigurationService → EmailService
+- Verenigingen Email Configuration → EmailConfigurationService → EmailService
 - Notification key enable/disable affecting actual sends
 - Cooldown tracking across the full stack
 - Recipient determination across all policies
@@ -35,11 +35,11 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
         frappe.flags.in_import = False
 
     def test_email_service_respects_notification_disabled(self):
-        """Test EmailService respects notification disabled in Email Configuration."""
+        """Test EmailService respects notification disabled in Verenigingen Email Configuration."""
         from verenigingen.services.communication.email_service import get_email_service
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Active"
 
@@ -75,8 +75,8 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
         """Test EmailService respects global email disable."""
         from verenigingen.services.communication.email_service import get_email_service
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 0
             config.save()
 
@@ -142,8 +142,8 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
             get_email_configuration_service,
         )
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.notification_types = []
             config.append("notification_types", {
                 "notification_key": "test_fixed_recipients",
@@ -166,8 +166,8 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
             get_email_configuration_service,
         )
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.notification_types = []
             config.append("notification_types", {
                 "notification_key": "test_document_field",
@@ -198,8 +198,8 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
             get_email_configuration_service,
         )
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.financial_admin_emails = "treasurer@test.com, finance@test.com"
             config.save()
 
@@ -214,8 +214,8 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
             get_email_configuration_service,
         )
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Active"
             config.notification_types = []
@@ -244,8 +244,8 @@ class TestNotificationConfigurationIntegration(FlagBackupMixin, EnhancedTestCase
             get_email_configuration_service,
         )
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Paused"
             config.pause_until = add_to_date(now_datetime(), hours=1)  # Future
@@ -268,11 +268,11 @@ class TestNotificationHelperIntegration(EnhancedTestCase):
     """Integration tests for notification helper functions."""
 
     def test_notify_administrators_uses_configuration(self):
-        """Test notify_administrators uses Email Configuration for recipients."""
+        """Test notify_administrators uses Verenigingen Email Configuration for recipients."""
         from verenigingen.utils.notification_helpers import notify_administrators
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.admin_notification_emails = "config.admin@test.com"
             config.master_email_enabled = 1
             config.email_mode = "Active"
@@ -300,8 +300,8 @@ class TestNotificationHelperIntegration(EnhancedTestCase):
         """Test create_system_notification respects notification key enable/disable."""
         from verenigingen.utils.notification_helpers import create_system_notification
 
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Active"
             config.notification_types = []
@@ -353,8 +353,8 @@ class TestVolunteerEmailIntegration(EnhancedTestCase):
             })
             volunteer.insert()
 
-            with singleton_backup("Email Configuration"):
-                config = frappe.get_single("Email Configuration")
+            with singleton_backup("Verenigingen Email Configuration"):
+                config = frappe.get_single("Verenigingen Email Configuration")
                 config.master_email_enabled = 1
                 config.email_mode = "Active"
                 config.notification_types = []

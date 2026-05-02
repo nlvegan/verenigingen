@@ -272,7 +272,7 @@ class TestCreateSystemNotification(FrappeTestCase):
             self.assertEqual(len(truncated), MAX_MESSAGE_LENGTH + 15)  # "... [truncated]" is 15 chars
 
     def test_respects_notification_key_disable(self):
-        """Test respects notification disabled via Email Configuration."""
+        """Test respects notification disabled via Verenigingen Email Configuration."""
         mock_config_service = MagicMock()
         mock_config_service.is_email_enabled.return_value = True
         mock_config_service.is_notification_enabled.return_value = False
@@ -293,7 +293,7 @@ class TestCreateSystemNotification(FrappeTestCase):
             self.assertEqual(result["notifications_created"], 0)
 
     def test_respects_global_disable(self):
-        """Test respects global email disable via Email Configuration."""
+        """Test respects global email disable via Verenigingen Email Configuration."""
         mock_config_service = MagicMock()
         mock_config_service.is_email_enabled.return_value = False
 
@@ -331,7 +331,7 @@ class TestNotifyAdministrators(FrappeTestCase):
     """Test notify_administrators convenience function."""
 
     def test_uses_email_configuration_for_recipients(self):
-        """Test uses Email Configuration for recipient lookup."""
+        """Test uses Verenigingen Email Configuration for recipient lookup."""
         mock_config_service = MagicMock()
         mock_config_service.get_category_recipients.return_value = ["admin@config.com"]
         mock_config_service.is_email_enabled.return_value = True

@@ -1,5 +1,5 @@
 """
-Email Configuration DocType Controller
+Verenigingen Email Configuration DocType Controller
 
 Centralized management of email and notification settings for the Verenigingen app.
 Provides master enable/disable, per-notification-type controls, and recipient management.
@@ -16,11 +16,11 @@ from frappe.utils import get_datetime, now_datetime
 from verenigingen.utils.constants import Roles
 
 
-class EmailConfiguration(Document):
-    """Controller for Email Configuration singleton DocType."""
+class VerenigingenEmailConfiguration(Document):
+    """Controller for Verenigingen Email Configuration singleton DocType."""
 
     def validate(self):
-        """Validate Email Configuration settings."""
+        """Validate Verenigingen Email Configuration settings."""
         self._validate_pause_settings()
         self._validate_notification_keys()
         self._validate_email_lists()
@@ -158,13 +158,13 @@ class EmailConfiguration(Document):
         )
 
 
-def get_email_configuration() -> EmailConfiguration:
-    """Get the Email Configuration singleton document.
+def get_email_configuration() -> VerenigingenEmailConfiguration:
+    """Get the Verenigingen Email Configuration singleton document.
 
     Returns:
-        EmailConfiguration document instance.
+        VerenigingenEmailConfiguration document instance.
     """
-    return frappe.get_single("Email Configuration")
+    return frappe.get_single("Verenigingen Email Configuration")
 
 
 @frappe.whitelist()
@@ -178,10 +178,10 @@ def send_test_email(recipient: str) -> dict:
         Dict with success status and message.
 
     Raises:
-        frappe.PermissionError: If user lacks write permission on Email Configuration.
+        frappe.PermissionError: If user lacks write permission on Verenigingen Email Configuration.
     """
-    # Require write permission on Email Configuration (System Manager role)
-    if not frappe.has_permission("Email Configuration", "write"):
+    # Require write permission on Verenigingen Email Configuration (System Manager role)
+    if not frappe.has_permission("Verenigingen Email Configuration", "write"):
         frappe.throw("You need System Manager permissions to send test emails", frappe.PermissionError)
 
     # Validate email format
@@ -195,9 +195,9 @@ def send_test_email(recipient: str) -> dict:
 
         result = email_service.send_simple_email(
             recipients=[recipient],
-            subject="[Test] Email Configuration Test",
+            subject="[Test] Verenigingen Email Configuration Test",
             message=f"""
-            <h2>Email Configuration Test</h2>
+            <h2>Verenigingen Email Configuration Test</h2>
             <p>This is a test email from your Verenigingen Email Configuration.</p>
             <p>If you received this email, your email system is working correctly.</p>
             <hr>
@@ -217,7 +217,7 @@ def send_test_email(recipient: str) -> dict:
             return {"success": False, "error": result.get("error", "Unknown error")}
 
     except Exception as e:
-        frappe.log_error(f"Test email failed: {str(e)}", "Email Configuration Test")
+        frappe.log_error(f"Test email failed: {str(e)}", "Verenigingen Email Configuration Test")
         return {"success": False, "error": str(e)}
 
 
@@ -397,20 +397,20 @@ def discover_notification_keys() -> dict:
     Returns:
         Dict with:
             - discovered: List of notification keys found in code (with metadata from registry)
-            - configured: List of keys already configured in Email Configuration
+            - configured: List of keys already configured in Verenigingen Email Configuration
             - new_keys: List of keys in code but not configured
             - orphaned_keys: List of keys configured but not in code
             - undocumented_keys: List of keys in code but not in notification_registry.py
             - errors: Any errors during discovery
     """
-    # Require write permission on Email Configuration
-    if not frappe.has_permission("Email Configuration", "write"):
+    # Require write permission on Verenigingen Email Configuration
+    if not frappe.has_permission("Verenigingen Email Configuration", "write"):
         frappe.throw(
             "You need System Manager permissions to sync notification registry",
             frappe.PermissionError,
         )
 
-    # Get currently configured keys in Email Configuration (database)
+    # Get currently configured keys in Verenigingen Email Configuration (database)
     config = get_email_configuration()
     configured_keys = {nt.notification_key for nt in config.notification_types if nt.notification_key}
 
@@ -419,8 +419,8 @@ def discover_notification_keys() -> dict:
     discovered_keys = {item["notification_key"] for item in discovery["found"]}
 
     # Calculate differences
-    new_keys = discovered_keys - configured_keys  # In code, not in Email Configuration
-    orphaned_keys = configured_keys - discovered_keys  # In Email Configuration, not in code
+    new_keys = discovered_keys - configured_keys  # In code, not in Verenigingen Email Configuration
+    orphaned_keys = configured_keys - discovered_keys  # In Verenigingen Email Configuration, not in code
 
     # Build detailed response
     new_keys_detail = [item for item in discovery["found"] if item["notification_key"] in new_keys]
@@ -444,7 +444,7 @@ def discover_notification_keys() -> dict:
 
 @frappe.whitelist()
 def add_notification_types(notification_types: str) -> dict:
-    """Add new notification types to Email Configuration.
+    """Add new notification types to Verenigingen Email Configuration.
 
     Uses metadata from notification_registry.py when available.
 
@@ -460,8 +460,8 @@ def add_notification_types(notification_types: str) -> dict:
 
     from verenigingen.notification_registry import get_notification_meta
 
-    # Require write permission on Email Configuration
-    if not frappe.has_permission("Email Configuration", "write"):
+    # Require write permission on Verenigingen Email Configuration
+    if not frappe.has_permission("Verenigingen Email Configuration", "write"):
         frappe.throw(
             "You need System Manager permissions to modify notification registry",
             frappe.PermissionError,
@@ -475,7 +475,7 @@ def add_notification_types(notification_types: str) -> dict:
     if not isinstance(types_to_add, list):
         return {"success": False, "error": "Expected a list of notification types"}
 
-    config = frappe.get_single("Email Configuration")
+    config = frappe.get_single("Verenigingen Email Configuration")
     existing_keys = {nt.notification_key for nt in config.notification_types if nt.notification_key}
 
     added_count = 0

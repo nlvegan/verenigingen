@@ -3,7 +3,7 @@ Expense Claim Event Handlers
 
 Handles Expense Claim document events like submission to update
 Member financial history with proper permissions and error handling.
-Also handles expense approval notifications via Email Configuration.
+Also handles expense approval notifications via Verenigingen Email Configuration.
 """
 
 import frappe
@@ -106,9 +106,9 @@ def notify_expense_approvers(doc, method=None):
     """
     Send notification to expense approvers when an expense claim is submitted.
 
-    Uses EmailService with notification_key to respect Email Configuration settings.
+    Uses EmailService with notification_key to respect Verenigingen Email Configuration settings.
     This replaces the Frappe Notification "Expense Submitted for Approval" which
-    bypassed Email Configuration.
+    bypassed Verenigingen Email Configuration.
 
     Args:
         doc: Expense Claim document
@@ -178,7 +178,7 @@ def notify_expense_approvers(doc, method=None):
             "review_url": f"{frappe.utils.get_url()}/app/expense-claim/{doc.name}",
         }
 
-        # Send via EmailService which respects Email Configuration
+        # Send via EmailService which respects Verenigingen Email Configuration
         from verenigingen.services.communication.email_service import get_email_service
 
         email_service = get_email_service()

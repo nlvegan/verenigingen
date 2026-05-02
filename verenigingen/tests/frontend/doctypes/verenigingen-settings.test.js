@@ -47,7 +47,7 @@ describe('Verenigingen Settings DocType - Comprehensive Test Suite', () => {
 		});
 	});
 
-	describe('Email Configuration', () => {
+	describe('Verenigingen Email Configuration', () => {
 		test('should configure email templates', () => {
 			mockDoc.welcome_email_template = 'Member Welcome';
 			mockDoc.renewal_reminder_template = 'Renewal Reminder';

@@ -1,7 +1,7 @@
 """
-Unit tests for Email Configuration DocType.
+Unit tests for Verenigingen Email Configuration DocType.
 
-Tests the Email Configuration singleton DocType including:
+Tests the Verenigingen Email Configuration singleton DocType including:
 - Validation logic (email formats, unique keys)
 - is_email_enabled() with pause logic
 - get_notification_config() method
@@ -22,7 +22,7 @@ import unittest
 
 
 class TestEmailConfigurationValidation(FrappeTestCase):
-    """Test Email Configuration validation logic."""
+    """Test Verenigingen Email Configuration validation logic."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -30,8 +30,8 @@ class TestEmailConfigurationValidation(FrappeTestCase):
 
     def test_validates_unique_notification_keys(self):
         """Test validation fails for duplicate notification keys."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
 
             # Add two notification types with same key
             config.notification_types = []
@@ -55,8 +55,8 @@ class TestEmailConfigurationValidation(FrappeTestCase):
 
     def test_validates_email_format_in_admin_emails(self):
         """Test validation fails for invalid email in admin_notification_emails."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.admin_notification_emails = "valid@test.com, invalid-email, another@test.com"
 
             with self.assertRaises(frappe.ValidationError) as ctx:
@@ -66,8 +66,8 @@ class TestEmailConfigurationValidation(FrappeTestCase):
 
     def test_validates_email_format_in_financial_emails(self):
         """Test validation fails for invalid email in financial_admin_emails."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.financial_admin_emails = "not-an-email"
 
             with self.assertRaises(frappe.ValidationError) as ctx:
@@ -77,8 +77,8 @@ class TestEmailConfigurationValidation(FrappeTestCase):
 
     def test_warns_about_pause_without_resume_time(self):
         """Test warns when paused without pause_until set."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.email_mode = "Paused"
             config.pause_until = None
 
@@ -95,8 +95,8 @@ class TestEmailConfigurationIsEmailEnabled(FrappeTestCase):
 
     def test_returns_false_when_master_disabled(self):
         """Test returns False when master_email_enabled is off."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 0
             config.email_mode = "Active"
 
@@ -104,8 +104,8 @@ class TestEmailConfigurationIsEmailEnabled(FrappeTestCase):
 
     def test_returns_true_when_active(self):
         """Test returns True when enabled and active."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Active"
 
@@ -113,8 +113,8 @@ class TestEmailConfigurationIsEmailEnabled(FrappeTestCase):
 
     def test_returns_false_when_paused_indefinitely(self):
         """Test returns False when paused with no resume time."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Paused"
             config.pause_until = None
@@ -123,8 +123,8 @@ class TestEmailConfigurationIsEmailEnabled(FrappeTestCase):
 
     def test_returns_false_when_paused_until_future(self):
         """Test returns False when paused until future time."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Paused"
             config.pause_until = add_to_date(now_datetime(), hours=1)
@@ -133,8 +133,8 @@ class TestEmailConfigurationIsEmailEnabled(FrappeTestCase):
 
     def test_auto_resumes_when_pause_expires(self):
         """Test auto-resumes to Active when pause_until is past."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.master_email_enabled = 1
             config.email_mode = "Paused"
             config.pause_until = add_to_date(now_datetime(), hours=-1)  # Past
@@ -152,15 +152,15 @@ class TestEmailConfigurationGetNotificationConfig(FrappeTestCase):
 
     def test_returns_empty_dict_for_unknown_key(self):
         """Test returns empty dict for unknown notification key."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             result = config.get_notification_config("nonexistent_key")
             self.assertEqual(result, {})
 
     def test_returns_full_config_for_known_key(self):
         """Test returns full configuration for known notification key."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
 
             # Add a test notification type
             config.notification_types = []
@@ -194,8 +194,8 @@ class TestEmailConfigurationIsNotificationEnabled(FrappeTestCase):
 
     def test_returns_false_for_disabled_notification(self):
         """Test returns False for disabled notification type."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
 
             config.notification_types = []
             config.append("notification_types", {
@@ -209,8 +209,8 @@ class TestEmailConfigurationIsNotificationEnabled(FrappeTestCase):
 
     def test_returns_true_for_enabled_notification(self):
         """Test returns True for enabled notification type."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
 
             config.notification_types = []
             config.append("notification_types", {
@@ -224,8 +224,8 @@ class TestEmailConfigurationIsNotificationEnabled(FrappeTestCase):
 
     def test_returns_false_for_unknown_key(self):
         """Test returns False for unknown notification key."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             self.assertFalse(config.is_notification_enabled("unknown_key"))
 
 
@@ -234,8 +234,8 @@ class TestEmailConfigurationGetRecipientsForCategory(FrappeTestCase):
 
     def test_returns_system_emails_for_system_category(self):
         """Test returns system_alert_emails for System category."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.system_alert_emails = "system@test.com, alerts@test.com"
 
             result = config.get_recipients_for_category("System")
@@ -243,8 +243,8 @@ class TestEmailConfigurationGetRecipientsForCategory(FrappeTestCase):
 
     def test_returns_admin_emails_for_admin_category(self):
         """Test returns admin_notification_emails for Admin category."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.admin_notification_emails = "admin@test.com"
             config.system_alert_emails = None
 
@@ -253,8 +253,8 @@ class TestEmailConfigurationGetRecipientsForCategory(FrappeTestCase):
 
     def test_returns_financial_emails_for_payment_category(self):
         """Test returns financial_admin_emails for Payment category."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.financial_admin_emails = "finance@test.com"
 
             result = config.get_recipients_for_category("Payment")
@@ -262,8 +262,8 @@ class TestEmailConfigurationGetRecipientsForCategory(FrappeTestCase):
 
     def test_falls_back_to_role_based_lookup(self):
         """Test falls back to role-based lookup when no category emails."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
             config.admin_notification_emails = None
             config.fallback_admin_role = "System Manager"
 
@@ -277,24 +277,24 @@ class TestEmailConfigurationHelperMethods(FrappeTestCase):
 
     def test_parse_email_list_handles_empty(self):
         """Test _parse_email_list handles empty input."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
 
             self.assertEqual(config._parse_email_list(""), [])
             self.assertEqual(config._parse_email_list(None), [])
 
     def test_parse_email_list_splits_and_strips(self):
         """Test _parse_email_list properly splits and strips."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
 
             result = config._parse_email_list("  a@test.com , b@test.com  , c@test.com  ")
             self.assertEqual(result, ["a@test.com", "b@test.com", "c@test.com"])
 
     def test_get_users_with_role_returns_emails(self):
         """Test _get_users_with_role returns user emails."""
-        with singleton_backup("Email Configuration"):
-            config = frappe.get_single("Email Configuration")
+        with singleton_backup("Verenigingen Email Configuration"):
+            config = frappe.get_single("Verenigingen Email Configuration")
 
             # This depends on actual database state, so we mock it
             with patch("frappe.get_all") as mock_get_all:
@@ -310,11 +310,11 @@ class TestEmailConfigurationHelperMethods(FrappeTestCase):
 
 
 class TestEmailConfigurationSchema(FrappeTestCase):
-    """Test Email Configuration DocType schema matches code expectations."""
+    """Test Verenigingen Email Configuration DocType schema matches code expectations."""
 
     def test_required_fields_exist_in_doctype(self):
         """Verify all fields referenced in code exist in DocType JSON."""
-        doctype_meta = frappe.get_meta("Email Configuration")
+        doctype_meta = frappe.get_meta("Verenigingen Email Configuration")
         field_names = {f.fieldname for f in doctype_meta.fields}
 
         required_fields = {
@@ -325,11 +325,11 @@ class TestEmailConfigurationSchema(FrappeTestCase):
         }
 
         missing = required_fields - field_names
-        self.assertEqual(missing, set(), f"Missing fields in Email Configuration DocType: {missing}")
+        self.assertEqual(missing, set(), f"Missing fields in Verenigingen Email Configuration DocType: {missing}")
 
     def test_notification_types_is_table_field(self):
         """Verify notification_types is a Table field for child entries."""
-        doctype_meta = frappe.get_meta("Email Configuration")
+        doctype_meta = frappe.get_meta("Verenigingen Email Configuration")
         field = doctype_meta.get_field("notification_types")
 
         self.assertIsNotNone(field, "notification_types field not found")
@@ -341,7 +341,7 @@ class TestSendTestEmail(FrappeTestCase):
 
     def test_rejects_invalid_email(self):
         """Test rejects invalid email address."""
-        from verenigingen.verenigingen.doctype.email_configuration.email_configuration import (
+        from verenigingen.verenigingen.doctype.verenigingen_email_configuration.verenigingen_email_configuration import (
             send_test_email,
         )
 
@@ -355,7 +355,7 @@ class TestSendTestEmail(FrappeTestCase):
 
     def test_sends_test_email_via_email_service(self):
         """Test sends test email using EmailService."""
-        from verenigingen.verenigingen.doctype.email_configuration.email_configuration import (
+        from verenigingen.verenigingen.doctype.verenigingen_email_configuration.verenigingen_email_configuration import (
             send_test_email,
         )
 
@@ -371,7 +371,7 @@ class TestSendTestEmail(FrappeTestCase):
 
     def test_handles_email_service_error(self):
         """Test handles error from email service."""
-        from verenigingen.verenigingen.doctype.email_configuration.email_configuration import (
+        from verenigingen.verenigingen.doctype.verenigingen_email_configuration.verenigingen_email_configuration import (
             send_test_email,
         )
 

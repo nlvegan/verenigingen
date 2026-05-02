@@ -1,8 +1,8 @@
 """
-Migrate email settings from Verenigingen Settings to Email Configuration.
+Migrate email settings from Verenigingen Settings to Verenigingen Email Configuration.
 
 This patch:
-1. Creates the Email Configuration singleton if it doesn't exist
+1. Creates the Verenigingen Email Configuration singleton if it doesn't exist
 2. Migrates relevant settings from Verenigingen Settings
 3. Populates the notification registry with all known notification types
 """
@@ -12,19 +12,19 @@ import frappe
 
 def execute():
     """Execute the migration patch."""
-    # Check if Email Configuration DocType exists
-    if not frappe.db.exists("DocType", "Email Configuration"):
-        frappe.logger().info("Email Configuration DocType not found, skipping migration")
+    # Check if Verenigingen Email Configuration DocType exists
+    if not frappe.db.exists("DocType", "Verenigingen Email Configuration"):
+        frappe.logger().info("Verenigingen Email Configuration DocType not found, skipping migration")
         return
 
     # Check if already migrated
-    if frappe.db.exists("Email Configuration", "Email Configuration"):
-        existing = frappe.get_single("Email Configuration")
+    if frappe.db.exists("Verenigingen Email Configuration", "Verenigingen Email Configuration"):
+        existing = frappe.get_single("Verenigingen Email Configuration")
         if existing.notification_types and len(existing.notification_types) > 0:
-            frappe.logger().info("Email Configuration already has notification types, skipping")
+            frappe.logger().info("Verenigingen Email Configuration already has notification types, skipping")
             return
 
-    frappe.logger().info("Starting email settings migration to Email Configuration")
+    frappe.logger().info("Starting email settings migration to Verenigingen Email Configuration")
 
     # Get list of existing email templates
     existing_templates = set(frappe.get_all("Email Template", pluck="name"))
@@ -45,11 +45,11 @@ def execute():
         except Exception as e:
             frappe.logger().warning(f"Could not read Verenigingen Settings: {e}")
 
-    # Create or update Email Configuration
-    if frappe.db.exists("Email Configuration", "Email Configuration"):
-        config = frappe.get_single("Email Configuration")
+    # Create or update Verenigingen Email Configuration
+    if frappe.db.exists("Verenigingen Email Configuration", "Verenigingen Email Configuration"):
+        config = frappe.get_single("Verenigingen Email Configuration")
     else:
-        config = frappe.new_doc("Email Configuration")
+        config = frappe.new_doc("Verenigingen Email Configuration")
 
     # Migrate settings
     config.master_email_enabled = 1
@@ -77,7 +77,7 @@ def execute():
     config.save()
 
     frappe.db.commit()
-    frappe.logger().info(f"Email Configuration created with {len(notification_types)} notification types")
+    frappe.logger().info(f"Verenigingen Email Configuration created with {len(notification_types)} notification types")
 
 
 def _get_default_notification_types(old_settings: dict, existing_templates: set) -> list:

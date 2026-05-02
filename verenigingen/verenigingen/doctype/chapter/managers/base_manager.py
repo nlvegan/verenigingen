@@ -87,7 +87,7 @@ class BaseManager(ABC):
             recipients: List of email addresses
             context: Template context variables
             subject: Email subject (optional)
-            notification_key: Key for Email Configuration lookup (enables per-notification
+            notification_key: Key for Verenigingen Email Configuration lookup (enables per-notification
                              settings and cooldown tracking)
         """
         if not recipients:

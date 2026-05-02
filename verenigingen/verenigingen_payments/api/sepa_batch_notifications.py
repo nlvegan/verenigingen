@@ -38,13 +38,13 @@ def get_financial_admin_emails():
     """Get email addresses for financial administrators
 
     Priority:
-    1. Email Configuration (Admin category recipients)
+    1. Verenigingen Email Configuration (Admin category recipients)
     2. Verenigingen Payments Settings.financial_admin_emails
     3. Users with Financial Admin roles
     4. Administrator (final fallback)
     """
     try:
-        # Try Email Configuration first
+        # Try Verenigingen Email Configuration first
         config_service = _get_email_config_service()
         if config_service:
             recipients = config_service.get_category_recipients("Admin")

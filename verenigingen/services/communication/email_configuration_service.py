@@ -1,5 +1,5 @@
 """
-Email Configuration Service
+Verenigingen Email Configuration Service
 
 Service layer for centralized email and notification configuration management.
 Provides methods to check if emails are enabled, get notification configurations,
@@ -42,17 +42,17 @@ class EmailConfigurationService:
         self._config_cache_key = "email_configuration:singleton"
 
     def _get_config(self) -> Optional[Any]:
-        """Get Email Configuration document with caching.
+        """Get Verenigingen Email Configuration document with caching.
 
         Returns:
-            Email Configuration document or None if not found.
+            Verenigingen Email Configuration document or None if not found.
         """
         try:
-            # Check if Email Configuration DocType exists
-            if not frappe.db.exists("DocType", "Email Configuration"):
+            # Check if Verenigingen Email Configuration DocType exists
+            if not frappe.db.exists("DocType", "Verenigingen Email Configuration"):
                 return None
 
-            return frappe.get_single("Email Configuration")
+            return frappe.get_single("Verenigingen Email Configuration")
         except Exception:
             return None
 
@@ -60,7 +60,7 @@ class EmailConfigurationService:
         """Check if emails are globally enabled.
 
         Checks:
-        1. Email Configuration exists
+        1. Verenigingen Email Configuration exists
         2. Master email enabled flag
         3. Email mode (Active/Paused)
         4. Pause expiration
@@ -217,6 +217,115 @@ class EmailConfigurationService:
                 return False
 
         return True
+
+    def get_frappe_notification_for(self, notification_key: str) -> Optional[str]:
+        """Return the linked Frappe Notification name when delegation is enabled.
+
+        When ``use_frappe_notifications`` is True on the configuration AND the
+        notification type has a ``frappe_notification`` link configured, the
+        email pipeline should hand off to Frappe's native Notification system
+        instead of sending directly. This honors Frappe's own subscription,
+        unsubscribe, and delivery rules.
+
+        Args:
+            notification_key: Notification type identifier.
+
+        Returns:
+            Notification document name to delegate to, or None to send directly.
+        """
+        config = self._get_config()
+        if not config or not getattr(config, "use_frappe_notifications", False):
+            return None
+
+        notification_config = self.get_notification_config(notification_key)
+        notification_name = notification_config.get("frappe_notification")
+        if not notification_name:
+            return None
+
+        # Defensive: only delegate if the linked Notification still exists and is enabled
+        try:
+            enabled = frappe.db.get_value("Notification", notification_name, "enabled")
+        except Exception:
+            return None
+
+        if not enabled:
+            return None
+
+        return notification_name
+
+    def filter_recipients_by_preferences(
+        self,
+        recipients: List[str],
+        reference_doctype: Optional[str] = None,
+        reference_name: Optional[str] = None,
+    ) -> List[str]:
+        """Filter out recipients that have opted out via user preferences.
+
+        Honors three sources of opt-out when ``respect_user_preferences`` is True:
+
+        1. Global Email Unsubscribe rows (``global_unsubscribe=1``)
+        2. Reference-scoped Email Unsubscribe rows matching
+           ``(reference_doctype, reference_name)`` when provided
+        3. User-level ``unsubscribed=1`` flag on a User whose ``email`` matches
+
+        Args:
+            recipients: Candidate email addresses.
+            reference_doctype: Optional DocType the email is about.
+            reference_name: Optional document the email is about.
+
+        Returns:
+            List of recipients that have not opted out. Returns the input list
+            unchanged when ``respect_user_preferences`` is disabled or no
+            recipients are provided.
+        """
+        if not recipients:
+            return recipients
+
+        config = self._get_config()
+        if not config or not getattr(config, "respect_user_preferences", False):
+            return list(recipients)
+
+        # Normalize for lookup (Frappe stores emails as entered, but match is
+        # typically case-insensitive in practice)
+        candidates = [r for r in recipients if r]
+        if not candidates:
+            return candidates
+
+        # 1) Global unsubscribes
+        unsubscribed = set(
+            frappe.get_all(
+                "Email Unsubscribe",
+                filters={"email": ["in", candidates], "global_unsubscribe": 1},
+                pluck="email",
+            )
+        )
+
+        # 2) Reference-scoped unsubscribes
+        if reference_doctype and reference_name:
+            unsubscribed.update(
+                frappe.get_all(
+                    "Email Unsubscribe",
+                    filters={
+                        "email": ["in", candidates],
+                        "reference_doctype": reference_doctype,
+                        "reference_name": reference_name,
+                    },
+                    pluck="email",
+                )
+            )
+
+        # 3) User-level unsubscribed flag
+        unsubscribed_users = frappe.get_all(
+            "User",
+            filters={"email": ["in", candidates], "unsubscribed": 1},
+            pluck="email",
+        )
+        unsubscribed.update(unsubscribed_users)
+
+        if not unsubscribed:
+            return candidates
+
+        return [r for r in candidates if r not in unsubscribed]
 
     def _is_suppressed(self) -> bool:
         """Check if notifications are suppressed by flags.

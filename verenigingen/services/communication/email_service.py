@@ -118,7 +118,7 @@ class EmailService(StatelessService):
             reference_doctype: Link to specific DocType
             reference_name: Link to specific document
             create_communication: Whether to create Communication record
-            notification_key: Optional key for Email Configuration lookup.
+            notification_key: Optional key for Verenigingen Email Configuration lookup.
                              Enables per-notification settings and cooldown tracking.
             **options: Additional email options
 
@@ -126,7 +126,7 @@ class EmailService(StatelessService):
             OperationResult with success status and details
         """
         try:
-            # Check Email Configuration early - before any template loading
+            # Check Verenigingen Email Configuration early - before any template loading
             # This prevents template-not-found errors when email is disabled
             config_service = self._get_config_service()
             is_enabled = config_service.is_email_enabled() if config_service else True
@@ -134,7 +134,7 @@ class EmailService(StatelessService):
                 f"\nDEBUG send_templated_email: template={template_name!r}, config_service={config_service!r}, is_enabled={is_enabled}"
             )
             if config_service and not is_enabled:
-                self.logger.info("Email sending disabled via Email Configuration - skipping templated email")
+                self.logger.info("Email sending disabled via Verenigingen Email Configuration - skipping templated email")
                 return OperationResult.ok({"skipped": True, "reason": "Email disabled in configuration"})
 
             # Normalize recipients to list
@@ -180,6 +180,11 @@ class EmailService(StatelessService):
             )
 
             if result.success:
+                # Preserve "skipped" results (notification disabled, in cooldown,
+                # opted out, delegated to Frappe Notification, etc.) — wrapping
+                # them as a generic success would mask why no email went out.
+                if isinstance(result.data, dict) and result.data.get("skipped"):
+                    return result
                 return OperationResult.ok(
                     {
                         "template": template_name,
@@ -255,7 +260,7 @@ class EmailService(StatelessService):
                 "board_member_added": "Board Member Added",
             }
 
-            # Map notification types to notification keys for Email Configuration control
+            # Map notification types to notification keys for Verenigingen Email Configuration control
             key_mapping = {
                 "member_approval": "member_application_approved",
                 "chapter_membership_approval": "chapter_membership_approved",
@@ -315,11 +320,11 @@ class EmailService(StatelessService):
         try:
             import time
 
-            # Check Email Configuration early - before processing any emails
+            # Check Verenigingen Email Configuration early - before processing any emails
             config_service = self._get_config_service()
             if config_service and not config_service.is_email_enabled():
                 self.logger.info(
-                    f"Email sending disabled via Email Configuration - skipping batch of {len(email_batch)} emails"
+                    f"Email sending disabled via Verenigingen Email Configuration - skipping batch of {len(email_batch)} emails"
                 )
                 return OperationResult.ok(
                     {
@@ -397,7 +402,7 @@ class EmailService(StatelessService):
             message: Email content (plain text or HTML)
             reference_doctype: Optional DocType reference for tracking
             reference_name: Optional document name for tracking
-            notification_key: Optional key for Email Configuration lookup.
+            notification_key: Optional key for Verenigingen Email Configuration lookup.
                              Enables per-notification settings and cooldown tracking.
             **options: Additional options (delayed, etc.)
 
@@ -454,16 +459,16 @@ class EmailService(StatelessService):
         Use Email Queue reports for delivery status and audit trails.
 
         Args:
-            notification_key: Optional key for Email Configuration lookup. If provided,
+            notification_key: Optional key for Verenigingen Email Configuration lookup. If provided,
                              checks per-notification-type settings and cooldown.
         """
         try:
-            # Check Email Configuration if available
+            # Check Verenigingen Email Configuration if available
             config_service = self._get_config_service()
             if config_service:
                 # Check master email enable
                 if not config_service.is_email_enabled():
-                    self.logger.info("Email sending disabled via Email Configuration")
+                    self.logger.info("Email sending disabled via Verenigingen Email Configuration")
                     return OperationResult.ok({"skipped": True, "reason": "Email disabled in configuration"})
 
                 # Check notification-specific settings if key provided
@@ -472,10 +477,23 @@ class EmailService(StatelessService):
                     self._validate_notification_key(notification_key)
 
                     if not config_service.is_notification_enabled(notification_key):
-                        self.logger.info(f"Notification '{notification_key}' disabled in Email Configuration")
+                        self.logger.info(f"Notification '{notification_key}' disabled in Verenigingen Email Configuration")
                         return OperationResult.ok(
                             {"skipped": True, "reason": f"Notification '{notification_key}' disabled"}
                         )
+
+                    # Delegate to Frappe's native Notification when configured
+                    frappe_notification = config_service.get_frappe_notification_for(notification_key)
+                    if frappe_notification:
+                        delegate_result = self._delegate_to_frappe_notification(
+                            frappe_notification,
+                            reference_doctype,
+                            reference_name,
+                        )
+                        if delegate_result is not None:
+                            return delegate_result
+                        # delegate_result is None when we couldn't resolve a doc;
+                        # fall through to direct sending so the email still goes out.
 
                     # Check cooldown for each recipient
                     recipients_to_send = []
@@ -488,6 +506,23 @@ class EmailService(StatelessService):
                     if not recipients_to_send:
                         return OperationResult.ok({"skipped": True, "reason": "All recipients in cooldown"})
                     recipients = recipients_to_send
+
+                # Honor user-level opt-outs (Email Unsubscribe + User.unsubscribed)
+                filtered = config_service.filter_recipients_by_preferences(
+                    recipients,
+                    reference_doctype=reference_doctype,
+                    reference_name=reference_name,
+                )
+                if len(filtered) != len(recipients):
+                    skipped = set(recipients) - set(filtered)
+                    self.logger.info(
+                        f"Skipping {len(skipped)} recipient(s) due to user preferences: {sorted(skipped)}"
+                    )
+                if not filtered:
+                    return OperationResult.ok(
+                        {"skipped": True, "reason": "All recipients opted out via user preferences"}
+                    )
+                recipients = filtered
 
             # Input validation
             if not recipients:
@@ -641,6 +676,49 @@ class EmailService(StatelessService):
         except Exception:
             # Configuration service not available - continue without it
             return None
+
+    def _delegate_to_frappe_notification(
+        self,
+        notification_name: str,
+        reference_doctype: Optional[str],
+        reference_name: Optional[str],
+    ) -> Optional[OperationResult]:
+        """Send via Frappe's native Notification system.
+
+        Returns:
+            - OperationResult.ok(...) when delegation succeeded.
+            - OperationResult.fail(...) when the Notification record exists but
+              triggering it raised an exception.
+            - None when delegation could not be attempted (e.g., no reference
+              document provided). Callers should fall back to direct sending.
+
+        A Frappe Notification is always evaluated against a document — without
+        one we cannot resolve recipients via the Notification's own rules, so
+        we signal "fall through" rather than skip the email entirely.
+        """
+        if not reference_doctype or not reference_name:
+            self.logger.debug(
+                f"Cannot delegate to Frappe Notification '{notification_name}' without "
+                f"reference_doctype/reference_name; falling back to direct send."
+            )
+            return None
+
+        try:
+            doc = frappe.get_doc(reference_doctype, reference_name)
+            alert = frappe.get_doc("Notification", notification_name)
+            alert.send(doc)
+            return OperationResult.ok(
+                {
+                    "delegated_to_frappe_notification": notification_name,
+                    "reference_doctype": reference_doctype,
+                    "reference_name": reference_name,
+                }
+            )
+        except Exception as e:
+            self.logger.error(
+                f"Frappe Notification delegation failed ({notification_name}): {str(e)}"
+            )
+            return OperationResult.fail(f"Frappe Notification delegation failed: {str(e)}")
 
     def _record_cooldown(self, notification_key: str, recipients: List[str]) -> None:
         """Record send timestamp for cooldown tracking.

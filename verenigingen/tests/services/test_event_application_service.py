@@ -2614,7 +2614,7 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
 class TestNotifyBoardMembershipChange(EnhancedTestCase):
     """Tests for _notify_board_membership_change().
 
-    Verifies notification uses the Email Configuration system
+    Verifies notification uses the Verenigingen Email Configuration system
     via notify_administrators with the chapter_board_removed key.
     """
 

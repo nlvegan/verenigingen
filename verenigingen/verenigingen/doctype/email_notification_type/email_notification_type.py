@@ -4,6 +4,6 @@ from frappe.model.document import Document
 
 
 class EmailNotificationType(Document):
-    """Child table for Email Configuration notification registry."""
+    """Child table for Verenigingen Email Configuration notification registry."""
 
     pass

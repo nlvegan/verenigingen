@@ -83,9 +83,9 @@ class VerenigingenSettings(Document):
                 frappe.throw(_("Default Chapter Split Percentage must be between 0 and 100"))
 
     def _check_deprecated_email_fields(self):
-        """Show deprecation warnings for fields now managed by Email Configuration.
+        """Show deprecation warnings for fields now managed by Verenigingen Email Configuration.
 
-        These fields have been migrated to the Email Configuration DocType which provides:
+        These fields have been migrated to the Verenigingen Email Configuration DocType which provides:
         - Centralized email enable/disable control
         - Per-notification-type settings
         - Cooldown tracking per recipient
@@ -103,14 +103,14 @@ class VerenigingenSettings(Document):
         for field, replacement in deprecated_fields.items():
             value = getattr(self, field, None)
             if value:
-                deprecated_used.append(f"<li><b>{field}</b> → Email Configuration: {replacement}</li>")
+                deprecated_used.append(f"<li><b>{field}</b> → Verenigingen Email Configuration: {replacement}</li>")
 
         if deprecated_used:
             frappe.msgprint(
                 _(
                     "<p>The following email notification fields are deprecated and now managed "
-                    "via <b>Email Configuration</b>:</p><ul>{0}</ul>"
-                    "<p>Please update your notification settings in Email Configuration and "
+                    "via <b>Verenigingen Email Configuration</b>:</p><ul>{0}</ul>"
+                    "<p>Please update your notification settings in Verenigingen Email Configuration and "
                     "clear these fields to remove this warning.</p>"
                 ).format("".join(deprecated_used)),
                 title=_("Deprecated Email Settings"),

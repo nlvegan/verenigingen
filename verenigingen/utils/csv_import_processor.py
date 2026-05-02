@@ -12,7 +12,7 @@ without blocking the UI or hitting request timeouts.
 Note: This processor does NOT send notifications. Import status is tracked
 on the import document itself (import_status, progress_percentage, etc.).
 If specific import DocTypes need notifications, they should implement them
-in their own finalize_callback, respecting Email Configuration settings.
+in their own finalize_callback, respecting Verenigingen Email Configuration settings.
 
 Author: Verenigingen Development Team
 """
@@ -89,7 +89,7 @@ class CSVImportBackgroundProcessor:
 
     Note: This processor does NOT send notifications. Status is tracked on
     the import document. If notifications are needed, implement them in
-    your finalize_callback with proper Email Configuration checks.
+    your finalize_callback with proper Verenigingen Email Configuration checks.
     """
 
     def __init__(self, import_doc_name: str, doctype: str):

@@ -7,7 +7,7 @@ determination, configurable notification settings, and robust fallback mechanism
 to ensure critical system notifications are always delivered to appropriate personnel.
 
 Key Features:
-    * Configurable notification recipients via Email Configuration DocType
+    * Configurable notification recipients via Verenigingen Email Configuration DocType
     * Intelligent fallback to role-based recipient determination
     * Threshold-based notification triggering with customizable limits
     * Per-notification-type enable/disable controls with cooldown tracking
@@ -16,7 +16,7 @@ Key Features:
 
 Architecture:
     The notification system uses a hierarchical approach for configuration:
-    1. Email Configuration DocType (centralized control, highest priority)
+    1. Verenigingen Email Configuration DocType (centralized control, highest priority)
     2. Verenigingen Settings (legacy fallback)
     3. Role-based recipient lookup using configurable role lists
     4. Emergency fallback to System Manager role (last resort)
@@ -30,7 +30,7 @@ Use Cases:
 
 Integration:
     This module integrates with Frappe's notification framework and the
-    Email Configuration DocType for centralized notification management.
+    Verenigingen Email Configuration DocType for centralized notification management.
     It supports both immediate notifications and threshold-based alerting systems.
 
 Error Handling:
@@ -82,7 +82,7 @@ def send_volunteer_email(
     Args:
         volunteer: Volunteer document name
         template_name: Email Template name to use
-        notification_key: Key for Email Configuration lookup (enables per-notification
+        notification_key: Key for Verenigingen Email Configuration lookup (enables per-notification
                          settings and cooldown tracking)
         subject: Optional subject override (otherwise uses template subject)
         extra_context: Additional context variables for the template
@@ -305,7 +305,7 @@ def create_system_notification(
         document_name (str, optional): Document name to link notification to
         from_user (str, optional): User who triggered the notification.
             Defaults to current user or "Administrator"
-        notification_key (str, optional): Key for Email Configuration lookup.
+        notification_key (str, optional): Key for Verenigingen Email Configuration lookup.
             If provided, checks if this notification type is enabled and
             respects cooldown settings.
 
@@ -324,12 +324,12 @@ def create_system_notification(
             notification_key="member_status_changed"
         )
     """
-    # Check Email Configuration if notification_key provided
+    # Check Verenigingen Email Configuration if notification_key provided
     config_service = _get_email_config_service()
     if config_service and notification_key:
         # Check if notifications are globally enabled
         if not config_service.is_email_enabled():
-            frappe.logger().debug("Notifications disabled via Email Configuration")
+            frappe.logger().debug("Notifications disabled via Verenigingen Email Configuration")
             return {
                 "success": True,
                 "skipped": True,
@@ -339,7 +339,7 @@ def create_system_notification(
 
         # Check if this notification type is enabled
         if not config_service.is_notification_enabled(notification_key):
-            frappe.logger().debug(f"Notification '{notification_key}' disabled in Email Configuration")
+            frappe.logger().debug(f"Notification '{notification_key}' disabled in Verenigingen Email Configuration")
             return {
                 "success": True,
                 "skipped": True,
@@ -457,7 +457,7 @@ def notify_administrators(
     Convenience function to notify system administrators.
 
     Combines get_notification_recipients() with create_system_notification()
-    for common admin notification scenarios. Uses Email Configuration when
+    for common admin notification scenarios. Uses Verenigingen Email Configuration when
     available for centralized recipient management.
 
     Args:
@@ -468,10 +468,10 @@ def notify_administrators(
         notification_type (str): Type of notification (default: "Alert")
         document_type (str, optional): DocType to link to
         document_name (str, optional): Document to link to
-        notification_key (str, optional): Key for Email Configuration lookup.
-            If provided, uses Email Configuration for enable/disable checks.
+        notification_key (str, optional): Key for Verenigingen Email Configuration lookup.
+            If provided, uses Verenigingen Email Configuration for enable/disable checks.
         category (str, optional): Notification category (Admin, System, etc.)
-            Used for recipient lookup in Email Configuration.
+            Used for recipient lookup in Verenigingen Email Configuration.
 
     Returns:
         dict: Result with success status and notification count
@@ -486,7 +486,7 @@ def notify_administrators(
             document_type="Membership Termination Request"
         )
     """
-    # Try Email Configuration first for recipients
+    # Try Verenigingen Email Configuration first for recipients
     config_service = _get_email_config_service()
     recipients = None
 

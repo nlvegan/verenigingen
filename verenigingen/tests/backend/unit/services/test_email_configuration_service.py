@@ -52,7 +52,7 @@ class TestEmailConfigurationServiceBasics(FrappeTestCase):
             self.assertTrue(self.service.is_email_enabled())
 
     def test_is_email_enabled_delegates_to_config(self):
-        """Test is_email_enabled delegates to Email Configuration document."""
+        """Test is_email_enabled delegates to Verenigingen Email Configuration document."""
         mock_config = MagicMock()
         mock_config.is_email_enabled.return_value = True
 

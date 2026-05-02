@@ -12,15 +12,15 @@ import frappe
 
 
 def execute():
-    """Add new notification types to Email Configuration if they don't exist."""
-    # Check if Email Configuration exists
-    if not frappe.db.exists("DocType", "Email Configuration"):
+    """Add new notification types to Verenigingen Email Configuration if they don't exist."""
+    # Check if Verenigingen Email Configuration exists
+    if not frappe.db.exists("DocType", "Verenigingen Email Configuration"):
         return
 
-    if not frappe.db.exists("Email Configuration", "Email Configuration"):
+    if not frappe.db.exists("Verenigingen Email Configuration", "Verenigingen Email Configuration"):
         return
 
-    config = frappe.get_single("Email Configuration")
+    config = frappe.get_single("Verenigingen Email Configuration")
 
     new_types = [
         {
@@ -531,4 +531,4 @@ def execute():
         config.save()
         frappe.db.commit()
 
-    frappe.logger().info(f"Added {added} new notification types to Email Configuration")
+    frappe.logger().info(f"Added {added} new notification types to Verenigingen Email Configuration")
