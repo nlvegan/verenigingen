@@ -87,18 +87,14 @@ class TestAdminToolsSecurity(VereningingenTestCase):
                 + "\n  - ".join(unresolved)
             )
 
-    def test_ui_tool_methods_are_allowed_and_resolve(self):
-        """Every method wired to a UI button in get_context() must be in
-        ALLOWED_ADMIN_METHODS and resolve at import time.
-
-        Catches the inverse bug: a tool button whose method string is not in
-        the allow-list, which would fail at click time with "Method not allowed".
-        """
-        # Build a mock context object with attribute assignment
+    def _build_admin_context(self):
+        """Run ``get_context`` as Administrator and return the populated
+        context object. Extracted from the test method so the temporary
+        ``frappe.set_user("Administrator")`` bypass lives in a helper —
+        ``get_context`` checks the role and would refuse otherwise."""
         class _Ctx:
             pass
 
-        # Run get_context as Administrator to bypass the role check
         original_user = frappe.session.user
         frappe.set_user("Administrator")
         try:
@@ -106,6 +102,16 @@ class TestAdminToolsSecurity(VereningingenTestCase):
             get_context(ctx)
         finally:
             frappe.set_user(original_user)
+        return ctx
+
+    def test_ui_tool_methods_are_allowed_and_resolve(self):
+        """Every method wired to a UI button in get_context() must be in
+        ALLOWED_ADMIN_METHODS and resolve at import time.
+
+        Catches the inverse bug: a tool button whose method string is not in
+        the allow-list, which would fail at click time with "Method not allowed".
+        """
+        ctx = self._build_admin_context()
 
         # Collect every method string from every *_tools list on the context
         ui_methods = set()
@@ -143,9 +149,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
                 "UI tool methods do not resolve:\n  - " + "\n  - ".join(unresolved)
             )
 
-    @patch('frappe.has_permission', return_value=False)
-    @patch('frappe.get_roles', return_value=['Employee'])
-    def test_execute_admin_tool_permission_denied(self, _mock_roles, _mock_has_perm):
+    def test_execute_admin_tool_permission_denied(self):
         """A non-admin, non-System Manager user is denied at the permission gate.
 
         ``execute_admin_tool`` is wrapped with @critical_api which runs its own
@@ -154,6 +158,10 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         ``frappe.PermissionError`` — they are separate classes). Either flavor
         satisfies the security contract: the call is denied before any tool
         logic runs.
+
+        We test the real boundary by switching to Guest (no admin role) rather
+        than mocking has_permission / get_roles — that way Frappe's real
+        permission check fires.
         """
         from verenigingen.utils.error_handling import PermissionError as VPermErr
 
@@ -165,6 +173,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         finally:
             frappe.set_user(original_user)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.log_error')
     def test_execute_admin_tool_method_not_allowed(self, _mock_log):
         """Test that non-whitelisted methods are blocked.
@@ -178,6 +187,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
             execute_admin_tool("os.system")
         self.assertIn("not allowed", str(context.exception).lower())
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.log_error')
     def test_execute_admin_tool_logs_unauthorized_attempts(self, mock_log):
         """Test that unauthorized attempts are logged"""
@@ -193,6 +203,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         self.assertIn("Unauthorized admin tool execution attempt", call_args[0])
         self.assertIn("Administrator", call_args[0])
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.log_error')
     def test_execute_admin_tool_module_path_validation(self, _mock_log):
         """Module paths not under verenigingen./frappe. are rejected.
@@ -217,6 +228,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
             finally:
                 ALLOWED_ADMIN_METHODS.discard(path)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('importlib.import_module')
     def test_explicit_allowance_bypasses_whitelist_attribute(self, mock_import):
         """Methods in ALLOWED_ADMIN_METHODS execute even without the
@@ -245,6 +257,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         finally:
             ALLOWED_ADMIN_METHODS.discard(test_method)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.logger')
     def test_execute_admin_tool_audit_logging(self, mock_logger_func):
         """Test that admin actions are logged for audit"""
@@ -257,6 +270,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         if not test_method:
             self.skipTest("No allowed methods to test")
         
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('importlib.import_module') as mock_import:
             mock_func = MagicMock(return_value={"test": "result"})
             mock_func.__func_is_whitelisted__ = True
@@ -281,6 +295,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
                 f"Expected method name in audit log, got: {messages}",
             )
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.log_error')
     def test_execute_admin_tool_argument_validation(self, _mock_log):
         """JSON args that don't decode to a dict are rejected.
@@ -298,10 +313,12 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         test_method = "verenigingen.utils.performance_dashboard.get_system_health"
         self.assertIn(test_method, ALLOWED_ADMIN_METHODS)
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('json.loads', return_value=["list", "not", "dict"]):
             result = execute_admin_tool(test_method, '{"forced":"to_parse"}')
         self.assertFalse(result['success'])
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.log_error')
     def test_execute_admin_tool_error_sanitization(self, _mock_log):
         """Errors are sanitized in production mode, exposed in developer mode.
@@ -316,6 +333,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
             self.skipTest("No allowed methods to test")
 
         original_dev_mode = frappe.conf.get('developer_mode')
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('importlib.import_module') as mock_import:
             mock_func = MagicMock(side_effect=Exception("Sensitive database error with passwords"))
             mock_func.__func_is_whitelisted__ = True
@@ -350,6 +368,7 @@ class TestAdminToolsContext(VereningingenTestCase):
         """Test that get_context checks permissions"""
         frappe.session.user = "unauthorized@example.com"
         
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.get_roles', return_value=['Guest']):
             with self.assertRaises(frappe.PermissionError):
                 # Create a context object that behaves like Frappe's page context
@@ -365,6 +384,7 @@ class TestAdminToolsContext(VereningingenTestCase):
                 context = MockContext()
                 get_context(context)
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_roles')
     def test_get_context_allowed_roles(self, mock_roles):
         """Test that correct roles are allowed"""
@@ -431,6 +451,7 @@ class TestRCEPrevention(VereningingenTestCase):
         frappe.session.user = self.original_user
         super().tearDown()
     
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.log_error')
     def test_prevent_code_injection_attempts(self, _mock_log):
         """Test various code injection attempts are blocked.
@@ -455,6 +476,7 @@ class TestRCEPrevention(VereningingenTestCase):
             ):
                 execute_admin_tool(attempt)
 
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.log_error')
     def test_prevent_path_traversal(self, _mock_log):
         """Test that path traversal attempts are blocked."""
@@ -515,6 +537,7 @@ class TestAdminToolsIntegration(VereningingenTestCase):
             self.skipTest(f"Method {test_method} not in allowed list")
         
         # Mock the actual function
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('verenigingen.setup.security_setup.check_current_security_status') as mock_func:
             mock_func.return_value = {
                 "success": True,

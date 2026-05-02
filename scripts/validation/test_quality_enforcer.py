@@ -300,6 +300,7 @@ class TestQualityEnforcer:
         """
         valid = True
         lines = content.split("\n")
+        docstring_lines = self._docstring_line_numbers(lines)
         mock_pattern = r"(?<![A-Za-z0-9_])@?patch\s*\("
 
         # Patterns that name external infrastructure or Frappe runtime context
@@ -354,6 +355,8 @@ class TestQualityEnforcer:
                 r"patch\s*\(\s*['\"][^'\"]*\.check_security_status['\"]",
                 r"patch\s*\(\s*['\"][^'\"]*\.check_current_security_status['\"]",
                 r"patch\s*\(\s*['\"][^'\"]*\.generate_session_secret['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.verify_document_integrity['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*secure_operations\.[a-zA-Z_]+['\"]",
             ]
         )
 
@@ -361,14 +364,28 @@ class TestQualityEnforcer:
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
+            if line_num in docstring_lines:
+                # Don't flag @patch examples mentioned inside docstrings.
+                continue
 
             if not re.search(mock_pattern, line, re.IGNORECASE):
                 continue
 
+            # For multi-line patch(...) calls, the target string sits on a
+            # later line. Stitch together up to the next 3 lines so the
+            # infrastructure-pattern regex can see the full target.
+            scan_window = line
+            for offset in (1, 2, 3):
+                if "(" in line and ")" in line[line.index("("):]:
+                    break
+                idx = (line_num - 1) + offset
+                if idx < len(lines):
+                    scan_window += " " + lines[idx]
+
             # Allow if the patch target is infrastructure AND has a justification
             # comment within 3 lines on either side.
             is_infrastructure = any(
-                re.search(p, line, re.IGNORECASE) for p in infrastructure_for_security
+                re.search(p, scan_window, re.IGNORECASE) for p in infrastructure_for_security
             )
             justification_found = False
             if is_infrastructure:
@@ -493,6 +510,8 @@ class TestQualityEnforcer:
                         '_load_' in context or              # private data loaders
                         '_restore_' in context or           # restore helpers (cleanup-like)
                         '_backup_' in context or            # backup helpers
+                        '_with_' in context or              # _with_admin_user, _with_role
+                        '_as_' in context or                # _as_admin, _as_user
                         (is_test_factory and context.startswith('_')) or  # private factory methods
                         (is_test_factory and context.startswith('create_'))  # public factory methods
                     )

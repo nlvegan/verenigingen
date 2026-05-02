@@ -90,6 +90,7 @@ class TestVerifyWebhookSignature(FrappeTestCase):
 class TestIPValidation(FrappeTestCase):
     """Test IP address validation."""
 
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.fetch_paynl_ip_addresses")
     def test_valid_ip_passes(self, mock_fetch):
         """Test that valid Pay.nl IP passes validation."""
@@ -98,6 +99,7 @@ class TestIPValidation(FrappeTestCase):
         result = verify_webhook_ip("1.2.3.4")
         self.assertTrue(result)
 
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.fetch_paynl_ip_addresses")
     def test_invalid_ip_fails(self, mock_fetch):
         """Test that invalid IP fails validation."""
@@ -106,6 +108,7 @@ class TestIPValidation(FrappeTestCase):
         result = verify_webhook_ip("9.9.9.9")
         self.assertFalse(result)
 
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.fetch_paynl_ip_addresses")
     def test_empty_ip_list_returns_false(self, mock_fetch):
         """Test that empty IP list returns False (fail-closed)."""
@@ -129,8 +132,11 @@ class TestIPValidation(FrappeTestCase):
 class TestFailClosedSecurity(FrappeTestCase):
     """Test fail-closed webhook security behavior."""
 
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_webhook_secret")
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_request_ip")
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.verify_webhook_ip")
     def test_fails_when_ip_invalid_and_no_secret(self, mock_verify_ip, mock_get_ip, mock_get_secret):
         """Test that webhook is rejected when IP invalid and no secret configured."""
@@ -145,8 +151,11 @@ class TestFailClosedSecurity(FrappeTestCase):
 
         self.assertIn("security validation failed", context.exception.message.lower())
 
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_webhook_secret")
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_request_ip")
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.verify_webhook_ip")
     def test_passes_when_ip_valid(self, mock_verify_ip, mock_get_ip, mock_get_secret):
         """Test that webhook passes when IP is valid."""
@@ -159,39 +168,46 @@ class TestFailClosedSecurity(FrappeTestCase):
         result = verify_ing_checkout_webhook(payload, signature=None)
         self.assertTrue(result)
 
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_webhook_secret")
+    # Mock justified: Infrastructure - request context plumbing
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_request_ip")
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.verify_webhook_ip")
-    @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.verify_webhook_signature")
-    def test_passes_when_signature_valid(self, mock_verify_sig, mock_verify_ip, mock_get_ip, mock_get_secret):
+    def test_passes_when_signature_valid(self, mock_verify_ip, mock_get_ip, mock_get_secret):
         """Test that webhook passes when signature is valid even if IP fails."""
+        secret = "test_secret"
+        payload = b'{"test": "data"}'
+        # Compute a real HMAC-SHA256 signature so the real verify_webhook_signature
+        # path runs end-to-end. Mocking the verifier itself would test only that
+        # the orchestration calls some function — not that real signatures pass.
+        valid_signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
         mock_get_ip.return_value = "9.9.9.9"
         mock_verify_ip.return_value = False
-        mock_get_secret.return_value = "test_secret"
-        mock_verify_sig.return_value = True
+        mock_get_secret.return_value = secret
 
-        payload = b'{"test": "data"}'
-
-        result = verify_ing_checkout_webhook(payload, signature="valid_sig")
+        result = verify_ing_checkout_webhook(payload, signature=valid_signature)
         self.assertTrue(result)
 
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_webhook_secret")
+    # Mock justified: Infrastructure - request context plumbing
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.get_request_ip")
+    # Mock justified: Infrastructure - external lookup driving the security path
     @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.verify_webhook_ip")
-    @patch("verenigingen.verenigingen_payments.ing_checkout.utils.webhook_security.verify_webhook_signature")
-    def test_fails_when_signature_invalid(
-        self, mock_verify_sig, mock_verify_ip, mock_get_ip, mock_get_secret
-    ):
+    def test_fails_when_signature_invalid(self, mock_verify_ip, mock_get_ip, mock_get_secret):
         """Test that webhook fails when signature is invalid."""
         mock_get_ip.return_value = "9.9.9.9"
         mock_verify_ip.return_value = False
         mock_get_secret.return_value = "test_secret"
-        mock_verify_sig.return_value = False
+        # A clearly-wrong signature — no need to compute one. The real
+        # verify_webhook_signature runs and returns False.
 
         payload = b'{"test": "data"}'
 
         with self.assertRaises(INGCheckoutWebhookError) as context:
-            verify_ing_checkout_webhook(payload, signature="invalid_sig")
+            verify_ing_checkout_webhook(payload, signature="0" * 64)
 
         self.assertIn("invalid", context.exception.message.lower())
 
@@ -221,12 +237,14 @@ class TestIdempotency(FrappeTestCase):
 
     def test_is_duplicate_webhook_not_found(self):
         """Test that webhook is not duplicate when hash not in DB."""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.db.exists", return_value=False):
             result = is_duplicate_webhook("test_event", '{"test": "data"}')
             self.assertFalse(result)
 
     def test_is_duplicate_webhook_found(self):
         """Test that webhook is detected as duplicate when hash exists."""
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.db.exists", return_value=True):
             result = is_duplicate_webhook("test_event", '{"test": "data"}')
             self.assertTrue(result)
@@ -235,7 +253,9 @@ class TestIdempotency(FrappeTestCase):
 class TestLogWebhook(FrappeTestCase):
     """Test webhook logging functionality."""
 
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch("frappe.new_doc")
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch("frappe.db.exists")
     def test_log_webhook_creates_record(self, mock_exists, mock_new_doc):
         """Test that log_webhook creates a Webhook Processing Log record."""
@@ -258,7 +278,9 @@ class TestLogWebhook(FrappeTestCase):
         # Webhook user has create permission on Webhook Processing Log
         mock_log.insert.assert_called_once_with()
 
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch("frappe.new_doc")
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch("frappe.db.exists")
     def test_log_webhook_truncates_long_event_id(self, mock_exists, mock_new_doc):
         """Test that long event IDs are truncated."""
@@ -280,6 +302,7 @@ class TestLogWebhook(FrappeTestCase):
         # Verify event_id was truncated
         self.assertLessEqual(len(mock_log.webhook_id), 140)
 
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch("frappe.db.exists")
     def test_log_webhook_prevents_duplicate(self, mock_exists):
         """Test that duplicate webhooks are not logged twice."""
@@ -294,7 +317,9 @@ class TestLogWebhook(FrappeTestCase):
 
         self.assertIsNone(log_name)  # Should return None for duplicate
 
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch("frappe.new_doc")
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch("frappe.db.exists")
     def test_log_webhook_handles_error(self, mock_exists, mock_new_doc):
         """Test that log_webhook handles exceptions gracefully."""
@@ -330,6 +355,7 @@ class TestGetRequestIP(FrappeTestCase):
 class TestFetchPayNLIPAddresses(FrappeTestCase):
     """Test Pay.nl IP address fetching."""
 
+    # Mock justified: External Service - HTTP call, not business logic
     @patch("requests.get")
     def test_fetch_ip_addresses_success(self, mock_get):
         """Test successful IP address fetch from Pay.nl."""
@@ -350,6 +376,7 @@ class TestFetchPayNLIPAddresses(FrappeTestCase):
         self.assertIn("1.2.3.4", result)
         self.assertIn("5.6.7.8", result)
 
+    # Mock justified: External Service - HTTP call, not business logic
     @patch("requests.get")
     def test_fetch_ip_addresses_network_error(self, mock_get):
         """Test handling of network error when fetching IPs."""

@@ -194,6 +194,7 @@ class TestSecurityPenetration(EnhancedTestCase):
                 pass  # Expected for invalid inputs
             
             # Test in API operations
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch('subprocess.run') as mock_run:
                 # Ensure no subprocess calls are made
                 try:
@@ -492,6 +493,7 @@ class TestSecurityPenetration(EnhancedTestCase):
                 self.assertIn("***", details.get("password", ""))
         
         # Test 3: API responses shouldn't leak internal details
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch('frappe.throw') as mock_throw:
             mock_throw.side_effect = Exception("Database connection failed at 192.168.1.100:3306")
             
@@ -544,32 +546,25 @@ class TestSecurityPenetration(EnhancedTestCase):
     
     def test_session_security(self):
         """Test session security measures"""
-        
-        # Test 1: Session fixation prevention
+
+        # Test 1: Session fixation prevention — a freshly generated session
+        # hash must differ from any prior session. ``frappe.generate_hash``
+        # is the actual primitive Frappe uses to mint session IDs, so we
+        # exercise it directly rather than patching the LoginManager wrapper.
         old_session = frappe.session.sid if hasattr(frappe.session, 'sid') else None
-        
-        # Simulate login
-        with patch('frappe.auth.LoginManager'):
-            # After authentication, session ID should change
-            new_session = frappe.generate_hash()
-            self.assertNotEqual(old_session, new_session, "Session fixation vulnerability!")
-        
-        # Test 2: Session timeout
+        new_session = frappe.generate_hash()
+        self.assertNotEqual(old_session, new_session, "Session fixation vulnerability!")
+
+        # Test 2: Session timeout — a session 25h old is past the 24h window.
+        # No cache mocking needed: the assertion is a pure date comparison.
         from datetime import datetime, timedelta
-        
-        # Create old session
+
         session_data = {
             "user": "test@example.com",
-            "created_at": datetime.now() - timedelta(hours=25)  # Expired
+            "created_at": datetime.now() - timedelta(hours=25),
         }
-        
-        # Should be invalidated
-        with patch('frappe.cache') as mock_cache:
-            mock_cache.get.return_value = session_data
-            
-            # Session should be expired
-            is_valid = datetime.now() - session_data["created_at"] < timedelta(hours=24)
-            self.assertFalse(is_valid, "Expired session still valid!")
+        is_valid = datetime.now() - session_data["created_at"] < timedelta(hours=24)
+        self.assertFalse(is_valid, "Expired session still valid!")
     
     def test_input_validation_boundaries(self):
         """Test input validation with boundary values"""

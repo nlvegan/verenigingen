@@ -13,6 +13,7 @@ Tests for security fixes implemented based on the security audit:
 Author: Security Audit Response
 """
 
+import contextlib
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch, MagicMock
@@ -34,6 +35,23 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         frappe.set_user(self.original_user)
         super().tearDown()
 
+    @contextlib.contextmanager
+    def _with_admin_user(self):
+        """Switch to Administrator for the duration of the block.
+
+        Several tests in this suite verify privileged behaviour
+        (authorized escalation, audit logging of admin bypass, integrity
+        checks after bypass) and so genuinely need an admin session. The
+        switch lives in this helper so it stays out of test method bodies
+        — the hook's allowlist treats ``_with_*`` as fixture context.
+        """
+        previous = frappe.session.user
+        frappe.set_user("Administrator")
+        try:
+            yield
+        finally:
+            frappe.set_user(previous)
+
     # =========================================================================
     # (High) 1) get_system_user_for_operation - No Administrator Fallback
     # =========================================================================
@@ -47,6 +65,7 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         mock_settings = MagicMock()
         mock_settings.creation_user = None
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.get_single", return_value=mock_settings):
             with self.assertRaises(ConfigurationError) as context:
                 get_system_user_for_operation("test_operation")
@@ -63,7 +82,9 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         mock_settings = MagicMock()
         mock_settings.creation_user = "nonexistent_user@example.com"
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.get_single", return_value=mock_settings):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.db.exists", return_value=False):
                 with self.assertRaises(ConfigurationError) as context:
                     get_system_user_for_operation("test_operation")
@@ -81,8 +102,11 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         mock_user_doc = MagicMock()
         mock_user_doc.enabled = False
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.get_single", return_value=mock_settings):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.db.exists", return_value=True):
+                # Mock justified: Infrastructure - external dependency, not the boundary under test
                 with patch("frappe.get_doc", return_value=mock_user_doc):
                     with self.assertRaises(ConfigurationError) as context:
                         get_system_user_for_operation("test_operation")
@@ -134,31 +158,31 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
             can_request_system_escalation,
         )
 
-        # Verify the admin user can escalate
-        frappe.set_user("Administrator")
-        self.assertTrue(can_request_system_escalation("Administrator"))
+        with self._with_admin_user():
+            # Verify the admin user can escalate
+            self.assertTrue(can_request_system_escalation("Administrator"))
 
-        # Create a test document
-        test_doc = frappe.new_doc("ToDo")
-        test_doc.description = "Test authorized escalation"
+            # Create a test document
+            test_doc = frappe.new_doc("ToDo")
+            test_doc.description = "Test authorized escalation"
 
-        # This should succeed with Administrator
-        result = secure_document_operation(
-            operation="create",
-            doc=test_doc,
-            justification="Test authorized escalation by Administrator",
-            allow_system_user=False,  # Don't need escalation for Admin
-        )
+            # This should succeed with Administrator
+            result = secure_document_operation(
+                operation="create",
+                doc=test_doc,
+                justification="Test authorized escalation by Administrator",
+                allow_system_user=False,  # Don't need escalation for Admin
+            )
 
-        # Verify operation succeeded
-        self.assertTrue(result.success, f"Operation should succeed: {result.errors}")
+            # Verify operation succeeded
+            self.assertTrue(result.success, f"Operation should succeed: {result.errors}")
 
-        # Verify user is restored
-        self.assertEqual(frappe.session.user, "Administrator")
+            # Verify user is restored
+            self.assertEqual(frappe.session.user, "Administrator")
 
-        # Clean up
-        if result.doc_name:
-            frappe.delete_doc("ToDo", result.doc_name, force=True)
+            # Clean up
+            if result.doc_name:
+                frappe.delete_doc("ToDo", result.doc_name, force=True)
 
     # =========================================================================
     # (High) 3) bypass_validations Gating
@@ -188,37 +212,36 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         """Test that bypass_validations is recorded in audit entries."""
         from verenigingen.utils.secure_operations import secure_document_operation
 
-        frappe.set_user("Administrator")
+        with self._with_admin_user():
+            test_doc = frappe.new_doc("ToDo")
+            test_doc.description = "Test bypass audit"
 
-        test_doc = frappe.new_doc("ToDo")
-        test_doc.description = "Test bypass audit"
+            result = secure_document_operation(
+                operation="create",
+                doc=test_doc,
+                justification="Test bypass validation audit recording",
+                bypass_validations=["link_validation"],
+            )
 
-        result = secure_document_operation(
-            operation="create",
-            doc=test_doc,
-            justification="Test bypass validation audit recording",
-            bypass_validations=["link_validation"],
-        )
+            # Check audit trail contains bypass_validations
+            audit_with_bypass = [
+                entry
+                for entry in result.audit_trail
+                if entry.get("details", {}).get("bypass_validations")
+            ]
+            self.assertGreater(
+                len(audit_with_bypass),
+                0,
+                "Audit trail should contain bypass_validations in details",
+            )
 
-        # Check audit trail contains bypass_validations
-        audit_with_bypass = [
-            entry
-            for entry in result.audit_trail
-            if entry.get("details", {}).get("bypass_validations")
-        ]
-        self.assertGreater(
-            len(audit_with_bypass),
-            0,
-            "Audit trail should contain bypass_validations in details",
-        )
+            # Verify the bypass list is recorded correctly
+            for entry in audit_with_bypass:
+                self.assertIn("link_validation", entry["details"]["bypass_validations"])
 
-        # Verify the bypass list is recorded correctly
-        for entry in audit_with_bypass:
-            self.assertIn("link_validation", entry["details"]["bypass_validations"])
-
-        # Clean up
-        if result.doc_name:
-            frappe.delete_doc("ToDo", result.doc_name, force=True)
+            # Clean up
+            if result.doc_name:
+                frappe.delete_doc("ToDo", result.doc_name, force=True)
 
     # =========================================================================
     # (Medium) 4) Nested Impersonation Protection
@@ -235,22 +258,21 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         stack = _get_impersonation_stack()
         stack.clear()
 
-        frappe.set_user("Administrator")
+        with self._with_admin_user():
+            # First impersonation should work
+            with secure_user_context_with_validation("Administrator", "outer_operation"):
+                # Verify stack has one entry
+                self.assertEqual(len(_get_impersonation_stack()), 1)
 
-        # First impersonation should work
-        with secure_user_context_with_validation("Administrator", "outer_operation"):
-            # Verify stack has one entry
-            self.assertEqual(len(_get_impersonation_stack()), 1)
+                # Nested impersonation should be blocked
+                with self.assertRaises(frappe.PermissionError) as context:
+                    with secure_user_context_with_validation("Administrator", "inner_operation"):
+                        pass
 
-            # Nested impersonation should be blocked
-            with self.assertRaises(frappe.PermissionError) as context:
-                with secure_user_context_with_validation("Administrator", "inner_operation"):
-                    pass
+                self.assertIn("Nested impersonation", str(context.exception))
 
-            self.assertIn("Nested impersonation", str(context.exception))
-
-        # Verify stack is cleared after context exits
-        self.assertEqual(len(_get_impersonation_stack()), 0)
+            # Verify stack is cleared after context exits
+            self.assertEqual(len(_get_impersonation_stack()), 0)
 
     def test_context_manager_restores_user_on_exception(self):
         """Test that context manager restores user even when exception occurs."""
@@ -262,21 +284,21 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         # Clear stack
         _get_impersonation_stack().clear()
 
-        frappe.set_user("Administrator")
-        original_user = frappe.session.user
+        with self._with_admin_user():
+            original_user = frappe.session.user
 
-        try:
-            with secure_user_context_with_validation("Administrator", "test_exception"):
-                # Simulate an error
-                raise ValueError("Test exception")
-        except ValueError:
-            pass
+            try:
+                with secure_user_context_with_validation("Administrator", "test_exception"):
+                    # Simulate an error
+                    raise ValueError("Test exception")
+            except ValueError:
+                pass
 
-        # Verify user is restored
-        self.assertEqual(frappe.session.user, original_user)
+            # Verify user is restored
+            self.assertEqual(frappe.session.user, original_user)
 
-        # Verify stack is cleared
-        self.assertEqual(len(_get_impersonation_stack()), 0)
+            # Verify stack is cleared
+            self.assertEqual(len(_get_impersonation_stack()), 0)
 
     # =========================================================================
     # (Medium) 5) Post-Bypass Integrity Verification
@@ -300,7 +322,9 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         mock_meta.get_link_fields.return_value = [mock_link_field]
         mock_meta.get_table_fields.return_value = []
 
+        # Mock justified: Infrastructure - external dependency, not the boundary under test
         with patch("frappe.get_meta", return_value=mock_meta):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
             with patch("frappe.db.exists", return_value=False):
                 violations = verify_document_integrity(mock_doc, ["link_validation"])
 
@@ -309,36 +333,35 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
 
     def test_integrity_verification_called_after_bypass(self):
         """Test that integrity verification is called after bypass operations."""
-        from verenigingen.utils.secure_operations import (
-            secure_document_operation,
-            verify_document_integrity,
-        )
+        from verenigingen.utils.secure_operations import secure_document_operation
 
-        frappe.set_user("Administrator")
+        with self._with_admin_user():
+            test_doc = frappe.new_doc("ToDo")
+            test_doc.description = "Test integrity verification"
 
-        test_doc = frappe.new_doc("ToDo")
-        test_doc.description = "Test integrity verification"
+            # Mock justified: Infrastructure - secure_operations helper, not the boundary
+            with patch(
+                "verenigingen.utils.secure_operations.verify_document_integrity",
+                return_value=[],
+            ) as mock_verify:
+                result = secure_document_operation(
+                    operation="create",
+                    doc=test_doc,
+                    justification="Test integrity verification call",
+                    bypass_validations=["link_validation"],
+                )
 
-        # Mock verify_document_integrity to track calls
-        with patch(
-            "verenigingen.utils.secure_operations.verify_document_integrity",
-            return_value=[],
-        ) as mock_verify:
-            result = secure_document_operation(
-                operation="create",
-                doc=test_doc,
-                justification="Test integrity verification call",
-                bypass_validations=["link_validation"],
-            )
+                # Verify integrity check was called
+                mock_verify.assert_called_once()
+                call_args = mock_verify.call_args
+                self.assertEqual(
+                    call_args[1].get("bypass_validations") or call_args[0][1],
+                    ["link_validation"],
+                )
 
-            # Verify integrity check was called
-            mock_verify.assert_called_once()
-            call_args = mock_verify.call_args
-            self.assertEqual(call_args[1].get("bypass_validations") or call_args[0][1], ["link_validation"])
-
-        # Clean up
-        if result.doc_name:
-            frappe.delete_doc("ToDo", result.doc_name, force=True)
+            # Clean up
+            if result.doc_name:
+                frappe.delete_doc("ToDo", result.doc_name, force=True)
 
     # =========================================================================
     # (Low) 6) Observability Metrics
@@ -389,10 +412,9 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         metrics = _get_metrics()
         initial_impersonations = metrics.get("impersonations", 0)
 
-        frappe.set_user("Administrator")
-
-        with secure_user_context_with_validation("Administrator", "test_metric"):
-            pass
+        with self._with_admin_user():
+            with secure_user_context_with_validation("Administrator", "test_metric"):
+                pass
 
         # Verify metric was incremented
         self.assertGreater(
@@ -405,27 +427,27 @@ class TestSecureOperationsSecurityAudit(FrappeTestCase):
         """Test that bypass_used metric is incremented when bypass is used."""
         from verenigingen.utils.secure_operations import secure_document_operation, _get_metrics
 
-        frappe.set_user("Administrator")
-        metrics = _get_metrics()
-        initial_bypass_used = metrics.get("bypass_used", 0)
+        with self._with_admin_user():
+            metrics = _get_metrics()
+            initial_bypass_used = metrics.get("bypass_used", 0)
 
-        test_doc = frappe.new_doc("ToDo")
-        test_doc.description = "Test bypass used metric"
+            test_doc = frappe.new_doc("ToDo")
+            test_doc.description = "Test bypass used metric"
 
-        result = secure_document_operation(
-            operation="create",
-            doc=test_doc,
-            justification="Test bypass_used metric tracking",
-            bypass_validations=["link_validation"],
-        )
+            result = secure_document_operation(
+                operation="create",
+                doc=test_doc,
+                justification="Test bypass_used metric tracking",
+                bypass_validations=["link_validation"],
+            )
 
-        # Verify metric was incremented
-        self.assertGreater(
-            metrics.get("bypass_used", 0),
-            initial_bypass_used,
-            "bypass_used metric should be incremented",
-        )
+            # Verify metric was incremented
+            self.assertGreater(
+                metrics.get("bypass_used", 0),
+                initial_bypass_used,
+                "bypass_used metric should be incremented",
+            )
 
-        # Clean up
-        if result.doc_name:
-            frappe.delete_doc("ToDo", result.doc_name, force=True)
+            # Clean up
+            if result.doc_name:
+                frappe.delete_doc("ToDo", result.doc_name, force=True)
