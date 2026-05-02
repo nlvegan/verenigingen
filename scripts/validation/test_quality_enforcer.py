@@ -453,31 +453,30 @@ class TestQualityEnforcer:
             'cleanup'
         ]
         
-        # Track if we're inside a docstring
-        in_docstring = False
-        docstring_delimiter = None
-        
+        # Pre-compute docstring line numbers via the shared helper, which
+        # correctly handles single-line """text""" docstrings (the previous
+        # inline tracker flipped the flag once and stayed "inside" forever).
+        docstring_lines = self._docstring_line_numbers(lines)
+
+        # Mock-assertion patterns that mention ignore_permissions=True as a
+        # called-with argument, not as a real bypass (e.g. asserting that
+        # production code was invoked with the flag).
+        mock_assertion_patterns = [
+            re.compile(r"assert_called(_once)?(_with)?\s*\("),
+            re.compile(r"\.call_args"),
+            re.compile(r"\.call_args_list"),
+        ]
+
         for line_num, line in enumerate(lines, 1):
             stripped_line = line.strip()
-            
-            # Check for docstring delimiters
-            if '"""' in line:
-                if not in_docstring:
-                    in_docstring = True
-                    docstring_delimiter = '"""'
-                elif docstring_delimiter == '"""':
-                    in_docstring = False
-                    docstring_delimiter = None
-            elif "'''" in line:
-                if not in_docstring:
-                    in_docstring = True
-                    docstring_delimiter = "'''"
-                elif docstring_delimiter == "'''":
-                    in_docstring = False
-                    docstring_delimiter = None
-            
+
             # Skip documentation lines (comments and docstrings)
-            if (stripped_line.startswith('#') or in_docstring):
+            if stripped_line.startswith('#') or line_num in docstring_lines:
+                continue
+
+            # Skip mock-call assertions — these reference ignore_permissions=True
+            # as the expected argument to a mocked function, not as a real bypass.
+            if any(p.search(line) for p in mock_assertion_patterns):
                 continue
                 
             for pattern in self.permission_bypasses:
