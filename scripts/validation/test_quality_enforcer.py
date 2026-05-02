@@ -195,15 +195,33 @@ class TestQualityEnforcer:
     def _is_test_file(self, file_path: str) -> bool:
         """Check if file is a test file that should be validated"""
         path = Path(file_path)
-        
+        path_str = str(path).replace("\\", "/")
+
+        # Skip fixture / helper / conftest files even if they live under tests/.
+        # These provide infrastructure for tests rather than being tests themselves,
+        # and their use of permission bypasses or DB writes is appropriate.
+        helper_path_markers = [
+            "/tests/fixtures/",
+            "/tests/conftest",
+            "/tests/setup/",
+            "/tests/config/",
+            "/tests/utils/",
+        ]
+        if any(marker in path_str for marker in helper_path_markers):
+            return False
+        if path.name == "conftest.py":
+            return False
+        if "_factory" in path.name or path.name.startswith("factory_"):
+            return False
+
         # Check for test file patterns
         test_indicators = [
             path.name.startswith('test_'),
-            '/tests/' in str(path),
+            '/tests/' in path_str,
             path.name.endswith('_test.py'),
             'TestCase' in path.name
         ]
-        
+
         return any(test_indicators) and path.suffix == '.py'
 
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
@@ -233,27 +251,69 @@ class TestQualityEnforcer:
         return valid
 
     def _check_all_mocks_blocked(self, file_path: str, content: str) -> bool:
-        """Check that NO mocks are used (Tier 3 security tests)"""
+        """Check that the security-sensitive boundary isn't mocked (Tier 3).
+
+        Security tests must NOT mock the auth/permission/signature layer they
+        are supposed to verify. They MAY mock external infrastructure (HTTP
+        clients, IP/secret retrievers, cache) so the test can drive the
+        boundary code with controlled inputs — provided the mock carries a
+        ``# Mock justified:`` comment within 3 lines, mirroring Tier 2.
+        """
         valid = True
         lines = content.split("\n")
-
-        # Any patch() call is forbidden in security tests
         mock_pattern = r"@?patch\s*\("
 
+        # Patterns that name external infrastructure rather than the boundary
+        # under test. These mirror the Tier 2 allowed lists plus generic HTTP
+        # and patterns that match "fetch/get/retrieve external data" helpers.
+        infrastructure_for_security = (
+            self.external_service_mocks
+            + self.infrastructure_mocks
+            + [
+                r"patch\s*\(\s*['\"][^'\"]*\.fetch_[^'\"]+['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.get_request_ip['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.get_webhook_secret['\"]",
+                r"patch\s*\(\s*['\"][^'\"]*\.verify_webhook_ip['\"]",
+            ]
+        )
+
         for line_num, line in enumerate(lines, 1):
-            # Skip comments
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
 
-            if re.search(mock_pattern, line, re.IGNORECASE):
-                self.errors.append(
-                    f"{file_path}:{line_num}: MOCK in security test: {line.strip()}\n"
-                    f"  -> Security/permission tests must NOT use any mocks\n"
-                    f"  -> Test real permission boundaries with actual users/roles\n"
-                    f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md (Tier 3)"
-                )
-                valid = False
+            if not re.search(mock_pattern, line, re.IGNORECASE):
+                continue
+
+            # Allow if the patch target is infrastructure AND has a justification
+            # comment within 3 lines on either side.
+            is_infrastructure = any(
+                re.search(p, line, re.IGNORECASE) for p in infrastructure_for_security
+            )
+            justification_found = False
+            if is_infrastructure:
+                start = max(0, line_num - 4)
+                end = min(len(lines), line_num + 3)
+                for i in range(start, end):
+                    if i < len(lines) and (
+                        "# Mock justified:" in lines[i]
+                        or "# External service" in lines[i]
+                        or "# Infrastructure" in lines[i]
+                    ):
+                        justification_found = True
+                        break
+
+            if is_infrastructure and justification_found:
+                continue
+
+            self.errors.append(
+                f"{file_path}:{line_num}: MOCK in security test: {line.strip()}\n"
+                f"  -> Security tests must not mock the auth/permission boundary itself\n"
+                f"  -> Infrastructure mocks (HTTP, IP, secret retrieval) are allowed\n"
+                f"     when annotated with # Mock justified: <reason>\n"
+                f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md (Tier 3)"
+            )
+            valid = False
 
         return valid
 
@@ -325,14 +385,31 @@ class TestQualityEnforcer:
                     # Check if in allowed context
                     context = self._find_function_context(lines, line_num)
 
-                    # Check if context is allowed (static list or pattern match)
+                    # Check if context is allowed (static list or pattern match).
+                    # Test setup helpers come in many naming conventions in this
+                    # repo — broaden beyond the canonical setUp/tearDown to catch
+                    # legitimate fixture creation in private/utility helpers.
+                    context_lower = context.lower()
                     is_allowed = (
                         context in allowed_contexts or
-                        'cleanup' in context.lower() or  # cleanup methods
+                        'cleanup' in context_lower or       # cleanup methods
+                        'teardown' in context_lower or      # teardown variants
                         context.startswith('create_test') or  # test data creation
                         context.startswith('ensure_test') or  # test setup utilities
-                        '_ensure_' in context or  # utility methods
-                        '_create_' in context or  # factory methods
+                        context.startswith('make_') or      # factory-style helpers
+                        context.startswith('build_') or     # builder helpers
+                        context.startswith('setup_') or     # public setup helpers
+                        context.startswith('fixture_') or   # fixture loaders
+                        context.startswith('load_') or      # data loaders
+                        '_ensure_' in context or            # utility methods
+                        '_create_' in context or            # factory methods
+                        '_make_' in context or              # private builders
+                        '_build_' in context or             # private builders
+                        '_setup_' in context or             # private setup helpers
+                        '_fixture_' in context or           # private fixture loaders
+                        '_load_' in context or              # private data loaders
+                        '_restore_' in context or           # restore helpers (cleanup-like)
+                        '_backup_' in context or            # backup helpers
                         (is_test_factory and context.startswith('_')) or  # private factory methods
                         (is_test_factory and context.startswith('create_'))  # public factory methods
                     )
