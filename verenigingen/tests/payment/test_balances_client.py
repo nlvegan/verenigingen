@@ -325,10 +325,10 @@ class TestBalancesClientCacheBehavior(unittest.TestCase):
         """Verify alert invalidates all related caches"""
         balance_id = "bal_test123"
 
+        # Mock justified: Infrastructure - background task / realtime channel
         with patch.object(self.client, 'get_balance') as mock_get_balance, \
              patch.object(self.client, 'list_balance_transactions') as mock_list_tx, \
              patch.object(self.client, 'invalidate_cache') as mock_invalidate, \
-             # Mock justified: Infrastructure - background task / realtime channel
              patch('frappe.publish_realtime'):
 
             # Configure mocks
