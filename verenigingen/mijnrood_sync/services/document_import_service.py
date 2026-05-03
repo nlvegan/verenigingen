@@ -667,7 +667,6 @@ class DocumentImportService:
         """Compute what would be imported without actually importing."""
         mappable = 0
         unmapped = 0
-        already_exists = 0
 
         for doc in documents:
             mapping = self._get_mapping_for_document(doc)
