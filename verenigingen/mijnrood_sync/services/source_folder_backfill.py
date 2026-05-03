@@ -26,6 +26,9 @@ def backfill_source_folder_ids(dry_run: bool = False, batch_size: int = 200) -> 
 
     Returns a summary dict with counts.
     """
+    if not isinstance(batch_size, int) or batch_size <= 0:
+        raise ValueError(f"batch_size must be a positive integer, got {batch_size!r}")
+
     # Find all Organization Documents missing source_folder_id but having a hash.
     # source_folder_id is an Int NOT NULL DEFAULT 0 column, so "not set" means
     # value = 0 (Frappe's ["is", "not set"] translates to IS NULL which won't match).
@@ -111,13 +114,11 @@ def _fetch_mijnrood_hash_to_folder() -> dict[str, int]:
     settings = frappe.get_single("MijnRood Sync Settings")
     client = MijnRoodDatabaseClient(settings=settings)
     with client:
-        try:
-            return client.fetch_document_hash_to_folder()
-        except AttributeError:
-            # Method doesn't exist; fall back to SFTP hashing
-            pass
-        except Exception as e:
-            logger.warning("MijnRood DB hash fetch failed (%s); falling back to SFTP", e)
+        if hasattr(client, "fetch_document_hash_to_folder"):
+            try:
+                return client.fetch_document_hash_to_folder()
+            except Exception as e:
+                logger.warning("MijnRood DB hash fetch failed (%s); falling back to SFTP", e)
 
     return _sftp_hash_to_folder(settings)
 

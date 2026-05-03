@@ -64,7 +64,7 @@ class TestSourceFolderBackfill(VereningingenTestCase):
     def test_backfill_skips_already_set(self):
         from verenigingen.mijnrood_sync.services import source_folder_backfill
 
-        self._make_doc(file_hash="b" * 64, source_folder_id=99)
+        doc = self._make_doc(file_hash="b" * 64, source_folder_id=99)
 
         with patch.object(
             source_folder_backfill,
@@ -76,6 +76,10 @@ class TestSourceFolderBackfill(VereningingenTestCase):
         # Already-set rows aren't re-considered or counted as matched
         self.assertEqual(result["matched"], 0)
         self.assertGreaterEqual(result["already_set"], 1)
+
+        # And — critically — the existing value must NOT be overwritten with 42
+        doc.reload()
+        self.assertEqual(doc.source_folder_id, 99)
 
     def test_backfill_records_no_hash_match(self):
         from verenigingen.mijnrood_sync.services import source_folder_backfill
