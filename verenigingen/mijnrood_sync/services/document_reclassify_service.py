@@ -29,6 +29,55 @@ DIFF_FIELDS = (
 )
 
 
+def _fetch_folder_tree() -> dict[int, dict]:
+    """Fetch all MijnRood folders, return {folder_id: folder_dict}.
+
+    Used to walk parent chains when a doc's source_folder_id points to a
+    folder not directly in the mapping table (e.g., year subfolders that
+    fetch_and_populate_folders deliberately skips).
+
+    Mocked in tests.
+    """
+    from verenigingen.mijnrood_sync.client import MijnRoodDatabaseClient
+
+    settings = frappe.get_single("MijnRood Sync Settings")
+    client = MijnRoodDatabaseClient(settings=settings)
+    with client:
+        folders = client.fetch_document_folders()
+    return {f["id"]: f for f in folders}
+
+
+def _resolve_mapped_folder(folder_id, mapping_by_id, folder_tree):
+    """Walk parent chain to find the nearest ancestor folder that has a mapping.
+
+    Returns the mapping row, or None if no ancestor is mapped.
+
+    Args:
+        folder_id: starting folder id
+        mapping_by_id: {mijnrood_folder_id: mapping_row}
+        folder_tree: {folder_id: folder_dict} from MijnRood
+
+    Mirrors DocumentImportService._resolve_mapped_folder. Standalone (not a
+    method) so callers don't need a service instance and so it's trivially
+    testable in isolation.
+    """
+    if folder_id in mapping_by_id:
+        return mapping_by_id[folder_id]
+
+    seen: set[int] = set()
+    current = folder_id
+    while current is not None and current not in seen:
+        seen.add(current)
+        if current in mapping_by_id:
+            return mapping_by_id[current]
+        folder = folder_tree.get(current)
+        if folder is None:
+            break
+        current = folder.get("parent_id")
+
+    return None
+
+
 @frappe.whitelist()
 def reclassify_documents(names, dry_run: bool = True) -> dict:
     """Re-apply MijnRood folder mapping + extracted date to existing docs.
@@ -68,6 +117,21 @@ def reclassify_documents(names, dry_run: bool = True) -> dict:
     settings = frappe.get_single("MijnRood Sync Settings")
     mapping_by_id = {row.mijnrood_folder_id: row for row in (settings.document_folder_mapping or [])}
 
+    # Lazy folder-tree fetch — only triggered if a doc needs parent walking.
+    # Single-element list so the inner closure can mutate it.
+    _folder_tree_cache: list[dict[int, dict] | None] = [None]
+
+    def get_folder_tree():
+        if _folder_tree_cache[0] is None:
+            try:
+                _folder_tree_cache[0] = _fetch_folder_tree()
+            except Exception as e:
+                logger.warning(
+                    "reclassify_documents: failed to fetch folder tree (%s); parent walking disabled", e
+                )
+                _folder_tree_cache[0] = {}
+        return _folder_tree_cache[0]
+
     changes: list[dict] = []
     skipped: list[dict] = []
     applied = 0
@@ -79,7 +143,7 @@ def reclassify_documents(names, dry_run: bool = True) -> dict:
             skipped.append({"name": name, "reason": "document not found"})
             continue
 
-        result = _process_doc(doc, mapping_by_id, dry_run)
+        result = _process_doc(doc, mapping_by_id, get_folder_tree, dry_run)
         if result["status"] == "changed":
             changes.append(result["change"])
             if not dry_run:
@@ -103,14 +167,25 @@ def reclassify_documents(names, dry_run: bool = True) -> dict:
     }
 
 
-def _process_doc(doc, mapping_by_id: dict, dry_run: bool) -> dict:
-    """Resolve mapping → compute diff → optionally write. Returns a status dict."""
+def _process_doc(doc, mapping_by_id: dict, get_folder_tree, dry_run: bool) -> dict:
+    """Resolve mapping → compute diff → optionally write. Returns a status dict.
+
+    `get_folder_tree` is a zero-arg callable that returns the folder tree
+    dict from MijnRood, fetched lazily only if parent walking is required.
+    """
     from verenigingen.utils.date_extraction import extract_date_with_precision
 
     if not doc.source_folder_id:
         return {"status": "skipped", "reason": "no source_folder_id (run backfill first)"}
 
+    # Direct hit on the mapping table is the common case — try that first
+    # to avoid any MijnRood DB round-trip.
     mapping_row = mapping_by_id.get(doc.source_folder_id)
+    if mapping_row is None:
+        # Fall back to parent-chain walk (e.g. for year-subfolder docs)
+        folder_tree = get_folder_tree()
+        mapping_row = _resolve_mapped_folder(doc.source_folder_id, mapping_by_id, folder_tree)
+
     if mapping_row is None:
         return {"status": "skipped", "reason": "no folder mapping"}
 

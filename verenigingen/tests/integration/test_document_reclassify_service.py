@@ -177,6 +177,42 @@ class TestReclassifyDocuments(VereningingenTestCase):
         self.assertEqual(len(result["skipped"]), 1)
         self.assertEqual(result["skipped"][0]["reason"], "no folder mapping")
 
+    def test_year_subfolder_walks_parent_chain(self):
+        """A doc whose source_folder_id is a year-subfolder (not in mapping)
+        should resolve via the parent chain to its mapped ancestor.
+
+        Mirrors document_import_service's _resolve_mapped_folder behavior.
+        """
+        from unittest.mock import patch
+
+        from verenigingen.mijnrood_sync.services import document_reclassify_service
+
+        # Fake folder tree: folder 250 ("2024") is the year-subfolder of folder 100 (mapped to chapter_a + Meeting Minutes)
+        fake_tree = {
+            100: {"id": 100, "name": "Notulen", "parent_id": None},
+            250: {"id": 250, "name": "2024", "parent_id": 100},
+        }
+
+        doc = self._make_doc(
+            source_folder_id=250,  # year-subfolder, NOT directly in mapping
+            chapter=self.chapter_b.name,  # wrong on purpose
+            document_type="Other",
+        )
+
+        with patch.object(
+            document_reclassify_service,
+            "_fetch_folder_tree",
+            return_value=fake_tree,
+        ):
+            result = document_reclassify_service.reclassify_documents(
+                [doc.name], dry_run=True
+            )
+
+        self.assertEqual(len(result["changes"]), 1, msg=f"expected 1 change, got result={result}")
+        change = result["changes"][0]
+        self.assertEqual(change["proposed"]["chapter"], self.chapter_a.name)
+        self.assertEqual(change["proposed"]["document_type"], "Meeting Minutes")
+
     def _setup_folder_path(self, folder_id, folder_path):
         """Setup helper: patch a folder mapping's folder_path for a test."""
         settings = frappe.get_single("MijnRood Sync Settings")
