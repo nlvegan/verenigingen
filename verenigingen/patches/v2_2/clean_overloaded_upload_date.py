@@ -15,6 +15,12 @@ import frappe
 
 
 def execute():
+    # Defensive: bench run-patch (standalone) does not run schema sync first.
+    # If applies_on column doesn't yet exist, skip — next bench migrate will sync
+    # the schema and the patch will run on the next attempt.
+    if not frappe.db.has_column("Organization Document", "applies_on"):
+        return
+
     affected = frappe.db.sql(
         """
         SELECT name, upload_date, DATE(creation) AS creation_date
@@ -42,4 +48,4 @@ def execute():
         )
 
     frappe.db.commit()
-    print(f"clean_overloaded_upload_date: healed {len(affected)} Organization Document rows")
+    frappe.logger().info(f"clean_overloaded_upload_date: healed {len(affected)} Organization Document rows")
