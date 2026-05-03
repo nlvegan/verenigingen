@@ -23,7 +23,7 @@ from typing import Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import today
+from frappe.utils import getdate, today
 
 from verenigingen.utils.constants import Roles
 
@@ -104,9 +104,6 @@ class OrganizationDocument(Document):
         """
         if not self.applies_on:
             return
-
-        # frappe.utils.getdate handles str/date input
-        from frappe.utils import getdate
 
         d = getdate(self.applies_on)
         precision = self.applies_on_precision or "Day"
