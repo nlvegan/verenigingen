@@ -21,7 +21,12 @@
     "metadata_section",
     "upload_date",
     "uploaded_by",
-    "file_hash"
+    "file_hash",
+    "applies_section",
+    "applies_on",
+    "applies_on_precision",
+    "column_break_applies",
+    "source_folder_id"
   ],
   "fields": [
     {
@@ -130,6 +135,40 @@
       "fieldtype": "Data",
       "hidden": 1,
       "label": "File Hash",
+      "read_only": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "applies_section",
+      "fieldtype": "Section Break",
+      "label": "Document Date"
+    },
+    {
+      "description": "The date this document applies to (e.g. minutes from May 2024). May be year-only or year+month.",
+      "fieldname": "applies_on",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Applies On"
+    },
+    {
+      "default": "Day",
+      "description": "Granularity of Applies On. Day uses the full date; Month ignores day; Year ignores month and day.",
+      "fieldname": "applies_on_precision",
+      "fieldtype": "Select",
+      "label": "Precision",
+      "options": "Day\nMonth\nYear"
+    },
+    {
+      "fieldname": "column_break_applies",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "MijnRood folder id (set by importer or backfill). Used by Reclassify action.",
+      "fieldname": "source_folder_id",
+      "fieldtype": "Int",
+      "hidden": 1,
+      "label": "MijnRood Folder ID",
       "read_only": 1,
       "search_index": 1
     }
