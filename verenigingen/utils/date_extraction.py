@@ -130,7 +130,9 @@ def extract_date_with_precision(text: str | None) -> tuple[date | None, str]:
     # 2. Year-month patterns
     text_stripped = text.strip()
 
-    # 2a. YYYY-MM (also YYYY/MM, YYYY.MM, YYYY MM)
+    # 2a. YYYY-MM (also YYYY/MM, YYYY.MM, YYYY MM).
+    # Valid YYYY-MM-DD inputs are absorbed by step 1 (full-date) above,
+    # so this branch only fires on month-only or invalid-day full-date inputs.
     m = re.search(r"(?<!\d)(20\d{2})[-/.\s](0[1-9]|1[0-2])(?!\d)", text_stripped)
     if m:
         result = _safe_date(int(m.group(1)), int(m.group(2)), 1)
@@ -146,7 +148,7 @@ def extract_date_with_precision(text: str | None) -> tuple[date | None, str]:
 
     # 2c. <dutch_month> YYYY
     m = re.search(
-        rf"(?<![a-z])({_MONTH_PATTERN})\s+(20\d{{2}})(?!\d)",
+        rf"(?<![a-zA-Z])({_MONTH_PATTERN})\s+(20\d{{2}})(?!\d)",
         text_stripped,
         re.IGNORECASE,
     )
