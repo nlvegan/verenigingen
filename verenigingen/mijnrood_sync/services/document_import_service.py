@@ -9,7 +9,6 @@ checksum-based polling pipeline.
 import hashlib
 import logging
 import re
-from datetime import datetime
 
 import frappe
 from frappe import _
@@ -542,28 +541,31 @@ class DocumentImportService:
         doc_type = mapping["document_type"]
         original_name = doc.get("name") or upload_filename
 
-        from verenigingen.utils.date_extraction import extract_date_from_text, extract_year_from_text
+        from verenigingen.utils.date_extraction import (
+            extract_date_with_precision,
+            extract_year_from_text,
+        )
         from verenigingen.utils.folder_category_detector import detect_category_from_folder_path
 
-        # 1. Try MijnRood's date_uploaded first
-        upload_date = self._parse_upload_date(doc)
-
-        # 2. If no DB date, try extracting from document name / upload filename
-        if not upload_date:
-            upload_date = extract_date_from_text(original_name)
-
-        # 3. If still no date, try the folder path
+        # Folder path for both date extraction and category auto-detect
         folder_path = self._get_folder_path(doc.get("folder_id"))
-        if not upload_date and folder_path:
-            upload_date = extract_date_from_text(folder_path)
 
-        # 4. Year from full date, or from text patterns, or "Other"
-        if upload_date:
-            year = str(upload_date.year)
+        # Date cascade for applies_on:
+        # 1. Filename → 2. Folder path. (MijnRood's date_uploaded is an upload
+        # timestamp on their side, not the document's content date — we
+        # therefore don't use it for applies_on.)
+        applies_on, applies_precision = extract_date_with_precision(original_name)
+        if applies_on is None and folder_path:
+            applies_on, applies_precision = extract_date_with_precision(folder_path)
+
+        # File-storage year bucket: full date → year of date; else year-only
+        # extraction; else "Other". Storage path is unchanged from before.
+        if applies_on:
+            year = str(applies_on.year)
         else:
             year = extract_year_from_text(original_name, default="Other")
 
-        # 5. Auto-detect category from folder path if currently "Other"
+        # Auto-detect category from folder path if currently "Other"
         doc_type = detect_category_from_folder_path(folder_path or "", doc_type)
 
         # Save file to hierarchical storage
@@ -579,7 +581,9 @@ class DocumentImportService:
             is_private=1,
         )
 
-        # Create Organization Document record
+        # Create Organization Document record. upload_date is NOT set here so
+        # the field's default ("Today") fires and reflects the import time —
+        # the document's own date lives in applies_on / applies_on_precision.
         org_doc = frappe.get_doc(
             {
                 "doctype": "Organization Document",
@@ -590,9 +594,11 @@ class DocumentImportService:
                 "document_name": original_name,
                 "document_type": doc_type,
                 "document_file": file_result["file_url"],
-                "upload_date": upload_date.strftime("%Y-%m-%d") if upload_date else None,
+                "applies_on": applies_on.strftime("%Y-%m-%d") if applies_on else None,
+                "applies_on_precision": applies_precision if applies_on else "Day",
                 "uploaded_by": "Administrator",
                 "file_hash": file_hash,
+                "source_folder_id": doc.get("folder_id"),
             }
         )
         # Security: Admin-initiated background job importing from trusted MijnRood DB.
@@ -610,24 +616,6 @@ class DocumentImportService:
             org_name,
         )
         return "imported"
-
-    def _parse_upload_date(self, doc: dict) -> datetime | None:
-        """Parse date_uploaded from MijnRood document record.
-
-        Falls back to extracting year from folder name if date is missing.
-        """
-        date_str = doc.get("date_uploaded")
-        if not date_str:
-            return None
-
-        if isinstance(date_str, datetime):
-            return date_str
-
-        # Handle ISO format from _serialize_row
-        try:
-            return datetime.fromisoformat(str(date_str))
-        except (ValueError, TypeError):
-            return None
 
     def _compute_folder_path(self, folder_id: int, tree: dict) -> str:
         """Compute full folder path like 'Financien / 2024'."""
