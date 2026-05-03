@@ -52,6 +52,7 @@ class OrganizationDocument(Document):
         """Validate document before save"""
         self._validate_organization_reference()
         self._validate_file_extension()
+        self._normalize_applies_on_precision()
         self._populate_metadata_fields()
         self._validate_upload_permission()
 
@@ -93,6 +94,27 @@ class OrganizationDocument(Document):
             frappe.throw(
                 _("File type '{0}' is not allowed. Accepted types: {1}").format(file_ext, allowed_list)
             )
+
+    def _normalize_applies_on_precision(self):
+        """Snap applies_on to match applies_on_precision.
+
+        Month → day = 1; Year → month = 1, day = 1. Day → no change.
+        Mirrors the JS form handlers so REST/API callers can't bypass.
+        Skipped when applies_on is unset.
+        """
+        if not self.applies_on:
+            return
+
+        # frappe.utils.getdate handles str/date input
+        from frappe.utils import getdate
+
+        d = getdate(self.applies_on)
+        precision = self.applies_on_precision or "Day"
+
+        if precision == "Month" and d.day != 1:
+            self.applies_on = d.replace(day=1)
+        elif precision == "Year" and (d.month != 1 or d.day != 1):
+            self.applies_on = d.replace(month=1, day=1)
 
     def _populate_metadata_fields(self):
         """Auto-populate upload_date and uploaded_by if not set"""
