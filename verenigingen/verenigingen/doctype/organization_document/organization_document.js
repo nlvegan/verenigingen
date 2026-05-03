@@ -90,10 +90,20 @@ function run_reclassify_flow(names, onApplied) {
 					freeze_message: __('Applying reclassification…'),
 					callback(r2) {
 						if (!r2.message) return;
-						frappe.show_alert({
-							message: __('Reclassified {0} documents.', [r2.message.applied]),
-							indicator: 'green'
-						});
+						const errorCount = (r2.message.changes || [])
+							.reduce((n, c) => n + ((c.write_errors || []).length), 0);
+						if (errorCount > 0) {
+							frappe.show_alert({
+								message: __('Reclassified {0} documents with {1} field write error(s) — check error log.',
+									[r2.message.applied, errorCount]),
+								indicator: 'orange'
+							});
+						} else {
+							frappe.show_alert({
+								message: __('Reclassified {0} documents.', [r2.message.applied]),
+								indicator: 'green'
+							});
+						}
 						if (onApplied) onApplied();
 					}
 				});
