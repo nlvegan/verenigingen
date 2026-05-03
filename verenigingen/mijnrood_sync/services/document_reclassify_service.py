@@ -87,6 +87,13 @@ def reclassify_documents(names, dry_run: bool = True) -> dict:
         else:
             skipped.append({"name": name, "reason": result["reason"]})
 
+    logger.info(
+        "reclassify_documents: total=%d applied=%d skipped=%d dry_run=%s",
+        len(names),
+        applied,
+        len(skipped),
+        dry_run,
+    )
     return {
         "dry_run": dry_run,
         "total": len(names),
@@ -108,6 +115,25 @@ def _process_doc(doc, mapping_by_id: dict, dry_run: bool) -> dict:
         return {"status": "skipped", "reason": "no folder mapping"}
 
     org_type = mapping_row.organization_type or doc.organization_type
+
+    # Defensive: if the mapping row sets organization_type but leaves the
+    # corresponding chapter/team/movement blank, skip rather than clear
+    # the doc's existing link field with None. Mirrors document_import_service.
+    org_link_value = (
+        mapping_row.chapter
+        if org_type == "Chapter"
+        else mapping_row.team
+        if org_type == "Team"
+        else mapping_row.movement
+        if org_type == "Movement"
+        else None
+    )
+    if not org_link_value:
+        return {
+            "status": "skipped",
+            "reason": f"mapping has organization_type={org_type!r} but no entity set",
+        }
+
     proposed = {
         "organization_type": org_type,
         "chapter": mapping_row.chapter if org_type == "Chapter" else None,
@@ -133,23 +159,34 @@ def _process_doc(doc, mapping_by_id: dict, dry_run: bool) -> dict:
     if not diff_fields:
         return {"status": "skipped", "reason": "unchanged"}
 
+    write_errors: list[str] = []
     if not dry_run:
         for f in diff_fields:
-            frappe.db.set_value(
-                "Organization Document",
-                doc.name,
-                f,
-                proposed[f],
-                update_modified=False,
-            )
+            try:
+                frappe.db.set_value(
+                    "Organization Document",
+                    doc.name,
+                    f,
+                    proposed[f],
+                    update_modified=False,
+                )
+            except Exception as e:
+                write_errors.append(f"{f}: {e}")
+                logger.warning(
+                    "reclassify_documents: failed to set %s on %s — %s",
+                    f,
+                    doc.name,
+                    e,
+                )
         frappe.db.commit()
 
-    return {
-        "status": "changed",
-        "change": {
-            "name": doc.name,
-            "current": current,
-            "proposed": proposed,
-            "diff_fields": diff_fields,
-        },
+    change = {
+        "name": doc.name,
+        "current": current,
+        "proposed": proposed,
+        "diff_fields": diff_fields,
     }
+    if write_errors:
+        change["write_errors"] = write_errors
+
+    return {"status": "changed", "change": change}
