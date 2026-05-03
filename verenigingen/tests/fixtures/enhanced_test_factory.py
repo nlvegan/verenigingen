@@ -3951,7 +3951,7 @@ class EnhancedTestCase(FrappeTestCase):
     def as_user(self, user_email):
         """Context manager for running code as specific user"""
         from contextlib import contextmanager
-        
+
         @contextmanager
         def user_context():
             original_user = frappe.session.user
@@ -3960,8 +3960,81 @@ class EnhancedTestCase(FrappeTestCase):
                 yield
             finally:
                 frappe.set_user(original_user)
-        
+
         return user_context()
+
+    def as_role(self, role_or_roles, *, email=None):
+        """Run a block as a scratch user holding the given role(s) or role profile.
+
+        Most permission-sensitive tests should run as a real role, not as
+        Administrator (which bypasses every DocPerm check in Frappe). This
+        helper creates a per-test scratch user, assigns the requested role(s)
+        or role profile, and switches frappe.session.user for the duration of
+        the block.
+
+        Args:
+            role_or_roles: A role name (str), list of role names, or role
+                profile name. Role profile names are detected by checking the
+                Role Profile doctype; if found, all roles from that profile
+                are applied to the scratch user.
+            email: Optional explicit email for the scratch user. If omitted, a
+                deterministic per-role email is generated and reused across
+                calls in the same test.
+
+        Returns:
+            Context manager that switches frappe.session.user.
+
+        Example:
+            with self.as_role("Verenigingen Staff"):
+                result = some_permission_sensitive_function(...)
+            with self.as_role(["Verenigingen Volunteer", "Employee"]):
+                ...
+        """
+        if isinstance(role_or_roles, str):
+            if frappe.db.exists("Role Profile", role_or_roles):
+                roles = [
+                    r.role for r in frappe.get_doc("Role Profile", role_or_roles).roles
+                ]
+                key = f"profile-{role_or_roles}"
+            else:
+                roles = [role_or_roles]
+                key = role_or_roles
+        else:
+            roles = list(role_or_roles)
+            key = "_".join(sorted(roles))
+
+        if not email:
+            # Deterministic, reusable scratch user per role-set + test run
+            test_run_id = getattr(self, "test_run_id", None) or getattr(self, "uid", "default")
+            slug = (
+                key.lower()
+                .replace(" ", "_")
+                .replace("/", "_")
+                .replace(":", "_")
+            )[:40]
+            email = f"scratch.{slug}.{test_run_id}@test.invalid"
+
+        # create_test_user reuses existing User if present and resets roles each call
+        self.create_test_user(email, roles=roles)
+        return self.as_user(email)
+
+    def as_staff(self, **kwargs):
+        """Shortcut: run as a scratch user with Verenigingen Staff role only.
+
+        Use this for permission-sensitive tests that should verify the flow
+        works for the lowest-privilege admin tier. See as_role() for details.
+        """
+        return self.as_role("Verenigingen Staff", **kwargs)
+
+    def as_admin_role(self, **kwargs):
+        """Shortcut: run as a scratch user with Verenigingen Administrator role.
+
+        Note: this is the role only, NOT the literal Administrator user
+        account (which bypasses every permission check via the special-case
+        in frappe/permissions.py). Use this when you want to test admin-tier
+        access without the Administrator-user bypass masking real perm bugs.
+        """
+        return self.as_role("Verenigingen Administrator", **kwargs)
     
     def create_test_member_optimized(self, **kwargs):
         """Create test member using performance optimizations

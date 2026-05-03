@@ -465,7 +465,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
 
     def test_account_creation_background_job_integration(self):
         """Test integration with background job processing"""
-        
+
         request_doc = frappe.get_doc({
             "doctype": "Account Creation Request",
             "request_type": "Member",
@@ -475,27 +475,116 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
             "status": "Queued",
             "business_justification": "Background job test"
         })
-        
+
         request_doc.append("requested_roles", {
             "role": "Verenigingen Member"
         })
-        
+
         request_doc.insert()
         self.factory.track_document("Account Creation Request", request_doc.name)
-        
+
         # Test that request can be processed via background job pattern
         manager = AccountCreationManager(request_doc.name)
-        
+
         # Simulate background job processing
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail'):
             with self.as_user("Administrator"):  # Background jobs run as Administrator
                 manager.process_complete_pipeline()
-        
+
         # Should complete successfully even in background context
         request_doc.reload()
         self.assertEqual(request_doc.status, "Completed")
         self.assertEqual(request_doc.processed_by, "Administrator")
+
+    def test_volunteer_activation_pipeline_as_verenigingen_staff(self):
+        """Regression: Verenigingen Staff (no System Manager, no HR User)
+        must be able to run the full volunteer activation pipeline.
+
+        Frappe's doctype perms only grant create on User to System Manager and
+        on Employee to HR User / HR Manager — none of which a Verenigingen
+        Staff user holds. Authorization for this workflow is enforced at the
+        API gate (@high_security_api) and validate_processing_permissions();
+        the worker bypasses doctype-level perms via ignore_permissions=True.
+
+        Running this test as a non-Admin user is intentional: tests that run
+        as Administrator silently bypass all DocPerms and miss this class of
+        bug entirely.
+        """
+        staff_user = self.create_test_user(
+            f"staff.actor.{self.uid}@test.invalid",
+            roles=["Verenigingen Staff"],
+        )
+
+        # Use a separate target member to avoid colliding with self.member
+        # (already linked to self.volunteer in setUp).
+        target_member = self.create_test_member(
+            first_name=f"StaffTrg{self.uid[:3]}",
+            last_name=f"Member{self.uid[3:]}",
+            email=f"staff.actor.target.{self.uid}@test.invalid",
+            status="Active",
+            birth_date=add_days(today(), -365 * 30),
+        )
+
+        request_doc = frappe.get_doc({
+            "doctype": "Account Creation Request",
+            "request_type": "Member",
+            "source_record": target_member.name,
+            "email": target_member.email,
+            "full_name": target_member.full_name,
+            "status": "Queued",
+            "role_profile": "Verenigingen Volunteer",
+            "create_employee_record": 1,
+            "business_justification": "Volunteer activation by Staff (regression)",
+        })
+        request_doc.append("requested_roles", {"role": "Verenigingen Volunteer"})
+        request_doc.insert()
+        self.factory.track_document("Account Creation Request", request_doc.name)
+
+        manager = AccountCreationManager(request_doc.name)
+        # Mock justified: External Service - SMTP delivery, not business logic
+        with patch('frappe.sendmail'):
+            with self.as_user(staff_user.email):
+                manager.process_complete_pipeline()
+
+        request_doc.reload()
+        self.assertEqual(
+            request_doc.status, "Completed",
+            f"Pipeline failed for Verenigingen Staff actor: "
+            f"{request_doc.failure_reason or 'no reason recorded'}"
+        )
+
+        # User created
+        self.assertIsNotNone(request_doc.created_user)
+        self.assertTrue(
+            DocumentExistenceValidator.check_document_exists("User", request_doc.created_user)
+        )
+
+        # Employee created (volunteer needs it for expense claims)
+        self.assertIsNotNone(
+            request_doc.created_employee,
+            "Volunteer activation must create an Employee record",
+        )
+        self.assertTrue(
+            DocumentExistenceValidator.check_document_exists(
+                "Employee", request_doc.created_employee
+            )
+        )
+        employee = frappe.get_doc("Employee", request_doc.created_employee)
+        self.assertEqual(employee.user_id, request_doc.created_user)
+
+        # Volunteer role assigned
+        self.assertTrue(
+            frappe.db.exists("Has Role", {
+                "parent": request_doc.created_user,
+                "role": "Verenigingen Volunteer",
+            }),
+            "Verenigingen Volunteer role should be assigned",
+        )
+
+        # Track created records for cleanup
+        self.factory.track_document("User", request_doc.created_user, priority=2)
+        self.factory.track_document("Employee", request_doc.created_employee, priority=2)
 
 
 if __name__ == '__main__':

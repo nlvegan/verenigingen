@@ -450,30 +450,23 @@ def _send_member_farewell_notification(chapter, member_doc, reason):
 
 
 def _grant_chapter_member_permissions(chapter_name, member_doc):
-    """Grant chapter-specific permissions to new member"""
+    """Grant chapter-related access to a new member.
+
+    Chapter-scoped row-level security is implemented by per-doctype
+    permission_query_conditions (verenigingen/permissions.py
+    get_volunteer_permission_query, get_member_permission_query, etc.) which
+    join Chapter Member / Chapter Board Member directly. We do NOT create a
+    User Permission(allow=Chapter, for_value=...) here — those rows would
+    cascade through every Link-to-Chapter on every doctype (Frappe's default
+    apply_to_all_doctypes=1) and silently restrict admin-managed doctypes
+    that have nothing to do with chapter scoping. They're also redundant
+    with the per-doctype hooks for the cases that DO need scoping.
+
+    This function only assigns the Chapter Member role.
+    """
     try:
         if not member_doc.user:
             return
-
-        # Skip admin/staff users: their role-based permission_query_conditions already
-        # grant unrestricted access (verenigingen/permissions.py get_*_permission_query),
-        # so adding a User Permission row is redundant. Worse, with the default
-        # apply_to_all_doctypes=1, that row cascades through every Link-to-Chapter
-        # everywhere — including the Chapter doctype itself — and Frappe hardcodes
-        # create=0 for users scoped by User Permissions (frappe/permissions.py:256),
-        # blocking admins from creating new chapters or opening settings docs that
-        # link to chapters outside their own membership.
-        from verenigingen.utils.constants import Roles
-
-        if any(role in Roles.ADMIN_ROLES for role in frappe.get_roles(member_doc.user)):
-            return
-
-        from frappe.permissions import add_user_permission
-
-        if not frappe.db.exists(
-            "User Permission", {"user": member_doc.user, "allow": "Chapter", "for_value": chapter_name}
-        ):
-            add_user_permission("Chapter", chapter_name, member_doc.user)
 
         # Add basic chapter member role if not present
         user_doc = frappe.get_doc("User", member_doc.user)
@@ -482,51 +475,46 @@ def _grant_chapter_member_permissions(chapter_name, member_doc):
             user_doc.append("roles", {"role": "Chapter Member"})
             user_doc.save()
 
-        frappe.logger("events").info(f"Granted chapter permissions to {member_doc.user} for {chapter_name}")
+        frappe.logger("events").info(f"Granted Chapter Member role to {member_doc.user} for {chapter_name}")
 
     except Exception as e:
         frappe.logger("events").warning(f"Failed to grant chapter permissions: {str(e)}")
 
 
 def cleanup_chapter_user_permissions_for_admins(doc, method=None):
-    """Remove redundant Chapter User Permission rows when a user becomes admin/staff.
+    """Defensive net: remove Chapter User Permission rows from any user save.
 
-    Wired to User.on_update / after_insert. When a user's role profile is changed
-    to one that includes admin/staff roles (Verenigingen Administrator etc.), any
-    pre-existing Chapter User Permission rows from earlier chapter membership grants
-    must be cleared — otherwise Frappe's User Permission scoping blocks them from
-    creating new Chapters and from opening settings docs that link to chapters
-    outside their personal membership (frappe/permissions.py:256 hardcodes
-    create=0 for users scoped by User Permissions). Admins already get unrestricted
-    access via permission_query_conditions, so the rows are also redundant.
+    Chapter-scoped access is enforced by per-doctype permission_query_conditions
+    (see verenigingen/permissions.py and chapter_permission_service.py), not by
+    User Permission rows. The chapter_subscribers no longer creates UPs, but we
+    still scan on User saves to clean up rows that may have been added manually,
+    by stale fixtures, or by patches that haven't run yet. Without this, a
+    leftover row would silently restrict the user on every doctype that links
+    Chapter (Frappe's default apply_to_all_doctypes=1), and Frappe hardcodes
+    create=0 for users scoped by any User Permission (frappe/permissions.py:256).
     """
-    from verenigingen.utils.constants import Roles
-
     if doc.name in ("Administrator", "Guest"):
-        return
-
-    user_roles = {r.role for r in (doc.roles or [])}
-    if not user_roles & Roles.ADMIN_ROLES:
         return
 
     rows = frappe.get_all("User Permission", filters={"user": doc.name, "allow": "Chapter"}, pluck="name")
     for name in rows:
+        # Security: defensive cleanup runs from the User on_update hook to
+        # remove redundant chapter UPs that no production code path creates
+        # anymore (per-doctype permission_query_conditions enforce scoping).
+        # Standard delete would fail without User Permission delete perm.
         frappe.delete_doc("User Permission", name, ignore_permissions=True)
 
 
 def _revoke_chapter_member_permissions(chapter_name, member_doc):
-    """Revoke chapter-specific permissions from former member"""
+    """Revoke Chapter Member role when member leaves their last chapter.
+
+    No User Permission deletion — see _grant_chapter_member_permissions for why
+    chapter UPs are no longer created. The Chapter Member role is removed only
+    when the user has no remaining active chapter memberships.
+    """
     try:
         if not member_doc.user:
             return
-
-        # Remove chapter-specific user permission
-        existing_permission = frappe.db.exists(
-            "User Permission", {"user": member_doc.user, "allow": "Chapter", "for_value": chapter_name}
-        )
-
-        if existing_permission:
-            frappe.delete_doc("User Permission", existing_permission)
 
         # Check if user has other chapter memberships
         other_chapters = frappe.db.sql(
@@ -545,7 +533,9 @@ def _revoke_chapter_member_permissions(chapter_name, member_doc):
             user_doc.roles = [role for role in user_doc.roles if role.role != "Chapter Member"]
             user_doc.save()
 
-        frappe.logger("events").info(f"Revoked chapter permissions for {member_doc.user} from {chapter_name}")
+        frappe.logger("events").info(
+            f"Revoked Chapter Member role for {member_doc.user} (left {chapter_name})"
+        )
 
     except Exception as e:
         frappe.logger("events").warning(f"Failed to revoke chapter permissions: {str(e)}")

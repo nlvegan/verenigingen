@@ -432,7 +432,15 @@ class AccountCreationManager:
             )
 
     def validate_processing_permissions(self):
-        """Validate that processing can proceed with proper permissions"""
+        """Validate that processing can proceed with proper permissions.
+
+        The ACR pipeline implements its own role-based authorization rather than
+        relying on Frappe's User/Employee doctype perms (which are HR-centric and
+        exclude verenigingen roles). The API entry point (e.g.
+        queue_account_creation_for_member) is gated by @high_security_api, and
+        this method re-checks at job start because the worker runs as
+        frappe.session.user.
+        """
         frappe.logger().info(f"Validating processing permissions for {self.request_name}")
 
         # Validate request exists
@@ -443,9 +451,14 @@ class AccountCreationManager:
         if frappe.session.user == "Guest":
             raise frappe.PermissionError("Account creation requires authenticated user")
 
-        # Validate current user has permission to create users
-        if not frappe.has_permission("User", "create"):
-            raise frappe.PermissionError("Current user cannot create user accounts")
+        # Role-based gate: Verenigingen Staff/Admin/Sys Manager may run the pipeline.
+        # Doctype-level User/Employee create perms are NOT used here — they only
+        # grant System Manager / HR User / HR Manager respectively, which is the
+        # wrong shape for an association-management workflow.
+        if not (set(frappe.get_roles()) & Roles.ADMIN_ROLES):
+            raise frappe.PermissionError(
+                "Account creation requires Verenigingen Staff, Verenigingen Administrator, or System Manager role"
+            )
 
         # Validate role assignments
         for role_row in self.request.requested_roles:
@@ -661,7 +674,13 @@ class AccountCreationManager:
         """
         for attempt in range(max_retries):
             try:
-                user_doc.insert()
+                # Security: ACR pipeline is authorization-gated upstream by
+                # @high_security_api at the entry point and by
+                # validate_processing_permissions() (Roles.ADMIN_ROLES check) at
+                # job start. The User doctype only grants create to System
+                # Manager, but Verenigingen Staff/Admin must be able to create
+                # the user as part of this internal workflow.
+                user_doc.insert(ignore_permissions=True)
                 return user_doc
             except (frappe.exceptions.QueryDeadlockError, frappe.db.InternalError) as deadlock_error:
                 error_str = str(deadlock_error)
@@ -763,14 +782,18 @@ class AccountCreationManager:
                 user_doc.role_profile_name = self.request.role_profile
                 frappe.logger().info(f"Role profile {self.request.role_profile} assigned")
 
-            # Save with proper permissions - NO ignore_permissions=True
-            # Retry logic is handled at higher level via execute_with_deadlock_retry
+            # User write is restricted to System Manager at the doctype level,
+            # but the ACR pipeline persists the role assignment decided by
+            # can_assign_role() — the actual authorization gate for which
+            # roles may be granted (prevents privilege escalation).
+            # Retry logic is handled at higher level via execute_with_deadlock_retry.
             if roles_added or self.request.role_profile:
                 frappe.logger().info(
                     f"[ACR PIPELINE] Saving user with roles | "
                     f"User: {self.created_user} | Roles to add: {roles_added} | Profile: {self.request.role_profile}"
                 )
-                user_doc.save()
+                # Security: gated upstream by @high_security_api + validate_processing_permissions; can_assign_role decides which roles are granted.
+                user_doc.save(ignore_permissions=True)
                 frappe.logger().info(
                     f"[ACR PIPELINE] ✓ Role Assignment - SUCCESS | "
                     f"User: {self.created_user} | Roles Added: {roles_added} | Profile: {self.request.role_profile}"
@@ -835,6 +858,12 @@ class AccountCreationManager:
             last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
             # Create employee document
+            # create_user_permission=0: ERPNext's Employee.on_update auto-creates
+            # User Permission records when this is 1, but Frappe's
+            # add_user_permission() requires User Permission create perm — which
+            # Verenigingen Staff/Admin lack. We disable the automatic creation
+            # here and explicitly call add_user_permission(..., ignore_permissions=True)
+            # below, which produces the same end state without the perm hop.
             employee_doc = frappe.get_doc(
                 {
                     "doctype": "Employee",
@@ -847,7 +876,7 @@ class AccountCreationManager:
                     "date_of_birth": "1990-01-01",  # Default value
                     "date_of_joining": frappe.utils.today(),
                     "user_id": self.created_user,  # Link to user account
-                    "create_user_permission": 1,  # Enable user permissions for volunteers
+                    "create_user_permission": 0,
                 }
             )
 
@@ -855,8 +884,22 @@ class AccountCreationManager:
             if self.request.email:
                 employee_doc.personal_email = self.request.email
 
-            # Insert with proper permissions - NO ignore_permissions=True
-            employee_doc.insert()
+            # Employee doctype only grants create to HR User / HR Manager,
+            # but volunteers need Employee records for expense claims and no
+            # Verenigingen role holds HR perms.
+            # Security: gated upstream by @high_security_api(MEMBER_DATA) + validate_processing_permissions (Roles.ADMIN_ROLES).
+            employee_doc.insert(ignore_permissions=True)
+
+            # Manually create User Permissions that Employee.on_update would
+            # have created if create_user_permission=1 — disabled above to
+            # avoid the perm-required hook chain. End state matches default
+            # ERPNext flow.
+            from frappe.permissions import add_user_permission
+
+            # Security: same upstream gates as employee insert; Employee.on_update would do this without ignore_permissions and fail for non-HR roles.
+            add_user_permission("Employee", employee_doc.name, self.created_user, ignore_permissions=True)
+            # Security: paired with Employee UP above; same authorization rationale.
+            add_user_permission("Company", default_company, self.created_user, ignore_permissions=True)
 
             self.created_employee = employee_doc.name
             self.request.created_employee = self.created_employee
@@ -904,23 +947,30 @@ class AccountCreationManager:
         return False
 
     def can_assign_role(self, role_name):
-        """Check if current user can assign this role"""
-        current_roles = frappe.get_roles()
+        """Check if current user can assign this role.
+
+        System Manager may assign any role. Verenigingen Staff and Verenigingen
+        Administrator share the same allow-list — limited to verenigingen-scoped
+        roles plus the Employee roles needed for expense functionality. The
+        allow-list is intentionally narrow to prevent privilege escalation
+        (e.g. Staff cannot grant Administrator or System Manager).
+        """
+        current_roles = set(frappe.get_roles())
 
         # System managers can assign any role
         if Roles.SYSTEM_MANAGER in current_roles:
             return True
 
-        # Verenigingen administrators can assign verenigingen roles
-        if Roles.VERENIGINGEN_ADMIN in current_roles:
-            allowed_roles = [
+        # Verenigingen Staff / Administrator can assign verenigingen-scoped roles
+        if current_roles & {Roles.VERENIGINGEN_ADMIN, Roles.VERENIGINGEN_STAFF}:
+            allowed_roles = {
                 "Verenigingen Member",
                 "Verenigingen Volunteer",
                 Roles.VERENIGINGEN_STAFF,
                 "Verenigingen Chapter Board Member",
                 "Employee",
                 "Employee Self Service",
-            ]
+            }
             return role_name in allowed_roles
 
         return False
@@ -1067,7 +1117,7 @@ def process_account_creation_request(request_name: str, at_time=None) -> Operati
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def queue_account_creation_for_member(
     member_name: str, roles=None, role_profile=None, priority: str = "Normal"
 ) -> OperationResult[Dict[str, Any]]:
