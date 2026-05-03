@@ -1,3 +1,21 @@
+/**
+ * @fileoverview Organization Document form behavior.
+ *
+ * - Loads document_type Select options from Verenigingen Settings.
+ * - Snaps applies_on to match applies_on_precision (Day/Month/Year) so
+ *   the form mirrors the server-side normalization in
+ *   OrganizationDocument._normalize_applies_on_precision.
+ * - When source_folder_id is set, exposes an Actions menu button that
+ *   reclassifies the doc against the current MijnRood folder mapping
+ *   via document_reclassify_service.reclassify_documents (dry-run →
+ *   confirm preview → apply).
+ *
+ * Public interface for sibling scripts (e.g. organization_document_list.js):
+ *   window.verenigingen.run_reclassify_flow(names, onApplied)
+ *     - names: string[] of Organization Document names
+ *     - onApplied: () => void, called after successful apply
+ */
+
 // Copyright (c) 2025, Veganisme.org and contributors
 // For license information, please see license.txt
 
@@ -19,14 +37,14 @@ frappe.ui.form.on('Organization Document', {
 			return;
 		}
 		frm.add_custom_button(__('Reclassify from MijnRood folder'), () => {
-			run_reclassify_flow(frm, [frm.doc.name], () => frm.reload_doc());
+			run_reclassify_flow([frm.doc.name], () => frm.reload_doc());
 		}, __('Actions'));
 	},
 
 	applies_on_precision(frm) {
 		if (!frm.doc.applies_on) return;
 		const d = frappe.datetime.str_to_obj(frm.doc.applies_on);
-		if (!d) return;
+		if (!d || isNaN(d)) return;
 
 		if (frm.doc.applies_on_precision === 'Month' && d.getDate() !== 1) {
 			d.setDate(1);
@@ -41,7 +59,7 @@ frappe.ui.form.on('Organization Document', {
 	applies_on(frm) {
 		if (!frm.doc.applies_on) return;
 		const d = frappe.datetime.str_to_obj(frm.doc.applies_on);
-		if (!d) return;
+		if (!d || isNaN(d)) return;
 
 		// If the user picked a non-1 day, force precision to Day. Don't touch
 		// precision when day is 1 — could be a real Jan 1 or month-precision.
@@ -56,7 +74,7 @@ frappe.ui.form.on('Organization Document', {
 window.verenigingen = window.verenigingen || {};
 window.verenigingen.run_reclassify_flow = run_reclassify_flow;
 
-function run_reclassify_flow(callerFrm, names, onApplied) {
+function run_reclassify_flow(names, onApplied) {
 	frappe.call({
 		method: 'verenigingen.mijnrood_sync.services.document_reclassify_service.reclassify_documents',
 		args: { names: names, dry_run: true },
