@@ -115,7 +115,12 @@ class DocumentImportService:
     def auto_classify_folder_mappings(self) -> dict:
         """Auto-classify document_type and chapter on folder mapping rows.
 
-        Only fills in rows where document_type is blank (preserves manual edits).
+        Fills in rows where document_type is blank OR "Other" (the latter is
+        treated as a placeholder default eligible for re-classification —
+        admins who genuinely want to mark a folder as miscellaneous should
+        leave document_type unset). Manually configured rows with any other
+        document_type value are preserved.
+
         Uses folder path keywords to infer document_type from Board Document
         Categories, and matches chapter names against folder path segments.
 
@@ -146,8 +151,13 @@ class DocumentImportService:
                 self._infer_chapter(path, chapter_names, national_chapter),
             )
 
-        # Track which rows were already manually configured before this run
-        manually_set = {row.mijnrood_folder_id for row in rows if row.document_type}
+        # Track which rows were already manually configured before this run.
+        # "Other" is treated as an unclassified placeholder (was historically
+        # set by fetch_and_populate_folders defaults) — auto-classify is
+        # allowed to overwrite it.
+        manually_set = {
+            row.mijnrood_folder_id for row in rows if row.document_type and row.document_type != "Other"
+        }
 
         classified = 0
         skipped_inherited = 0
@@ -167,12 +177,18 @@ class DocumentImportService:
             parent_id = parent_map.get(row.mijnrood_folder_id)
             if parent_id and parent_id in row_by_id:
                 parent_row = row_by_id[parent_id]
-                # Use parent's actual values if manually set, otherwise inferred
+                # Use parent's actual values if manually set, otherwise inferred.
+                # "Other" is treated as the placeholder default — fall through to
+                # the parent's inferred type so children inherit consistently.
                 if parent_id in manually_set:
                     parent_type = parent_row.document_type
                     parent_chapter = parent_row.chapter
                 else:
-                    parent_type = parent_row.document_type or inferred[parent_id][0]
+                    parent_type = (
+                        parent_row.document_type
+                        if parent_row.document_type and parent_row.document_type != "Other"
+                        else inferred[parent_id][0]
+                    )
                     parent_chapter = inferred[parent_id][1]
 
                 if inferred_type == parent_type and inferred_chapter == parent_chapter:
@@ -450,9 +466,13 @@ class DocumentImportService:
     def _get_default_mapping() -> dict:
         """Return sensible defaults for new folder mapping rows.
 
-        Pre-fills Chapter + national board chapter + "Other" so the admin only
-        needs to adjust document_type (and occasionally organization) rather
-        than filling every field from scratch.
+        Pre-fills Chapter + national board chapter so the admin only needs to
+        set document_type (manually or via auto_classify_folder_mappings) for
+        each row.
+
+        document_type is intentionally LEFT BLANK so auto_classify can identify
+        unclassified rows. Pre-filling document_type would make every row look
+        "manually configured" to auto_classify and silently disable it.
 
         Returns empty dict if no national board chapter is configured.
         """
@@ -461,7 +481,6 @@ class DocumentImportService:
             return {
                 "organization_type": "Chapter",
                 "chapter": national_chapter,
-                "document_type": "Other",
             }
         return {}
 
