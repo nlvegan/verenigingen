@@ -3,7 +3,7 @@
 import unittest
 from datetime import date
 
-from verenigingen.utils.date_extraction import extract_date_from_text, extract_year_from_text
+from verenigingen.utils.date_extraction import extract_date_from_text, extract_date_with_precision, extract_year_from_text
 
 
 class TestExtractDateFromText(unittest.TestCase):
@@ -151,6 +151,93 @@ class TestEdgeCases(unittest.TestCase):
     def test_four_digit_non_year(self):
         # 1999 doesn't match our 20xx pattern
         assert extract_year_from_text("archive_1999.pdf") == "Other"
+
+
+class TestExtractDateWithPrecision(unittest.TestCase):
+    """Tests for extract_date_with_precision(): returns (date|None, precision_label)."""
+
+    # Day precision (full dates)
+    def test_full_date_iso_returns_day(self):
+        self.assertEqual(
+            extract_date_with_precision("Notulen 2024-05-17.pdf"),
+            (date(2024, 5, 17), "Day"),
+        )
+
+    def test_full_date_european_returns_day(self):
+        self.assertEqual(
+            extract_date_with_precision("17-05-2024 - notulen.pdf"),
+            (date(2024, 5, 17), "Day"),
+        )
+
+    def test_full_date_dutch_month_returns_day(self):
+        self.assertEqual(
+            extract_date_with_precision("31 mei 2024 Notulen congres.pdf"),
+            (date(2024, 5, 31), "Day"),
+        )
+
+    # Month precision
+    def test_year_month_iso_returns_month(self):
+        # day stored as 1
+        self.assertEqual(
+            extract_date_with_precision("notulen-2024-05.pdf"),
+            (date(2024, 5, 1), "Month"),
+        )
+
+    def test_month_year_european_returns_month(self):
+        self.assertEqual(
+            extract_date_with_precision("notulen 05-2024.pdf"),
+            (date(2024, 5, 1), "Month"),
+        )
+
+    def test_dutch_month_year_returns_month(self):
+        self.assertEqual(
+            extract_date_with_precision("notulen mei 2024.pdf"),
+            (date(2024, 5, 1), "Month"),
+        )
+
+    def test_dutch_month_year_capitalized_returns_month(self):
+        self.assertEqual(
+            extract_date_with_precision("Notulen Mei 2024.pdf"),
+            (date(2024, 5, 1), "Month"),
+        )
+
+    # Year precision
+    def test_bare_year_returns_year(self):
+        self.assertEqual(
+            extract_date_with_precision("Jaarverslag 2024.pdf"),
+            (date(2024, 1, 1), "Year"),
+        )
+
+    def test_bare_year_in_folder_path_returns_year(self):
+        self.assertEqual(
+            extract_date_with_precision("Financien / 2024"),
+            (date(2024, 1, 1), "Year"),
+        )
+
+    # No match
+    def test_no_date_returns_none_and_day(self):
+        self.assertEqual(extract_date_with_precision("notulen.pdf"), (None, "Day"))
+
+    def test_empty_string_returns_none_and_day(self):
+        self.assertEqual(extract_date_with_precision(""), (None, "Day"))
+
+    def test_none_input_returns_none_and_day(self):
+        self.assertEqual(extract_date_with_precision(None), (None, "Day"))
+
+    # Priority: full date wins over bare year
+    def test_full_date_wins_over_bare_year(self):
+        self.assertEqual(
+            extract_date_with_precision("2024-05-17 jaarverslag 2023.pdf"),
+            (date(2024, 5, 17), "Day"),
+        )
+
+    # Priority: month-year wins over bare year
+    def test_year_month_wins_over_bare_year(self):
+        # If both could match, year-month should win because it is more specific.
+        self.assertEqual(
+            extract_date_with_precision("2024-05 jaarverslag 2023.pdf"),
+            (date(2024, 5, 1), "Month"),
+        )
 
 
 if __name__ == "__main__":

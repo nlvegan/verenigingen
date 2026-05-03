@@ -104,6 +104,69 @@ def extract_date_from_text(text: str) -> date | None:
     return None
 
 
+def extract_date_with_precision(text: str | None) -> tuple[date | None, str]:
+    """Extract a date and its precision label from text.
+
+    Precision label is one of "Day", "Month", "Year". Day-precision
+    returns the actual day; Month uses day=1; Year uses month=1, day=1.
+
+    Returns (None, "Day") when no date pattern matches. The "Day" default
+    in the no-match case is irrelevant since callers check the date for
+    None first.
+
+    Pattern priority (first match wins):
+      1. Full date (delegates to extract_date_from_text) → "Day"
+      2. Year-month patterns (YYYY-MM, MM-YYYY, "<dutch_month> YYYY") → "Month"
+      3. Bare year (20\\d{2}) → "Year"
+    """
+    if not text or not isinstance(text, str):
+        return (None, "Day")
+
+    # 1. Full date wins
+    d = extract_date_from_text(text)
+    if d:
+        return (d, "Day")
+
+    # 2. Year-month patterns
+    text_stripped = text.strip()
+
+    # 2a. YYYY-MM (also YYYY/MM, YYYY.MM, YYYY MM)
+    m = re.search(r"(?<!\d)(20\d{2})[-/.\s](0[1-9]|1[0-2])(?!\d)", text_stripped)
+    if m:
+        result = _safe_date(int(m.group(1)), int(m.group(2)), 1)
+        if result:
+            return (result, "Month")
+
+    # 2b. MM-YYYY (also MM/YYYY, MM.YYYY)
+    m = re.search(r"(?<!\d)(0[1-9]|1[0-2])[-/.](20\d{2})(?!\d)", text_stripped)
+    if m:
+        result = _safe_date(int(m.group(2)), int(m.group(1)), 1)
+        if result:
+            return (result, "Month")
+
+    # 2c. <dutch_month> YYYY
+    m = re.search(
+        rf"(?<![a-z])({_MONTH_PATTERN})\s+(20\d{{2}})(?!\d)",
+        text_stripped,
+        re.IGNORECASE,
+    )
+    if m:
+        month_num = DUTCH_MONTHS.get(m.group(1).lower())
+        if month_num:
+            result = _safe_date(int(m.group(2)), month_num, 1)
+            if result:
+                return (result, "Month")
+
+    # 3. Bare year
+    m = re.search(r"\b(20\d{2})\b", text_stripped)
+    if m:
+        result = _safe_date(int(m.group(1)), 1, 1)
+        if result:
+            return (result, "Year")
+
+    return (None, "Day")
+
+
 def extract_year_from_text(text: str, default: str = "Other") -> str:
     """Extract a year string from text.
 
