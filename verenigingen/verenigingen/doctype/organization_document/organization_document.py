@@ -48,21 +48,6 @@ class OrganizationDocument(Document):
         ".ods",
     }
 
-    def __setup__(self):
-        """Normalise source_folder_id after any DB load.
-
-        source_folder_id is Int (NOT NULL DEFAULT 0 in MariaDB).  A value of 0
-        means "not set" — MijnRood folder IDs are always positive.  Exposing 0
-        as None at the Python layer makes ``if doc.source_folder_id`` and
-        ``assertIsNone`` checks idiomatic.  The reverse conversion (None → 0)
-        happens in before_save so the NOT NULL constraint is never violated.
-
-        Guard with getattr because __setup__ is called during __init__ before
-        field defaults are applied (self.source_folder_id may not exist yet).
-        """
-        if getattr(self, "source_folder_id", None) == 0:
-            self.source_folder_id = None
-
     def validate(self):
         """Validate document before save"""
         self._validate_organization_reference()
@@ -73,9 +58,6 @@ class OrganizationDocument(Document):
 
     def before_save(self):
         """Actions before saving"""
-        # Reverse the 0→None normalisation before writing to the NOT NULL column.
-        if self.source_folder_id is None:
-            self.source_folder_id = 0
         self._organize_file_storage()
 
     def _validate_organization_reference(self):

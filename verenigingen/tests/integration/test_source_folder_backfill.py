@@ -92,7 +92,8 @@ class TestSourceFolderBackfill(VereningingenTestCase):
         self.assertEqual(result["matched"], 0)
         self.assertGreaterEqual(result["no_hash_match"], 1)
         doc.reload()
-        self.assertIsNone(doc.source_folder_id)
+        # Int field defaults to 0 (NOT NULL); 0 means "not set"
+        self.assertFalse(doc.source_folder_id)
 
     def test_backfill_dry_run_does_not_write(self):
         from verenigingen.mijnrood_sync.services import source_folder_backfill
@@ -110,4 +111,5 @@ class TestSourceFolderBackfill(VereningingenTestCase):
         self.assertEqual(result["matched"], 1)
         self.assertTrue(result["dry_run"])
         doc.reload()
-        self.assertIsNone(doc.source_folder_id)
+        # Int field defaults to 0 (NOT NULL); 0 means "not set"
+        self.assertFalse(doc.source_folder_id)
