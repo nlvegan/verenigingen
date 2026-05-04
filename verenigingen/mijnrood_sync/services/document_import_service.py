@@ -251,16 +251,21 @@ class DocumentImportService:
 
     @staticmethod
     def _infer_document_type(path_lower: str, keyword_map: dict[str, list[str]]) -> str:
-        """Match folder path against category keywords. Returns best match or 'Other'."""
+        """Match folder path against category keywords. Returns best match or "" (blank).
+
+        Returning blank (rather than a hardcoded category like "Other") keeps the row
+        valid on sites where admins have customized board_document_categories away from
+        the default set — a fabricated category name would fail Select validation.
+        """
         if not path_lower:
-            return "Other"
+            return ""
 
         for category, keywords in keyword_map.items():
             for keyword in keywords:
                 if keyword in path_lower:
                     return category
 
-        return "Other"
+        return ""
 
     @staticmethod
     def _infer_chapter(

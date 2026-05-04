@@ -51,8 +51,11 @@ def _load_keyword_map() -> dict[str, list[str]]:
     """Load category → keywords mapping from Verenigingen Settings.
 
     Parses the comma-separated ``folder_keywords`` field on each
-    Board Document Category row. Falls back to hardcoded defaults
-    if Settings can't be read.
+    Board Document Category row. Falls back to hardcoded English defaults
+    only when Settings is unavailable (e.g. during install before
+    after_install runs) — never when Settings has rows but no keywords
+    configured, since the fallback's category names would be foreign to
+    that site's customized category set.
     """
     try:
         settings = frappe.get_single("Verenigingen Settings")
@@ -67,7 +70,7 @@ def _load_keyword_map() -> dict[str, list[str]]:
             if keywords:
                 keyword_map[row.category_name] = keywords
 
-        return keyword_map if keyword_map else dict(_FALLBACK_KEYWORDS)
+        return keyword_map
     except Exception:
         return dict(_FALLBACK_KEYWORDS)
 
@@ -75,8 +78,9 @@ def _load_keyword_map() -> dict[str, list[str]]:
 def detect_category_from_folder_path(folder_path: str, current_category: str = "Other") -> str:
     """Detect a document category from folder path keywords.
 
-    If ``current_category`` is already something specific (not "Other"),
-    it is returned as-is — explicit mappings always win.
+    If ``current_category`` is already something specific (not blank and not "Other"),
+    it is returned as-is — explicit mappings always win. Both "" and "Other" are
+    treated as "unclassified" placeholders eligible for keyword-based inference.
 
     Keywords are read from the ``folder_keywords`` field on each
     Board Document Category row in Verenigingen Settings.
