@@ -121,26 +121,33 @@ class ChapterBoardMember(Document):
 
         # Only remove role if they're not on any other active boards
         if total_active_positions == 0:
-            # Remove the role assignment
-            role_assignment = frappe.db.exists(
+            # Has Role is a child table with no permissions defined — direct
+            # delete fails for every user (including System Manager and the
+            # background service user). Remove the role row from the parent
+            # User document and save it instead, mirroring assign_board_member_role.
+            if not frappe.db.exists(
                 "Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}
+            ):
+                return
+
+            user_doc = frappe.get_doc("User", user)
+            existing = {d.role: d for d in user_doc.roles}
+            row_to_remove = existing.get("Verenigingen Chapter Board Member")
+            if not row_to_remove:
+                return
+            user_doc.roles.remove(row_to_remove)
+
+            save_result = secure_document_operation(
+                operation="save",
+                doc=user_doc,
+                justification=f"Remove Chapter Board Member role from user {user} (no longer on any board)",
+                required_permissions=["User:write"],
             )
 
-            if role_assignment:
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                delete_result = secure_document_operation(
-                    operation="delete",
-                    doc=frappe.get_doc("Has Role", role_assignment),
-                    justification=f"Remove Chapter Board Member role from user {user} (no longer on any board)",
-                    required_permissions=["Has Role:delete"],
-                )
-
-                if delete_result.success:
-                    frappe.msgprint(f"Removed Chapter Board Member role from {user}")
-                else:
-                    frappe.log_error(
-                        f"Could not remove board member role from user {user}: Permission denied"
-                    )
+            if save_result.success:
+                frappe.msgprint(f"Removed Chapter Board Member role from {user}")
+            else:
+                frappe.log_error(f"Could not remove board member role from user {user}: Permission denied")
 
     def validate(self):
         """Validate board member data and relationships"""

@@ -126,27 +126,35 @@ class TestRemoveBoardMemberRoleLogic(EnhancedTestCase):
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.secure_document_operation")
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.frappe")
     def test_role_removed_when_no_other_active_boards(self, mock_frappe, mock_secure):
-        """No other active boards → secure_document_operation('delete') runs."""
-        self._patch_db(
-            mock_frappe,
-            member="MEM-1",
-            user="user@example.test",
-            role_assignment="HasRole-1",
-            count_results=[0, 0],
-        )
+        """No other active boards → save the parent User with the role row removed.
+
+        Regression: previously called secure_document_operation('delete') on the
+        Has Role child row directly, which fails for every user since Has Role
+        has no permissions defined.
+        """
+        volunteer_doc = MagicMock()
+        volunteer_doc.member = "MEM-1"
+        role_to_remove = MagicMock(role=BOARD_MEMBER_ROLE)
+        role_to_keep = MagicMock(role="Some Other Role")
+        user_doc = MagicMock()
+        user_doc.roles = [role_to_remove, role_to_keep]
+
+        mock_frappe.get_doc.side_effect = [volunteer_doc, user_doc]
+        mock_frappe.db.get_value.return_value = "user@example.test"
+        mock_frappe.db.count.side_effect = [0, 0]
+        mock_frappe.db.exists.return_value = "HasRole-1"
         mock_secure.return_value = MagicMock(success=True)
 
-        doc = _make_board_member_stub()
-        # Provide a real-ish doc for the get_doc("Has Role", ...) lookup
-        mock_frappe.get_doc.side_effect = [
-            mock_frappe.get_doc.return_value,  # Volunteer lookup
-            MagicMock(),  # Has Role lookup
-        ]
+        _make_board_member_stub().remove_board_member_role()
 
-        doc.remove_board_member_role()
+        # The board-member role row is removed from the User; the unrelated row stays.
+        self.assertNotIn(role_to_remove, user_doc.roles)
+        self.assertIn(role_to_keep, user_doc.roles)
 
         self.assertEqual(mock_secure.call_count, 1)
-        self.assertEqual(mock_secure.call_args.kwargs["operation"], "delete")
+        self.assertEqual(mock_secure.call_args.kwargs["operation"], "save")
+        self.assertIs(mock_secure.call_args.kwargs["doc"], user_doc)
+        self.assertEqual(mock_secure.call_args.kwargs["required_permissions"], ["User:write"])
 
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.secure_document_operation")
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.frappe")
