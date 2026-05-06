@@ -87,90 +87,49 @@ def update_membership_termination_request_permissions():
     Grants create, read, write, and submit capabilities for termination requests
     """
     try:
-        # Get existing permission or create new one
-        existing_perm = frappe.db.get_value(
-            "DocPerm",
-            {"parent": "Membership Termination Request", "role": "Verenigingen Chapter Board Member"},
-            ["name", "read", "write", "create", "submit"],
+        target_role = "Verenigingen Chapter Board Member"
+
+        # DocPerm is a child table with no permissions defined — direct save/insert
+        # via secure_document_operation fails for every user. Locate or append the
+        # row inside DocType.permissions and save the parent DocType,
+        # mirroring update_membership_permissions().
+        doctype_doc = frappe.get_doc("DocType", "Membership Termination Request")
+        perm_row = next((p for p in doctype_doc.permissions if p.role == target_role), None)
+        is_existing = perm_row is not None
+        if not is_existing:
+            perm_row = doctype_doc.append("permissions", {"role": target_role, "permlevel": 0})
+
+        perm_row.read = 1
+        perm_row.write = 1
+        perm_row.create = 1
+        perm_row.email = 1
+        perm_row.export = 1
+        perm_row.print = 1
+        perm_row.report = 1
+        perm_row.share = 1
+        perm_row.if_owner = 0
+        # Explicitly disable dangerous permissions
+        perm_row.delete = 0
+        perm_row.cancel = 0
+        perm_row.amend = 0
+        perm_row.submit = 0  # Workflow-controlled
+        perm_row.set("import", 0)  # 'import' is a reserved keyword in Python
+
+        action = "Update existing" if is_existing else "Add new"
+        result = secure_document_operation(
+            operation="save",
+            doc=doctype_doc,
+            justification=f"{action} Chapter Board Member permissions for Membership Termination Request - governance permission management",
+            required_permissions=["DocType:write"],
         )
 
-        if existing_perm:
-            # Update existing permission to include write, create, and submit
-            perm_doc = frappe.get_doc("DocPerm", existing_perm[0])
-            perm_doc.read = 1
-            perm_doc.write = 1
-            perm_doc.create = 1
-            perm_doc.email = 1
-            perm_doc.export = 1
-            perm_doc.print = 1
-            perm_doc.report = 1
-            perm_doc.share = 1
-            # Explicitly disable dangerous permissions
-            perm_doc.delete = 0
-            perm_doc.cancel = 0
-            perm_doc.amend = 0
-            perm_doc.submit = 0  # Workflow-controlled
-            perm_doc.set("import", 0)  # 'import' is a reserved keyword in Python
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="save",
-                doc=perm_doc,
-                justification="Update existing Chapter Board Member permissions for Membership Termination Request - governance permission management",
-                required_permissions=["DocPerm:write"],
+        if not result.success:
+            frappe.log_error(
+                f"Failed to update Membership Termination Request permissions: {'; '.join(result.errors)}"
             )
+            return False
 
-            if not result.success:
-                frappe.log_error(f"Failed to update existing DocPerm: {'; '.join(result.errors)}")
-                return False
-
-            frappe.logger().info(
-                "Updated existing Chapter Board Member permissions for Membership Termination Request"
-            )
-        else:
-            # Get the DocType and add new permission
-            doctype_doc = frappe.get_doc("DocType", "Membership Termination Request")
-
-            new_perm = {
-                "role": "Verenigingen Chapter Board Member",
-                "permlevel": 0,
-                "read": 1,
-                "write": 1,
-                "create": 1,
-                "email": 1,
-                "export": 1,
-                "print": 1,
-                "report": 1,
-                "share": 1,
-                "if_owner": 0,
-                # Explicitly set dangerous permissions to 0
-                "delete": 0,
-                "cancel": 0,
-                "amend": 0,
-                "submit": 0,  # Workflow-controlled, not direct submit
-                "import": 0,
-            }
-
-            doctype_doc.append("permissions", new_perm)
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="save",
-                doc=doctype_doc,
-                justification="Add new Chapter Board Member permissions to Membership Termination Request DocType - governance permission setup",
-                required_permissions=["DocType:write"],
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to update Membership Termination Request DocType: {'; '.join(result.errors)}"
-                )
-                return False
-
-            frappe.logger().info(
-                "Added new Chapter Board Member permissions for Membership Termination Request"
-            )
-
+        frappe.logger().info(f"{action} Chapter Board Member permissions for Membership Termination Request")
         return True
 
     except Exception as e:
@@ -185,92 +144,50 @@ def update_volunteer_expense_permissions():
     Maintains treasurer-only approval restrictions
     """
     try:
-        # Check current permissions
-        existing_perm = frappe.db.get_value(
-            "DocPerm",
-            {"parent": "Volunteer Expense", "role": "Verenigingen Chapter Board Member"},
-            ["name", "read", "write", "create", "if_owner"],
+        target_role = "Verenigingen Chapter Board Member"
+
+        if not frappe.db.exists("DocType", "Volunteer Expense"):
+            frappe.logger().warning("Volunteer Expense DocType not found, skipping permission setup")
+            return False
+
+        # DocPerm is a child table with no permissions defined — direct save/insert
+        # via secure_document_operation fails for every user. Locate or append the
+        # row inside DocType.permissions and save the parent DocType,
+        # mirroring update_membership_permissions().
+        doctype_doc = frappe.get_doc("DocType", "Volunteer Expense")
+        perm_row = next((p for p in doctype_doc.permissions if p.role == target_role), None)
+        is_existing = perm_row is not None
+        if not is_existing:
+            perm_row = doctype_doc.append("permissions", {"role": target_role, "permlevel": 0})
+
+        perm_row.read = 1
+        perm_row.write = 1
+        perm_row.create = 1
+        perm_row.if_owner = 0  # No owner restriction — allow chapter-wide access
+        perm_row.email = 1
+        perm_row.export = 1
+        perm_row.print = 1
+        perm_row.report = 1
+        # Explicitly disable dangerous permissions
+        perm_row.delete = 0
+        perm_row.cancel = 0
+        perm_row.amend = 0
+        perm_row.submit = 0  # Approval workflow controlled
+        perm_row.set("import", 0)
+
+        action = "Update existing" if is_existing else "Add new"
+        result = secure_document_operation(
+            operation="save",
+            doc=doctype_doc,
+            justification=f"{action} Chapter Board Member permissions for Volunteer Expense - governance permission management",
+            required_permissions=["DocType:write"],
         )
 
-        if existing_perm:
-            # Update existing permission - remove if_owner restriction for broader access
-            perm_doc = frappe.get_doc("DocPerm", existing_perm[0])
-            perm_doc.read = 1
-            perm_doc.write = 1
-            perm_doc.create = 1
-            perm_doc.if_owner = 0  # Remove owner restriction to allow chapter-wide access
-            perm_doc.email = 1
-            perm_doc.export = 1
-            perm_doc.print = 1
-            perm_doc.report = 1
-            # Explicitly disable dangerous permissions
-            perm_doc.delete = 0
-            perm_doc.cancel = 0
-            perm_doc.amend = 0
-            perm_doc.submit = 0  # Approval workflow controlled
+        if not result.success:
+            frappe.log_error(f"Failed to update Volunteer Expense permissions: {'; '.join(result.errors)}")
+            return False
 
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="save",
-                doc=perm_doc,
-                justification="Update Chapter Board Member permissions for Volunteer Expense - remove owner restrictions for chapter-wide access",
-                required_permissions=["DocPerm:write"],
-            )
-
-            if not result.success:
-                frappe.log_error(f"Failed to update Volunteer Expense DocPerm: {'; '.join(result.errors)}")
-                return False
-
-            frappe.logger().info(
-                "Updated Chapter Board Member permissions for Volunteer Expense (removed owner restriction)"
-            )
-        else:
-            # Check if DocType exists and skip if problematic
-            if not frappe.db.exists("DocType", "Volunteer Expense"):
-                frappe.logger().warning("Volunteer Expense DocType not found, skipping permission setup")
-                return False
-
-            # Use direct permission insertion to avoid DocType saving issues
-            perm_doc = frappe.new_doc("DocPerm")
-            perm_doc.update(
-                {
-                    "parent": "Volunteer Expense",
-                    "parenttype": "DocType",
-                    "parentfield": "permissions",
-                    "role": "Verenigingen Chapter Board Member",
-                    "permlevel": 0,
-                    "read": 1,
-                    "write": 1,
-                    "create": 1,
-                    "email": 1,
-                    "export": 1,
-                    "print": 1,
-                    "report": 1,
-                    "if_owner": 0,
-                    "delete": 0,
-                    "cancel": 0,
-                    "amend": 0,
-                    "submit": 0,
-                    "import": 0,
-                }
-            )
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="insert",
-                doc=perm_doc,
-                justification="Create new Chapter Board Member permissions for Volunteer Expense DocType - governance permission setup",
-                required_permissions=["DocPerm:create"],
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to create new Volunteer Expense DocPerm: {'; '.join(result.errors)}"
-                )
-                return False
-
-            frappe.logger().info("Added Chapter Board Member permissions for Volunteer Expense")
-
+        frappe.logger().info(f"{action} Chapter Board Member permissions for Volunteer Expense")
         return True
 
     except Exception as e:
@@ -397,29 +314,40 @@ def reset_chapter_board_permissions():
     """
     try:
         doctypes_to_reset = ["Membership", "Membership Termination Request", "Volunteer Expense"]
+        target_role = "Verenigingen Chapter Board Member"
 
         for doctype_name in doctypes_to_reset:
-            # Remove existing Chapter Board Member permissions
-            existing_perms = frappe.get_all(
-                "DocPerm",
-                filters={"parent": doctype_name, "role": "Verenigingen Chapter Board Member"},
-                fields=["name"],
+            # DocPerm is a child table with no permissions defined — direct delete
+            # via secure_document_operation fails for every user. Remove the matching
+            # rows from the parent DocType.permissions and save the DocType,
+            # mirroring the add path in update_membership_permissions().
+            doctype_doc = frappe.get_doc("DocType", doctype_name)
+            rows_to_remove = [p for p in doctype_doc.permissions if p.role == target_role]
+            if not rows_to_remove:
+                frappe.logger().info(f"No Chapter Board Member permissions to reset on {doctype_name}")
+                continue
+
+            for row in rows_to_remove:
+                doctype_doc.permissions.remove(row)
+
+            result = secure_document_operation(
+                operation="save",
+                doc=doctype_doc,
+                justification=f"Reset Chapter Board Member permissions for {doctype_name} - permission reconfiguration",
+                required_permissions=["DocType:write"],
             )
 
-            for perm in existing_perms:
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                perm_doc = frappe.get_doc("DocPerm", perm.name)
-                result = secure_document_operation(
-                    operation="delete",
-                    doc=perm_doc,
-                    justification=f"Reset Chapter Board Member permissions for {doctype_name} - permission reconfiguration",
-                    required_permissions=["DocPerm:delete"],
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to reset Chapter Board Member permissions for {doctype_name}: "
+                    f"{'; '.join(result.errors)}"
                 )
+                continue
 
-                if not result.success:
-                    frappe.log_error(f"Failed to delete DocPerm {perm.name}: {'; '.join(result.errors)}")
-
-            frappe.logger().info(f"Reset Chapter Board Member permissions for {doctype_name}")
+            frappe.logger().info(
+                f"Reset Chapter Board Member permissions for {doctype_name} "
+                f"({len(rows_to_remove)} row(s) removed)"
+            )
 
         frappe.clear_cache()
 
