@@ -1363,14 +1363,24 @@ class MijnRoodEventApplicationService(StatefulService):
         role_config: dict,
         event=None,
     ) -> list[str]:
-        """Handle ROLE_ADMIN addition or removal."""
+        """Handle ROLE_ADMIN addition or removal.
+
+        Only fires on the *transition* (added or removed). For unchanged-admin
+        events (e.g. a fee change for an existing admin) we skip role actions
+        entirely — re-running them on every member update produces no useful
+        delta and can break legitimate non-role updates when team data is
+        corrupt or role config has drifted.
+        """
         messages = []
 
-        if "ROLE_ADMIN" in current_roles and "ROLE_ADMIN" in role_config:
+        admin_added = "ROLE_ADMIN" in current_roles and "ROLE_ADMIN" not in old_roles
+        admin_removed = "ROLE_ADMIN" in old_roles and "ROLE_ADMIN" not in current_roles
+
+        if admin_added and "ROLE_ADMIN" in role_config:
             config = role_config["ROLE_ADMIN"]
             msgs = self._apply_role_actions(member_name, config, event=event)
             messages.extend(msgs)
-        elif "ROLE_ADMIN" in old_roles and "ROLE_ADMIN" not in current_roles:
+        elif admin_removed:
             config = role_config.get("ROLE_ADMIN", {})
             if config.get("add_to_team") and config.get("default_team"):
                 team_msg = self._end_team_membership(member_name, config["default_team"], event=event)
@@ -1721,6 +1731,10 @@ class MijnRoodEventApplicationService(StatefulService):
         default_team_role = "Team Member"
         try:
             team_doc = frappe.get_doc("Team", team_name)
+            # Defensive: Frappe's _validate_links() validates *every* child row on
+            # parent save, so a single dangling volunteer reference (from a prior
+            # hard-delete that skipped link checks) blocks every subsequent add.
+            self._prune_orphan_team_members(team_doc, team_name)
             team_doc.append(
                 "team_members",
                 {
@@ -1756,6 +1770,39 @@ class MijnRoodEventApplicationService(StatefulService):
                 f"MijnRood Sync - Team Addition Failed: {member_name}",
             )
             return _("Team addition failed: {0}").format(str(e)[:200])
+
+    def _prune_orphan_team_members(self, team_doc, team_name: str) -> int:
+        """Remove team_members rows whose volunteer no longer exists.
+
+        Frappe's ``_validate_links()`` validates every child row on parent
+        save, so a single orphan reference (left behind by a Volunteer that
+        was hard-deleted without ending its team memberships first) blocks
+        adding any new row to the team. Prune defensively before save.
+
+        Returns the number of rows pruned.
+        """
+        referenced = [row.volunteer for row in team_doc.team_members if row.volunteer]
+        if not referenced:
+            return 0
+
+        existing = set(
+            frappe.get_all(
+                "Volunteer",
+                filters={"name": ["in", list(set(referenced))]},
+                pluck="name",
+            )
+        )
+        orphan_rows = [
+            row for row in team_doc.team_members if row.volunteer and row.volunteer not in existing
+        ]
+        for row in orphan_rows:
+            self.logger.warning(
+                "Pruning orphan Team Member row from team %s: volunteer %s no longer exists",
+                team_name,
+                row.volunteer,
+            )
+            team_doc.remove(row)
+        return len(orphan_rows)
 
     def _end_team_membership(
         self,

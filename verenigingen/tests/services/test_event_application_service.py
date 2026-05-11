@@ -2021,6 +2021,133 @@ class TestEnsureTeamMembership(EnhancedTestCase):
         mock_frappe.log_error.assert_called_once()
 
 
+# ─── Tests for _prune_orphan_team_members ─────────────────────────────
+
+
+class TestPruneOrphanTeamMembers(EnhancedTestCase):
+    """Tests for the defensive child-row prune used by _ensure_team_membership."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def _make_team_doc(self, volunteer_names):
+        team_doc = MagicMock()
+        rows = []
+        for vol in volunteer_names:
+            row = MagicMock()
+            row.volunteer = vol
+            rows.append(row)
+        team_doc.team_members = rows
+        team_doc.remove = MagicMock(side_effect=lambda r: rows.remove(r))
+        return team_doc, rows
+
+    def test_no_rows_returns_zero(self):
+        """Empty child table → zero pruned, no DB lookup."""
+        team_doc, _rows = self._make_team_doc([])
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application_service.frappe"
+        ) as mock_frappe:
+            result = self.service._prune_orphan_team_members(team_doc, "Some Team")
+        self.assertEqual(result, 0)
+        mock_frappe.get_all.assert_not_called()
+        team_doc.remove.assert_not_called()
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_all_volunteers_exist_no_prune(self, mock_frappe):
+        """When every referenced volunteer exists, nothing is removed."""
+        team_doc, rows = self._make_team_doc(["VOL-A", "VOL-B"])
+        mock_frappe.get_all.return_value = ["VOL-A", "VOL-B"]
+
+        result = self.service._prune_orphan_team_members(team_doc, "Some Team")
+
+        self.assertEqual(result, 0)
+        team_doc.remove.assert_not_called()
+        self.assertEqual(len(rows), 2)
+
+    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    def test_orphans_are_pruned(self, mock_frappe):
+        """Rows referencing deleted volunteers are removed; the rest stay."""
+        team_doc, rows = self._make_team_doc(["VOL-A", "VOL-GONE-1", "VOL-B", "VOL-GONE-2"])
+        # Only VOL-A and VOL-B still exist in tabVolunteer
+        mock_frappe.get_all.return_value = ["VOL-A", "VOL-B"]
+
+        result = self.service._prune_orphan_team_members(team_doc, "Some Team")
+
+        self.assertEqual(result, 2)
+        self.assertEqual(team_doc.remove.call_count, 2)
+        remaining = [r.volunteer for r in rows]
+        self.assertEqual(remaining, ["VOL-A", "VOL-B"])
+
+
+# ─── Tests for _handle_admin_role_change (transition-only) ────────────
+
+
+class TestHandleAdminRoleChange(EnhancedTestCase):
+    """Tests for transition-only admin role processing."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodEventApplicationService()
+
+    def test_admin_unchanged_skips_role_actions(self):
+        """ROLE_ADMIN in both old and new → no role actions fire (option 2 fix)."""
+        role_config = {"ROLE_ADMIN": {"create_volunteer": 1, "add_to_team": 1, "default_team": "T"}}
+        with patch.object(self.service, "_apply_role_actions") as mock_apply:
+            messages = self.service._handle_admin_role_change(
+                member_name="MEM-001",
+                current_roles={"ROLE_ADMIN"},
+                old_roles={"ROLE_ADMIN"},
+                role_config=role_config,
+                event=None,
+            )
+        mock_apply.assert_not_called()
+        self.assertEqual(messages, [])
+
+    def test_admin_added_fires_role_actions(self):
+        """ROLE_ADMIN newly granted → _apply_role_actions runs."""
+        role_config = {"ROLE_ADMIN": {"create_volunteer": 1}}
+        with patch.object(self.service, "_apply_role_actions", return_value=["did stuff"]) as mock_apply:
+            messages = self.service._handle_admin_role_change(
+                member_name="MEM-001",
+                current_roles={"ROLE_ADMIN"},
+                old_roles=set(),
+                role_config=role_config,
+                event=None,
+            )
+        mock_apply.assert_called_once()
+        self.assertIn("did stuff", messages)
+
+    def test_admin_added_on_first_sight_no_old_data(self):
+        """First sync (old_roles empty) treats ROLE_ADMIN as a transition."""
+        role_config = {"ROLE_ADMIN": {"create_volunteer": 1}}
+        with patch.object(self.service, "_apply_role_actions", return_value=[]) as mock_apply:
+            self.service._handle_admin_role_change(
+                member_name="MEM-001",
+                current_roles={"ROLE_ADMIN"},
+                old_roles=set(),
+                role_config=role_config,
+                event=None,
+            )
+        mock_apply.assert_called_once()
+
+    def test_admin_removed_ends_team_membership(self):
+        """ROLE_ADMIN removed → _end_team_membership runs (unchanged behavior)."""
+        role_config = {
+            "ROLE_ADMIN": {"add_to_team": True, "default_team": "Landelijk Beheer"}
+        }
+        with patch.object(self.service, "_end_team_membership", return_value="Ended") as mock_end:
+            messages = self.service._handle_admin_role_change(
+                member_name="MEM-001",
+                current_roles=set(),
+                old_roles={"ROLE_ADMIN"},
+                role_config=role_config,
+                event=None,
+            )
+        mock_end.assert_called_once_with("MEM-001", "Landelijk Beheer", event=None)
+        self.assertIn("Ended", messages)
+
+
 # ─── Tests for _ensure_user_account_for_volunteer ─────────────────────
 
 
