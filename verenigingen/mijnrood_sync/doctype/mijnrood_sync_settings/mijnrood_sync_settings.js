@@ -33,6 +33,35 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             );
         }
 
+        // First-time setup — single entry point for fresh installs.
+        // Visible only when at least one defaults table is still empty.
+        const needs_first_time_setup =
+            !frm.doc.status_mapping?.length || !frm.doc.role_mapping?.length;
+        if (needs_first_time_setup) {
+            frm.add_custom_button(__("First-time setup"), function () {
+                frappe.confirm(
+                    __("This creates the default teams (Landelijk Beheer + Secretariaat) and populates any empty status/role mapping tables with recommended defaults. Existing data is preserved. Continue?"),
+                    function () {
+                        frappe.call({
+                            method: "first_time_setup",
+                            doc: frm.doc,
+                            freeze: true,
+                            freeze_message: __("Running first-time setup..."),
+                            callback: function (r) {
+                                if (r.message && r.message.success) {
+                                    frappe.show_alert({
+                                        message: r.message.message,
+                                        indicator: "green",
+                                    });
+                                }
+                                frm.reload_doc();
+                            },
+                        });
+                    }
+                );
+            }).addClass("btn-primary");
+        }
+
         frm.add_custom_button(__("Test Connection"), function () {
             frappe.call({
                 method: "test_connection",

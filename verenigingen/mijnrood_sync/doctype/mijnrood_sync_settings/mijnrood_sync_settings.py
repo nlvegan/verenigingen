@@ -306,16 +306,17 @@ class MijnRoodSyncSettings(Document):
     def populate_default_role_mapping(self):
         """Load default role mapping values into the child table.
 
-        Pre-populates ROLE_ADMIN and ROLE_DIVISION_CONTACT with recommended defaults.
-        ROLE_ADMIN is configured to add members to the "Secretariaat" team (created
-        automatically if it doesn't exist). Admin can adjust all settings afterwards.
-        Only populates if the table is empty to avoid overwriting customizations.
+        Pre-populates ROLE_ADMIN and ROLE_DIVISION_CONTACT with recommended
+        defaults. ROLE_ADMIN is wired to the ``Landelijk Beheer`` team (created
+        automatically if absent, with the Verenigingen Administrator role
+        profile). The ``Secretariaat`` team is also ensured for staff
+        assignments but is not bound to any MijnRood role by default — admins
+        assign staff manually. Only populates if the table is empty.
         """
         if self.role_mapping:
             frappe.throw(_("Role mapping table is not empty. Clear it first to reload defaults."))
 
-        # Ensure the Secretariaat team exists for ROLE_ADMIN default
-        secretariaat_team = self._ensure_secretariaat_team()
+        teams = self._ensure_default_teams()
 
         defaults = [
             {
@@ -324,7 +325,7 @@ class MijnRoodSyncSettings(Document):
                 "create_volunteer": 1,
                 "add_to_chapter_board": 0,
                 "add_to_team": 1,
-                "default_team": secretariaat_team,
+                "default_team": teams["admin"],
             },
             {
                 "mijnrood_role": "ROLE_DIVISION_CONTACT",
@@ -344,26 +345,103 @@ class MijnRoodSyncSettings(Document):
             "message": _("Loaded {0} default role mappings").format(len(self.role_mapping)),
         }
 
-    def _ensure_secretariaat_team(self):
-        """Create the Secretariaat team if it doesn't already exist.
+    @frappe.whitelist()
+    def first_time_setup(self):
+        """One-click initial configuration for a fresh MijnRood Sync install.
+
+        Ensures the default teams exist (Landelijk Beheer + Secretariaat) and
+        populates status + role mapping defaults for any tables that are still
+        empty. Safe to re-run — sections that already hold data are skipped.
+        """
+        teams = self._ensure_default_teams()
+
+        messages = []
+        sections_populated = []
+
+        if not self.status_mapping:
+            result = self.populate_default_status_mapping()
+            messages.append(result.get("message", ""))
+            sections_populated.append("status_mapping")
+
+        # Reload self after the status save above (populate_default_status_mapping
+        # calls self.save() which rewrites the in-memory doc state).
+        self.reload()
+
+        if not self.role_mapping:
+            result = self.populate_default_role_mapping()
+            messages.append(result.get("message", ""))
+            sections_populated.append("role_mapping")
+
+        if not sections_populated:
+            return {
+                "success": True,
+                "message": _("All defaults are already populated. Teams ensured: {0}.").format(
+                    ", ".join(teams.values())
+                ),
+                "teams": teams,
+            }
+
+        return {
+            "success": True,
+            "message": "; ".join(filter(None, messages)),
+            "teams": teams,
+            "sections_populated": sections_populated,
+        }
+
+    def _ensure_default_teams(self) -> dict:
+        """Ensure the default Landelijk Beheer (admin) and Secretariaat (staff)
+        teams exist, each wired to the matching role profile.
+
+        Idempotent — existing teams are left untouched (we never overwrite a
+        production team's role profile or description, since admins may have
+        customised them).
 
         Returns:
-            str: The team name ("Secretariaat").
+            dict mapping team purpose → team name, e.g.
+            ``{"admin": "Landelijk Beheer", "staff": "Secretariaat"}``.
         """
-        team_name = "Secretariaat"
-        if not frappe.db.exists("Team", team_name):
-            team = frappe.get_doc(
-                {
-                    "doctype": "Team",
-                    "team_name": team_name,
-                    "description": _("National administration team for MijnRood administrators."),
-                    "status": "Active",
-                    "is_association_wide": 1,
-                }
-            )
+        from verenigingen.utils.constants import Roles
+
+        teams = {
+            "admin": {
+                "name": "Landelijk Beheer",
+                "description": _("National administration team — auto-populated from MijnRood ROLE_ADMIN."),
+                "role_profile": Roles.VERENIGINGEN_ADMIN,
+            },
+            "staff": {
+                "name": "Secretariaat",
+                "description": _(
+                    "Staff team — manually managed; grants the Verenigingen Staff role profile."
+                ),
+                "role_profile": Roles.VERENIGINGEN_STAFF,
+            },
+        }
+
+        for spec in teams.values():
+            if frappe.db.exists("Team", spec["name"]):
+                continue
+            doc_data = {
+                "doctype": "Team",
+                "team_name": spec["name"],
+                "description": spec["description"],
+                "status": "Active",
+                "is_association_wide": 1,
+            }
+            if frappe.db.exists("Role Profile", spec["role_profile"]):
+                doc_data["default_role_profile"] = spec["role_profile"]
+            else:
+                frappe.logger().warning(
+                    "Role Profile %s not found — creating team %s without default role profile",
+                    spec["role_profile"],
+                    spec["name"],
+                )
+            team = frappe.get_doc(doc_data)
             team.insert()
-            frappe.logger().info(f"Created default Secretariaat team: {team.name}")
-        return team_name
+            frappe.logger().info(
+                "Created default team %s (role profile: %s)", team.name, spec["role_profile"]
+            )
+
+        return {purpose: spec["name"] for purpose, spec in teams.items()}
 
     @frappe.whitelist()
     def auto_classify_folders(self):
