@@ -184,6 +184,20 @@ class MijnRoodDatabaseClient:
 
         self._transport = paramiko.Transport((ssh_host, ssh_port))
 
+        # Some shared hosts (e.g. DirectAdmin / OpenSSH 5.3) only offer
+        # ssh-rsa and ssh-dss for the host key. paramiko 3.x rejects both
+        # by default, producing "no acceptable host key". Re-enable them
+        # as fallbacks while keeping modern algorithms preferred.
+        opts = self._transport.get_security_options()
+        opts.key_types = (
+            "rsa-sha2-512",
+            "rsa-sha2-256",
+            "ssh-ed25519",
+            "ecdsa-sha2-nistp256",
+            "ssh-rsa",
+            "ssh-dss",
+        )
+
         auth = build_ssh_auth_kwargs(s)
         if "pkey" in auth:
             self._transport.connect(username=s.ssh_username, pkey=auth["pkey"])
