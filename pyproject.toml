@@ -33,8 +33,13 @@ dependencies = [
     "mt-940>=4.0",
     # XML security (XXE prevention)
     "defusedxml>=0.7.1",
-    # MijnRood sync: SSH tunnel + MySQL client for remote DB polling
-    "paramiko>=2.7.2",
+    # MijnRood sync: SSH tunnel + MySQL client for remote DB polling.
+    # Pin to <4: paramiko 4.x dropped ssh-rsa AND ssh-dss from its
+    # _key_info registry, so the MijnRood server (OpenSSH 5.3 on
+    # DirectAdmin shared hosting, only offers ssh-rsa host keys) cannot
+    # be reached. Lifting this pin requires either a server upgrade on
+    # MijnRood's side or switching SSH libraries.
+    "paramiko>=2.7.2,<4",
     "pymysql>=1.1.0",
 ]
 
