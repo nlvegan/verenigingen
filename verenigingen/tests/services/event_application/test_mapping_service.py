@@ -60,7 +60,7 @@ class TestResolveDivisionId(EnhancedTestCase):
             "doctype": "MijnRood Sync State",
             "mijnrood_table": "admin_division",
             "mijnrood_row_id": row_id,
-            "state_key": f"admin_division:{row_id}",
+            "state_key": f"admin_division-{row_id}",
             "raw_data": f'{{"name": "{name_value}"}}',
             "row_checksum": "0" * 32,
         }).insert(ignore_permissions=True)
