@@ -13,14 +13,13 @@ def run_mijnrood_sync():
 
     Checks if sync is enabled before running. Called by the scheduler
     every 15 minutes (configured in hooks/scheduler.py cron dict).
+
+    Concurrency is enforced inside polling_service.run_sync() via a
+    cache-based lease, not by the Settings.last_sync_status field —
+    that flag would get stranded by crashed runs.
     """
     settings = frappe.get_single("MijnRood Sync Settings")
     if not settings.enabled:
-        return
-
-    # Skip if a sync is already running
-    if settings.last_sync_status == "Running":
-        frappe.logger().info("MijnRood sync already running, skipping")
         return
 
     from verenigingen.mijnrood_sync.services.polling_service import get_polling_service

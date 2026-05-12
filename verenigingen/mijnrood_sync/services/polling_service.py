@@ -10,7 +10,10 @@ Orchestrates the poll-compare-create cycle:
 """
 
 import json
+import random
+import string
 import uuid
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import frappe
@@ -29,6 +32,32 @@ from verenigingen.mijnrood_sync.services.application_approval_correlator import 
 )
 from verenigingen.mijnrood_sync.utils import safe_int
 from verenigingen.services.infrastructure.base_service import StatefulService
+
+# Cache key + TTL for the cross-run lock. TTL is generous so a long-but-
+# healthy sync never expires mid-flight; a crashed/killed sync clears
+# automatically after the TTL instead of stranding the lock forever.
+_SYNC_LOCK_KEY = "mijnrood_sync:run_lock"
+_SYNC_LOCK_TTL_SECONDS = 30 * 60  # 30 minutes
+
+
+def acquire_sync_lock(run_id: str) -> bool:
+    """Try to claim the polling-service run lock.
+
+    Returns True if no other run is in progress (lock acquired); False if
+    a previous run still holds it. Lock entry is keyed by sync_run_id for
+    debuggability and auto-expires via the cache TTL.
+    """
+    cache = frappe.cache()
+    if cache.get_value(_SYNC_LOCK_KEY):
+        return False
+    cache.set_value(_SYNC_LOCK_KEY, run_id, expires_in_sec=_SYNC_LOCK_TTL_SECONDS)
+    return True
+
+
+def release_sync_lock() -> None:
+    """Release the polling-service run lock. Safe to call even if not held."""
+    frappe.cache().delete_value(_SYNC_LOCK_KEY)
+
 
 # Maps MijnRood field names to triage-friendly category tags
 FIELD_TAG_MAP = {
@@ -96,6 +125,22 @@ class MijnRoodPollingService(StatefulService):
     def __init__(self):
         super().__init__(service_name="MijnRoodPollingService")
 
+    @contextmanager
+    def _row_savepoint(self, row_id, table: str, stats: dict):
+        """Per-row savepoint: roll back this row's writes on failure, keep
+        the rest of the batch. Logs a warning and increments stats["errors"]
+        instead of propagating, so one bad row doesn't poison the table.
+        """
+        sp = "row_" + "".join(random.choices(string.ascii_lowercase, k=10))
+        frappe.db.savepoint(sp)
+        try:
+            yield
+            frappe.db.release_savepoint(sp)
+        except Exception as exc:
+            frappe.db.rollback(save_point=sp)
+            self.logger.warning("Table %s row %s skipped: %s", table, row_id, exc)
+            stats["errors"] = stats.get("errors", 0) + 1
+
     def run_sync(self) -> dict:
         """Main entry point. Called by scheduler or manual trigger.
 
@@ -107,6 +152,20 @@ class MijnRoodPollingService(StatefulService):
         sync_run_id = str(uuid.uuid4())[:12]
         started_at = now_datetime()
 
+        # Concurrency guard: a stale Settings flag from a crashed run used to
+        # strand polling forever. The cache lease auto-expires after TTL so
+        # the lock self-heals even if release_sync_lock() is never reached.
+        if not acquire_sync_lock(sync_run_id):
+            self.logger.info("Sync already running (lock held); skipping run %s", sync_run_id)
+            return {"skipped": True, "reason": "lock_held"}
+
+        try:
+            return self._run_sync_locked(settings, sync_run_id, started_at)
+        finally:
+            release_sync_lock()
+
+    def _run_sync_locked(self, settings, sync_run_id: str, started_at) -> dict:
+        """Internal sync body — assumes the run lock is already held."""
         # Create sync log (status=Running)
         log_doc = frappe.new_doc("MijnRood Sync Log")
         log_doc.sync_run_id = sync_run_id
@@ -128,6 +187,7 @@ class MijnRoodPollingService(StatefulService):
             "approved": 0,
             "unchanged": 0,
             "rows_scanned": 0,
+            "errors": 0,
         }
 
         try:
@@ -140,6 +200,7 @@ class MijnRoodPollingService(StatefulService):
                     totals["deleted"] += table_stats["deleted"]
                     totals["unchanged"] += table_stats["unchanged"]
                     totals["rows_scanned"] += table_stats["rows_scanned"]
+                    totals["errors"] += table_stats.get("errors", 0)
 
                 # Poll division_member junction table for role changes
                 dc_events = self._poll_division_contacts(client, settings, sync_run_id)
@@ -167,13 +228,17 @@ class MijnRoodPollingService(StatefulService):
 
             # Update settings
             pending_count = frappe.db.count("MijnRood Sync Event", {"status": "Pending"})
-            msg = _("Synced {0} tables: {1} new, {2} changed, {3} deleted, {4} approved").format(
+            base_msg = _("Synced {0} tables: {1} new, {2} changed, {3} deleted, {4} approved").format(
                 len(tables),
                 totals["new"],
                 totals["changed"],
                 totals["deleted"],
                 totals["approved"],
             )
+            if totals["errors"]:
+                msg = f"{base_msg} ({totals['errors']} rows skipped, see logs)"
+            else:
+                msg = base_msg
             settings.db_set(
                 {
                     "last_sync_time": completed_at,
@@ -262,6 +327,7 @@ class MijnRoodPollingService(StatefulService):
             "deleted": 0,
             "unchanged": unchanged_count,
             "rows_scanned": len(mijnrood_ids),
+            "errors": 0,
         }
 
         # 4. Fetch full row data for new/changed rows (batch)
@@ -274,87 +340,92 @@ class MijnRoodPollingService(StatefulService):
 
         now = now_datetime()
 
-        # 5. Process NEW rows
+        # 5. Process NEW rows — each wrapped in its own savepoint so a single
+        # bad row (validation error, link mismatch, etc.) doesn't poison the
+        # whole table's batch.
         for row_id in new_ids:
-            new_data = row_data_by_id.get(row_id, {})
-            linked_member = self._find_linked_member(table, row_id, row_data=new_data)
+            with self._row_savepoint(row_id, table, stats):
+                new_data = row_data_by_id.get(row_id, {})
+                linked_member = self._find_linked_member(table, row_id, row_data=new_data)
 
-            self._create_sync_event(
-                event_type="New",
-                table=table,
-                row_id=row_id,
-                old_data=None,
-                new_data=new_data,
-                linked_member=linked_member,
-                sync_run_id=sync_run_id,
-                detected_at=now,
-            )
+                self._create_sync_event(
+                    event_type="New",
+                    table=table,
+                    row_id=row_id,
+                    old_data=None,
+                    new_data=new_data,
+                    linked_member=linked_member,
+                    sync_run_id=sync_run_id,
+                    detected_at=now,
+                )
 
-            self._upsert_sync_state(
-                table=table,
-                row_id=row_id,
-                checksum=mijnrood_checksums[row_id],
-                raw_data=new_data,
-                linked_member=linked_member,
-                last_seen=now,
-            )
-            stats["new"] += 1
+                self._upsert_sync_state(
+                    table=table,
+                    row_id=row_id,
+                    checksum=mijnrood_checksums[row_id],
+                    raw_data=new_data,
+                    linked_member=linked_member,
+                    last_seen=now,
+                )
+                stats["new"] += 1
 
         # 6. Process CHANGED rows
         for row_id in changed_ids:
-            new_data = row_data_by_id.get(row_id, {})
-            state = state_by_id[row_id]
-            old_data = json.loads(state.raw_data) if state.raw_data else {}
-            changed_fields = self._compute_changed_fields(old_data, new_data)
-            linked_member = state.get("linked_member") or self._find_linked_member(
-                table, row_id, row_data=old_data
-            )
+            with self._row_savepoint(row_id, table, stats):
+                new_data = row_data_by_id.get(row_id, {})
+                state = state_by_id[row_id]
+                old_data = json.loads(state.raw_data) if state.raw_data else {}
+                changed_fields = self._compute_changed_fields(old_data, new_data)
+                linked_member = state.get("linked_member") or self._find_linked_member(
+                    table, row_id, row_data=old_data
+                )
 
-            self._create_sync_event(
-                event_type="Changed",
-                table=table,
-                row_id=row_id,
-                old_data=old_data,
-                new_data=new_data,
-                changed_fields=changed_fields,
-                linked_member=linked_member,
-                sync_run_id=sync_run_id,
-                detected_at=now,
-            )
+                self._create_sync_event(
+                    event_type="Changed",
+                    table=table,
+                    row_id=row_id,
+                    old_data=old_data,
+                    new_data=new_data,
+                    changed_fields=changed_fields,
+                    linked_member=linked_member,
+                    sync_run_id=sync_run_id,
+                    detected_at=now,
+                )
 
-            self._upsert_sync_state(
-                table=table,
-                row_id=row_id,
-                checksum=mijnrood_checksums[row_id],
-                raw_data=new_data,
-                linked_member=linked_member,
-                last_seen=now,
-            )
-            stats["changed"] += 1
+                self._upsert_sync_state(
+                    table=table,
+                    row_id=row_id,
+                    checksum=mijnrood_checksums[row_id],
+                    raw_data=new_data,
+                    linked_member=linked_member,
+                    last_seen=now,
+                )
+                stats["changed"] += 1
 
         # 7. Process DELETED rows
         for row_id in deleted_ids:
-            state = state_by_id[row_id]
-            old_data = json.loads(state.raw_data) if state.raw_data else {}
-            linked_member = state.get("linked_member") or self._find_linked_member(
-                table, row_id, row_data=old_data
-            )
+            with self._row_savepoint(row_id, table, stats):
+                state = state_by_id[row_id]
+                old_data = json.loads(state.raw_data) if state.raw_data else {}
+                linked_member = state.get("linked_member") or self._find_linked_member(
+                    table, row_id, row_data=old_data
+                )
 
-            self._create_sync_event(
-                event_type="Deleted",
-                table=table,
-                row_id=row_id,
-                old_data=old_data,
-                new_data=None,
-                linked_member=linked_member,
-                sync_run_id=sync_run_id,
-                detected_at=now,
-            )
+                self._create_sync_event(
+                    event_type="Deleted",
+                    table=table,
+                    row_id=row_id,
+                    old_data=old_data,
+                    new_data=None,
+                    linked_member=linked_member,
+                    sync_run_id=sync_run_id,
+                    detected_at=now,
+                )
 
-            # Remove sync state for deleted rows
-            # Security: System-internal state cleanup in scheduler context
-            frappe.delete_doc("MijnRood Sync State", state.name, ignore_permissions=True)
-            stats["deleted"] += 1
+                # Remove sync state for deleted rows
+                # Security: System-internal state cleanup in scheduler context
+                frappe.delete_doc("MijnRood Sync State", state.name, ignore_permissions=True)
+                stats["deleted"] += 1
 
         # 8. Update last_seen for unchanged rows
         if common_ids - changed_ids:

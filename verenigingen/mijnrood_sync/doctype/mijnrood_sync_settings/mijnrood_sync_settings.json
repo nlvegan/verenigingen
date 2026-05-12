@@ -14,6 +14,7 @@
   "ssh_credentials_status",
   "ssh_private_key",
   "ssh_password",
+  "ssh_key_passphrase",
   "database_section",
   "db_host",
   "db_port",
@@ -102,11 +103,18 @@
    "label": "SSH Private Key"
   },
   {
-   "description": "SSH key passphrase (if key is encrypted) or SSH password. Hidden in the form to prevent browser password-manager prompts.",
+   "description": "SSH login password (only when using password auth, not key auth). Hidden in the form to prevent browser password-manager prompts.",
    "fieldname": "ssh_password",
    "fieldtype": "Password",
    "hidden": 1,
-   "label": "SSH Password / Passphrase"
+   "label": "SSH Password"
+  },
+  {
+   "description": "Passphrase for the SSH private key, if it is encrypted. Leave empty for unencrypted keys. Hidden in the form to prevent browser password-manager prompts.",
+   "fieldname": "ssh_key_passphrase",
+   "fieldtype": "Password",
+   "hidden": 1,
+   "label": "SSH Key Passphrase"
   },
   {
    "fieldname": "database_section",

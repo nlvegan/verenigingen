@@ -23,12 +23,15 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             const dot = (set) =>
                 `<span style="color:${set ? "#28a745" : "#adb5bd"}">●</span>`;
             const key_set = !!frm.doc.ssh_private_key;
-            const passphrase_set = !!frm.doc.ssh_password;
+            const passphrase_set = !!frm.doc.ssh_key_passphrase;
+            const password_set = !!frm.doc.ssh_password;
             status_wrapper.html(
                 `<div class="text-muted" style="padding:6px 0">
                     ${dot(key_set)} ${__("Private key")}: <b>${key_set ? __("set") : __("not set")}</b>
                     &nbsp;·&nbsp;
-                    ${dot(passphrase_set)} ${__("Passphrase")}: <b>${passphrase_set ? __("set") : __("not set")}</b>
+                    ${dot(passphrase_set)} ${__("Key passphrase")}: <b>${passphrase_set ? __("set") : __("not set")}</b>
+                    &nbsp;·&nbsp;
+                    ${dot(password_set)} ${__("SSH password")}: <b>${password_set ? __("set") : __("not set")}</b>
                 </div>`
             );
         }
@@ -195,41 +198,40 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             d.show();
         }, __("SSH Tunnel"));
 
-        // Set SSH Passphrase — dialog avoids exposing a password input on the
-        // main form, which would otherwise trigger browser save-password prompts.
-        frm.add_custom_button(__("Set SSH Passphrase"), function () {
+        // Dialog-based secret entry — kept off the main form to suppress
+        // browser save-password prompts. Used for both key passphrase and
+        // login password since the UX is identical.
+        const open_secret_dialog = (title, label, description, target_field, alert_text) => {
             const d = new frappe.ui.Dialog({
-                title: __("Set SSH Passphrase"),
+                title: __(title),
                 fields: [
                     {
-                        fieldname: "ssh_passphrase",
+                        fieldname: "secret",
                         fieldtype: "Password",
-                        label: __("Passphrase"),
-                        description: __("Passphrase for the encrypted SSH key, or the SSH account password. Leave blank to clear."),
+                        label: __(label),
+                        description: __(description),
                     },
                 ],
                 primary_action_label: __("Save"),
                 primary_action(values) {
-                    frm.set_value("ssh_password", values.ssh_passphrase || "");
+                    frm.set_value(target_field, values.secret || "");
                     frm.dirty();
                     d.hide();
                     frappe.show_alert({
-                        message: __("Passphrase updated. Save the document to store it encrypted."),
+                        message: __(alert_text),
                         indicator: "green",
                     });
                 },
             });
             d.show();
 
-            // Suppress browser autofill on the passphrase input.
-            // Chrome ignores autocomplete="off" on password fields but DOES
-            // respect autocomplete="new-password". We also randomise `name`
-            // so the browser can't pattern-match to saved credentials for
-            // this site. data-lpignore / data-form-type handle LastPass
-            // and 1Password.
-            const $input = d.fields_dict.ssh_passphrase.$input;
+            // Suppress browser autofill (Chrome ignores autocomplete="off" on
+            // password fields but DOES respect autocomplete="new-password"). We
+            // also randomise `name` so the browser can't pattern-match saved
+            // credentials. data-lpignore / data-form-type cover LastPass and 1P.
+            const $input = d.fields_dict.secret.$input;
             if ($input) {
-                const random_name = "passphrase_" + Math.random().toString(36).slice(2);
+                const random_name = "secret_" + Math.random().toString(36).slice(2);
                 $input.attr({
                     autocomplete: "new-password",
                     name: random_name,
@@ -237,14 +239,31 @@ frappe.ui.form.on("MijnRood Sync Settings", {
                     "data-form-type": "other",
                     "data-1p-ignore": "true",
                 });
-                // Clear any value the browser may have autofilled before the
-                // attribute change took effect. A second clear handles Chrome's
-                // delayed autofill, which sometimes fires after DOM attach.
                 $input.val("");
                 setTimeout(() => {
                     if (!$input.is(":focus")) $input.val("");
                 }, 100);
             }
+        };
+
+        frm.add_custom_button(__("Set SSH Key Passphrase"), function () {
+            open_secret_dialog(
+                "Set SSH Key Passphrase",
+                "Passphrase",
+                "Passphrase for the encrypted SSH key. Leave blank for unencrypted keys.",
+                "ssh_key_passphrase",
+                "Passphrase updated. Save the document to store it encrypted."
+            );
+        }, __("SSH Tunnel"));
+
+        frm.add_custom_button(__("Set SSH Password"), function () {
+            open_secret_dialog(
+                "Set SSH Password",
+                "Password",
+                "SSH login password (only when not using key auth). Leave blank to clear.",
+                "ssh_password",
+                "Password updated. Save the document to store it encrypted."
+            );
         }, __("SSH Tunnel"));
 
         // Fetch Document Folders from MijnRood

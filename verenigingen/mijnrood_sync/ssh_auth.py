@@ -164,7 +164,16 @@ def build_ssh_auth_kwargs(settings) -> dict:
 
     result: dict = {}
 
-    passphrase = settings.get_password("ssh_password") if settings.ssh_password else None
+    # ssh_key_passphrase is the canonical field for key passphrases.
+    # ssh_password kept dedicated to SSH-login password auth. For
+    # back-compat with installations that pre-date the split, fall back
+    # to ssh_password when ssh_key_passphrase is empty.
+    key_passphrase = (
+        settings.get_password("ssh_key_passphrase") if getattr(settings, "ssh_key_passphrase", None) else None
+    )
+    login_password = settings.get_password("ssh_password") if settings.ssh_password else None
+    if not key_passphrase:
+        key_passphrase = login_password  # back-compat fallback
 
     # Priority 1: stored key (in Frappe's encrypted password store)
     stored_key = None
@@ -174,7 +183,7 @@ def build_ssh_auth_kwargs(settings) -> dict:
         except frappe.ValidationError:
             logger.debug("ssh_private_key field set but no key in password store — skipping")
     if stored_key and stored_key.strip().startswith("-----BEGIN"):
-        pkey = parse_pkey_from_string(stored_key, passphrase)
+        pkey = parse_pkey_from_string(stored_key, key_passphrase)
         result["pkey"] = pkey
         logger.info("Using stored SSH private key (parsed in-memory)")
         return result
@@ -185,13 +194,13 @@ def build_ssh_auth_kwargs(settings) -> dict:
         if not os.path.isabs(key_path) or key_path.startswith("/private/"):
             key_path = frappe.get_site_path(key_path.lstrip("/"))
         result["key_filename"] = key_path
-        if passphrase:
-            result["passphrase"] = passphrase
+        if key_passphrase:
+            result["passphrase"] = key_passphrase
         logger.info("Using SSH private key from file: %s", key_path)
         return result
 
-    # Priority 3: password only
-    if passphrase:
-        result["password"] = passphrase
+    # Priority 3: password-only auth (no key configured)
+    if login_password:
+        result["password"] = login_password
 
     return result
