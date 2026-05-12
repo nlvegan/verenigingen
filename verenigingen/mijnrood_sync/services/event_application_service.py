@@ -15,18 +15,21 @@ Reuses existing patterns from:
 """
 
 import json
-from typing import Any, Optional
+from typing import Optional
 
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
 from verenigingen.mijnrood_sync.field_mapping import (
-    MIJNROOD_TO_MEMBER_FIELD_MAP,
     get_active_status_ids,
     get_role_mapping,
     get_terminated_status_ids,
     get_termination_type_map,
+)
+from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
+    extract_email,
+    get_mapping_service,
 )
 from verenigingen.mijnrood_sync.utils import safe_int, safe_json_load
 from verenigingen.services.infrastructure.base_service import StatefulService
@@ -114,7 +117,7 @@ class MijnRoodEventApplicationService(StatefulService):
     # ─── Shared helpers ────────────────────────────────────────────────
 
     # Fields shared between new and changed application handlers.
-    # Keys = row_data keys (from _map_mijnrood_to_member_fields),
+    # Keys = row_data keys (from MijnRoodMappingService.map_member_fields),
     # values = Member DocType field names.
     _APPLICATION_FIELDS = {
         "member_id": "member_id",
@@ -639,7 +642,7 @@ class MijnRoodEventApplicationService(StatefulService):
                 )
                 join_date = None
 
-        chapter_name = self._resolve_division_id(division_id)
+        chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
             return _("Division ID {0} does not match any Chapter").format(division_id)
 
@@ -705,7 +708,7 @@ class MijnRoodEventApplicationService(StatefulService):
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
-        row_data = self._map_mijnrood_to_member_fields(new_data)
+        row_data = get_mapping_service().map_member_fields(new_data)
 
         # Idempotency — member_id is authoritative, email is fallback
         existing_name, existing_result = self._find_existing_member_or_conflict(
@@ -893,7 +896,7 @@ class MijnRoodEventApplicationService(StatefulService):
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
 
-        row_data = self._map_mijnrood_to_member_fields(new_data)
+        row_data = get_mapping_service().map_member_fields(new_data)
 
         # Idempotency — member_id is authoritative, email is fallback
         existing_name, existing_result = self._find_existing_member_or_conflict(
@@ -985,7 +988,7 @@ class MijnRoodEventApplicationService(StatefulService):
             member_name, changed_fields, event, field_name="division_id"
         )
 
-        row_data = self._map_mijnrood_to_member_fields(new_data)
+        row_data = get_mapping_service().map_member_fields(new_data)
 
         messages = []
         if chapter_result:
@@ -1072,7 +1075,7 @@ class MijnRoodEventApplicationService(StatefulService):
         )
 
         # Update basic fields on the member
-        row_data = self._map_mijnrood_to_member_fields(new_data)
+        row_data = get_mapping_service().map_member_fields(new_data)
         member = frappe.get_doc("Member", member_name)
         member.flags.ignore_workflow = True
         member._system_update = True
@@ -1120,7 +1123,7 @@ class MijnRoodEventApplicationService(StatefulService):
         if not new_data:
             return {"success": False, "message": _("No new data in approved event")}
 
-        row_data = self._map_mijnrood_to_member_fields(new_data)
+        row_data = get_mapping_service().map_member_fields(new_data)
 
         member_name = self._locate_application_member(old_data or {}, new_data, event.linked_member)
         if not member_name:
@@ -1623,7 +1626,7 @@ class MijnRoodEventApplicationService(StatefulService):
         Returns:
             Human-readable status message, or None if skipped.
         """
-        chapter_name = self._resolve_division_id(division_id)
+        chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
             return _("Division ID {0} does not match any Chapter").format(division_id)
 
@@ -1892,7 +1895,7 @@ class MijnRoodEventApplicationService(StatefulService):
         Returns:
             Human-readable status message, or None if not on the board.
         """
-        chapter_name = self._resolve_division_id(division_id)
+        chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
             return _("Division ID {0} does not match any Chapter").format(division_id)
 
@@ -1980,7 +1983,7 @@ class MijnRoodEventApplicationService(StatefulService):
         """
         chapter_names = []
         for div_id in sorted(removed_division_ids):
-            ch = self._resolve_division_id(div_id)
+            ch = get_mapping_service().resolve_division_id(div_id)
             chapter_names.append(ch or f"division {div_id}")
 
         subject = _("Board membership ended for {0}").format(member_name)
@@ -2131,7 +2134,7 @@ class MijnRoodEventApplicationService(StatefulService):
             chapter_name=division_name,
             published=published,
             mijnrood_division_id=division_id,
-            contact_email=self._extract_email(division_data.get("email_id")),
+            contact_email=extract_email(division_data.get("email_id")),
         )
         if created:
             self.logger.info("Auto-created Chapter '%s' from division sync", division_name)
@@ -2143,98 +2146,6 @@ class MijnRoodEventApplicationService(StatefulService):
             "success": False,
             "message": _("Failed to auto-create Chapter '{0}'. Check error logs.").format(division_name),
         }
-
-    def _resolve_division_id(self, division_id: int) -> Optional[str]:
-        """Resolve a MijnRood division_id to a Chapter name.
-
-        Checks the Chapter's mijnrood_division_id field first (direct lookup),
-        then falls back to Sync State for chapters that predate the ID field.
-        """
-        # Direct lookup via the ID field on Chapter
-        chapter_name = frappe.db.get_value("Chapter", {"mijnrood_division_id": division_id}, "name")
-        if chapter_name:
-            return chapter_name
-
-        # Fallback: resolve via stored sync state raw data
-        state = frappe.db.get_value(
-            "MijnRood Sync State",
-            {"mijnrood_table": "admin_division", "mijnrood_row_id": division_id},
-            "raw_data",
-        )
-        if state:
-            data = json.loads(state)
-            return data.get("name")
-        return None
-
-    def _map_mijnrood_to_member_fields(self, mijnrood_data: dict) -> dict:
-        """Map MijnRood database row to intermediate field names.
-
-        These intermediate names match what MemberImportService.update_member_fields()
-        expects (same names as csv_data_validator.py FIELD_MAPPING values).
-        """
-        from verenigingen.mijnrood_sync.field_mapping import get_status_id_map
-
-        row_data = {}
-        for mijnrood_col, member_field in MIJNROOD_TO_MEMBER_FIELD_MAP.items():
-            value = mijnrood_data.get(mijnrood_col)
-            if value is not None and value != "":
-                row_data[member_field] = value
-
-        # Convert status ID to membership type — prefer explicit mapping, fall back to status string
-        status_id = safe_int(mijnrood_data.get("current_membership_status_id"))
-        if status_id:
-            from verenigingen.mijnrood_sync.field_mapping import (
-                get_verenigingen_membership_type_for_status_id,
-            )
-
-            explicit_type = get_verenigingen_membership_type_for_status_id(status_id)
-            if explicit_type:
-                row_data["membership_type"] = explicit_type
-            else:
-                status_id_map = get_status_id_map()
-                if status_id in status_id_map:
-                    row_data["membership_type"] = status_id_map[status_id]
-                else:
-                    # Fail the event instead of silently importing a member without
-                    # a membership type. Operator fixes the mapping, then re-runs.
-                    raise ValueError(
-                        f"MijnRood status ID {status_id} (member {mijnrood_data.get('id')}) "
-                        f"has no mapping configured. Add it under "
-                        f"MijnRood Sync Settings → Lidmaatschapstypes, then re-apply this event."
-                    )
-
-        # Convert contribution amount from cents to euros
-        cents = safe_int(mijnrood_data.get("contribution_per_period_in_cents"))
-        if cents:
-            row_data["dues_rate"] = cents / 100.0
-
-        # Convert contribution period integer to Dutch string for template resolution
-        # MijnRood: 0=Monthly, 1=Quarterly, 2=Annually (see Member.php constants)
-        period_int = safe_int(mijnrood_data.get("contribution_period"))
-        period_map = {0: "Maandelijks", 1: "Per kwartaal", 2: "Jaarlijks"}
-        if period_int is not None:
-            if period_int in period_map:
-                row_data["payment_period"] = period_map[period_int]
-            else:
-                self.logger.warning(
-                    "Unknown contribution_period value %s for MijnRood ID %s",
-                    period_int,
-                    mijnrood_data.get("id"),
-                )
-
-        return row_data
-
-    @staticmethod
-    def _extract_email(value: Any) -> Optional[str]:
-        """Return value only if it looks like an email address.
-
-        MijnRood's email_id column may contain a numeric FK rather than
-        an actual email string. Passing a bare number to a Frappe Data
-        field with options=Email causes a validation error.
-        """
-        if not value or not isinstance(value, str):
-            return None
-        return value if "@" in value else None
 
 
 # Module-level singleton accessor

@@ -30,6 +30,10 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
+from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
+    MijnRoodMappingService,
+    get_mapping_service,
+)
 from verenigingen.mijnrood_sync.services.event_application_service import (
     MijnRoodEventApplicationService,
 )
@@ -245,7 +249,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_passes_valid_join_date(self, mock_frappe, mock_resolve):
         """Valid past date is passed through to assign_with_cleanup."""
@@ -263,7 +267,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         call_kwargs = mock_svc_instance.assign_with_cleanup.call_args
         self.assertEqual(call_kwargs.kwargs["join_date"], "2024-03-15")
 
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_rejects_future_join_date(self, mock_frappe, mock_resolve):
         """Future date is rejected; None is passed instead."""
@@ -280,7 +284,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         call_kwargs = mock_svc_instance.assign_with_cleanup.call_args
         self.assertIsNone(call_kwargs.kwargs["join_date"])
 
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_rejects_invalid_join_date_format(self, mock_frappe, mock_resolve):
         """Unparseable date string is rejected; None is passed instead."""
@@ -297,7 +301,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         call_kwargs = mock_svc_instance.assign_with_cleanup.call_args
         self.assertIsNone(call_kwargs.kwargs["join_date"])
 
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_none_join_date_passes_through(self, mock_frappe, mock_resolve):
         """None join_date is passed through (MemberManager defaults to today)."""
@@ -323,7 +327,7 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
         self.service = MijnRoodEventApplicationService()
 
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_idempotent_existing_member_id(self, mock_map, mock_find):
         """Existing member_id match returns idempotent success."""
         mock_map.return_value = {"member_id": "42", "email": "test@example.com"}
@@ -341,7 +345,7 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
         self.assertEqual(event.linked_member, "MEM-001")
 
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_email_conflict_returns_error(self, mock_map, mock_find):
         """Email conflict with different member_id returns error."""
         mock_map.return_value = {"member_id": "42", "email": "test@example.com"}
@@ -369,7 +373,7 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
         self.assertIn("No new data", result["message"])
 
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_sets_application_id_to_prevent_user_creation(self, mock_frappe, mock_chapter, mock_map, mock_find):
@@ -468,7 +472,7 @@ class TestApplyNewMember(EnhancedTestCase):
         self.service = MijnRoodEventApplicationService()
 
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_idempotent_existing_member(self, mock_map, mock_find):
         """Existing member by member_id returns idempotent success."""
         mock_map.return_value = {"member_id": "42", "email": "test@example.com"}
@@ -486,7 +490,7 @@ class TestApplyNewMember(EnhancedTestCase):
         self.assertEqual(event.linked_member, "MEM-001")
 
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_email_conflict_returns_error(self, mock_map, mock_find):
         """Email conflict returns error instead of silently updating wrong member."""
         mock_map.return_value = {"member_id": "42", "email": "conflict@example.com"}
@@ -504,7 +508,7 @@ class TestApplyNewMember(EnhancedTestCase):
         self.assertIn("conflicts", result["message"])
 
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_no_match_delegates_to_import_service(self, mock_map, mock_find):
         """No existing member delegates to MemberImportService for creation."""
         mock_map.return_value = {"member_id": "42", "email": "new@example.com"}
@@ -801,92 +805,92 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
 
 
 class TestMapMijnRoodToMemberFields(EnhancedTestCase):
-    """Tests for _map_mijnrood_to_member_fields() field mapping and conversions."""
+    """Tests for MijnRoodMappingService.map_member_fields() field mapping and conversions."""
 
     def setUp(self):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_contribution_period_monthly(self, mock_status_map):
         """contribution_period=0 maps to 'Maandelijks'."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields({"contribution_period": 0})
+        result = get_mapping_service().map_member_fields({"contribution_period": 0})
         self.assertEqual(result.get("payment_period"), "Maandelijks")
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_contribution_period_quarterly(self, mock_status_map):
         """contribution_period=1 maps to 'Per kwartaal'."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields({"contribution_period": 1})
+        result = get_mapping_service().map_member_fields({"contribution_period": 1})
         self.assertEqual(result.get("payment_period"), "Per kwartaal")
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_contribution_period_annually(self, mock_status_map):
         """contribution_period=2 maps to 'Jaarlijks'."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields({"contribution_period": 2})
+        result = get_mapping_service().map_member_fields({"contribution_period": 2})
         self.assertEqual(result.get("payment_period"), "Jaarlijks")
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_contribution_period_missing_no_payment_period(self, mock_status_map):
         """Missing contribution_period does not produce payment_period key."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields({"first_name": "Jan"})
+        result = get_mapping_service().map_member_fields({"first_name": "Jan"})
         self.assertNotIn("payment_period", result)
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_contribution_period_string_value(self, mock_status_map):
         """contribution_period as string '1' still maps correctly (via _safe_int)."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields({"contribution_period": "1"})
+        result = get_mapping_service().map_member_fields({"contribution_period": "1"})
         self.assertEqual(result.get("payment_period"), "Per kwartaal")
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_cents_to_euros_conversion(self, mock_status_map):
         """contribution_per_period_in_cents is converted to euros."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields(
+        result = get_mapping_service().map_member_fields(
             {"contribution_per_period_in_cents": 1250}
         )
         self.assertEqual(result.get("dues_rate"), 12.50)
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_verenigingen_membership_type_for_status_id", return_value=None)
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_verenigingen_membership_type_for_status_id", return_value=None)
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_status_id_mapped_to_membership_type(self, mock_status_map, _mock_explicit):
         """current_membership_status_id is resolved via status map when no explicit mapping."""
         mock_status_map.return_value = {1: "lid", 3: "opgezegd"}
-        result = self.service._map_mijnrood_to_member_fields(
+        result = get_mapping_service().map_member_fields(
             {"current_membership_status_id": 1}
         )
         self.assertEqual(result.get("membership_type"), "lid")
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_verenigingen_membership_type_for_status_id")
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_verenigingen_membership_type_for_status_id")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_explicit_membership_type_takes_priority(self, mock_status_map, mock_explicit):
         """Explicit verenigingen_membership_type is used when configured."""
         mock_explicit.return_value = "Lid"
         mock_status_map.return_value = {1: "lid"}
-        result = self.service._map_mijnrood_to_member_fields(
+        result = get_mapping_service().map_member_fields(
             {"current_membership_status_id": 1}
         )
         self.assertEqual(result.get("membership_type"), "Lid")
         mock_status_map.assert_not_called()
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_unknown_contribution_period_logs_warning(self, mock_status_map):
         """Unknown contribution_period value logs a warning and omits payment_period."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields(
+        result = get_mapping_service().map_member_fields(
             {"id": 42, "contribution_period": 99}
         )
         self.assertNotIn("payment_period", result)
 
-    @patch("verenigingen.mijnrood_sync.field_mapping.get_status_id_map")
+    @patch("verenigingen.mijnrood_sync.services.event_application.mapping_service.get_status_id_map")
     def test_privacy_field_mapped(self, mock_status_map):
         """accept_use_personal_information maps to accepts_optional_communications."""
         mock_status_map.return_value = {}
-        result = self.service._map_mijnrood_to_member_fields(
+        result = get_mapping_service().map_member_fields(
             {"accept_use_personal_information": 1}
         )
         self.assertEqual(result.get("accepts_optional_communications"), 1)
@@ -1829,7 +1833,7 @@ class TestApplyNewMemberPromotionPath(EnhancedTestCase):
 
     @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_conflict_triggers_promotion_check(self, mock_map, mock_find, mock_promote):
         """Email conflict calls _try_promote_application before returning error."""
         mock_map.return_value = {"member_id": "1700", "email": "test@example.com"}
@@ -1853,7 +1857,7 @@ class TestApplyNewMemberPromotionPath(EnhancedTestCase):
 
     @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_conflict_without_promotion_returns_error(self, mock_map, mock_find, mock_promote):
         """Email conflict returns error when promotion is not applicable."""
         mock_map.return_value = {"member_id": "1700", "email": "test@example.com"}
@@ -1873,7 +1877,7 @@ class TestApplyNewMemberPromotionPath(EnhancedTestCase):
 
     @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch.object(MijnRoodEventApplicationService, "_map_mijnrood_to_member_fields")
+    @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_idempotent_success_does_not_trigger_promotion(self, mock_map, mock_find, mock_promote):
         """Existing member match (success) does NOT trigger promotion check."""
         mock_map.return_value = {"member_id": "42", "email": "test@example.com"}
@@ -2477,7 +2481,7 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value=None)
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value=None)
     def test_unresolvable_division_returns_error(self, _mock_resolve):
         """When division_id doesn't resolve to a Chapter, return error message."""
         result = self.service._end_chapter_board_membership("MEM-001", 999)
@@ -2490,7 +2494,7 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value=None,
     )
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
     def test_no_volunteer_returns_none(self, _mock_resolve, _mock_get_vol):
         """When member has no Volunteer record, return None (nothing to remove)."""
         result = self.service._end_chapter_board_membership("MEM-001", 11)
@@ -2501,7 +2505,7 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Amsterdam")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_not_on_board_returns_none(self, mock_frappe, _mock_resolve, _mock_get_vol):
         """When volunteer has no active board membership, return None."""
@@ -2519,7 +2523,7 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_happy_path_delegates_to_board_manager(
         self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
@@ -2560,7 +2564,7 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_board_manager_failure_returns_error(
         self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
@@ -2591,7 +2595,7 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_exception_returns_error_and_logs(
         self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
@@ -2750,7 +2754,7 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
         self.service = MijnRoodEventApplicationService()
 
     @patch("verenigingen.utils.notification_helpers.notify_administrators")
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_sends_notification_with_correct_key(self, mock_frappe, _mock_resolve, mock_notify):
         """Notification uses chapter_board_removed key and Chapter category."""
@@ -2770,7 +2774,7 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
         self.assertIn("MEM-001", call_kwargs["subject"])
 
     @patch("verenigingen.utils.notification_helpers.notify_administrators")
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_also_sends_realtime(self, mock_frappe, _mock_resolve, _mock_notify):
         """Also publishes a realtime event for the current session."""
@@ -2786,7 +2790,7 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
         self.assertEqual(call_kwargs[0][0], "board_membership_ended")
 
     @patch("verenigingen.utils.notification_helpers.notify_administrators")
-    @patch.object(MijnRoodEventApplicationService, "_resolve_division_id", return_value="Eindhoven")
+    @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
     @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
     def test_notification_failure_does_not_raise(self, mock_frappe, _mock_resolve, mock_notify):
         """If notify_administrators raises, the error is logged but not re-raised."""
