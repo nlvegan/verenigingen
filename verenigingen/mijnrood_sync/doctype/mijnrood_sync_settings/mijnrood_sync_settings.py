@@ -30,6 +30,87 @@ class MijnRoodSyncSettings(Document):
             return {"success": False, "message": error_msg}
 
     @frappe.whitelist()
+    def diagnose_ssh_auth(self):
+        """Report which SSH auth path would fire and what key (if any) parses.
+
+        Does NOT return raw key material, passphrase, or password. Safe
+        to invoke from the UI — only non-sensitive metadata (key type,
+        bit length, fingerprint, and which fields are populated) leaves
+        the server. Useful for diagnosing AuthenticationException when
+        you can't see what's in the encrypted Password fields.
+        """
+        import io
+        import os
+
+        import paramiko
+
+        from verenigingen.mijnrood_sync.ssh_auth import build_ssh_auth_kwargs
+
+        report: dict = {
+            "ssh_host": self.ssh_host,
+            "ssh_port": self.ssh_port,
+            "ssh_username": self.ssh_username,
+            "fields_set": {
+                "ssh_private_key": bool(self.ssh_private_key),
+                "ssh_private_key_path": bool(self.ssh_private_key_path),
+                "ssh_password": bool(self.ssh_password),
+                "ssh_key_passphrase": bool(getattr(self, "ssh_key_passphrase", None)),
+            },
+        }
+
+        try:
+            auth = build_ssh_auth_kwargs(self)
+        except Exception as exc:
+            report["selected_path"] = "error"
+            report["error"] = f"build_ssh_auth_kwargs raised: {type(exc).__name__}: {exc}"
+            return report
+
+        if "pkey" in auth:
+            report["selected_path"] = "stored_key"
+            pkey = auth["pkey"]
+            report["key_type"] = pkey.get_name()
+            report["fingerprint_sha256_hex"] = pkey.get_fingerprint().hex()
+            if hasattr(pkey, "get_bits"):
+                try:
+                    report["key_bits"] = pkey.get_bits()
+                except Exception:
+                    pass
+        elif "key_filename" in auth:
+            report["selected_path"] = "key_file"
+            path = auth["key_filename"]
+            report["key_file_path"] = path
+            report["key_file_exists"] = os.path.isfile(path)
+            if report["key_file_exists"]:
+                try:
+                    st = os.stat(path)
+                    report["key_file_mode"] = oct(st.st_mode & 0o777)
+                except OSError as exc:
+                    report["key_file_stat_error"] = str(exc)
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        content = f.read()
+                    for cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey):
+                        try:
+                            pkey = cls.from_private_key(io.StringIO(content), password=auth.get("passphrase"))
+                            report["key_type"] = pkey.get_name()
+                            report["fingerprint_sha256_hex"] = pkey.get_fingerprint().hex()
+                            break
+                        except Exception:
+                            continue
+                except Exception as exc:
+                    report["key_parse_error"] = f"{type(exc).__name__}: {exc}"
+        elif "password" in auth:
+            report["selected_path"] = "password"
+            report["password_length"] = len(auth["password"])
+        else:
+            report["selected_path"] = "none_configured"
+
+        # Indicate which paramiko build is in use — relevant for the
+        # ssh-rsa/ssh-dss host-key issues seen on paramiko 4.x.
+        report["paramiko_version"] = paramiko.__version__
+        return report
+
+    @frappe.whitelist()
     def trigger_sync_now(self):
         """Enqueue an immediate sync job."""
         frappe.enqueue(

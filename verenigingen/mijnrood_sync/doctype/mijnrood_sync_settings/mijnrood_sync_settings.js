@@ -266,6 +266,37 @@ frappe.ui.form.on("MijnRood Sync Settings", {
             );
         }, __("SSH Tunnel"));
 
+        // Diagnose which auth path will fire and what key (if any) parses.
+        // Returns only non-sensitive metadata (key type, fingerprint, paths).
+        frm.add_custom_button(__("Diagnose SSH Auth"), function () {
+            frappe.call({
+                method: "diagnose_ssh_auth",
+                doc: frm.doc,
+                freeze: true,
+                freeze_message: __("Inspecting SSH configuration..."),
+                callback: function (r) {
+                    if (!r.message) return;
+                    const pretty = JSON.stringify(r.message, null, 2);
+                    const d = new frappe.ui.Dialog({
+                        title: __("SSH Auth Diagnostic"),
+                        fields: [
+                            {
+                                fieldtype: "Code",
+                                fieldname: "report",
+                                label: __("Report"),
+                                options: "JSON",
+                                read_only: 1,
+                                default: pretty,
+                            },
+                        ],
+                        primary_action_label: __("Close"),
+                        primary_action() { d.hide(); },
+                    });
+                    d.show();
+                },
+            });
+        }, __("SSH Tunnel"));
+
         // Fetch Document Folders from MijnRood
         frm.add_custom_button(__("Fetch Folders"), function () {
             frappe.confirm(
