@@ -84,3 +84,99 @@ class TestResolveDivisionId(EnhancedTestCase):
         result = service.resolve_division_id(987654)  # nonexistent
 
         self.assertIsNone(result)
+
+
+class TestMapMemberFields(EnhancedTestCase):
+    """map_member_fields translates MijnRood row dicts via the configured
+    status / role / period mappings. Status_id with no mapping must raise
+    ValueError (Tier A audit guarantee — event remains visible to operator).
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Ensure a known status mapping exists. Use mijnrood_status_id=999
+        # to avoid collision with seed data.
+        settings = frappe.get_single("MijnRood Sync Settings")
+        original = list(settings.status_mapping or [])
+        # Pick a Membership Type that already exists in the test fixture
+        # set, or create one if not.
+        membership_type = self.factory.ensure_membership_type("Mapping Test Type")
+        settings.append("status_mapping", {
+            "mijnrood_status_id": 999,
+            "label": "Test Status",
+            "membership_type_string": "test",
+            "is_active": 1,
+            "verenigingen_membership_type": membership_type.name,
+        })
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        def _cleanup():
+            settings = frappe.get_single("MijnRood Sync Settings")
+            settings.status_mapping = original
+            settings.save(ignore_permissions=True)
+            frappe.db.commit()
+        self.addCleanup(_cleanup)
+        # Force the field_mapping cache to refresh
+        frappe.cache().delete_value("mijnrood_status_mapping")
+
+    def test_maps_basic_field_translations(self):
+        # MIJNROOD_TO_MEMBER_FIELD_MAP is the source of truth. Pick a few
+        # well-known mappings to assert the loop runs.
+        result = get_mapping_service().map_member_fields({
+            "first_name": "Alice",
+            "last_name": "Example",
+            "current_membership_status_id": 999,
+        })
+        self.assertEqual(result["first_name"], "Alice")
+        self.assertEqual(result["last_name"], "Example")
+
+    def test_filters_empty_string_and_none_values(self):
+        result = get_mapping_service().map_member_fields({
+            "first_name": "",
+            "last_name": None,
+            "city": "Amsterdam",
+            "current_membership_status_id": 999,
+        })
+        self.assertNotIn("first_name", result)
+        self.assertNotIn("last_name", result)
+        self.assertEqual(result["city"], "Amsterdam")
+
+    def test_status_id_with_explicit_mapping_sets_membership_type(self):
+        result = get_mapping_service().map_member_fields({
+            "current_membership_status_id": 999,
+        })
+        self.assertIn("membership_type", result)
+        self.assertEqual(result["membership_type"], "Mapping Test Type")
+
+    def test_unmapped_status_id_raises_valueerror(self):
+        # Tier A guarantee: silent skip → ValueError → event surfaces in queue
+        with self.assertRaises(ValueError) as cm:
+            get_mapping_service().map_member_fields({
+                "id": 12345,
+                "current_membership_status_id": 99999,  # not in mapping
+            })
+        self.assertIn("99999", str(cm.exception))
+        self.assertIn("Lidmaatschapstypes", str(cm.exception))
+
+    def test_converts_cents_to_euros(self):
+        result = get_mapping_service().map_member_fields({
+            "current_membership_status_id": 999,
+            "contribution_per_period_in_cents": 1250,
+        })
+        self.assertEqual(result["dues_rate"], 12.5)
+
+    def test_maps_known_contribution_period(self):
+        result = get_mapping_service().map_member_fields({
+            "current_membership_status_id": 999,
+            "contribution_period": 1,  # Quarterly in MijnRood
+        })
+        self.assertEqual(result["payment_period"], "Per kwartaal")
+
+    def test_unknown_contribution_period_is_logged_and_omitted(self):
+        # logger.warning, key not set — should not raise
+        result = get_mapping_service().map_member_fields({
+            "current_membership_status_id": 999,
+            "contribution_period": 99,
+        })
+        self.assertNotIn("payment_period", result)
