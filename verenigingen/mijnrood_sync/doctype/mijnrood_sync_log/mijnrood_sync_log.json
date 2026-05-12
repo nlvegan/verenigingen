@@ -146,13 +146,9 @@
    "role": "Verenigingen Administrator"
   },
   {
-   "email": 1,
-   "export": 1,
-   "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Verenigingen Staff",
-   "share": 1
+   "role": "Verenigingen Staff"
   }
  ],
  "row_format": "Dynamic",

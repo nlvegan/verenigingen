@@ -2195,11 +2195,12 @@ class MijnRoodEventApplicationService(StatefulService):
                 if status_id in status_id_map:
                     row_data["membership_type"] = status_id_map[status_id]
                 else:
-                    self.logger.warning(
-                        "MijnRood status ID %s (member %s) has no mapping configured. "
-                        "Configure it in MijnRood Sync Settings → Lidmaatschapstypes.",
-                        status_id,
-                        mijnrood_data.get("id"),
+                    # Fail the event instead of silently importing a member without
+                    # a membership type. Operator fixes the mapping, then re-runs.
+                    raise ValueError(
+                        f"MijnRood status ID {status_id} (member {mijnrood_data.get('id')}) "
+                        f"has no mapping configured. Add it under "
+                        f"MijnRood Sync Settings → Lidmaatschapstypes, then re-apply this event."
                     )
 
         # Convert contribution amount from cents to euros

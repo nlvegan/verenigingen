@@ -27,7 +27,9 @@ from verenigingen.mijnrood_sync.field_mapping import (
 from verenigingen.mijnrood_sync.ssh_auth import (
     build_host_key_types,
     build_ssh_auth_kwargs,
+    load_system_host_keys,
     parse_pkey_from_string,
+    verify_host_key,
 )
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.client")
@@ -74,6 +76,7 @@ class MijnRoodDatabaseClient:
         self._tunnel_active = False
         self._connection: Optional[pymysql.Connection] = None
         self._actual_columns_cache: dict[str, list[str]] = {}
+        self._host_keys = load_system_host_keys()
 
     def connect(self, *, max_retries: int = 3):
         """Open SSH tunnel then MariaDB connection.
@@ -88,6 +91,11 @@ class MijnRoodDatabaseClient:
                 self._open_tunnel()
                 self._open_connection()
                 return
+            except (paramiko.AuthenticationException, paramiko.BadHostKeyException) as exc:
+                # Non-transient: bad credentials or host-key mismatch.
+                # Don't burn retries (3 attempts × 14s backoff) on a config error.
+                self.disconnect()
+                raise ConnectionError(f"SSH authentication failed: {exc}") from exc
             except Exception as exc:
                 last_error = exc
                 self.disconnect()
@@ -211,6 +219,9 @@ class MijnRoodDatabaseClient:
         else:
             raise ConnectionError("No SSH authentication method configured")
 
+        # Verify host key after connection (warns if unknown, raises if changed)
+        verify_host_key(self._transport, ssh_host, ssh_port, self._host_keys)
+
         # Bind a local socket and forward connections through SSH
         self._local_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._local_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -301,6 +312,11 @@ class MijnRoodDatabaseClient:
             cursorclass=pymysql.cursors.DictCursor,
             connect_timeout=30,
             read_timeout=120,
+            # Enforce read-only at the protocol layer: any UPDATE/INSERT/DELETE
+            # against MijnRood will fail with an error rather than relying on
+            # ALLOWED_TABLES + identifier whitelisting alone. Backstops the
+            # "SELECT-only" guarantee stated in the class docstring.
+            init_command="SET SESSION TRANSACTION READ ONLY",
         )
         logger.info("Connected to MijnRood database: %s", s.db_name)
 
