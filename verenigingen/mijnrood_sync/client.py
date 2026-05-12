@@ -24,7 +24,11 @@ from verenigingen.mijnrood_sync.field_mapping import (
     TABLE_COLUMNS,
     TABLE_PRIMARY_KEY,
 )
-from verenigingen.mijnrood_sync.ssh_auth import build_ssh_auth_kwargs, parse_pkey_from_string
+from verenigingen.mijnrood_sync.ssh_auth import (
+    build_host_key_types,
+    build_ssh_auth_kwargs,
+    parse_pkey_from_string,
+)
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.client")
 
@@ -187,16 +191,12 @@ class MijnRoodDatabaseClient:
         # Some shared hosts (e.g. DirectAdmin / OpenSSH 5.3) only offer
         # ssh-rsa and ssh-dss for the host key. paramiko 3.x rejects both
         # by default, producing "no acceptable host key". Re-enable them
-        # as fallbacks while keeping modern algorithms preferred.
+        # as fallbacks while keeping modern algorithms preferred. Filter
+        # against this paramiko build's known algorithms — ssh-dss was
+        # removed from _key_info in paramiko 4.x and would raise
+        # "unknown cipher" otherwise.
         opts = self._transport.get_security_options()
-        opts.key_types = (
-            "rsa-sha2-512",
-            "rsa-sha2-256",
-            "ssh-ed25519",
-            "ecdsa-sha2-nistp256",
-            "ssh-rsa",
-            "ssh-dss",
-        )
+        opts.key_types = build_host_key_types()
 
         auth = build_ssh_auth_kwargs(s)
         if "pkey" in auth:

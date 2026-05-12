@@ -52,6 +52,7 @@
       "depends_on": "eval:doc.create_volunteer",
       "fieldname": "verenigingen_role",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "in_list_view": 1,
       "label": "Verenigingen Rol",
       "options": "Role",
@@ -61,6 +62,7 @@
       "depends_on": "eval:doc.create_volunteer",
       "fieldname": "role_profile",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "label": "Rolprofiel",
       "options": "Role Profile",
       "width": "160px"
@@ -81,6 +83,7 @@
       "depends_on": "eval:doc.add_to_chapter_board",
       "fieldname": "chapter_role",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "in_list_view": 1,
       "label": "Bestuursrol",
       "options": "Chapter Role",
@@ -100,6 +103,7 @@
       "depends_on": "eval:doc.add_to_team",
       "fieldname": "default_team",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "label": "Team",
       "options": "Team"
     }

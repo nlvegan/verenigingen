@@ -61,6 +61,7 @@
     {
       "fieldname": "verenigingen_membership_type",
       "fieldtype": "Link",
+      "ignore_user_permissions": 1,
       "in_list_view": 1,
       "label": "Verenigingen Lidmaatschapstype",
       "options": "Membership Type",

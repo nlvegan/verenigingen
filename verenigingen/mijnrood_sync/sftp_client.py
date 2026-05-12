@@ -21,9 +21,20 @@ from typing import Optional
 
 import paramiko
 
-from verenigingen.mijnrood_sync.ssh_auth import build_ssh_auth_kwargs, parse_pkey_from_string
+from verenigingen.mijnrood_sync.ssh_auth import (
+    build_host_key_types,
+    build_ssh_auth_kwargs,
+    parse_pkey_from_string,
+)
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.sftp_client")
+
+
+DEFAULT_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # 100 MiB per file
+
+
+class FileTooLargeError(IOError):
+    """Raised when a remote file exceeds the configured size cap."""
 
 
 class MijnRoodSFTPClient:
@@ -33,7 +44,7 @@ class MijnRoodSFTPClient:
     Uses paramiko Transport + SFTPClient directly.
     """
 
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, max_download_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES):
         """Initialize with MijnRood Sync Settings document or load from DB.
 
         Args:
@@ -49,6 +60,7 @@ class MijnRoodSFTPClient:
         self._sftp: Optional[paramiko.SFTPClient] = None
         self._remote_base = (settings.documents_remote_path or "").rstrip("/")
         self._host_keys = self._load_system_host_keys()
+        self._max_download_bytes = max_download_bytes
 
     def connect(self, *, max_retries: int = 3):
         """Open paramiko Transport and SFTP session.
@@ -124,6 +136,23 @@ class MijnRoodSFTPClient:
 
         remote_path = f"{self._remote_base}/{remote_filename}"
 
+        # Reject oversized files before allocating memory — protects workers
+        # from OOM on a single huge remote file. stat() is cheap (one SFTP
+        # round-trip) and the size is authoritative for legitimate uploads.
+        try:
+            attrs = self._sftp.stat(remote_path)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Remote file not found: {remote_path}")
+        except IOError as exc:
+            raise IOError(f"SFTP stat failed for {remote_path}: {exc}") from exc
+
+        size = getattr(attrs, "st_size", None)
+        if size is not None and size > self._max_download_bytes:
+            raise FileTooLargeError(
+                f"Remote file {remote_path} is {size} bytes, "
+                f"exceeds cap of {self._max_download_bytes} bytes"
+            )
+
         buf = io.BytesIO()
         try:
             self._sftp.getfo(remote_path, buf)
@@ -133,6 +162,12 @@ class MijnRoodSFTPClient:
             raise IOError(f"SFTP download failed for {remote_path}: {exc}") from exc
 
         content = buf.getvalue()
+        # Defence in depth: stat() can be stale; verify post-download too.
+        if len(content) > self._max_download_bytes:
+            raise FileTooLargeError(
+                f"Remote file {remote_path} downloaded {len(content)} bytes, "
+                f"exceeds cap of {self._max_download_bytes} bytes"
+            )
         logger.debug("Downloaded %d bytes from %s", len(content), remote_path)
         return content
 
@@ -239,16 +274,12 @@ class MijnRoodSFTPClient:
         # Some shared hosts (e.g. DirectAdmin / OpenSSH 5.3) only offer
         # ssh-rsa and ssh-dss for the host key. paramiko 3.x rejects both
         # by default, producing "no acceptable host key". Re-enable them
-        # as fallbacks while keeping modern algorithms preferred.
+        # as fallbacks while keeping modern algorithms preferred. Filter
+        # against this paramiko build's known algorithms — ssh-dss was
+        # removed from _key_info in paramiko 4.x and would raise
+        # "unknown cipher" otherwise.
         opts = self._transport.get_security_options()
-        opts.key_types = (
-            "rsa-sha2-512",
-            "rsa-sha2-256",
-            "ssh-ed25519",
-            "ecdsa-sha2-nistp256",
-            "ssh-rsa",
-            "ssh-dss",
-        )
+        opts.key_types = build_host_key_types()
 
         auth = build_ssh_auth_kwargs(s)
         username = s.ssh_username

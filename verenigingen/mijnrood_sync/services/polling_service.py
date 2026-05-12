@@ -240,7 +240,7 @@ class MijnRoodPollingService(StatefulService):
         state_rows = frappe.get_all(
             "MijnRood Sync State",
             filters={"mijnrood_table": table},
-            fields=["name", "mijnrood_row_id", "row_checksum", "raw_data"],
+            fields=["name", "mijnrood_row_id", "row_checksum", "raw_data", "linked_member"],
         )
         state_by_id = {row.mijnrood_row_id: row for row in state_rows}
         state_ids = set(state_by_id.keys())

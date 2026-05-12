@@ -65,6 +65,50 @@ def sanitize_path_component(component: str) -> str:
     return sanitized
 
 
+def sanitize_filename(filename: str, max_length: int = 200) -> str:
+    """Sanitize a filename for safe use as the leaf segment of a file path.
+
+    Unlike sanitize_path_component (which is for directory segments and
+    strips every dot), this preserves file extensions while preventing
+    directory traversal: strips path separators, leading dots, null
+    bytes, and `..` sequences. Falls back to 'unknown' when empty.
+    """
+    import os
+    import re
+    import unicodedata
+
+    if not filename:
+        return "unknown"
+
+    name = str(filename).replace("\x00", "")
+    name = unicodedata.normalize("NFC", name)
+
+    # Strip any directory components — keep only the basename
+    name = os.path.basename(name).replace("\\", "").replace("/", "")
+
+    # Iteratively neutralise '..' sequences (handles '....' → '..' → '')
+    prev_len = -1
+    while len(name) != prev_len:
+        prev_len = len(name)
+        name = name.replace("..", "")
+
+    # No hidden files, no trailing space (Windows hostile to both)
+    name = name.lstrip(". ").rstrip(" .")
+
+    # Conservative charset: alphanumerics + dot/dash/underscore/space
+    name = re.sub(r"[^a-zA-Z0-9._\- ]", "", name)
+
+    # Length cap, preserving extension when reasonable
+    if len(name) > max_length:
+        stem, ext = os.path.splitext(name)
+        if ext and len(ext) < 16:
+            name = stem[: max_length - len(ext)] + ext
+        else:
+            name = name[:max_length]
+
+    return name or "unknown"
+
+
 class FileRecordCreationError(Exception):
     """Raised when File DocType record creation fails."""
 
@@ -188,9 +232,12 @@ def get_chapter_document_path(chapter_name: str, category: str, year: str, filen
     safe_chapter = sanitize_path_component(chapter_name)
     safe_category = sanitize_path_component(category)
     safe_year = sanitize_path_component(str(year))
+    safe_filename = sanitize_filename(filename)
 
     # Build path: documents/chapters/{chapter}/{category}/{year}/{filename}
-    relative_path = os.path.join("documents", "chapters", safe_chapter, safe_category, safe_year, filename)
+    relative_path = os.path.join(
+        "documents", "chapters", safe_chapter, safe_category, safe_year, safe_filename
+    )
 
     return relative_path
 
@@ -414,10 +461,11 @@ def get_organization_document_path(
     safe_org_name = sanitize_path_component(organization_name)
     safe_category = sanitize_path_component(category)
     safe_year = sanitize_path_component(str(year))
+    safe_filename = sanitize_filename(filename)
 
     # Build path: documents/{org_type}s/{org_name}/{category}/{year}/{filename}
     relative_path = os.path.join(
-        "documents", safe_org_type, safe_org_name, safe_category, safe_year, filename
+        "documents", safe_org_type, safe_org_name, safe_category, safe_year, safe_filename
     )
 
     return relative_path

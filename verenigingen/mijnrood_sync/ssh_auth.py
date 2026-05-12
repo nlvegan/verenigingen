@@ -15,6 +15,30 @@ import paramiko
 logger = logging.getLogger("verenigingen.mijnrood_sync.ssh_auth")
 
 
+# Host-key algorithms we accept, modern first, legacy as fallback. Filtered
+# at call time to whatever this paramiko build actually recognises — ssh-dss
+# was dropped from _key_info in paramiko 4.x and would raise "unknown cipher".
+_DESIRED_HOST_KEY_TYPES = (
+    "rsa-sha2-512",
+    "rsa-sha2-256",
+    "ssh-ed25519",
+    "ecdsa-sha2-nistp256",
+    "ssh-rsa",
+    "ssh-dss",
+)
+
+
+def build_host_key_types() -> tuple[str, ...]:
+    """Return host-key algorithms supported by this paramiko build.
+
+    Needed because some shared hosts (e.g. DirectAdmin / OpenSSH 5.3)
+    only offer ssh-rsa or ssh-dss host keys, and paramiko 3.x+ disables
+    them by default → "no acceptable host key".
+    """
+    known = set(getattr(paramiko.Transport, "_key_info", {}).keys())
+    return tuple(k for k in _DESIRED_HOST_KEY_TYPES if k in known)
+
+
 def parse_pkey_from_string(key_content: str, passphrase: str | None = None) -> paramiko.PKey:
     """Parse an SSH private key from a string into a paramiko PKey object.
 
