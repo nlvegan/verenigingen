@@ -124,6 +124,68 @@ class MijnRoodApplicationSyncService:
 
         return None
 
+    def apply_new_membership_application(self, event, orchestrator) -> dict:
+        """Create a pending membership application from MijnRood data.
+
+        Creates a Member document with application_status=Pending so it
+        enters the normal membership application review workflow.
+
+        Transitional `orchestrator` parameter exposes the not-yet-extracted
+        cross-cutting helpers (_find_existing_member_or_conflict via the
+        god-class shim, _assign_chapter_from_division).
+        """
+        new_data = safe_json_load(event.new_data)
+        if not new_data:
+            return {"success": False, "message": _("No new data in event")}
+
+        row_data = get_mapping_service().map_member_fields(new_data)
+
+        # Idempotency — member_id is authoritative, email is fallback.
+        # _find_existing_member_or_conflict is still a shim on the god-class
+        # (PR #2 left it there because _apply_changed_membership_application
+        # still calls it via self). Use the orchestrator to honour the shim.
+        existing_name, existing_result = orchestrator._find_existing_member_or_conflict(
+            row_data.get("member_id"), row_data.get("email")
+        )
+        if existing_result is not None:
+            if existing_name:
+                event.linked_member = existing_name
+            return existing_result
+
+        # Create Member document as a pending application
+        member = frappe.new_doc("Member")
+        member.flags.ignore_workflow = True
+        member._system_update = True
+        member._csv_import = True
+        member.application_id = f"MR-APP-{new_data.get('id', event.name)}"
+        member.application_status = "Pending"
+        member.status = "Pending"
+        member.application_date = new_data.get("registration_time") or today()
+        member.review_notes = f"Imported from MijnRood application (event {event.name})"
+
+        self._set_application_fields(member, row_data, is_new=True)
+
+        # Security: system-driven import from authenticated MijnRood sync
+        # event; no end-user permission context applies.
+        member.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Assign to preferred chapter (orchestrator helper, not yet extracted)
+        preferred_div_id = safe_int(new_data.get("preferred_division_id"))
+        if preferred_div_id:
+            orchestrator._assign_chapter_from_division(member.name, preferred_div_id, event)
+
+        event.linked_member = member.name
+        self.logger.info(
+            "Created membership application %s from MijnRood row %s",
+            member.name,
+            new_data.get("id"),
+        )
+        return {
+            "success": True,
+            "message": _("Application created as {0} (pending review)").format(member.name),
+        }
+
 
 _service_instance: Optional[MijnRoodApplicationSyncService] = None
 

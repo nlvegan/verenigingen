@@ -31,6 +31,34 @@ class _FakeOrchestrator:
         self._apply_new_member = MagicMock(
             return_value={"success": True, "message": "fallback from stub"}
         )
+        self._find_existing_member_or_conflict = MagicMock(return_value=(None, None))
+
+
+def _make_event(
+    counter: dict,
+    *,
+    table: str = "admin_membership_application",
+    event_type: str = "New",
+    new_data: dict | None = None,
+    old_data: dict | None = None,
+    changed_fields: list | None = None,
+    linked_member: str | None = None,
+) -> "frappe.Document":
+    """Insert a MijnRood Sync Event doc. `counter` is a mutable dict
+    {"n": int} owned by the calling test class for row-id uniqueness.
+    """
+    counter["n"] = counter.get("n", 200000) + 1
+    return frappe.get_doc({
+        "doctype": "MijnRood Sync Event",
+        "mijnrood_table": table,
+        "event_type": event_type,
+        "mijnrood_row_id": counter["n"],
+        "status": "Approved",
+        "new_data": json.dumps(new_data or {}),
+        "old_data": json.dumps(old_data or {}),
+        "changed_fields": json.dumps(changed_fields or []),
+        "linked_member": linked_member,
+    }).insert(ignore_permissions=True)
 
 
 class TestSetApplicationFields(EnhancedTestCase):
@@ -180,3 +208,114 @@ class TestLocateApplicationMember(EnhancedTestCase):
             linked_member=None,
         )
         self.assertIsNone(result)
+
+
+class TestApplyNewMembershipApplication(EnhancedTestCase):
+    """Creates a Pending Member from a MijnRood admin_membership_application row."""
+
+    def setUp(self):
+        super().setUp()
+        self._row_counter = {"n": 300000}
+        # Status mapping setup so map_member_fields doesn't raise
+        settings = frappe.get_single("MijnRood Sync Settings")
+        self._original_status_mapping = list(settings.status_mapping or [])
+        membership_type = self.factory.ensure_membership_type("App Sync Test Type")
+        settings.append("status_mapping", {
+            "mijnrood_status_id": 8001,
+            "label": "App Sync Test",
+            "membership_type_string": "test",
+            "is_active": 1,
+            "verenigingen_membership_type": membership_type.name,
+        })
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.cache().delete_value("mijnrood_status_mapping")
+        self.addCleanup(self._cleanup_status_mapping)
+
+    def _cleanup_status_mapping(self):
+        s = frappe.get_single("MijnRood Sync Settings")
+        s.status_mapping = self._original_status_mapping
+        s.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.cache().delete_value("mijnrood_status_mapping")
+
+    def _cleanup_event(self, event_name):
+        frappe.delete_doc("MijnRood Sync Event", event_name, ignore_permissions=True, force=True)
+
+    def _cleanup_member_by_application_id(self, application_id):
+        rows = frappe.get_all("Member", filters={"application_id": application_id}, pluck="name")
+        for name in rows:
+            frappe.delete_doc("Member", name, ignore_permissions=True, force=True)
+
+    def test_creates_pending_member_from_application_event(self):
+        event = _make_event(
+            self._row_counter,
+            new_data={
+                "id": "APP-NEW-1",
+                "first_name": "Application",
+                "last_name": "Pending",
+                "email": "application-pending-1@example.org",
+                "current_membership_status_id": 8001,
+            },
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+        self.addCleanup(self._cleanup_member_by_application_id, "MR-APP-APP-NEW-1")
+
+        orchestrator = _FakeOrchestrator()
+        result = get_application_sync_service().apply_new_membership_application(event, orchestrator)
+
+        self.assertTrue(result["success"])
+        self.assertTrue(event.linked_member)
+        member = frappe.get_doc("Member", event.linked_member)
+        self.assertEqual(member.application_status, "Pending")
+        self.assertEqual(member.status, "Pending")
+        self.assertEqual(member.application_id, "MR-APP-APP-NEW-1")
+
+    def test_idempotent_when_member_already_exists(self):
+        # Pre-existing application with same email
+        existing = self.factory.create_member(
+            first_name="Already",
+            last_name="Pending",
+            email="already-pending@example.org",
+            member_id="MR-EXIST-APP-1",
+        )
+
+        event = _make_event(
+            self._row_counter,
+            new_data={
+                "id": "APP-DUP-1",
+                "first_name": "Already",
+                "last_name": "Pending",
+                "email": existing.email,
+                "current_membership_status_id": 8001,
+            },
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        # Simulate the not-yet-extracted conflict detector finding the existing
+        # member by email. The default stub returns (None, None) which would
+        # cause a new Member to be created — override here to exercise the
+        # idempotent path.
+        orchestrator._find_existing_member_or_conflict = MagicMock(
+            return_value=(existing.name, {
+                "success": True,
+                "message": f"Member {existing.name} already exists (email={existing.email})",
+            }),
+        )
+        result = get_application_sync_service().apply_new_membership_application(event, orchestrator)
+
+        self.assertTrue(result["success"])
+        # No new Member created for the duplicate application
+        new_count = frappe.db.count("Member", {"application_id": "MR-APP-APP-DUP-1"})
+        self.assertEqual(new_count, 0)
+
+    def test_returns_failure_when_new_data_is_empty(self):
+        event = _make_event(self._row_counter, new_data={})
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        result = get_application_sync_service().apply_new_membership_application(event, orchestrator)
+
+        self.assertFalse(result["success"])
+        self.assertIn("No new data", result["message"])
