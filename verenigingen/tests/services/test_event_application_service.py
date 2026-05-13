@@ -34,6 +34,9 @@ from verenigingen.mijnrood_sync.services.event_application.mapping_service impor
     MijnRoodMappingService,
     get_mapping_service,
 )
+from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
+    MijnRoodMemberSyncService,
+)
 from verenigingen.mijnrood_sync.services.event_application_service import (
     MijnRoodEventApplicationService,
 )
@@ -47,7 +50,7 @@ class TestFindExistingMemberOrConflict(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.member_sync_service.frappe")
     def test_member_id_match_returns_success(self, mock_frappe):
         """When member_id matches an existing Member, return idempotent success."""
         mock_frappe.db.get_value.return_value = "MEM-001"
@@ -59,7 +62,7 @@ class TestFindExistingMemberOrConflict(EnhancedTestCase):
         self.assertTrue(result["success"])
         self.assertIn("member_id=42", result["message"])
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.member_sync_service.frappe")
     def test_email_match_no_conflict(self, mock_frappe):
         """When email matches and member_ids don't conflict, return success."""
         # member_id lookup returns None
@@ -75,7 +78,7 @@ class TestFindExistingMemberOrConflict(EnhancedTestCase):
         self.assertTrue(result["success"])
         self.assertIn("email=test@example.com", result["message"])
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.member_sync_service.frappe")
     def test_email_conflict_different_member_id(self, mock_frappe):
         """When email matches but member_id differs, return conflict error."""
         mock_frappe.db.get_value.side_effect = [
@@ -90,7 +93,7 @@ class TestFindExistingMemberOrConflict(EnhancedTestCase):
         self.assertFalse(result["success"])
         self.assertIn("conflicts", result["message"])
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.member_sync_service.frappe")
     def test_no_match_returns_none(self, mock_frappe):
         """When nothing matches, return (None, None)."""
         mock_frappe.db.get_value.side_effect = [None, None]
@@ -101,7 +104,7 @@ class TestFindExistingMemberOrConflict(EnhancedTestCase):
         self.assertIsNone(name)
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.member_sync_service.frappe")
     def test_no_email_no_member_id(self, mock_frappe):
         """When both are None/empty, return (None, None) without DB calls."""
         name, result = self.service._find_existing_member_or_conflict(None, None)
@@ -471,7 +474,7 @@ class TestApplyNewMember(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodMemberSyncService, "find_existing_member_or_conflict")
     @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_idempotent_existing_member(self, mock_map, mock_find):
         """Existing member by member_id returns idempotent success."""
@@ -489,7 +492,7 @@ class TestApplyNewMember(EnhancedTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(event.linked_member, "MEM-001")
 
-    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodMemberSyncService, "find_existing_member_or_conflict")
     @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_email_conflict_returns_error(self, mock_map, mock_find):
         """Email conflict returns error instead of silently updating wrong member."""
@@ -507,7 +510,7 @@ class TestApplyNewMember(EnhancedTestCase):
         self.assertFalse(result["success"])
         self.assertIn("conflicts", result["message"])
 
-    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodMemberSyncService, "find_existing_member_or_conflict")
     @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_no_match_delegates_to_import_service(self, mock_map, mock_find):
         """No existing member delegates to MemberImportService for creation."""
@@ -1832,7 +1835,7 @@ class TestApplyNewMemberPromotionPath(EnhancedTestCase):
         self.service = MijnRoodEventApplicationService()
 
     @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
-    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodMemberSyncService, "find_existing_member_or_conflict")
     @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_conflict_triggers_promotion_check(self, mock_map, mock_find, mock_promote):
         """Email conflict calls _try_promote_application before returning error."""
@@ -1856,7 +1859,7 @@ class TestApplyNewMemberPromotionPath(EnhancedTestCase):
         self.assertIn("promoted", result["message"])
 
     @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
-    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodMemberSyncService, "find_existing_member_or_conflict")
     @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_conflict_without_promotion_returns_error(self, mock_map, mock_find, mock_promote):
         """Email conflict returns error when promotion is not applicable."""
@@ -1876,7 +1879,7 @@ class TestApplyNewMemberPromotionPath(EnhancedTestCase):
         self.assertIn("conflicts", result["message"])
 
     @patch.object(MijnRoodEventApplicationService, "_try_promote_application")
-    @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
+    @patch.object(MijnRoodMemberSyncService, "find_existing_member_or_conflict")
     @patch.object(MijnRoodMappingService, "map_member_fields")
     def test_idempotent_success_does_not_trigger_promotion(self, mock_map, mock_find, mock_promote):
         """Existing member match (success) does NOT trigger promotion check."""
