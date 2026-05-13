@@ -91,6 +91,39 @@ class MijnRoodApplicationSyncService:
 
         return changed
 
+    def _locate_application_member(
+        self, old_data: dict, new_data: dict, linked_member: Optional[str]
+    ) -> Optional[str]:
+        """Locate the local Pending Member for an Approved event.
+
+        Order:
+          1. event.linked_member (set by the correlator).
+          2. Lookup by application_id = f'MR-APP-{old_data.id}' — matches
+             what apply_new_membership_application stamps onto the Member.
+          3. Lookup by normalized email.
+          4. None → caller falls through.
+        """
+        if linked_member:
+            return linked_member
+
+        app_id = old_data.get("id")
+        if app_id is not None:
+            match = frappe.db.get_value(
+                "Member",
+                {"application_id": f"MR-APP-{app_id}"},
+                "name",
+            )
+            if match:
+                return match
+
+        email = (new_data.get("email") or old_data.get("email") or "").strip()
+        if email:
+            match = frappe.db.get_value("Member", {"email": email}, "name")
+            if match:
+                return match
+
+        return None
+
 
 _service_instance: Optional[MijnRoodApplicationSyncService] = None
 

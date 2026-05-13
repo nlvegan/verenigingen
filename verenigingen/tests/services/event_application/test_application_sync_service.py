@@ -129,3 +129,54 @@ class TestSetApplicationFields(EnhancedTestCase):
         self.assertEqual(member.first_name, original_first_name)
         self.assertEqual(member.last_name, original_last_name)
         self.assertEqual(member.iban, "NL91ABNA0417164300")
+
+
+class TestLocateApplicationMember(EnhancedTestCase):
+    """Linked-member → application_id → email lookup order."""
+
+    def test_returns_linked_member_when_set(self):
+        result = get_application_sync_service()._locate_application_member(
+            old_data={"id": 999},
+            new_data={"email": "any@example.org"},
+            linked_member="Member-Already-Linked",
+        )
+        self.assertEqual(result, "Member-Already-Linked")
+
+    def test_falls_back_to_application_id_lookup(self):
+        member = self.factory.create_member(
+            first_name="App",
+            last_name="IdMatch",
+            email="app-id-match@example.org",
+        )
+        frappe.db.set_value(
+            "Member", member.name, "application_id", "MR-APP-555", update_modified=False
+        )
+
+        result = get_application_sync_service()._locate_application_member(
+            old_data={"id": 555},
+            new_data={"email": "different@example.org"},
+            linked_member=None,
+        )
+        self.assertEqual(result, member.name)
+
+    def test_falls_back_to_email_lookup(self):
+        member = self.factory.create_member(
+            first_name="Email",
+            last_name="Fallback",
+            email="email-fallback@example.org",
+        )
+
+        result = get_application_sync_service()._locate_application_member(
+            old_data={"id": 6666},  # no matching application_id
+            new_data={"email": member.email},
+            linked_member=None,
+        )
+        self.assertEqual(result, member.name)
+
+    def test_returns_none_when_nothing_matches(self):
+        result = get_application_sync_service()._locate_application_member(
+            old_data={"id": 7777},
+            new_data={"email": "nobody@nowhere.example"},
+            linked_member=None,
+        )
+        self.assertIsNone(result)
