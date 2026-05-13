@@ -15,6 +15,7 @@
   "ssh_private_key",
   "ssh_password",
   "ssh_key_passphrase",
+  "ssh_legacy_compat",
   "database_section",
   "db_host",
   "db_port",
@@ -115,6 +116,13 @@
    "fieldtype": "Password",
    "hidden": 1,
    "label": "SSH Key Passphrase"
+  },
+  {
+   "default": "0",
+   "description": "Enable only if the SSH server runs OpenSSH < 7.2 (e.g. CentOS 5/6 with OpenSSH 5.3). Forces paramiko to use plain ssh-rsa (SHA-1) signatures for RSA pubkey auth instead of the modern rsa-sha2-256/512 algorithms, which the old server cannot understand. Leave off for modern hosts — SHA-1 is weaker.",
+   "fieldname": "ssh_legacy_compat",
+   "fieldtype": "Check",
+   "label": "Legacy SSH Compatibility (OpenSSH < 7.2)"
   },
   {
    "fieldname": "database_section",

@@ -21,6 +21,7 @@ from typing import Optional
 import paramiko
 
 from verenigingen.mijnrood_sync.ssh_auth import (
+    build_disabled_algorithms,
     build_host_key_types,
     build_ssh_auth_kwargs,
     load_system_host_keys,
@@ -197,7 +198,14 @@ class MijnRoodSFTPClient:
         host = s.ssh_host
         port = int(s.ssh_port or 22)
 
-        self._transport = paramiko.Transport((host, port))
+        # ssh_legacy_compat (settings) disables rsa-sha2 pubkey signatures
+        # so paramiko sends ssh-rsa (SHA-1) only — needed for OpenSSH < 7.2.
+        # See ssh_auth.build_disabled_algorithms() for rationale.
+        disabled_algorithms = build_disabled_algorithms(s)
+        if disabled_algorithms:
+            self._transport = paramiko.Transport((host, port), disabled_algorithms=disabled_algorithms)
+        else:
+            self._transport = paramiko.Transport((host, port))
 
         # Some shared hosts (e.g. DirectAdmin / OpenSSH 5.3) only offer
         # ssh-rsa and ssh-dss for the host key. paramiko 3.x rejects both

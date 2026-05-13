@@ -38,6 +38,26 @@ def build_host_key_types() -> tuple[str, ...]:
     return tuple(k for k in _DESIRED_HOST_KEY_TYPES if k in known)
 
 
+def build_disabled_algorithms(settings) -> dict | None:
+    """Return a paramiko ``disabled_algorithms`` dict for legacy SSH servers.
+
+    Why: OpenSSH < 7.2 (e.g. CentOS 5/6, RHEL 6 with OpenSSH 5.3) predates
+    RFC 8332 and only understands plain ``ssh-rsa`` (SHA-1) signatures for
+    RSA pubkey auth. Paramiko 3.x offers ``rsa-sha2-512`` and ``rsa-sha2-256``
+    first and relies on the ``server-sig-algs`` extension to fall back —
+    but very old servers never send that extension, so the fallback is
+    unreliable and auth fails with "Authentication failed" despite a
+    correctly-installed public key.
+
+    When ``ssh_legacy_compat`` is enabled on the settings, this disables
+    rsa-sha2 signatures so paramiko sends ``ssh-rsa`` only. Default-off
+    so modern servers still negotiate strong signatures.
+    """
+    if not getattr(settings, "ssh_legacy_compat", 0):
+        return None
+    return {"pubkeys": ["rsa-sha2-512", "rsa-sha2-256"]}
+
+
 def load_system_host_keys() -> paramiko.HostKeys:
     """Load SSH known_hosts for host key verification.
 
