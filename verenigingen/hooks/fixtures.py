@@ -118,20 +118,11 @@ fixtures = [
     # =========================================================================
     # REPORTS
     # =========================================================================
-    {
-        "doctype": "Report",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                    "Termination Audit Report",
-                    "Termination Compliance Report",
-                    "Membership Revenue Projection",
-                ],
-            ]
-        ],
-    },
+    # NOTE: Standard reports are NOT included as fixtures. They are backed by
+    # .json + .py files under verenigingen/<module>/report/<name>/ and are
+    # auto-synced by Frappe's module sync during `bench migrate`. Re-importing
+    # them as fixtures runs Report.validate_standard_report(), which blocks
+    # insert outside developer mode and breaks production migrations.
     # =========================================================================
     # CUSTOM FIELDS
     # =========================================================================
