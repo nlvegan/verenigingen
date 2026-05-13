@@ -121,6 +121,87 @@ class MijnRoodMemberSyncService:
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
 
+    def apply_changed_member(self, event, orchestrator) -> dict:
+        """Update existing Member fields from MijnRood admin_member data.
+
+        For status changes to terminated statuses, delegates to the
+        orchestrator's _check_and_handle_termination which creates a
+        Membership Termination Request rather than directly modifying
+        the member.
+
+        Transitional `orchestrator` parameter: see apply_new_member.
+        """
+        new_data = safe_json_load(event.new_data)
+        old_data = safe_json_load(event.old_data)
+        changed_fields = safe_json_load(event.changed_fields, default=[])
+
+        if not new_data:
+            return {"success": False, "message": _("No new data in event")}
+
+        # Check for status change to a terminated status — short-circuits the rest
+        termination_result = orchestrator._check_and_handle_termination(
+            event, old_data, new_data, changed_fields
+        )
+        if termination_result is not None:
+            return termination_result
+
+        # Resolve linked member: event link → member_id → old email
+        member_name = event.linked_member
+        if not member_name:
+            member_name = frappe.db.get_value("Member", {"member_id": new_data.get("id")}, "name")
+        if not member_name:
+            old_email = (old_data or {}).get("email")
+            if old_email:
+                member_name = frappe.db.get_value("Member", {"email": old_email}, "name")
+
+        if not member_name:
+            return {
+                "success": False,
+                "message": _("No linked member found for MijnRood ID {0}").format(new_data.get("id")),
+            }
+
+        # Chapter transfer if division_id changed
+        chapter_result = orchestrator._handle_division_field_change(
+            member_name, changed_fields, event, field_name="division_id"
+        )
+
+        row_data = get_mapping_service().map_member_fields(new_data)
+
+        messages = []
+        if chapter_result:
+            messages.append(chapter_result)
+
+        # Role-only events (e.g. synthetic division contact changes) carry only
+        # managed_division_ids / roles — no mappable member fields. Skip the
+        # member create/update path and go straight to role processing.
+        if row_data:
+            from verenigingen.services.csv_import.member_import_service import (
+                get_member_import_service,
+            )
+
+            service = get_member_import_service()
+            status, updated_name = service.create_or_update_member(
+                row_data=row_data,
+                import_doc_name=f"MijnRood Sync: {event.name}",
+            )
+
+            if status in ("created", "updated"):
+                event.linked_member = updated_name
+                member_name = updated_name
+                messages.append(_("Member {0} updated").format(updated_name))
+
+                messages.extend(orchestrator._create_related_records(updated_name, row_data, event))
+            else:
+                return {"success": False, "message": _("Member update {0}").format(status)}
+
+        role_msgs = orchestrator._process_member_roles(member_name, new_data, old_data=old_data, event=event)
+        messages.extend(role_msgs)
+
+        return {
+            "success": True,
+            "message": "; ".join(messages) if messages else _("No changes applied"),
+        }
+
 
 _service_instance: Optional[MijnRoodMemberSyncService] = None
 

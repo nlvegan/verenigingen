@@ -108,10 +108,11 @@ def _make_event(
     new_data: dict | None = None,
     old_data: dict | None = None,
     changed_fields: list | None = None,
+    linked_member: str | None = None,
 ) -> "frappe.Document":
     """Insert a MijnRood Sync Event doc and return it."""
     _event_row_counter["n"] += 1
-    doc = frappe.get_doc({
+    payload = {
         "doctype": "MijnRood Sync Event",
         "mijnrood_table": table,
         "event_type": event_type,
@@ -120,7 +121,10 @@ def _make_event(
         "new_data": json.dumps(new_data or {}),
         "old_data": json.dumps(old_data or {}),
         "changed_fields": json.dumps(changed_fields or []),
-    }).insert(ignore_permissions=True)
+    }
+    if linked_member:
+        payload["linked_member"] = linked_member
+    doc = frappe.get_doc(payload).insert(ignore_permissions=True)
     return doc
 
 
@@ -255,3 +259,136 @@ class TestApplyNewMember(EnhancedTestCase):
         self.assertTrue(result["success"])
         self.assertIn("Promoted", result["message"])
         orchestrator._try_promote_application.assert_called_once()
+
+
+class TestApplyChangedMember(EnhancedTestCase):
+    """Field update happy path, termination short-circuit, and missing-member error."""
+
+    def setUp(self):
+        super().setUp()
+        settings = frappe.get_single("MijnRood Sync Settings")
+        self._original_status_mapping = list(settings.status_mapping or [])
+        membership_type = self.factory.ensure_membership_type("Member Sync Change Test Type")
+        settings.append("status_mapping", {
+            "mijnrood_status_id": 7002,
+            "label": "Member Sync Change Test",
+            "membership_type_string": "test",
+            "is_active": 1,
+            "verenigingen_membership_type": membership_type.name,
+        })
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.cache().delete_value("mijnrood_status_mapping")
+
+        def _cleanup_status_mapping():
+            s = frappe.get_single("MijnRood Sync Settings")
+            s.status_mapping = self._original_status_mapping
+            s.save(ignore_permissions=True)
+            frappe.db.commit()
+            frappe.cache().delete_value("mijnrood_status_mapping")
+
+        self.addCleanup(_cleanup_status_mapping)
+
+    def _cleanup_event(self, event_name):
+        """Test cleanup helper — force-deletes a MijnRood Sync Event."""
+        frappe.delete_doc("MijnRood Sync Event", event_name, ignore_permissions=True, force=True)
+
+    def _cleanup_member_by_member_id(self, member_id):
+        """Test cleanup helper — force-deletes a Member by member_id.
+
+        MemberImportService.create_or_update_member commits, so the row
+        survives EnhancedTestCase's transaction rollback and pollutes
+        subsequent runs.
+        """
+        name = frappe.db.get_value("Member", {"member_id": member_id}, "name")
+        if name:
+            frappe.delete_doc("Member", name, ignore_permissions=True, force=True)
+
+    def test_updates_existing_member_fields(self):
+        # Pre-clean to handle prior-run leftovers (MemberImportService commits)
+        self._cleanup_member_by_member_id("MR-CHG-1")
+        member = self.factory.create_member(
+            first_name="Henry",
+            last_name="OldName",
+            email="henry-change@example.org",
+            member_id="MR-CHG-1",
+        )
+        self.addCleanup(self._cleanup_member_by_member_id, "MR-CHG-1")
+
+        # EnhancedTestDataFactory uniquifies emails — use the stored value in the event.
+        # EnhancedTestDataFactory also appends a unique suffix to last_name, so the
+        # original "OldName" gets suffixed (e.g. "OldName1"). Use the stored value
+        # for old_data and a fresh literal for new_data.
+        event = _make_event(
+            event_type="Changed",
+            new_data={
+                "id": "MR-CHG-1",
+                "first_name": "Henry",
+                "last_name": "NewName",
+                "email": member.email,
+                "current_membership_status_id": 7002,
+            },
+            old_data={"id": "MR-CHG-1", "last_name": member.last_name},
+            changed_fields=["last_name"],
+            linked_member=member.name,
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        result = get_member_sync_service().apply_changed_member(event, orchestrator)
+
+        self.assertTrue(result["success"])
+        updated_last = frappe.db.get_value("Member", member.name, "last_name")
+        self.assertEqual(updated_last, "NewName")
+
+    def test_termination_short_circuits_field_update(self):
+        # Pre-clean to handle prior-run leftovers
+        self._cleanup_member_by_member_id("MR-CHG-2")
+        member = self.factory.create_member(
+            first_name="Iris",
+            last_name="Terminator",
+            email="iris-term@example.org",
+            member_id="MR-CHG-2",
+        )
+        self.addCleanup(self._cleanup_member_by_member_id, "MR-CHG-2")
+
+        event = _make_event(
+            event_type="Changed",
+            new_data={
+                "id": "MR-CHG-2",
+                "current_membership_status_id": 7002,
+            },
+            old_data={"id": "MR-CHG-2"},
+            changed_fields=["current_membership_status_id"],
+            linked_member=member.name,
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        orchestrator._check_and_handle_termination = MagicMock(
+            return_value={"success": True, "message": "Termination handled (stub)"}
+        )
+
+        result = get_member_sync_service().apply_changed_member(event, orchestrator)
+
+        self.assertTrue(result["success"])
+        self.assertIn("Termination handled", result["message"])
+        # Other helpers should NOT have been called because termination short-circuited
+        orchestrator._process_member_roles.assert_not_called()
+        orchestrator._create_related_records.assert_not_called()
+
+    def test_returns_failure_when_no_linked_member_found(self):
+        event = _make_event(
+            event_type="Changed",
+            new_data={
+                "id": "MR-CHG-MISSING",
+                "current_membership_status_id": 7002,
+            },
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        result = get_member_sync_service().apply_changed_member(event, orchestrator)
+
+        self.assertFalse(result["success"])
+        self.assertIn("No linked member found", result["message"])
