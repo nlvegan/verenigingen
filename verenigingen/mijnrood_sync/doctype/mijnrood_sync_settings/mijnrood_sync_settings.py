@@ -30,7 +30,7 @@ class MijnRoodSyncSettings(Document):
             return {"success": False, "message": error_msg}
 
     @frappe.whitelist()
-    def diagnose_ssh_auth(self):
+    def diagnose_ssh_auth(self, attempt_handshake: bool = False):
         """Report which SSH auth path would fire and what key (if any) parses.
 
         Does NOT return raw key material, passphrase, or password. Safe
@@ -38,9 +38,23 @@ class MijnRoodSyncSettings(Document):
         bit length, fingerprint, and which fields are populated) leaves
         the server. Useful for diagnosing AuthenticationException when
         you can't see what's in the encrypted Password fields.
+
+        When ``attempt_handshake`` is True, additionally opens a real
+        SSH Transport to the configured host, attempts user
+        authentication, and returns paramiko's DEBUG log lines and the
+        negotiated KEX / host-key / cipher / MAC algorithms. The
+        transport is closed before the response is returned. Useful for
+        debugging connection failures against legacy SSH servers
+        (e.g. OpenSSH 5.3) where the failure mode isn't visible from
+        the static config inspection alone.
         """
         import io
         import os
+
+        # frappe converts query string "true"/"1" to bool only sometimes —
+        # normalise so the JS dialog checkbox lands as a proper bool here.
+        if isinstance(attempt_handshake, str):
+            attempt_handshake = attempt_handshake.lower() in ("1", "true", "yes")
 
         import paramiko
 
@@ -50,6 +64,7 @@ class MijnRoodSyncSettings(Document):
             "ssh_host": self.ssh_host,
             "ssh_port": self.ssh_port,
             "ssh_username": self.ssh_username,
+            "ssh_legacy_compat": bool(getattr(self, "ssh_legacy_compat", 0)),
             "fields_set": {
                 "ssh_private_key": bool(self.ssh_private_key),
                 "ssh_private_key_path": bool(self.ssh_private_key_path),
@@ -108,7 +123,130 @@ class MijnRoodSyncSettings(Document):
         # Indicate which paramiko build is in use — relevant for the
         # ssh-rsa/ssh-dss host-key issues seen on paramiko 4.x.
         report["paramiko_version"] = paramiko.__version__
+
+        if attempt_handshake:
+            report["handshake"] = self._run_handshake_probe(auth)
+
         return report
+
+    def _run_handshake_probe(self, auth: dict) -> dict:
+        """Attempt a real SSH handshake and capture paramiko's DEBUG log.
+
+        Opens a paramiko Transport, applies the same algorithm overrides
+        used by the production sync (ssh-rsa host-key fallback, optional
+        rsa-sha2 disable when legacy compat is on), and tries pubkey or
+        password auth depending on what's configured. Returns a dict with
+        success/error status, negotiated algorithms, and the captured
+        log. The transport is always closed before returning.
+
+        Log capture targets only the ``paramiko`` logger to avoid pulling
+        in unrelated handlers, and routes through an isolated handler so
+        concurrent requests can't see each other's logs.
+        """
+        import io
+        import logging
+
+        import paramiko
+
+        from verenigingen.mijnrood_sync.ssh_auth import (
+            build_disabled_algorithms,
+            build_host_key_types,
+            parse_pkey_from_string,
+        )
+
+        host = self.ssh_host
+        port = int(self.ssh_port or 22)
+        username = self.ssh_username
+
+        result: dict = {
+            "attempted": True,
+            "host": host,
+            "port": port,
+        }
+
+        if not host or not username:
+            result["error"] = "ssh_host or ssh_username not set"
+            return result
+
+        # Set up isolated DEBUG capture on the paramiko logger.
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setLevel(logging.DEBUG)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        paramiko_logger = logging.getLogger("paramiko")
+        previous_level = paramiko_logger.level
+        paramiko_logger.setLevel(logging.DEBUG)
+        paramiko_logger.addHandler(handler)
+
+        transport = None
+        try:
+            disabled = build_disabled_algorithms(self)
+            if disabled:
+                result["disabled_algorithms"] = disabled
+                transport = paramiko.Transport((host, port), disabled_algorithms=disabled)
+            else:
+                transport = paramiko.Transport((host, port))
+
+            opts = transport.get_security_options()
+            opts.key_types = build_host_key_types()
+            result["offered_host_key_types"] = list(opts.key_types)
+
+            # Resolve pkey path here so we can probe key-file auth too.
+            pkey = auth.get("pkey")
+            if pkey is None and "key_filename" in auth:
+                with open(auth["key_filename"], encoding="utf-8") as f:
+                    pkey = parse_pkey_from_string(f.read(), auth.get("passphrase"))
+
+            if pkey is not None:
+                transport.connect(username=username, pkey=pkey)
+                result["auth_method"] = "publickey"
+            elif "password" in auth:
+                transport.connect(username=username, password=auth["password"])
+                result["auth_method"] = "password"
+            else:
+                result["error"] = "No auth method configured (key/password)"
+                return result
+
+            remote_key = transport.get_remote_server_key()
+            result["success"] = True
+            result["remote_host_key_type"] = remote_key.get_name() if remote_key else None
+            if remote_key is not None:
+                result["remote_host_key_fingerprint_sha256_hex"] = remote_key.get_fingerprint().hex()
+
+            # Snapshot the negotiated algorithms for diagnostic reference.
+            # These attributes only become populated after KEX completes.
+            result["negotiated"] = {
+                "local_kex_init": getattr(transport, "local_kex_init", None),
+                "remote_kex_init": getattr(transport, "remote_kex_init", None),
+                "remote_version": getattr(transport, "remote_version", None),
+                "local_version": getattr(transport, "local_version", None),
+            }
+            # local_kex_init / remote_kex_init are raw bytes blobs — drop
+            # them to keep the response readable. The DEBUG log shows the
+            # negotiated cipher/MAC/KEX in human-readable form already.
+            for k in ("local_kex_init", "remote_kex_init"):
+                if isinstance(result["negotiated"].get(k), (bytes, bytearray)):
+                    result["negotiated"][k] = "<bytes; see log>"
+        except Exception as exc:
+            result["success"] = False
+            result["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if transport is not None:
+                try:
+                    transport.close()
+                except Exception:
+                    pass
+            paramiko_logger.removeHandler(handler)
+            paramiko_logger.setLevel(previous_level)
+
+        # Cap the log to prevent runaway response size on chatty failures.
+        log_text = buf.getvalue()
+        max_len = 64 * 1024
+        if len(log_text) > max_len:
+            log_text = log_text[-max_len:]
+            result["log_truncated"] = True
+        result["paramiko_log"] = log_text
+        return result
 
     @frappe.whitelist()
     def trigger_sync_now(self):

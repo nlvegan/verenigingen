@@ -268,33 +268,78 @@ frappe.ui.form.on("MijnRood Sync Settings", {
 
         // Diagnose which auth path will fire and what key (if any) parses.
         // Returns only non-sensitive metadata (key type, fingerprint, paths).
+        // Optionally also attempts a real handshake and captures paramiko's
+        // DEBUG log — useful for debugging legacy SSH server failures.
         frm.add_custom_button(__("Diagnose SSH Auth"), function () {
-            frappe.call({
-                method: "diagnose_ssh_auth",
-                doc: frm.doc,
-                freeze: true,
-                freeze_message: __("Inspecting SSH configuration..."),
-                callback: function (r) {
-                    if (!r.message) return;
-                    const pretty = JSON.stringify(r.message, null, 2);
-                    const d = new frappe.ui.Dialog({
-                        title: __("SSH Auth Diagnostic"),
-                        fields: [
-                            {
-                                fieldtype: "Code",
-                                fieldname: "report",
-                                label: __("Report"),
-                                options: "JSON",
-                                read_only: 1,
-                                default: pretty,
-                            },
-                        ],
-                        primary_action_label: __("Close"),
-                        primary_action() { d.hide(); },
+            const prompt = new frappe.ui.Dialog({
+                title: __("SSH Auth Diagnostic"),
+                fields: [
+                    {
+                        fieldtype: "Check",
+                        fieldname: "attempt_handshake",
+                        label: __("Attempt real SSH handshake (captures paramiko DEBUG log)"),
+                        description: __(
+                            "Opens an SSH connection to the configured host using the saved credentials. " +
+                            "Useful for debugging connection failures against legacy SSH servers. " +
+                            "Closes the connection immediately and returns the log."
+                        ),
+                    },
+                ],
+                primary_action_label: __("Run Diagnostic"),
+                primary_action(values) {
+                    prompt.hide();
+                    frappe.call({
+                        method: "diagnose_ssh_auth",
+                        doc: frm.doc,
+                        args: { attempt_handshake: !!values.attempt_handshake },
+                        freeze: true,
+                        freeze_message: values.attempt_handshake
+                            ? __("Attempting SSH handshake...")
+                            : __("Inspecting SSH configuration..."),
+                        callback: function (r) {
+                            if (!r.message) return;
+                            const data = r.message;
+                            // Pull the paramiko log out for a separate viewer
+                            // — JSON pretty-printing mangles multi-line text.
+                            const log = data.handshake && data.handshake.paramiko_log;
+                            const summary = { ...data };
+                            if (summary.handshake) {
+                                summary.handshake = { ...summary.handshake };
+                                delete summary.handshake.paramiko_log;
+                            }
+                            const fields = [
+                                {
+                                    fieldtype: "Code",
+                                    fieldname: "report",
+                                    label: __("Report"),
+                                    options: "JSON",
+                                    read_only: 1,
+                                    default: JSON.stringify(summary, null, 2),
+                                },
+                            ];
+                            if (log) {
+                                fields.push({
+                                    fieldtype: "Code",
+                                    fieldname: "log",
+                                    label: __("Paramiko DEBUG Log"),
+                                    options: "Text",
+                                    read_only: 1,
+                                    default: log,
+                                });
+                            }
+                            const d = new frappe.ui.Dialog({
+                                title: __("SSH Auth Diagnostic"),
+                                size: "large",
+                                fields: fields,
+                                primary_action_label: __("Close"),
+                                primary_action() { d.hide(); },
+                            });
+                            d.show();
+                        },
                     });
-                    d.show();
                 },
             });
+            prompt.show();
         }, __("SSH Tunnel"));
 
         // Fetch Document Folders from MijnRood
