@@ -2841,7 +2841,7 @@ class TestPromoteApplicationMember(EnhancedTestCase):
             row_data = {"member_id": "1234", "email": "jane@example.com"}
 
             result = self.service._promote_application_member(
-                "MEM-001", old_data, new_data, row_data, event
+                old_data, new_data, row_data, event
             )
 
         self.assertTrue(result["success"])
@@ -2878,7 +2878,7 @@ class TestPromoteApplicationMember(EnhancedTestCase):
             row_data = {"member_id": "1234", "email": "jane@example.com"}
 
             self.service._promote_application_member(
-                "MEM-001", old_data, new_data, row_data, event
+                old_data, new_data, row_data, event
             )
 
         # The single set_value call should carry application_status but NOT status
@@ -2917,9 +2917,11 @@ class TestApplyApproved(EnhancedTestCase):
         result = self.service._apply_approved(event)
 
         self.assertTrue(result["success"])
+        # When event.linked_member is set, _locate_application_member returns it
+        # immediately and apply_approved calls promote (not the fall-through to
+        # _apply_new_member). promote_application_member no longer accepts a
+        # member_name — MemberImportService resolves the target from row_data.
         mock_promote.assert_called_once()
-        # First arg is member_name
-        self.assertEqual(mock_promote.call_args.args[0], "MEM-001")
 
     @patch.object(MijnRoodApplicationSyncService, "promote_application_member")
     @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
@@ -2940,11 +2942,13 @@ class TestApplyApproved(EnhancedTestCase):
         result = self.service._apply_approved(event)
 
         self.assertTrue(result["success"])
-        # First get_value call should be for application_id
+        # First get_value call should be for application_id (proves the lookup
+        # path runs even though promote_application_member no longer needs the
+        # resolved name — it's still required to decide promote vs fall-through).
         first_call = mock_frappe.db.get_value.call_args_list[0]
         self.assertEqual(first_call.args[0], "Member")
         self.assertEqual(first_call.args[1], {"application_id": "MR-APP-99"})
-        self.assertEqual(mock_promote.call_args.args[0], "MEM-002")
+        mock_promote.assert_called_once()
 
     @patch.object(MijnRoodEventApplicationService, "_apply_new_member")
     @patch.object(MijnRoodApplicationSyncService, "promote_application_member")

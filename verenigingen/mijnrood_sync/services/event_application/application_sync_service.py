@@ -254,7 +254,6 @@ class MijnRoodApplicationSyncService:
 
     def promote_application_member(
         self,
-        member_name: str,
         old_data: dict,
         new_data: dict,
         row_data: dict,
@@ -272,6 +271,12 @@ class MijnRoodApplicationSyncService:
         1. Field sync via MemberImportService.create_or_update_member
         2. Flipping application_status to Approved AND member.status to Active
         3. Running the standard related-records side effects via orchestrator
+
+        The target Member is resolved by MemberImportService's own cascade
+        lookup (member_id → email) from `row_data`. Callers should still
+        run their own lookup beforehand to decide whether to invoke this
+        method versus falling through to apply_new_member, but the
+        resolved name is not threaded through — it would be ignored.
 
         Transitional `orchestrator` parameter exposes _create_related_records.
         """
@@ -364,9 +369,7 @@ class MijnRoodApplicationSyncService:
         old_data_stub = {"id": old_member_id}
         new_data_stub = {"id": new_member_id, "current_membership_status_id": 1}
 
-        return self.promote_application_member(
-            match.name, old_data_stub, new_data_stub, row_data, event, orchestrator
-        )
+        return self.promote_application_member(old_data_stub, new_data_stub, row_data, event, orchestrator)
 
     def apply_approved(self, event, orchestrator) -> dict:
         """Apply an Approved event synthesized by the approval correlator.
@@ -397,9 +400,7 @@ class MijnRoodApplicationSyncService:
             )
             return orchestrator._apply_new_member(event)
 
-        return self.promote_application_member(
-            member_name, old_data or {}, new_data, row_data, event, orchestrator
-        )
+        return self.promote_application_member(old_data or {}, new_data, row_data, event, orchestrator)
 
 
 _service_instance: Optional[MijnRoodApplicationSyncService] = None

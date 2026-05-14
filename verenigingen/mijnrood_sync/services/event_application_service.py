@@ -641,7 +641,6 @@ class MijnRoodEventApplicationService(StatefulService):
 
     def _promote_application_member(
         self,
-        member_name: str,
         old_data: dict,
         new_data: dict,
         row_data: dict,
@@ -662,7 +661,7 @@ class MijnRoodEventApplicationService(StatefulService):
            Mollie, Membership + Dues Schedule, user account, notes)
         """
         return get_application_sync_service().promote_application_member(
-            member_name, old_data, new_data, row_data, event, self
+            old_data, new_data, row_data, event, self
         )
 
     def _try_promote_application(self, event, row_data: dict) -> Optional[dict]:

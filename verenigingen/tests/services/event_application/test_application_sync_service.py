@@ -574,7 +574,6 @@ class TestPromoteApplicationMember(EnhancedTestCase):
 
         orchestrator = _FakeOrchestrator()
         result = get_application_sync_service().promote_application_member(
-            member.name,
             safe_json_load(event.old_data),
             safe_json_load(event.new_data),
             row_data,
