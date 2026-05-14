@@ -657,6 +657,74 @@ class TestTryPromoteApplication(EnhancedTestCase):
         )
         self.assertIsNone(result)
 
+    def test_promotes_pending_member_when_email_matches(self):
+        # Pre-existing Pending Member that the correlator missed — emulates
+        # the apply-time-fallback scenario try_promote_application exists for.
+        member = self.factory.create_member(
+            first_name="Pending",
+            last_name="Apply-time",
+            email="try-promote-pending@example.org",
+        )
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {
+                "application_status": "Pending",
+                "status": "Pending",
+                "member_id": "MR-TRY-OLD-1",
+            },
+            update_modified=False,
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+        self.addCleanup(self._cleanup_by_member_id, "MR-TRY-NEW-1")
+        self.addCleanup(self._cleanup_by_member_id, "MR-TRY-OLD-1")
+
+        event = _make_event(self._row_counter, event_type="New")
+        self.addCleanup(self._cleanup_event, event.name)
+
+        # row_data mirrors what map_member_fields would produce post-promotion:
+        # new member_id, same email, status_id that resolves to Active.
+        row_data = {
+            "first_name": "Pending",
+            "last_name": member.last_name,
+            "email": member.email,
+            "member_id": "MR-TRY-NEW-1",
+            "membership_type": self.factory.ensure_membership_type(
+                "Try Promote Test Type"
+            ).name,
+        }
+
+        orchestrator = _FakeOrchestrator()
+        result = get_application_sync_service().try_promote_application(
+            event, row_data, orchestrator
+        )
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result["success"])
+        # try_promote_application stubs current_membership_status_id=1 (active)
+        # so promotion flips application_status to Approved AND status to Active.
+        app_status = frappe.db.get_value("Member", member.name, "application_status")
+        self.assertEqual(app_status, "Approved")
+        # _create_related_records was invoked once by promote_application_member.
+        orchestrator._create_related_records.assert_called_once()
+
+    def _cleanup_member_and_customer(self, member_name):
+        """Cleanup leaked Member + linked Customer (MemberImportService commits)."""
+        customer = frappe.db.get_value("Member", member_name, "customer")
+        if customer:
+            try:
+                frappe.delete_doc("Customer", customer, ignore_permissions=True, force=True)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("Member", member_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+
+    def _cleanup_by_member_id(self, member_id):
+        for name in frappe.get_all("Member", filters={"member_id": member_id}, pluck="name"):
+            self._cleanup_member_and_customer(name)
+
 
 class TestApplyApproved(EnhancedTestCase):
     """Approved event correlator path."""
