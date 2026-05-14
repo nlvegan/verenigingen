@@ -32,6 +32,8 @@ logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.related
 class MijnRoodRelatedRecordsOrchestrator:
     """Creates ancillary records (address, Mollie, membership, dues, etc.) for a synced Member."""
 
+    _TERMINAL_STATUSES = frozenset(("Quit", "Banned", "Deceased"))
+
     def __init__(self):
         self.logger = logger
 
@@ -97,6 +99,45 @@ class MijnRoodRelatedRecordsOrchestrator:
             return _("Address creation failed: {0}").format(str(e)[:200])
 
         return None
+
+    def _ensure_mollie_data(self, member_name: str, row_data: dict) -> Optional[str]:
+        """Sync Mollie customer/subscription IDs to Member and Customer records.
+
+        Uses MollieSyncService which handles validation, Customer creation
+        if needed, and writing IDs to both Member and Customer records.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        customer_id = row_data.get("custom_mollie_customer_id")
+        subscription_id = row_data.get("custom_mollie_subscription_id")
+        if not customer_id and not subscription_id:
+            return None
+
+        from verenigingen.services.csv_import.mollie_sync_service import (
+            get_mollie_sync_service,
+        )
+
+        try:
+            member_doc = frappe.get_doc("Member", member_name)
+            is_terminal = member_doc.status in self._TERMINAL_STATUSES
+            sub_status = ("canceled" if is_terminal else "active") if subscription_id else None
+            mollie_data = {
+                "custom_mollie_customer_id": customer_id,
+                "custom_mollie_subscription_id": subscription_id,
+                "custom_subscription_status": sub_status,
+            }
+            get_mollie_sync_service().sync_mollie_data(member_doc, mollie_data)
+
+            self.logger.info("Mollie data synced for member %s (terminal=%s)", member_name, is_terminal)
+            return _("Mollie data synced")
+        except Exception as e:
+            self.logger.error("Mollie sync failed for %s: %s", member_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Mollie Sync Failed: {member_name}",
+            )
+            return _("Mollie sync failed: {0}").format(str(e)[:200])
 
 
 _service_instance: Optional[MijnRoodRelatedRecordsOrchestrator] = None

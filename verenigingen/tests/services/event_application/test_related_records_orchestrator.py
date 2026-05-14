@@ -229,3 +229,81 @@ class TestEnsureAddress(EnhancedTestCase):
             frappe.db.get_value("Member", member.name, "primary_address"),
             primary_address,
         )
+
+
+class TestEnsureMollieData(EnhancedTestCase):
+    """Syncs Mollie customer/subscription IDs to Member + Customer records.
+
+    The source method short-circuits when both customer_id and
+    subscription_id are absent, then delegates to MollieSyncService which
+    validates IDs (cst_*/sub_* format) and writes to both Member and
+    Customer rows. Terminal-status members get subscription_status set
+    to "canceled" instead of "active".
+    """
+
+    def test_returns_none_when_no_mollie_ids(self):
+        member = self.factory.create_member(
+            first_name="NoMollie", last_name="Test",
+            email="no-mollie@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        # Neither customer_id nor subscription_id present → short-circuit
+        result = get_related_records_orchestrator()._ensure_mollie_data(
+            member.name, {"other_field": "ignored"}
+        )
+        self.assertIsNone(result)
+
+        # Empty strings count as falsy → also short-circuit
+        result = get_related_records_orchestrator()._ensure_mollie_data(
+            member.name,
+            {"custom_mollie_customer_id": "", "custom_mollie_subscription_id": ""},
+        )
+        self.assertIsNone(result)
+
+    def test_syncs_customer_id_to_active_member(self):
+        member = self.factory.create_member(
+            first_name="MollieCust", last_name="Test",
+            email="mollie-cust@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        result = get_related_records_orchestrator()._ensure_mollie_data(
+            member.name,
+            {"custom_mollie_customer_id": "cst_abcdefghij"},
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Mollie data synced", result)
+
+        # Member.mollie_customer_id is set
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "mollie_customer_id"),
+            "cst_abcdefghij",
+        )
+
+    def test_sets_canceled_status_for_terminal_member(self):
+        # Terminal status member (Quit is in _TERMINAL_STATUSES) should
+        # get subscription_status="canceled" when a subscription_id is
+        # supplied — guards against ongoing charges on terminated members.
+        member = self.factory.create_member(
+            first_name="MollieQuit", last_name="Test",
+            email="mollie-quit@example.org",
+            status="Quit",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        result = get_related_records_orchestrator()._ensure_mollie_data(
+            member.name,
+            {
+                "custom_mollie_customer_id": "cst_abcdefghij",
+                "custom_mollie_subscription_id": "sub_abcdefghij",
+            },
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Mollie data synced", result)
+
+        # Terminal-status member → subscription_status forced to "canceled"
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "subscription_status"),
+            "canceled",
+        )
