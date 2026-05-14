@@ -226,6 +226,113 @@ class MijnRoodRelatedRecordsOrchestrator:
 
         return self._assign_chapter_from_division(member_name, new_division_id, event)
 
+    def _ensure_user_account(self, member_name: str, orchestrator) -> Optional[str]:
+        """Queue an Account Creation Request for a synced member if enabled.
+
+        Checks the 'create_member_accounts' setting. If disabled or the member
+        already has a user account, returns None. Otherwise delegates to the
+        standard ACR pipeline which handles deduplication (existing user,
+        pending request) automatically.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        if not frappe.db.get_single_value("MijnRood Sync Settings", "create_member_accounts"):
+            return None
+
+        user = frappe.db.get_value("Member", member_name, "user")
+        if user:
+            return None
+
+        # Skip if ACR was already queued for this member in the current event
+        # (e.g. via _ensure_volunteer → create_volunteer_from_member)
+        if member_name in orchestrator._acr_queued_members:
+            return None
+
+        from verenigingen.utils.account_creation_manager import (
+            queue_account_creation_for_member,
+        )
+
+        try:
+            result = queue_account_creation_for_member(
+                member_name,
+                roles=["Verenigingen Member"],
+                role_profile="Verenigingen Member",
+                priority="Low",
+            )
+            if result.success:
+                orchestrator._acr_queued_members.add(member_name)
+                request_name = result.data.get("request_name", "") if result.data else ""
+                self.logger.info(
+                    "Queued account creation for member %s (request=%s)",
+                    member_name,
+                    request_name,
+                )
+                return _("Account creation queued ({0})").format(request_name)
+            else:
+                # Expected skips (no email, duplicate request) — debug only
+                self.logger.debug(
+                    "Account creation skipped for %s: %s",
+                    member_name,
+                    result.error_message,
+                )
+                return None
+        except Exception as e:
+            self.logger.warning("Account creation failed for %s: %s", member_name, e)
+            return _("Account creation failed: {0}").format(str(e)[:200])
+
+    def _ensure_user_account_for_volunteer(self, member_name: str, orchestrator) -> Optional[str]:
+        """Queue an ACR for a volunteer/staff member who needs a User account.
+
+        Unlike ``_ensure_user_account()`` (which respects the global
+        ``create_member_accounts`` toggle), this is unconditional — volunteers
+        being assigned to teams or boards always need a User account for
+        the role profile system to work.
+
+        The ACR pipeline handles all idempotency checks (existing user,
+        pending request, missing email).
+
+        Returns:
+            Human-readable status message, or None if user exists / ACR already queued.
+        """
+        user = frappe.db.get_value("Member", member_name, "user")
+        if user:
+            return None
+
+        if member_name in orchestrator._acr_queued_members:
+            return None
+
+        from verenigingen.utils.account_creation_manager import (
+            queue_account_creation_for_member,
+        )
+
+        try:
+            result = queue_account_creation_for_member(
+                member_name,
+                roles=["Verenigingen Volunteer"],
+                role_profile="Verenigingen Volunteer",
+                priority="Medium",
+            )
+            if result.success:
+                orchestrator._acr_queued_members.add(member_name)
+                request_name = result.data.get("request_name", "") if result.data else ""
+                self.logger.info(
+                    "Queued account creation for volunteer %s (request=%s)",
+                    member_name,
+                    request_name,
+                )
+                return _("Account creation queued for volunteer ({0})").format(request_name)
+            else:
+                self.logger.debug(
+                    "Account creation skipped for volunteer %s: %s",
+                    member_name,
+                    result.error_message,
+                )
+                return None
+        except Exception as e:
+            self.logger.warning("Account creation failed for volunteer %s: %s", member_name, e)
+            return _("Account creation failed: {0}").format(str(e)[:200])
+
 
 _service_instance: Optional[MijnRoodRelatedRecordsOrchestrator] = None
 

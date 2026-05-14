@@ -460,3 +460,152 @@ class TestHandleDivisionFieldChange(EnhancedTestCase):
             service._assign_chapter_from_division = original_assign
 
         self.assertEqual(result, "Assigned to chapter 'Amsterdam'")
+
+
+def _cleanup_user(name):
+    """Delete a User and commit."""
+    try:
+        if frappe.db.exists("User", name):
+            frappe.delete_doc("User", name, ignore_permissions=True, force=True)
+    except Exception:
+        pass
+    frappe.db.commit()
+
+
+class TestEnsureUserAccount(EnhancedTestCase):
+    """Queues an Account Creation Request for a synced Member.
+
+    Respects the global ``create_member_accounts`` toggle in MijnRood Sync
+    Settings. When enabled and the Member has no User, delegates to the
+    ACR pipeline and records the Member in
+    ``orchestrator._acr_queued_members`` to dedupe across the current
+    event.
+    """
+
+    def _set_create_member_accounts(self, value: int):
+        """Toggle ``create_member_accounts`` and register a restore."""
+        original = frappe.db.get_single_value(
+            "MijnRood Sync Settings", "create_member_accounts"
+        )
+        frappe.db.set_single_value(
+            "MijnRood Sync Settings", "create_member_accounts", value
+        )
+        frappe.db.commit()
+
+        def _restore():
+            frappe.db.set_single_value(
+                "MijnRood Sync Settings", "create_member_accounts", original or 0
+            )
+            frappe.db.commit()
+
+        self.addCleanup(_restore)
+
+    def test_returns_none_when_create_member_accounts_disabled(self):
+        self._set_create_member_accounts(0)
+
+        member = self.factory.create_member(
+            first_name="DisabledACR", last_name="Test",
+            email="disabled-acr@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+        frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
+
+        orchestrator = _FakeOrchestrator()
+        orchestrator._acr_queued_members = set()
+
+        result = get_related_records_orchestrator()._ensure_user_account(
+            member.name, orchestrator
+        )
+        self.assertIsNone(result)
+        self.assertNotIn(member.name, orchestrator._acr_queued_members)
+
+    def test_queues_acr_when_enabled_and_no_user(self):
+        self._set_create_member_accounts(1)
+
+        member = self.factory.create_member(
+            first_name="QueueACR", last_name="Test",
+            email="queue-acr@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+        frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
+
+        orchestrator = _FakeOrchestrator()
+        orchestrator._acr_queued_members = set()
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.data = {"request_name": "ACR-XYZ-001"}
+
+        # Mock justified: Infrastructure - ACR queueing covered by its own suite
+        with patch(
+            "verenigingen.utils.account_creation_manager.queue_account_creation_for_member",
+            return_value=mock_result,
+        ) as mock_queue:
+            result = get_related_records_orchestrator()._ensure_user_account(
+                member.name, orchestrator
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIn("ACR-XYZ-001", result)
+        mock_queue.assert_called_once_with(
+            member.name,
+            roles=["Verenigingen Member"],
+            role_profile="Verenigingen Member",
+            priority="Low",
+        )
+        self.assertIn(member.name, orchestrator._acr_queued_members)
+
+
+class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
+    """Queues an ACR for a volunteer Member who lacks a User account.
+
+    Unconditional (no toggle); short-circuits if the Member already has a
+    User or has already been queued in the current event's dedup set.
+    """
+
+    def _create_user_for_member(self, email, first_name):
+        """Factory helper: create a User and return it. Registers cleanup."""
+        user_doc = frappe.get_doc({
+            "doctype": "User",
+            "email": email,
+            "first_name": first_name,
+            "send_welcome_email": 0,
+            "enabled": 1,
+        }).insert(ignore_permissions=True)
+        self.addCleanup(_cleanup_user, user_doc.name)
+        return user_doc
+
+    def test_returns_none_when_member_already_has_user(self):
+        member = self.factory.create_member(
+            first_name="VolHasUser", last_name="Test",
+            email="vol-has-user@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        user_doc = self._create_user_for_member(member.email, "VolHasUser")
+        frappe.db.set_value("Member", member.name, "user", user_doc.name, update_modified=False)
+
+        orchestrator = _FakeOrchestrator()
+        orchestrator._acr_queued_members = set()
+
+        result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(
+            member.name, orchestrator
+        )
+        self.assertIsNone(result)
+        self.assertNotIn(member.name, orchestrator._acr_queued_members)
+
+    def test_returns_none_when_already_in_acr_queue(self):
+        member = self.factory.create_member(
+            first_name="VolDup", last_name="Test",
+            email="vol-dup-acr@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+        frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
+
+        orchestrator = _FakeOrchestrator()
+        orchestrator._acr_queued_members = {member.name}
+
+        result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(
+            member.name, orchestrator
+        )
+        self.assertIsNone(result)
