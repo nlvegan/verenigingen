@@ -307,3 +307,156 @@ class TestEnsureMollieData(EnhancedTestCase):
             frappe.db.get_value("Member", member.name, "subscription_status"),
             "canceled",
         )
+
+
+def _cleanup_chapter(name):
+    """Delete a Chapter (and its child rows) and commit."""
+    try:
+        if frappe.db.exists("Chapter", name):
+            frappe.delete_doc("Chapter", name, ignore_permissions=True, force=True)
+    except Exception:
+        pass
+    frappe.db.commit()
+
+
+class TestAssignChapterFromDivision(EnhancedTestCase):
+    """Assigns a member to the Chapter mapped from a MijnRood division_id.
+
+    The orchestrator resolves the division_id via mapping_service, then
+    delegates to ChapterAssignmentService.assign_with_cleanup() which
+    adds a Chapter Member row + ends any pre-existing chapter memberships.
+    """
+
+    def test_returns_error_when_division_does_not_resolve(self):
+        member = self.factory.create_member(
+            first_name="UnresolvedDiv", last_name="Test",
+            email="unresolved-div@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        event = MagicMock()
+        event.name = "EVT-RR-001"
+
+        # 987654 has no Chapter with mijnrood_division_id=987654 nor a
+        # MijnRood Sync State row that aliases to one → returns error.
+        result = get_related_records_orchestrator()._assign_chapter_from_division(
+            member.name, 987654, event
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("987654", result)
+        self.assertIn("does not match", result)
+
+    def test_assigns_member_to_chapter(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=4242)
+        self.addCleanup(_cleanup_chapter, chapter.name)
+
+        member = self.factory.create_member(
+            first_name="AssignDiv", last_name="Test",
+            email="assign-div@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        event = MagicMock()
+        event.name = "EVT-RR-002"
+
+        result = get_related_records_orchestrator()._assign_chapter_from_division(
+            member.name, 4242, event
+        )
+
+        self.assertIsNotNone(result)
+        self.assertIn(chapter.name, result)
+
+        # Chapter Member row exists for this member on the target chapter
+        cm_count = frappe.db.count(
+            "Chapter Member",
+            filters={"parent": chapter.name, "member": member.name, "enabled": 1},
+        )
+        self.assertEqual(cm_count, 1)
+
+    def test_idempotent_when_member_already_in_chapter(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=4343)
+        self.addCleanup(_cleanup_chapter, chapter.name)
+
+        member = self.factory.create_member(
+            first_name="DupDiv", last_name="Test",
+            email="dup-div@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        event = MagicMock()
+        event.name = "EVT-RR-003"
+
+        orchestrator = get_related_records_orchestrator()
+
+        # First call adds the member to the chapter
+        first = orchestrator._assign_chapter_from_division(member.name, 4343, event)
+        self.assertIsNotNone(first)
+
+        before = frappe.db.count(
+            "Chapter Member",
+            filters={"parent": chapter.name, "member": member.name, "enabled": 1},
+        )
+        self.assertEqual(before, 1)
+
+        # Second call: member already in chapter → no duplicate row added.
+        # assign_with_cleanup returns success=True with an "already in"
+        # message; the orchestrator surfaces the message but does NOT add
+        # a second Chapter Member row.
+        second = orchestrator._assign_chapter_from_division(member.name, 4343, event)
+        # second may be a message (success path) — assert no duplicate
+        after = frappe.db.count(
+            "Chapter Member",
+            filters={"parent": chapter.name, "member": member.name, "enabled": 1},
+        )
+        self.assertEqual(after, 1, "Second call must not add a duplicate Chapter Member row")
+
+
+class TestHandleDivisionFieldChange(EnhancedTestCase):
+    """Routes division_id changes to _assign_chapter_from_division.
+
+    Pure dispatcher logic — _assign_chapter_from_division is covered by
+    its own test class, so we mock it here.
+    """
+
+    def test_returns_none_when_field_not_in_changes(self):
+        member = self.factory.create_member(
+            first_name="NoChange", last_name="Test",
+            email="no-change@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        changed_fields = [{"field": "first_name", "old": "A", "new": "B"}]
+        event = MagicMock()
+        event.name = "EVT-RR-004"
+
+        result = get_related_records_orchestrator()._handle_division_field_change(
+            member.name, changed_fields, event, field_name="division_id"
+        )
+        self.assertIsNone(result)
+
+    def test_delegates_to_assign_chapter_when_field_changed(self):
+        member = self.factory.create_member(
+            first_name="DivChange", last_name="Test",
+            email="div-change@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        changed_fields = [{"field": "division_id", "old": "1", "new": "7"}]
+        event = MagicMock()
+        event.name = "EVT-RR-005"
+
+        service = get_related_records_orchestrator()
+        original_assign = service._assign_chapter_from_division
+        # Mock justified: Routing - testing dispatcher logic,
+        # _assign_chapter_from_division covered elsewhere.
+        service._assign_chapter_from_division = MagicMock(
+            return_value="Assigned to chapter 'Amsterdam'"
+        )
+        try:
+            result = service._handle_division_field_change(
+                member.name, changed_fields, event, field_name="division_id"
+            )
+        finally:
+            service._assign_chapter_from_division = original_assign
+
+        self.assertEqual(result, "Assigned to chapter 'Amsterdam'")

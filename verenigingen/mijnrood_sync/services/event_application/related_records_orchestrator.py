@@ -25,6 +25,12 @@ from typing import Optional
 
 import frappe
 from frappe import _
+from frappe.utils import today
+
+from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
+    get_mapping_service,
+)
+from verenigingen.mijnrood_sync.utils import safe_int
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.related_records")
 
@@ -138,6 +144,87 @@ class MijnRoodRelatedRecordsOrchestrator:
                 f"MijnRood Sync - Mollie Sync Failed: {member_name}",
             )
             return _("Mollie sync failed: {0}").format(str(e)[:200])
+
+    def _assign_chapter_from_division(
+        self, member_name: str, division_id: int, event, join_date: str = None
+    ) -> Optional[str]:
+        """Resolve a division_id to a chapter and assign the member.
+
+        Args:
+            join_date: Optional chapter join date (e.g. member_since from MijnRood).
+                       Defaults to today() if not provided or invalid.
+
+        Returns a human-readable message, or None if nothing was done.
+        """
+        # Validate join_date — fall back to today() for unparseable or future dates
+        if join_date:
+            from frappe.utils import getdate
+
+            try:
+                if getdate(join_date) > getdate(today()):
+                    self.logger.warning(
+                        "Join date %s is in the future for member %s, using today", join_date, member_name
+                    )
+                    join_date = None
+            except Exception:
+                self.logger.warning(
+                    "Invalid join_date '%s' for member %s, using today", join_date, member_name
+                )
+                join_date = None
+
+        chapter_name = get_mapping_service().resolve_division_id(division_id)
+        if not chapter_name:
+            return _("Division ID {0} does not match any Chapter").format(division_id)
+
+        if not frappe.db.exists("Chapter", chapter_name):
+            return _("Chapter '{0}' does not exist in Frappe").format(chapter_name)
+
+        from verenigingen.services.chapter.chapter_assignment_service import (
+            ChapterAssignmentService,
+        )
+
+        try:
+            result = ChapterAssignmentService().assign_with_cleanup(
+                member=member_name,
+                chapter=chapter_name,
+                note=f"MijnRood sync: chapter assignment (event {event.name})",
+                join_date=join_date,
+            )
+        except frappe.ValidationError as e:
+            self.logger.info("Chapter assignment skipped for %s: %s", member_name, e)
+            return None
+        except Exception as e:
+            self.logger.error("Chapter assignment failed for %s: %s", member_name, e)
+            frappe.log_error(frappe.get_traceback(), f"MijnRood Chapter Assignment Failed: {member_name}")
+            return _("Chapter assignment error: {0}").format(str(e))
+
+        if result.get("success"):
+            self.logger.info("Assigned member %s to chapter %s", member_name, chapter_name)
+            return _("Assigned to chapter '{0}'").format(chapter_name)
+        return _("Chapter assignment failed: {0}").format(result.get("message", "unknown"))
+
+    def _handle_division_field_change(
+        self, member_name: str, changed_fields: list, event, field_name: str = "division_id"
+    ) -> Optional[str]:
+        """Handle division_id or preferred_division_id changes as chapter reassignment.
+
+        Scans changed_fields for the given field_name, resolves the new
+        division to a chapter, and reassigns the member.
+        """
+        division_change = None
+        for change in changed_fields:
+            if change.get("field") == field_name:
+                division_change = change
+                break
+
+        if not division_change:
+            return None
+
+        new_division_id = safe_int(division_change.get("new"))
+        if new_division_id is None:
+            return None
+
+        return self._assign_chapter_from_division(member_name, new_division_id, event)
 
 
 _service_instance: Optional[MijnRoodRelatedRecordsOrchestrator] = None
