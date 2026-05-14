@@ -252,6 +252,155 @@ class MijnRoodApplicationSyncService:
         event.linked_member = member_name
         return {"success": True, "message": "; ".join(messages)}
 
+    def promote_application_member(
+        self,
+        member_name: str,
+        old_data: dict,
+        new_data: dict,
+        row_data: dict,
+        event,
+        orchestrator,
+    ) -> dict:
+        """Promote a local Pending Member to Approved/Active using MijnRood data.
+
+        Shared by:
+        - apply_approved (correlator-driven path, preferred)
+        - try_promote_application (apply-time cross-run safety net)
+        - PR #2's member_sync_service.apply_new_member (via orchestrator)
+
+        Handles:
+        1. Field sync via MemberImportService.create_or_update_member
+        2. Flipping application_status to Approved AND member.status to Active
+        3. Running the standard related-records side effects via orchestrator
+
+        Transitional `orchestrator` parameter exposes _create_related_records.
+        """
+        from verenigingen.services.csv_import.member_import_service import (
+            get_member_import_service,
+        )
+
+        service = get_member_import_service()
+        status, updated_name = service.create_or_update_member(
+            row_data=row_data,
+            import_doc_name=f"MijnRood Sync: {event.name}",
+        )
+        if status not in ("created", "updated"):
+            return {
+                "success": False,
+                "message": _("Application promotion failed: {0}").format(status),
+            }
+
+        old_member_id = old_data.get("id")
+        new_member_id = new_data.get("id")
+
+        updates = {
+            "application_status": "Approved",
+            "review_notes": (
+                f"Approved via MijnRood (event {event.name}). "
+                f"Application id {old_member_id} → member_id {new_member_id}."
+            ),
+        }
+
+        status_id = safe_int(new_data.get("current_membership_status_id"))
+        if status_id is not None and status_id in get_active_status_ids():
+            updates["status"] = "Active"
+        elif status_id is not None:
+            self.logger.warning(
+                "Promotion event %s carries unexpected MijnRood status id %s for member %s; "
+                "leaving member.status unchanged",
+                event.name,
+                status_id,
+                updated_name,
+            )
+
+        frappe.db.set_value("Member", updated_name, updates, update_modified=False)
+
+        event.linked_member = updated_name
+
+        related_msgs = orchestrator._create_related_records(updated_name, row_data, event)
+
+        messages = [
+            _("Application {0} promoted (id {1} → member_id {2})").format(
+                updated_name, old_member_id, new_member_id
+            )
+        ]
+        messages.extend(related_msgs)
+        return {"success": True, "message": "; ".join(messages)}
+
+    def try_promote_application(self, event, row_data: dict, orchestrator) -> Optional[dict]:
+        """Handle MijnRood application->member promotion (apply-time safety net).
+
+        This runs when the correlator didn't pair events at poll time (rare:
+        cross-run split or low-confidence match). Detection: email match
+        where the existing member has application_status=Pending.
+        Promotion is delegated to promote_application_member.
+        """
+        email = row_data.get("email")
+        match = frappe.db.get_value(
+            "Member",
+            {"email": email},
+            ["name", "member_id", "application_status"],
+            as_dict=True,
+        )
+        if not match or match.application_status != "Pending":
+            return None
+
+        old_member_id = match.member_id
+        new_member_id = row_data.get("member_id")
+
+        self.logger.info(
+            "Promoting application %s (member_id %s → %s) via event %s (apply-time fallback)",
+            match.name,
+            old_member_id,
+            new_member_id,
+            event.name,
+        )
+
+        # Build minimal old_data + new_data stubs — apply-time path doesn't
+        # have the original application row handy. promote_application_member
+        # only uses old_data["id"] for the log message; new_data needs
+        # current_membership_status_id for the status-flip path, default to
+        # 1 (active) which is correct for a promotion.
+        old_data_stub = {"id": old_member_id}
+        new_data_stub = {"id": new_member_id, "current_membership_status_id": 1}
+
+        return self.promote_application_member(
+            match.name, old_data_stub, new_data_stub, row_data, event, orchestrator
+        )
+
+    def apply_approved(self, event, orchestrator) -> dict:
+        """Apply an Approved event synthesized by the approval correlator.
+
+        The event's old_data is the deleted application row; new_data is the
+        newly-created admin_member row. We locate the local Pending Member
+        that was created when the application first synced, then delegate to
+        promote_application_member.
+
+        Transitional `orchestrator` parameter exposes _apply_new_member
+        (god-class shim into PR #2's member_sync_service) for fallback.
+        """
+        new_data = safe_json_load(event.new_data)
+        old_data = safe_json_load(event.old_data)
+        if not new_data:
+            return {"success": False, "message": _("No new data in approved event")}
+
+        row_data = get_mapping_service().map_member_fields(new_data)
+
+        member_name = self._locate_application_member(old_data or {}, new_data, event.linked_member)
+        if not member_name:
+            # Defensive fallback — shouldn't happen in practice because the
+            # application event already created a Pending Member that the
+            # correlator linked to this event.
+            self.logger.warning(
+                "Approved event %s could not locate a Pending Member; falling " "through to apply_new_member",
+                event.name,
+            )
+            return orchestrator._apply_new_member(event)
+
+        return self.promote_application_member(
+            member_name, old_data or {}, new_data, row_data, event, orchestrator
+        )
+
 
 _service_instance: Optional[MijnRoodApplicationSyncService] = None
 
