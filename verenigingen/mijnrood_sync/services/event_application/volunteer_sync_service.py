@@ -221,6 +221,227 @@ class MijnRoodVolunteerSyncService:
             team_doc.remove(row)
         return len(orphan_rows)
 
+    def _ensure_chapter_board_membership(
+        self,
+        member_name: str,
+        division_id: int,
+        chapter_role: str,
+        event=None,
+    ) -> Optional[str]:
+        """Add member to a chapter's board if not already present.
+
+        Resolves division_id → Chapter, checks for existing board membership,
+        and appends to the Chapter's board_members child table.
+
+        Saving the Chapter triggers BoardManager.handle_board_member_additions(),
+        which assigns the Frappe role and syncs the user's role profile.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        chapter_name = get_mapping_service().resolve_division_id(division_id)
+        if not chapter_name:
+            return _("Division ID {0} does not match any Chapter").format(division_id)
+
+        if not frappe.db.exists("Chapter", chapter_name):
+            return _("Chapter '{0}' does not exist").format(chapter_name)
+
+        # Need a Volunteer record for the board member
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            get_volunteer_for_member,
+        )
+
+        volunteer_name = get_volunteer_for_member(member_name)
+        if not volunteer_name:
+            return _("No Volunteer record for {0} — cannot add to chapter board").format(member_name)
+
+        if not frappe.db.exists("Chapter Role", chapter_role):
+            self.logger.warning("Chapter Role '%s' does not exist, skipping board assignment", chapter_role)
+            return _("Chapter Role '{0}' does not exist").format(chapter_role)
+
+        # Check if already on this chapter's board (active)
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        for bm in chapter_doc.board_members or []:
+            if bm.volunteer == volunteer_name and bm.is_active:
+                return None  # Already on board
+
+        # Add to board
+        try:
+            chapter_doc.append(
+                "board_members",
+                {
+                    "volunteer": volunteer_name,
+                    "chapter_role": chapter_role,
+                    "from_date": today(),
+                    "is_active": 1,
+                    "notes": "Added via MijnRood sync (event {0})".format(event.name if event else "N/A"),
+                },
+            )
+            # Security: System-initiated board assignment from authoritative MijnRood data
+            # Role assignment is handled by Chapter.before_save → BoardManager.handle_board_member_additions
+            chapter_doc.save(ignore_permissions=True)
+
+            self.logger.info(
+                "Added %s to chapter %s board as %s (event %s)",
+                volunteer_name,
+                chapter_name,
+                chapter_role,
+                event.name if event else "N/A",
+            )
+            return _("Added to chapter '{0}' board as {1}").format(chapter_name, chapter_role)
+        except Exception as e:
+            self.logger.error(
+                "Failed to add %s to chapter %s board: %s",
+                volunteer_name,
+                chapter_name,
+                e,
+            )
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Chapter Board Addition Failed: {member_name}",
+            )
+            return _("Chapter board addition failed: {0}").format(str(e)[:200])
+
+    def _end_chapter_board_membership(
+        self,
+        member_name: str,
+        division_id: int,
+        event=None,
+    ) -> Optional[str]:
+        """Remove a member's active chapter board membership when their division contact role is revoked.
+
+        Uses BoardManager.bulk_remove_board_members() which deletes the child table
+        row entirely (volunteer assignment history is preserved on the Volunteer record).
+        The save triggers BoardManager.handle_board_member_changes() for role cleanup.
+
+        Args:
+            member_name: Vereinigingen Member name
+            division_id: MijnRood division ID to resolve to Chapter
+            event: Sync event for logging context
+
+        Returns:
+            Human-readable status message, or None if not on the board.
+        """
+        chapter_name = get_mapping_service().resolve_division_id(division_id)
+        if not chapter_name:
+            return _("Division ID {0} does not match any Chapter").format(division_id)
+
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            get_volunteer_for_member,
+        )
+
+        volunteer_name = get_volunteer_for_member(member_name)
+        if not volunteer_name:
+            return None  # No volunteer record — nothing to remove
+
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+
+        # Find active board membership(s) for this volunteer
+        target_rows = [
+            bm for bm in (chapter_doc.board_members or []) if bm.volunteer == volunteer_name and bm.is_active
+        ]
+
+        if not target_rows:
+            return None  # Not on this chapter's board
+
+        try:
+            reason = "MijnRood sync — division contact revoked (event {0})".format(
+                event.name if event else "N/A"
+            )
+            removal_data = [
+                {
+                    "volunteer": bm.volunteer,
+                    "chapter_role": bm.chapter_role,
+                    "from_date": str(bm.from_date),
+                    "end_date": str(today()),
+                    "reason": reason,
+                }
+                for bm in target_rows
+            ]
+
+            result = (
+                chapter_doc.board_manager.bulk_remove_board_members(  # ast-skip: dynamic manager property
+                    removal_data
+                )
+            )
+
+            if result.get("success"):
+                self.logger.info(
+                    "Removed board membership for volunteer %s in chapter %s (member %s, event %s)",
+                    volunteer_name,
+                    chapter_name,
+                    member_name,
+                    event.name if event else "N/A",
+                )
+                return _("Removed from chapter '{0}' board").format(chapter_name)
+            else:
+                error_msg = result.get("error") or "; ".join(result.get("errors", []))
+                self.logger.error(
+                    "BoardManager.bulk_remove_board_members failed for %s in %s: %s",
+                    volunteer_name,
+                    chapter_name,
+                    error_msg,
+                )
+                return _("Chapter board removal failed: {0}").format(str(error_msg)[:200])
+        except Exception as e:
+            self.logger.error(
+                "Failed to remove board membership for %s in chapter %s: %s",
+                member_name,
+                chapter_name,
+                e,
+            )
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Chapter Board Removal Failed: {member_name}",
+            )
+            return _("Chapter board removal failed: {0}").format(str(e)[:200])
+
+    def _notify_board_membership_change(
+        self,
+        member_name: str,
+        removed_division_ids: set,
+        event=None,
+    ) -> None:
+        """Send a notification when board memberships are ended via sync.
+
+        Creates both a transient realtime message and a persistent Notification Log
+        entry (via the notification configuration system) so the change is visible
+        in the bell icon.
+        """
+        chapter_names = []
+        for div_id in sorted(removed_division_ids):
+            ch = get_mapping_service().resolve_division_id(div_id)
+            chapter_names.append(ch or f"division {div_id}")
+
+        subject = _("Board membership ended for {0}").format(member_name)
+        message = _("MijnRood sync ended board membership for {0} in: {1}").format(
+            member_name, ", ".join(chapter_names)
+        )
+        if event:
+            message += _(" (event {0})").format(event.name)
+
+        # Transient realtime notification for the current session
+        frappe.publish_realtime(
+            "board_membership_ended",
+            {"member": member_name, "chapters": chapter_names, "message": message},
+            user=frappe.session.user,
+        )
+
+        # Persistent notification via the notification configuration system
+        from verenigingen.utils.notification_helpers import notify_administrators
+
+        try:
+            notify_administrators(
+                subject=subject,
+                message=f"<p>{message}</p>",
+                notification_key="chapter_board_removed",
+                category="Chapter",
+                document_type="MijnRood Sync Event",
+                document_name=event.name if event else None,
+            )
+        except Exception as e:
+            self.logger.warning("Failed to create notification: %s", e)
+
 
 _service_instance: Optional[MijnRoodVolunteerSyncService] = None
 

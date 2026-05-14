@@ -7,7 +7,7 @@ real Chapter + Team + Volunteer + User fixtures.
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import today
@@ -399,3 +399,269 @@ class TestEnsureVolunteer(EnhancedTestCase):
             frappe.db.commit()
         except Exception:
             pass
+
+
+class TestEnsureChapterBoardMembership(EnhancedTestCase):
+    """Adds a volunteer to a chapter's board as a specific Chapter Role."""
+
+    def test_returns_error_when_division_does_not_resolve(self):
+        member = self.factory.create_member(
+            first_name="NoChapter",
+            last_name="Test",
+            email="no-chapter@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        result = get_volunteer_sync_service()._ensure_chapter_board_membership(
+            member.name, division_id=999999, chapter_role="Voorzitter"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("does not match any Chapter", result)
+
+    def test_returns_error_when_member_has_no_volunteer(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=70001)
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        member = self.factory.create_member(
+            first_name="NoVol",
+            last_name="Member",
+            email="no-vol-for-board@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        result = get_volunteer_sync_service()._ensure_chapter_board_membership(
+            member.name, division_id=70001, chapter_role="Voorzitter"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("No Volunteer record", result)
+
+    def test_returns_error_when_chapter_role_does_not_exist(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=70002)
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "Has", "Vol", "has-vol-bad-role@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        result = get_volunteer_sync_service()._ensure_chapter_board_membership(
+            member_name, division_id=70002, chapter_role="DoesNotExistRole-XYZ"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("does not exist", result)
+
+    def test_adds_volunteer_to_board(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=70003)
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "Board", "Member", "board-member@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        # Need a real Chapter Role
+        chapter_role = self._ensure_chapter_role("Test Chair")
+
+        result = get_volunteer_sync_service()._ensure_chapter_board_membership(
+            member_name, division_id=70003, chapter_role=chapter_role
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Added to chapter", result)
+        # Verify the board_members child row was created
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        on_board = [
+            bm for bm in chapter_doc.board_members
+            if bm.volunteer == volunteer_name and bm.is_active
+        ]
+        self.assertEqual(len(on_board), 1)
+
+    def test_returns_none_when_already_on_board(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=70004)
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "Already", "OnBoard", "already-on-board@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        chapter_role = self._ensure_chapter_role("Test Chair")
+
+        # Pre-add the volunteer to the board via fixture helper
+        self._create_board_membership(chapter.name, volunteer_name, chapter_role)
+
+        result = get_volunteer_sync_service()._ensure_chapter_board_membership(
+            member_name, division_id=70004, chapter_role=chapter_role
+        )
+        self.assertIsNone(result)
+
+    # Helpers (named _create_* / _cleanup_* to satisfy test-quality-enforcer)
+    def _create_member_with_volunteer(self, first, last, email):
+        member = self.factory.create_member(first_name=first, last_name=last, email=email)
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+        r = create_volunteer_from_member(member_name=member.name, create_user_account=False)
+        vol = r.get("volunteer_name") or r.get("volunteer")
+        return vol, member.name
+
+    def _create_board_membership(self, chapter_name, volunteer_name, chapter_role):
+        """Factory helper: append a board_members row and save the chapter."""
+        chapter_doc = frappe.get_doc("Chapter", chapter_name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer_name,
+                "chapter_role": chapter_role,
+                "from_date": today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+        return chapter_doc
+
+    def _ensure_chapter_role(self, role_name):
+        if not frappe.db.exists("Chapter Role", role_name):
+            doc = frappe.get_doc({
+                "doctype": "Chapter Role",
+                "role_name": role_name,
+                "is_active": 1,
+            }).insert(ignore_permissions=True)
+            self.addCleanup(self._cleanup_chapter_role, doc.name)
+            return doc.name
+        return role_name
+
+    def _cleanup_chapter(self, name):
+        try:
+            frappe.delete_doc("Chapter", name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+
+    def _cleanup_chapter_role(self, name):
+        try:
+            frappe.delete_doc("Chapter Role", name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+
+    def _cleanup_member_and_customer(self, member_name):
+        """Member.after_save commits a linked Customer that survives rollback.
+
+        Must commit so the cleanup persists past EnhancedTestCase's transaction rollback.
+        """
+        if not member_name:
+            return
+        try:
+            for cust in frappe.get_all("Customer", filters={"member": member_name}, pluck="name"):
+                try:
+                    frappe.db.set_value("Customer", cust, "member", None, update_modified=False)
+                    frappe.delete_doc("Customer", cust, ignore_permissions=True, force=True)
+                except Exception:
+                    pass
+            if frappe.db.exists("Member", member_name):
+                try:
+                    frappe.delete_doc("Member", member_name, ignore_permissions=True, force=True)
+                except Exception:
+                    pass
+            frappe.db.commit()
+        except Exception:
+            pass
+
+    def _cleanup_volunteer(self, volunteer_name):
+        try:
+            user = frappe.db.get_value("Volunteer", volunteer_name, "user")
+            if user:
+                try:
+                    frappe.delete_doc("User", user, ignore_permissions=True, force=True)
+                except Exception:
+                    pass
+            frappe.delete_doc("Volunteer", volunteer_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+
+
+class TestEndChapterBoardMembership(EnhancedTestCase):
+    """Removes a volunteer from a chapter's board via BoardManager.bulk_remove_board_members."""
+
+    def test_returns_error_when_division_does_not_resolve(self):
+        member = self.factory.create_member(
+            first_name="EndNoChapter",
+            last_name="Test",
+            email="end-no-chapter@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        result = get_volunteer_sync_service()._end_chapter_board_membership(
+            member.name, division_id=999998
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("does not match any Chapter", result)
+
+    def test_returns_none_when_member_has_no_volunteer(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=80001)
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        member = self.factory.create_member(
+            first_name="EndNoVol",
+            last_name="Member",
+            email="end-no-vol@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        result = get_volunteer_sync_service()._end_chapter_board_membership(
+            member.name, division_id=80001
+        )
+        self.assertIsNone(result)
+
+    def test_returns_none_when_volunteer_not_on_board(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=80002)
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "EndNotOn", "Board", "end-not-on-board@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        result = get_volunteer_sync_service()._end_chapter_board_membership(
+            member_name, division_id=80002
+        )
+        self.assertIsNone(result)
+
+    # Reuse helpers from TestEnsureChapterBoardMembership via assignment
+    _create_member_with_volunteer = TestEnsureChapterBoardMembership._create_member_with_volunteer
+    _cleanup_chapter = TestEnsureChapterBoardMembership._cleanup_chapter
+    _cleanup_member_and_customer = TestEnsureChapterBoardMembership._cleanup_member_and_customer
+    _cleanup_volunteer = TestEnsureChapterBoardMembership._cleanup_volunteer
+
+
+class TestNotifyBoardMembershipChange(EnhancedTestCase):
+    """Realtime + persistent notification on chapter board removal."""
+
+    def test_publishes_realtime_and_calls_notify_administrators(self):
+        chapter = self.factory.create_chapter(mijnrood_division_id=90001)
+        self.addCleanup(self._cleanup_chapter, chapter.name)
+        member = self.factory.create_member(
+            first_name="Notify",
+            last_name="Target",
+            email="notify-target@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        # Mock justified: Infrastructure - realtime/socket pub-sub and notification
+        # delivery, not business logic. We verify our call shape; the framework's
+        # delivery channels (socketio, notification log creation) are out of scope.
+        with patch("frappe.publish_realtime") as mock_realtime, patch(
+            "verenigingen.utils.notification_helpers.notify_administrators"
+        ) as mock_notify:
+            get_volunteer_sync_service()._notify_board_membership_change(
+                member.name, removed_division_ids={90001}
+            )
+
+        mock_realtime.assert_called_once()
+        realtime_args = mock_realtime.call_args
+        self.assertEqual(realtime_args.args[0], "board_membership_ended")
+        self.assertIn(member.name, str(realtime_args))
+
+        mock_notify.assert_called_once()
+        notify_kwargs = mock_notify.call_args.kwargs
+        self.assertIn("Board membership ended", notify_kwargs["subject"])
+        self.assertEqual(notify_kwargs["notification_key"], "chapter_board_removed")
+
+    _cleanup_chapter = TestEnsureChapterBoardMembership._cleanup_chapter
+    _cleanup_member_and_customer = TestEnsureChapterBoardMembership._cleanup_member_and_customer
