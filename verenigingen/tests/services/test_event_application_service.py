@@ -603,17 +603,18 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
 
         # Mock status mapping functions so tests don't depend on DB state.
         # Uses the hardcoded defaults: active={1,2}, terminated={3,4,5,6}.
+        # PR #5: targets retargeted to termination_sync_service after extraction.
         self._status_patches = [
             patch(
-                "verenigingen.mijnrood_sync.services.event_application_service.get_terminated_status_ids",
+                "verenigingen.mijnrood_sync.services.event_application.termination_sync_service.get_terminated_status_ids",
                 return_value=frozenset([3, 4, 5, 6]),
             ),
             patch(
-                "verenigingen.mijnrood_sync.services.event_application_service.get_active_status_ids",
+                "verenigingen.mijnrood_sync.services.event_application.termination_sync_service.get_active_status_ids",
                 return_value=frozenset([1, 2]),
             ),
             patch(
-                "verenigingen.mijnrood_sync.services.event_application_service.get_termination_type_map",
+                "verenigingen.mijnrood_sync.services.event_application.termination_sync_service.get_termination_type_map",
                 return_value={3: "Voluntary", 4: "Disciplinary Action", 5: "Deceased", 6: "Policy Violation"},
             ),
         ]
@@ -664,7 +665,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
 
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.termination_sync_service.frappe")
     def test_no_linked_member_returns_error(self, mock_frappe):
         """When no member can be found, returns error."""
         mock_frappe._ = frappe._
@@ -681,7 +682,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
         self.assertFalse(result["success"])
         self.assertIn("no linked member", result["message"])
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.termination_sync_service.frappe")
     def test_already_terminated_member_skips(self, mock_frappe):
         """When member is already Terminated, returns skip success."""
         mock_frappe._ = frappe._
@@ -701,7 +702,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
         self.assertIn("already has status Terminated", result["message"])
 
     @patch("verenigingen.services.termination.TerminationExecutionService")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.termination_sync_service.frappe")
     def test_creates_and_executes_termination(self, mock_frappe, mock_exec_cls):
         """Happy path: creates termination request AND auto-executes it."""
         mock_frappe._ = frappe._
@@ -745,7 +746,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
         self.assertIn("executed", result["message"])
 
     @patch("verenigingen.services.termination.TerminationExecutionService")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.termination_sync_service.frappe")
     def test_execution_failure_returns_error(self, mock_frappe, mock_exec_cls):
         """When execution fails, request is created but error is returned."""
         mock_frappe._ = frappe._
@@ -784,7 +785,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
         mock_frappe.log_error.assert_called_once()
 
     @patch("verenigingen.services.termination.TerminationExecutionService")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.termination_sync_service.frappe")
     def test_deceased_sets_member_request_date(self, mock_frappe, mock_exec_cls):
         """Deceased termination type sets member_request_date."""
         mock_frappe._ = frappe._
