@@ -442,6 +442,159 @@ class MijnRoodVolunteerSyncService:
         except Exception as e:
             self.logger.warning("Failed to create notification: %s", e)
 
+    def _ensure_team_membership(
+        self,
+        member_name: str,
+        team_name: str,
+        event=None,
+    ) -> Optional[str]:
+        """Add member's volunteer to a team if not already an active member.
+
+        Saving the Team triggers the ``on_team_members_change`` hook which calls
+        ``auto_sync_on_role_change()`` — this recalculates the user's role profile
+        via the calculator (which now respects ``is_association_wide`` priority).
+
+        Args:
+            member_name: Vereinigingen Member name
+            team_name: Team document name
+            event: Sync event for logging context
+
+        Returns:
+            Human-readable status message, or None if already a team member.
+        """
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            get_volunteer_for_member,
+        )
+
+        volunteer_name = get_volunteer_for_member(member_name)
+        if not volunteer_name:
+            return _("No Volunteer record for {0} — cannot add to team").format(member_name)
+
+        team_status = frappe.db.get_value("Team", team_name, "status")
+        if not team_status:
+            return _("Team '{0}' does not exist").format(team_name)
+        if team_status != "Active":
+            return _("Team '{0}' is not active (status: {1})").format(team_name, team_status)
+
+        # Check if already an active team member
+        existing = frappe.db.exists(
+            "Team Member",
+            {"parent": team_name, "volunteer": volunteer_name, "status": "Active"},
+        )
+        if existing:
+            return None  # Already on team
+
+        default_team_role = "Team Member"
+        try:
+            team_doc = frappe.get_doc("Team", team_name)
+            # Defensive: Frappe's _validate_links() validates *every* child row on
+            # parent save, so a single dangling volunteer reference (from a prior
+            # hard-delete that skipped link checks) blocks every subsequent add.
+            self._prune_orphan_team_members(team_doc, team_name)
+            team_doc.append(
+                "team_members",
+                {
+                    "volunteer": volunteer_name,
+                    "team_role": default_team_role,
+                    "from_date": today(),
+                    "status": "Active",
+                    "is_active": 1,
+                    "notes": "Added via MijnRood sync (event {0})".format(event.name if event else "N/A"),
+                },
+            )
+            # Security: System-initiated team assignment from authoritative MijnRood data
+            # Saving triggers on_team_members_change → auto_sync_on_role_change()
+            team_doc.save(ignore_permissions=True)
+
+            self.logger.info(
+                "Added volunteer %s to team %s (member %s, event %s)",
+                volunteer_name,
+                team_name,
+                member_name,
+                event.name if event else "N/A",
+            )
+            return _("Added to team '{0}'").format(team_name)
+        except Exception as e:
+            self.logger.error(
+                "Failed to add %s to team %s: %s",
+                volunteer_name,
+                team_name,
+                e,
+            )
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Team Addition Failed: {member_name}",
+            )
+            return _("Team addition failed: {0}").format(str(e)[:200])
+
+    def _end_team_membership(
+        self,
+        member_name: str,
+        team_name: str,
+        event=None,
+    ) -> Optional[str]:
+        """End a member's active team membership when their MijnRood role is revoked.
+
+        Sets status to 'Ended', is_active to 0, and to_date to today.
+        Saving the Team triggers the on_team_members_change hook which
+        recalculates the user's role profile.
+
+        Args:
+            member_name: Vereinigingen Member name
+            team_name: Team document name
+            event: Sync event for logging context
+
+        Returns:
+            Human-readable status message, or None if not a team member.
+        """
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            get_volunteer_for_member,
+        )
+
+        volunteer_name = get_volunteer_for_member(member_name)
+        if not volunteer_name:
+            return None
+
+        # Find active team membership
+        tm_name = frappe.db.get_value(
+            "Team Member",
+            {"parent": team_name, "volunteer": volunteer_name, "status": "Active"},
+            "name",
+        )
+        if not tm_name:
+            return None  # Not on team
+
+        try:
+            team_doc = frappe.get_doc("Team", team_name)
+            for row in team_doc.team_members:
+                if row.name == tm_name:
+                    row.status = "Ended"
+                    row.is_active = 0
+                    row.to_date = today()
+                    suffix = "Ended via MijnRood sync — role revoked (event {0})".format(
+                        event.name if event else "N/A"
+                    )
+                    row.notes = f"{row.notes}\n{suffix}" if row.notes else suffix
+                    break
+            # Security: System-initiated team removal from authoritative MijnRood role revocation
+            team_doc.save(ignore_permissions=True)
+
+            self.logger.info(
+                "Ended team membership for volunteer %s in team %s (member %s, event %s)",
+                volunteer_name,
+                team_name,
+                member_name,
+                event.name if event else "N/A",
+            )
+            return _("Removed from team '{0}'").format(team_name)
+        except Exception as e:
+            self.logger.error("Failed to end team membership for %s in %s: %s", member_name, team_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Team Removal Failed: {member_name}",
+            )
+            return _("Team removal failed: {0}").format(str(e)[:200])
+
 
 _service_instance: Optional[MijnRoodVolunteerSyncService] = None
 

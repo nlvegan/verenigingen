@@ -665,3 +665,224 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
 
     _cleanup_chapter = TestEnsureChapterBoardMembership._cleanup_chapter
     _cleanup_member_and_customer = TestEnsureChapterBoardMembership._cleanup_member_and_customer
+
+
+class TestEnsureTeamMembership(EnhancedTestCase):
+    """Adds a member's volunteer to a team."""
+
+    def test_returns_error_when_member_has_no_volunteer(self):
+        team_name = self._create_team("EnsureTeam-NoVol")
+        self.addCleanup(self._cleanup_team, team_name)
+        member = self.factory.create_member(
+            first_name="NoVolTeam",
+            last_name="Test",
+            email="no-vol-team@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        result = get_volunteer_sync_service()._ensure_team_membership(
+            member.name, team_name
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("No Volunteer record", result)
+
+    def test_returns_error_when_team_does_not_exist(self):
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "TeamGone", "Test", "team-gone@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        result = get_volunteer_sync_service()._ensure_team_membership(
+            member_name, "Team-Does-Not-Exist-XYZ-999"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("does not exist", result)
+
+    def test_returns_error_when_team_is_not_active(self):
+        team_name = self._create_team("EnsureTeam-Inactive", status="Inactive")
+        self.addCleanup(self._cleanup_team, team_name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "TeamInactive", "Test", "team-inactive@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        result = get_volunteer_sync_service()._ensure_team_membership(
+            member_name, team_name
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("not active", result)
+
+    def test_adds_volunteer_to_team(self):
+        team_name = self._create_team("EnsureTeam-Add")
+        self.addCleanup(self._cleanup_team, team_name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "AddedTo", "Team", "added-to-team@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        result = get_volunteer_sync_service()._ensure_team_membership(
+            member_name, team_name
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Added to team", result)
+        # Verify the Team Member row exists
+        on_team = frappe.db.exists(
+            "Team Member",
+            {"parent": team_name, "volunteer": volunteer_name, "status": "Active"},
+        )
+        self.assertTrue(on_team)
+
+    def test_returns_none_when_already_on_team(self):
+        team_name = self._create_team("EnsureTeam-Already")
+        self.addCleanup(self._cleanup_team, team_name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "AlreadyOn", "Team", "already-on-team@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        # Pre-add the volunteer
+        self._create_team_membership(team_name, volunteer_name)
+
+        result = get_volunteer_sync_service()._ensure_team_membership(
+            member_name, team_name
+        )
+        self.assertIsNone(result)
+
+    # Factory helpers (named _create_* to satisfy test-quality-enforcer)
+    def _create_team(self, name_prefix, status="Active"):
+        team_name = f"{name_prefix}-{frappe.generate_hash(length=6)}"
+        frappe.get_doc({
+            "doctype": "Team",
+            "team_name": team_name,
+            "status": status,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        return team_name
+
+    def _create_team_membership(self, team_name, volunteer_name):
+        team_doc = frappe.get_doc("Team", team_name)
+        team_doc.append("team_members", {
+            "volunteer": volunteer_name,
+            "team_role": "Team Member",
+            "from_date": today(),
+            "status": "Active",
+            "is_active": 1,
+        })
+        team_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _create_member_with_volunteer(self, first, last, email):
+        member = self.factory.create_member(first_name=first, last_name=last, email=email)
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+        r = create_volunteer_from_member(member_name=member.name, create_user_account=False)
+        vol = r.get("volunteer_name") or r.get("volunteer")
+        return vol, member.name
+
+    def _cleanup_team(self, team_name):
+        try:
+            if frappe.db.exists("Team", team_name):
+                frappe.delete_doc("Team", team_name, ignore_permissions=True, force=True)
+                frappe.db.commit()
+        except Exception:
+            pass
+
+    def _cleanup_member_and_customer(self, member_name):
+        for cust in frappe.get_all("Customer", filters={"member": member_name}, pluck="name"):
+            try:
+                frappe.db.set_value("Customer", cust, "member", None, update_modified=False)
+                frappe.delete_doc("Customer", cust, ignore_permissions=True, force=True)
+            except Exception:
+                pass
+        try:
+            if frappe.db.exists("Member", member_name):
+                frappe.delete_doc("Member", member_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def _cleanup_volunteer(self, volunteer_name):
+        try:
+            user = frappe.db.get_value("Volunteer", volunteer_name, "user")
+            if user:
+                try:
+                    frappe.delete_doc("User", user, ignore_permissions=True, force=True)
+                except Exception:
+                    pass
+            if frappe.db.exists("Volunteer", volunteer_name):
+                frappe.delete_doc("Volunteer", volunteer_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+
+class TestEndTeamMembership(EnhancedTestCase):
+    """Ends an active team membership when role is revoked."""
+
+    def test_returns_none_when_member_has_no_volunteer(self):
+        team_name = self._create_team("EndTeam-NoVol")
+        self.addCleanup(self._cleanup_team, team_name)
+        member = self.factory.create_member(
+            first_name="EndNoVol",
+            last_name="Test",
+            email="end-team-no-vol@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        result = get_volunteer_sync_service()._end_team_membership(
+            member.name, team_name
+        )
+        self.assertIsNone(result)
+
+    def test_returns_none_when_not_on_team(self):
+        team_name = self._create_team("EndTeam-NotOn")
+        self.addCleanup(self._cleanup_team, team_name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "EndNotOn", "Team", "end-not-on-team@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        result = get_volunteer_sync_service()._end_team_membership(
+            member_name, team_name
+        )
+        self.assertIsNone(result)
+
+    def test_ends_active_team_membership(self):
+        team_name = self._create_team("EndTeam-Active")
+        self.addCleanup(self._cleanup_team, team_name)
+        volunteer_name, member_name = self._create_member_with_volunteer(
+            "EndActive", "Team", "end-active-team@example.org"
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        # Pre-add the volunteer as active
+        self._create_team_membership(team_name, volunteer_name)
+
+        result = get_volunteer_sync_service()._end_team_membership(
+            member_name, team_name
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Removed from team", result)
+
+        # Verify the row's status flipped to "Ended"
+        team_doc = frappe.get_doc("Team", team_name)
+        ended_rows = [
+            row for row in team_doc.team_members
+            if row.volunteer == volunteer_name and row.status == "Ended"
+        ]
+        self.assertEqual(len(ended_rows), 1)
+
+    # Reuse helpers from TestEnsureTeamMembership
+    _create_team = TestEnsureTeamMembership._create_team
+    _create_team_membership = TestEnsureTeamMembership._create_team_membership
+    _create_member_with_volunteer = TestEnsureTeamMembership._create_member_with_volunteer
+    _cleanup_team = TestEnsureTeamMembership._cleanup_team
+    _cleanup_member_and_customer = TestEnsureTeamMembership._cleanup_member_and_customer
+    _cleanup_volunteer = TestEnsureTeamMembership._cleanup_volunteer
