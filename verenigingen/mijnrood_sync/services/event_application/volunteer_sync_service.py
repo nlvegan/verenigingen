@@ -595,6 +595,205 @@ class MijnRoodVolunteerSyncService:
             )
             return _("Team removal failed: {0}").format(str(e)[:200])
 
+    def _apply_role_actions(
+        self,
+        member_name: str,
+        config: dict,
+        division_ids: Optional[list[int]] = None,
+        event=None,
+        orchestrator=None,
+    ) -> list[str]:
+        """Apply the configured actions for a single role mapping entry.
+
+        Args:
+            member_name: Verenigingen Member name
+            config: Role mapping config dict from get_role_mapping()
+            division_ids: Division IDs for ROLE_DIVISION_CONTACT (None for ROLE_ADMIN)
+            event: Sync event for logging context
+            orchestrator: The event-application orchestrator; passed through to
+                _ensure_volunteer, which needs it for _ensure_user_account_for_volunteer
+                (which depends on the orchestrator's _acr_queued_members state).
+
+        Returns:
+            List of human-readable status messages.
+        """
+        messages = []
+
+        # Create Volunteer if configured
+        if config.get("create_volunteer"):
+            vol_msg = self._ensure_volunteer(member_name, config, orchestrator, event=event)
+            if vol_msg:
+                messages.append(vol_msg)
+
+        # Add to chapter board if configured (only meaningful with division_ids)
+        chapter_role = config.get("chapter_role")
+        if config.get("add_to_chapter_board") and division_ids:
+            if not chapter_role:
+                messages.append(_("add_to_chapter_board enabled but no chapter_role configured"))
+            else:
+                for div_id in division_ids:
+                    board_msg = self._ensure_chapter_board_membership(
+                        member_name, div_id, chapter_role, event=event
+                    )
+                    if board_msg:
+                        messages.append(board_msg)
+
+        # Add to team if configured (team hook handles role profile sync)
+        if config.get("add_to_team") and config.get("default_team"):
+            team_msg = self._ensure_team_membership(member_name, config["default_team"], event=event)
+            if team_msg:
+                messages.append(team_msg)
+
+        return messages
+
+    def _handle_admin_role_change(
+        self,
+        member_name: str,
+        current_roles: set,
+        old_roles: set,
+        role_config: dict,
+        event=None,
+        orchestrator=None,
+    ) -> list[str]:
+        """Handle ROLE_ADMIN addition or removal.
+
+        Only fires on the *transition* (added or removed). For unchanged-admin
+        events (e.g. a fee change for an existing admin) we skip role actions
+        entirely — re-running them on every member update produces no useful
+        delta and can break legitimate non-role updates when team data is
+        corrupt or role config has drifted.
+        """
+        messages = []
+
+        admin_added = "ROLE_ADMIN" in current_roles and "ROLE_ADMIN" not in old_roles
+        admin_removed = "ROLE_ADMIN" in old_roles and "ROLE_ADMIN" not in current_roles
+
+        if admin_added and "ROLE_ADMIN" in role_config:
+            config = role_config["ROLE_ADMIN"]
+            msgs = self._apply_role_actions(member_name, config, event=event, orchestrator=orchestrator)
+            messages.extend(msgs)
+        elif admin_removed:
+            config = role_config.get("ROLE_ADMIN", {})
+            if config.get("add_to_team") and config.get("default_team"):
+                team_msg = self._end_team_membership(member_name, config["default_team"], event=event)
+                if team_msg:
+                    messages.append(team_msg)
+            messages.append(_("ROLE_ADMIN removed from member {0}").format(member_name))
+            self.logger.info(
+                "ROLE_ADMIN removed from member %s (event %s)",
+                member_name,
+                event.name if event else "N/A",
+            )
+
+        return messages
+
+    def _handle_division_contact_change(
+        self,
+        member_name: str,
+        new_division_ids,
+        old_division_ids,
+        role_config: dict,
+        event=None,
+        orchestrator=None,
+    ) -> list[str]:
+        """Handle ROLE_DIVISION_CONTACT addition or removal."""
+        messages = []
+
+        if new_division_ids and "ROLE_DIVISION_CONTACT" in role_config:
+            config = role_config["ROLE_DIVISION_CONTACT"]
+            msgs = self._apply_role_actions(
+                member_name, config, division_ids=new_division_ids, event=event, orchestrator=orchestrator
+            )
+            messages.extend(msgs)
+
+        # Detect division contact removal (normalize [] and None to empty set)
+        old_set = set(old_division_ids) if old_division_ids else set()
+        new_set = set(new_division_ids) if new_division_ids else set()
+        removed_divs = old_set - new_set
+
+        if removed_divs:
+            for div_id in sorted(removed_divs):
+                try:
+                    result = self._end_chapter_board_membership(member_name, div_id, event=event)
+                    if result:
+                        messages.append(result)
+                except Exception as e:
+                    self.logger.error(
+                        "Failed to end board membership for member %s, division %s: %s",
+                        member_name,
+                        div_id,
+                        e,
+                    )
+                    messages.append(
+                        _("Failed to end board membership for division {0}: {1}").format(div_id, str(e)[:200])
+                    )
+
+            # Notify the session user about board membership changes
+            self._notify_board_membership_change(member_name, removed_divs, event)
+
+        return messages
+
+    def _process_member_roles(
+        self,
+        member_name: str,
+        mijnrood_data: dict,
+        old_data: Optional[dict] = None,
+        event=None,
+        orchestrator=None,
+    ) -> list[str]:
+        """Process MijnRood admin roles for a member.
+
+        Reads the roles JSON column and managed_division_ids to determine
+        which roles the member holds, then applies configured actions
+        (volunteer creation, Frappe role assignment, chapter board membership).
+
+        Division contact removals automatically end the corresponding chapter
+        board membership. Other role removals are flagged for review.
+
+        Args:
+            member_name: Vereinigingen Member name
+            mijnrood_data: Current MijnRood row data (new_data from event)
+            old_data: Previous MijnRood row data (for removal detection)
+            event: The sync event (for logging context)
+            orchestrator: The event-application orchestrator; passed through to
+                _apply_role_actions → _ensure_volunteer.
+
+        Returns:
+            List of human-readable status messages.
+        """
+        role_config = get_role_mapping()
+        if not role_config:
+            return []
+
+        messages = []
+
+        # 1. Parse ROLE_ADMIN from the roles JSON column
+        current_roles = self._parse_mijnrood_roles(mijnrood_data.get("roles"))
+        old_roles = self._parse_mijnrood_roles(old_data.get("roles")) if old_data else set()
+
+        messages.extend(
+            self._handle_admin_role_change(
+                member_name, current_roles, old_roles, role_config, event, orchestrator=orchestrator
+            )
+        )
+
+        # 2. Process ROLE_DIVISION_CONTACT from managed_division_ids
+        new_division_ids = mijnrood_data.get("managed_division_ids")
+        old_division_ids = old_data.get("managed_division_ids") if old_data else None
+
+        messages.extend(
+            self._handle_division_contact_change(
+                member_name,
+                new_division_ids,
+                old_division_ids,
+                role_config,
+                event,
+                orchestrator=orchestrator,
+            )
+        )
+
+        return messages
+
 
 _service_instance: Optional[MijnRoodVolunteerSyncService] = None
 

@@ -886,3 +886,199 @@ class TestEndTeamMembership(EnhancedTestCase):
     _cleanup_team = TestEnsureTeamMembership._cleanup_team
     _cleanup_member_and_customer = TestEnsureTeamMembership._cleanup_member_and_customer
     _cleanup_volunteer = TestEnsureTeamMembership._cleanup_volunteer
+
+
+class TestApplyRoleActions(EnhancedTestCase):
+    """Dispatcher that fans out to ensure-methods based on config."""
+
+    def setUp(self):
+        super().setUp()
+        # Mock justified: Routing - testing dispatcher logic, downstream
+        # methods (_ensure_volunteer, _ensure_chapter_board_membership,
+        # _ensure_team_membership) are covered by their own tests in
+        # TestEnsureVolunteer / TestEnsureChapterBoardMembership /
+        # TestEnsureTeamMembership.
+        from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+            MijnRoodVolunteerSyncService,
+        )
+        self.service = MijnRoodVolunteerSyncService()
+        self.service._ensure_volunteer = MagicMock(return_value="Volunteer V1 created")
+        self.service._ensure_chapter_board_membership = MagicMock(return_value="Added to board")
+        self.service._ensure_team_membership = MagicMock(return_value="Added to team")
+        self.orchestrator = _FakeOrchestrator()
+
+    def test_create_volunteer_triggers_ensure_volunteer(self):
+        config = {"create_volunteer": True, "verenigingen_role": "Verenigingen Volunteer"}
+        msgs = self.service._apply_role_actions(
+            "MEM-001", config, orchestrator=self.orchestrator
+        )
+        self.service._ensure_volunteer.assert_called_once_with(
+            "MEM-001", config, self.orchestrator, event=None
+        )
+        self.assertIn("Volunteer V1 created", msgs)
+
+    def test_add_to_chapter_board_calls_ensure_board_per_division(self):
+        config = {
+            "add_to_chapter_board": True,
+            "chapter_role": "Voorzitter",
+        }
+        msgs = self.service._apply_role_actions(
+            "MEM-002", config, division_ids=[10, 20], orchestrator=self.orchestrator
+        )
+        # Called once per division_id
+        self.assertEqual(self.service._ensure_chapter_board_membership.call_count, 2)
+        self.assertEqual(len([m for m in msgs if "Added to board" in m]), 2)
+
+    def test_add_to_chapter_board_without_chapter_role_warns(self):
+        config = {"add_to_chapter_board": True}  # missing chapter_role
+        msgs = self.service._apply_role_actions(
+            "MEM-003", config, division_ids=[10], orchestrator=self.orchestrator
+        )
+        self.service._ensure_chapter_board_membership.assert_not_called()
+        self.assertTrue(any("no chapter_role configured" in m for m in msgs))
+
+    def test_add_to_team_calls_ensure_team(self):
+        config = {"add_to_team": True, "default_team": "TestTeam"}
+        msgs = self.service._apply_role_actions(
+            "MEM-004", config, orchestrator=self.orchestrator
+        )
+        self.service._ensure_team_membership.assert_called_once_with(
+            "MEM-004", "TestTeam", event=None
+        )
+        self.assertIn("Added to team", msgs)
+
+
+class TestHandleAdminRoleChange(EnhancedTestCase):
+    """Detects ROLE_ADMIN transitions and applies actions or end-actions."""
+
+    def setUp(self):
+        super().setUp()
+        # Mock justified: Routing - dispatcher logic, downstream methods
+        # tested elsewhere.
+        from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+            MijnRoodVolunteerSyncService,
+        )
+        self.service = MijnRoodVolunteerSyncService()
+        self.service._apply_role_actions = MagicMock(return_value=["role action applied"])
+        self.service._end_team_membership = MagicMock(return_value="Removed from team")
+
+    def test_role_admin_added_calls_apply_role_actions(self):
+        role_config = {"ROLE_ADMIN": {"create_volunteer": True}}
+        msgs = self.service._handle_admin_role_change(
+            "MEM-A1", current_roles={"ROLE_ADMIN"}, old_roles=set(), role_config=role_config
+        )
+        self.service._apply_role_actions.assert_called_once()
+        self.assertEqual(msgs, ["role action applied"])
+
+    def test_role_admin_removed_with_team_config_ends_team(self):
+        role_config = {"ROLE_ADMIN": {"add_to_team": True, "default_team": "AdminTeam"}}
+        msgs = self.service._handle_admin_role_change(
+            "MEM-A2", current_roles=set(), old_roles={"ROLE_ADMIN"}, role_config=role_config
+        )
+        self.service._end_team_membership.assert_called_once_with(
+            "MEM-A2", "AdminTeam", event=None
+        )
+        self.assertTrue(any("Removed from team" in m for m in msgs))
+        self.assertTrue(any("ROLE_ADMIN removed" in m for m in msgs))
+
+    def test_role_admin_unchanged_returns_empty(self):
+        # Admin role present in both old and current — no transition
+        role_config = {"ROLE_ADMIN": {"create_volunteer": True}}
+        msgs = self.service._handle_admin_role_change(
+            "MEM-A3",
+            current_roles={"ROLE_ADMIN"},
+            old_roles={"ROLE_ADMIN"},
+            role_config=role_config,
+        )
+        self.service._apply_role_actions.assert_not_called()
+        self.service._end_team_membership.assert_not_called()
+        self.assertEqual(msgs, [])
+
+
+class TestHandleDivisionContactChange(EnhancedTestCase):
+    """Detects ROLE_DIVISION_CONTACT additions/removals."""
+
+    def setUp(self):
+        super().setUp()
+        # Mock justified: Routing - dispatcher logic, downstream methods
+        # tested elsewhere.
+        from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+            MijnRoodVolunteerSyncService,
+        )
+        self.service = MijnRoodVolunteerSyncService()
+        self.service._apply_role_actions = MagicMock(return_value=["role action applied"])
+        self.service._end_chapter_board_membership = MagicMock(return_value="Removed from board")
+        self.service._notify_board_membership_change = MagicMock(return_value=None)
+
+    def test_new_divisions_call_apply_role_actions(self):
+        role_config = {"ROLE_DIVISION_CONTACT": {"add_to_chapter_board": True}}
+        msgs = self.service._handle_division_contact_change(
+            "MEM-D1",
+            new_division_ids=[42],
+            old_division_ids=None,
+            role_config=role_config,
+        )
+        self.service._apply_role_actions.assert_called_once()
+        self.assertEqual(msgs, ["role action applied"])
+
+    def test_removed_divisions_call_end_board_and_notify(self):
+        role_config = {"ROLE_DIVISION_CONTACT": {"add_to_chapter_board": True}}
+        msgs = self.service._handle_division_contact_change(
+            "MEM-D2",
+            new_division_ids=[10],
+            old_division_ids=[10, 20, 30],
+            role_config=role_config,
+        )
+        # _end_chapter_board_membership called once per removed division (20, 30)
+        self.assertEqual(self.service._end_chapter_board_membership.call_count, 2)
+        # Notify called once with the set of removed divisions
+        self.service._notify_board_membership_change.assert_called_once()
+        notify_args = self.service._notify_board_membership_change.call_args
+        self.assertEqual(notify_args.args[0], "MEM-D2")
+        self.assertEqual(notify_args.args[1], {20, 30})
+
+
+class TestProcessMemberRoles(EnhancedTestCase):
+    """Entry point that parses roles + dispatches to handlers."""
+
+    def setUp(self):
+        super().setUp()
+        # Mock justified: Routing entry point - handlers tested elsewhere.
+        from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+            MijnRoodVolunteerSyncService,
+        )
+        self.service = MijnRoodVolunteerSyncService()
+        self.service._handle_admin_role_change = MagicMock(return_value=["admin handled"])
+        self.service._handle_division_contact_change = MagicMock(return_value=["division handled"])
+
+    def test_returns_empty_when_role_config_is_empty(self):
+        # get_role_mapping() returns {} when no mapping is configured
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.get_role_mapping",
+            return_value={},
+        ):
+            msgs = self.service._process_member_roles("MEM-P1", mijnrood_data={"roles": '["ROLE_ADMIN"]'})
+        self.assertEqual(msgs, [])
+        self.service._handle_admin_role_change.assert_not_called()
+
+    def test_dispatches_to_both_handlers(self):
+        # get_role_mapping() returns a non-empty dict
+        with patch(
+            "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.get_role_mapping",
+            return_value={"ROLE_ADMIN": {"create_volunteer": True}},
+        ):
+            msgs = self.service._process_member_roles(
+                "MEM-P2",
+                mijnrood_data={"roles": '["ROLE_ADMIN"]', "managed_division_ids": [10]},
+                old_data={"roles": "[]", "managed_division_ids": []},
+            )
+
+        self.service._handle_admin_role_change.assert_called_once()
+        admin_call = self.service._handle_admin_role_change.call_args
+        # current_roles, old_roles — verify parse_mijnrood_roles output flowed through
+        self.assertEqual(admin_call.args[1], {"ROLE_ADMIN"})
+        self.assertEqual(admin_call.args[2], set())
+
+        self.service._handle_division_contact_change.assert_called_once()
+        self.assertIn("admin handled", msgs)
+        self.assertIn("division handled", msgs)
