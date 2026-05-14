@@ -18,6 +18,7 @@ from verenigingen.mijnrood_sync.services.event_application.member_sync_service i
     get_member_sync_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.services.event_application._fixtures import _FakeOrchestrator
 
 
 class TestFindExistingMemberOrConflict(EnhancedTestCase):
@@ -78,23 +79,6 @@ class TestFindExistingMemberOrConflict(EnhancedTestCase):
         self.assertFalse(result["success"])
         self.assertIn("MR-AAA", result["message"])
         self.assertIn("MR-BBB", result["message"])
-
-
-class _FakeOrchestrator:
-    """Stand-in for MijnRoodEventApplicationService.
-
-    Records calls to the cross-cutting helpers that haven't been
-    extracted yet (related records, role processing, promotion fallback,
-    termination handling, chapter reassignment). Each helper returns a
-    safe default unless overridden per-test.
-    """
-
-    def __init__(self):
-        self._create_related_records = MagicMock(return_value=[])
-        self._process_member_roles = MagicMock(return_value=[])
-        self._try_promote_application = MagicMock(return_value=None)
-        self._check_and_handle_termination = MagicMock(return_value=None)
-        self._handle_division_field_change = MagicMock(return_value=None)
 
 
 # Counter to ensure unique mijnrood_row_id per inserted event.

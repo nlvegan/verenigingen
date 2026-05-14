@@ -20,23 +20,7 @@ from verenigingen.mijnrood_sync.services.event_application.mapping_service impor
 )
 from verenigingen.mijnrood_sync.utils import safe_json_load
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-
-
-class _FakeOrchestrator:
-    """Stand-in for MijnRoodEventApplicationService.
-
-    Records calls to cross-cutting helpers that have not yet been
-    extracted (PR #6 for related records, unassigned chapter helpers).
-    """
-
-    def __init__(self):
-        self._create_related_records = MagicMock(return_value=[])
-        self._assign_chapter_from_division = MagicMock(return_value=None)
-        self._handle_division_field_change = MagicMock(return_value=None)
-        self._apply_new_member = MagicMock(
-            return_value={"success": True, "message": "fallback from stub"}
-        )
-        self._find_existing_member_or_conflict = MagicMock(return_value=(None, None))
+from verenigingen.tests.services.event_application._fixtures import _FakeOrchestrator
 
 
 def _make_event(
