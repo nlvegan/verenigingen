@@ -56,6 +56,48 @@ class MijnRoodRelatedRecordsOrchestrator:
         frappe.db.set_value("Member", member_name, "notes", new_notes, update_modified=False)
         return _("MijnRood comments added to notes")
 
+    def _ensure_address(self, member_name: str, row_data: dict) -> Optional[str]:
+        """Create or update Address document for a synced member.
+
+        Uses AddressImportService which handles duplicate detection,
+        link management, and stale-link cleanup.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        address_line1 = (row_data.get("address_line1") or "").strip()
+        city = (row_data.get("city") or "").strip()
+        if not address_line1 or not city:
+            return None
+
+        from verenigingen.services.csv_import.address_import_service import (
+            get_address_import_service,
+        )
+
+        try:
+            member_doc = frappe.get_doc("Member", member_name)
+            address_name = get_address_import_service().create_or_update_address(member_doc, row_data)
+            if address_name:
+                # Persist the primary_address link (set by the service on member_doc)
+                frappe.db.set_value(
+                    "Member",
+                    member_name,
+                    "primary_address",
+                    address_name,
+                    update_modified=False,
+                )
+                self.logger.info("Address %s linked to member %s", address_name, member_name)
+                return _("Address {0} linked").format(address_name)
+        except Exception as e:
+            self.logger.error("Address creation failed for %s: %s", member_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Address Creation Failed: {member_name}",
+            )
+            return _("Address creation failed: {0}").format(str(e)[:200])
+
+        return None
+
 
 _service_instance: Optional[MijnRoodRelatedRecordsOrchestrator] = None
 
