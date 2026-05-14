@@ -30,6 +30,9 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
+from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
+    MijnRoodApplicationSyncService,
+)
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     MijnRoodMappingService,
     get_mapping_service,
@@ -114,11 +117,12 @@ class TestFindExistingMemberOrConflict(EnhancedTestCase):
 
 
 class TestSetApplicationFields(EnhancedTestCase):
-    """Tests for _set_application_fields()."""
+    """Tests for _set_application_fields() — now lives on
+    MijnRoodApplicationSyncService after the PR #3 god-class split."""
 
     def setUp(self):
         super().setUp()
-        self.service = MijnRoodEventApplicationService()
+        self.service = MijnRoodApplicationSyncService()
 
     def test_maps_fields_correctly(self):
         """Fields from row_data are mapped to member document."""
@@ -378,7 +382,7 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
     @patch.object(MijnRoodMappingService, "map_member_fields")
     @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_sets_application_id_to_prevent_user_creation(self, mock_frappe, mock_chapter, mock_map, mock_find):
         """New application sets application_id so is_application_member() returns True.
 
@@ -418,7 +422,7 @@ class TestApplyChangedMembershipApplication(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_approved_guard_skips_update(self, mock_frappe):
         """Already-approved application returns skip success."""
         mock_frappe._ = frappe._
@@ -1765,7 +1769,7 @@ class TestTryPromoteApplication(EnhancedTestCase):
         self.assertIsNone(result)
 
     @patch.object(MijnRoodEventApplicationService, "_create_related_records", return_value=[])
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_happy_path_promotes_and_updates(self, mock_frappe, mock_related):
         """Promotes pending application: updates member_id, clears app status, creates records."""
         mock_frappe._ = frappe._
@@ -1799,7 +1803,7 @@ class TestTryPromoteApplication(EnhancedTestCase):
         self.assertEqual(set_value_call[0][1], "MEM-001")
         self.assertEqual(set_value_call[0][2]["application_status"], "Approved")
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_returns_error_on_import_failure(self, mock_frappe):
         """Returns error when MemberImportService fails during promotion."""
         mock_frappe._ = frappe._
@@ -2818,7 +2822,7 @@ class TestPromoteApplicationMember(EnhancedTestCase):
         self.service = MijnRoodEventApplicationService()
 
     @patch.object(MijnRoodEventApplicationService, "_create_related_records", return_value=[])
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_sets_member_status_active_for_active_mijnrood_status(self, mock_frappe, mock_related):
         """When new_data.current_membership_status_id is an active id, member.status → Active."""
         mock_frappe._ = frappe._
@@ -2853,7 +2857,7 @@ class TestPromoteApplicationMember(EnhancedTestCase):
         self.assertEqual(updates.get("status"), "Active")
 
     @patch.object(MijnRoodEventApplicationService, "_create_related_records", return_value=[])
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_logs_warning_for_unexpected_mijnrood_status(self, mock_frappe, mock_related):
         """An unexpected status_id (e.g. terminated during promotion) logs and does
         NOT overwrite member.status — only application_status flips."""
@@ -2895,8 +2899,8 @@ class TestApplyApproved(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch.object(MijnRoodEventApplicationService, "_promote_application_member")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch.object(MijnRoodApplicationSyncService, "promote_application_member")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_uses_linked_member_when_set(self, mock_frappe, mock_promote):
         """When event.linked_member is set, promote that member directly."""
         mock_frappe._ = frappe._
@@ -2917,8 +2921,8 @@ class TestApplyApproved(EnhancedTestCase):
         # First arg is member_name
         self.assertEqual(mock_promote.call_args.args[0], "MEM-001")
 
-    @patch.object(MijnRoodEventApplicationService, "_promote_application_member")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch.object(MijnRoodApplicationSyncService, "promote_application_member")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_falls_back_to_application_id_lookup(self, mock_frappe, mock_promote):
         """Without linked_member, locate by application_id = f'MR-APP-{old_id}'."""
         mock_frappe._ = frappe._
@@ -2943,8 +2947,8 @@ class TestApplyApproved(EnhancedTestCase):
         self.assertEqual(mock_promote.call_args.args[0], "MEM-002")
 
     @patch.object(MijnRoodEventApplicationService, "_apply_new_member")
-    @patch.object(MijnRoodEventApplicationService, "_promote_application_member")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch.object(MijnRoodApplicationSyncService, "promote_application_member")
+    @patch("verenigingen.mijnrood_sync.services.event_application.application_sync_service.frappe")
     def test_falls_through_to_new_member_when_not_found(
         self, mock_frappe, mock_promote, mock_apply_new
     ):

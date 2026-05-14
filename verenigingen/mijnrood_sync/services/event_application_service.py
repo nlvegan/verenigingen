@@ -27,6 +27,9 @@ from verenigingen.mijnrood_sync.field_mapping import (
     get_terminated_status_ids,
     get_termination_type_map,
 )
+from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
+    get_application_sync_service,
+)
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     extract_email,
     get_mapping_service,
@@ -119,22 +122,6 @@ class MijnRoodEventApplicationService(StatefulService):
 
     # ─── Shared helpers ────────────────────────────────────────────────
 
-    # Fields shared between new and changed application handlers.
-    # Keys = row_data keys (from MijnRoodMappingService.map_member_fields),
-    # values = Member DocType field names.
-    _APPLICATION_FIELDS = {
-        "member_id": "member_id",
-        "first_name": "first_name",
-        "tussenvoegsel": "tussenvoegsel",
-        "last_name": "last_name",
-        "email": "email",
-        "contact_number": "contact_number",
-        "birth_date": "birth_date",
-        "iban": "iban",
-        "dues_rate": "dues_rate",
-        "accepts_optional_communications": "accepts_optional_communications",
-    }
-
     def _find_existing_member_or_conflict(self, mijnrood_id, email) -> tuple[Optional[str], Optional[dict]]:
         """Look up existing member by member_id (authoritative) then email.
 
@@ -143,42 +130,6 @@ class MijnRoodEventApplicationService(StatefulService):
             (None, None) — no match
         """
         return get_member_sync_service().find_existing_member_or_conflict(mijnrood_id, email)
-
-    def _set_application_fields(self, member, row_data: dict, is_new: bool = False) -> bool:
-        """Apply mapped MijnRood fields to a Member document.
-
-        Handles member_id stringification and payment method inference.
-
-        Args:
-            is_new: If True, infer payment_method from IBAN when not already set.
-
-        Returns:
-            True if any field was changed.
-        """
-        changed = False
-        for row_key, member_field in self._APPLICATION_FIELDS.items():
-            val = row_data.get(row_key)
-            if val is None or val == "":
-                continue
-            if row_key == "member_id":
-                val = str(val)
-            current = member.get(member_field)
-            if str(val).strip() != str(current or "").strip():
-                member.set(member_field, val)
-                changed = True
-
-        # For new applications, infer payment method from IBAN
-        if is_new and member.iban and not member.payment_method:
-            member.payment_method = "Bank Transfer"
-
-        # Mollie overrides payment method for both new and changed
-        mollie_id = row_data.get("custom_mollie_customer_id")
-        if mollie_id and mollie_id != member.mollie_customer_id:
-            member.mollie_customer_id = mollie_id
-            member.payment_method = "Mollie"
-            changed = True
-
-        return changed
 
     def _create_related_records(self, member_name: str, row_data: dict, event=None) -> list[str]:
         """Create related records (chapter, address, Mollie, membership, notes) for a synced member.
@@ -710,60 +661,9 @@ class MijnRoodEventApplicationService(StatefulService):
         3. Running the standard related-records side effects (chapter, address,
            Mollie, Membership + Dues Schedule, user account, notes)
         """
-        from verenigingen.services.csv_import.member_import_service import (
-            get_member_import_service,
+        return get_application_sync_service().promote_application_member(
+            member_name, old_data, new_data, row_data, event, self
         )
-
-        service = get_member_import_service()
-        status, updated_name = service.create_or_update_member(
-            row_data=row_data,
-            import_doc_name=f"MijnRood Sync: {event.name}",
-        )
-        if status not in ("created", "updated"):
-            return {
-                "success": False,
-                "message": _("Application promotion failed: {0}").format(status),
-            }
-
-        old_member_id = old_data.get("id")
-        new_member_id = new_data.get("id")
-
-        updates = {
-            "application_status": "Approved",
-            "review_notes": (
-                f"Approved via MijnRood (event {event.name}). "
-                f"Application id {old_member_id} → member_id {new_member_id}."
-            ),
-        }
-
-        # Flip member.status to Active if the MijnRood status is recognized as active.
-        # For unexpected status ids on a promotion (e.g. terminated), log and leave
-        # member.status alone — this shouldn't happen in practice.
-        status_id = safe_int(new_data.get("current_membership_status_id"))
-        if status_id is not None and status_id in get_active_status_ids():
-            updates["status"] = "Active"
-        elif status_id is not None:
-            self.logger.warning(
-                "Promotion event %s carries unexpected MijnRood status id %s for member %s; "
-                "leaving member.status unchanged",
-                event.name,
-                status_id,
-                updated_name,
-            )
-
-        frappe.db.set_value("Member", updated_name, updates, update_modified=False)
-
-        event.linked_member = updated_name
-
-        related_msgs = self._create_related_records(updated_name, row_data, event)
-
-        messages = [
-            _("Application {0} promoted (id {1} → member_id {2})").format(
-                updated_name, old_member_id, new_member_id
-            )
-        ]
-        messages.extend(related_msgs)
-        return {"success": True, "message": "; ".join(messages)}
 
     def _try_promote_application(self, event, row_data: dict) -> Optional[dict]:
         """Handle MijnRood application→member promotion (apply-time safety net).
@@ -776,40 +676,7 @@ class MijnRoodEventApplicationService(StatefulService):
         Returns:
             Result dict if promotion was handled, None if not a promotion.
         """
-        email = row_data.get("email")
-        match = frappe.db.get_value(
-            "Member",
-            {"email": email},
-            ["name", "member_id", "application_status"],
-            as_dict=True,
-        )
-        if not match or match.application_status != "Pending":
-            return None
-
-        old_member_id = match.member_id
-        new_member_id = row_data.get("member_id")
-
-        self.logger.info(
-            "Promoting application %s (member_id %s → %s) via event %s (apply-time fallback)",
-            match.name,
-            old_member_id,
-            new_member_id,
-            event.name,
-        )
-
-        # Build a minimal old_data stub — the safety-net path doesn't have the
-        # original application row handy. _promote_application_member only uses
-        # old_data["id"] for the log message, so this is adequate.
-        old_data_stub = {"id": old_member_id}
-        # Build a new_data stub from row_data so the status-flip path works.
-        # The apply-time path may not have current_membership_status_id —
-        # default to 1 (active) which is correct for a promotion.
-        new_data_stub = {
-            "id": new_member_id,
-            "current_membership_status_id": 1,
-        }
-
-        return self._promote_application_member(match.name, old_data_stub, new_data_stub, row_data, event)
+        return get_application_sync_service().try_promote_application(event, row_data, self)
 
     def _apply_new_division(self, event) -> dict:
         """Create or update a Chapter from MijnRood admin_division data."""
@@ -825,53 +692,7 @@ class MijnRoodEventApplicationService(StatefulService):
         Creates a Member document with application_status=Pending so it
         enters the normal membership application review workflow.
         """
-        new_data = safe_json_load(event.new_data)
-        if not new_data:
-            return {"success": False, "message": _("No new data in event")}
-
-        row_data = get_mapping_service().map_member_fields(new_data)
-
-        # Idempotency — member_id is authoritative, email is fallback
-        existing_name, existing_result = self._find_existing_member_or_conflict(
-            row_data.get("member_id"), row_data.get("email")
-        )
-        if existing_result is not None:
-            if existing_name:
-                event.linked_member = existing_name
-            return existing_result
-
-        # Create Member document as a pending application
-        member = frappe.new_doc("Member")
-        member.flags.ignore_workflow = True
-        member._system_update = True
-        member._csv_import = True
-        member.application_id = f"MR-APP-{new_data.get('id', event.name)}"
-        member.application_status = "Pending"
-        member.status = "Pending"
-        member.application_date = new_data.get("registration_time") or today()
-        member.review_notes = f"Imported from MijnRood application (event {event.name})"
-
-        self._set_application_fields(member, row_data, is_new=True)
-
-        # Security: System-initiated creation from authoritative MijnRood data
-        member.insert(ignore_permissions=True)
-        frappe.db.commit()
-
-        # Assign to preferred chapter
-        preferred_div_id = safe_int(new_data.get("preferred_division_id"))
-        if preferred_div_id:
-            self._assign_chapter_from_division(member.name, preferred_div_id, event)
-
-        event.linked_member = member.name
-        self.logger.info(
-            "Created membership application %s from MijnRood row %s",
-            member.name,
-            new_data.get("id"),
-        )
-        return {
-            "success": True,
-            "message": _("Application created as {0} (pending review)").format(member.name),
-        }
+        return get_application_sync_service().apply_new_membership_application(event, self)
 
     # ─── Changed ────────────────────────────────────────────────────────
 
@@ -903,64 +724,7 @@ class MijnRoodEventApplicationService(StatefulService):
         Finds the linked Member (application) and updates fields that changed.
         Handles preferred_division_id changes as chapter reassignment.
         """
-        new_data = safe_json_load(event.new_data)
-        changed_fields = safe_json_load(event.changed_fields, default=[])
-
-        if not new_data:
-            return {"success": False, "message": _("No new data in event")}
-
-        # Find the linked member — event link first, then member_id, then email
-        member_name = event.linked_member
-        if not member_name:
-            mijnrood_id = str(new_data.get("id", ""))
-            existing_name, existing_result = self._find_existing_member_or_conflict(
-                mijnrood_id, new_data.get("email")
-            )
-            if existing_result and not existing_result.get("success"):
-                return existing_result  # Conflict
-            member_name = existing_name
-
-        if not member_name:
-            return {
-                "success": False,
-                "message": _("No linked member found for application MijnRood ID {0}").format(
-                    new_data.get("id")
-                ),
-            }
-
-        # Guard: don't overwrite data on already-approved/rejected applications
-        app_status = frappe.db.get_value("Member", member_name, "application_status")
-        if app_status and app_status not in ("Pending", ""):
-            return {
-                "success": True,
-                "message": _("Application {0} already {1}, skipping update").format(member_name, app_status),
-            }
-
-        # Handle preferred_division_id change as chapter reassignment
-        chapter_msg = self._handle_division_field_change(
-            member_name, changed_fields, event, field_name="preferred_division_id"
-        )
-
-        # Update basic fields on the member
-        row_data = get_mapping_service().map_member_fields(new_data)
-        member = frappe.get_doc("Member", member_name)
-        member.flags.ignore_workflow = True
-        member._system_update = True
-
-        changed_something = self._set_application_fields(member, row_data)
-
-        if changed_something:
-            # Security: System-initiated update from authoritative MijnRood data
-            member.save(ignore_permissions=True)
-            frappe.db.commit()
-
-        messages = []
-        if chapter_msg:
-            messages.append(chapter_msg)
-        messages.append(_("Application {0} updated").format(member_name))
-
-        event.linked_member = member_name
-        return {"success": True, "message": "; ".join(messages)}
+        return get_application_sync_service().apply_changed_membership_application(event, self)
 
     # ─── Deleted ──────────────────────────────────────────────────────
 
@@ -985,59 +749,7 @@ class MijnRoodEventApplicationService(StatefulService):
         that was created when the application first synced, then delegate to
         _promote_application_member for the actual promotion.
         """
-        new_data = safe_json_load(event.new_data)
-        old_data = safe_json_load(event.old_data)
-        if not new_data:
-            return {"success": False, "message": _("No new data in approved event")}
-
-        row_data = get_mapping_service().map_member_fields(new_data)
-
-        member_name = self._locate_application_member(old_data or {}, new_data, event.linked_member)
-        if not member_name:
-            # Fall through to fresh creation — defensive, shouldn't happen in
-            # practice because the application event already created a Pending
-            # Member that the correlator linked to this event.
-            self.logger.warning(
-                "Approved event %s could not locate a Pending Member; falling "
-                "through to _apply_new_member",
-                event.name,
-            )
-            return self._apply_new_member(event)
-
-        return self._promote_application_member(member_name, old_data or {}, new_data, row_data, event)
-
-    def _locate_application_member(
-        self, old_data: dict, new_data: dict, linked_member: Optional[str]
-    ) -> Optional[str]:
-        """Locate the local Pending Member for an Approved event.
-
-        Order:
-          1. event.linked_member (set by the correlator).
-          2. Lookup by application_id = f'MR-APP-{old_data.id}' — matches what
-             _apply_new_membership_application stamps onto the Member.
-          3. Lookup by normalized email.
-          4. None → caller falls through.
-        """
-        if linked_member:
-            return linked_member
-
-        app_id = old_data.get("id")
-        if app_id is not None:
-            match = frappe.db.get_value(
-                "Member",
-                {"application_id": f"MR-APP-{app_id}"},
-                "name",
-            )
-            if match:
-                return match
-
-        email = (new_data.get("email") or old_data.get("email") or "").strip()
-        if email:
-            match = frappe.db.get_value("Member", {"email": email}, "name")
-            if match:
-                return match
-
-        return None
+        return get_application_sync_service().apply_approved(event, self)
 
     def _check_and_handle_termination(
         self,
