@@ -186,6 +186,72 @@ class MijnRoodApplicationSyncService:
             "message": _("Application created as {0} (pending review)").format(member.name),
         }
 
+    def apply_changed_membership_application(self, event, orchestrator) -> dict:
+        """Update a pending membership application from changed MijnRood data.
+
+        Finds the linked Member (application) and updates fields that changed.
+        Handles preferred_division_id changes as chapter reassignment.
+
+        Transitional `orchestrator` parameter: see apply_new_membership_application.
+        """
+        new_data = safe_json_load(event.new_data)
+        changed_fields = safe_json_load(event.changed_fields, default=[])
+
+        if not new_data:
+            return {"success": False, "message": _("No new data in event")}
+
+        # Find the linked member — event link first, then member_id, then email
+        member_name = event.linked_member
+        if not member_name:
+            mijnrood_id = str(new_data.get("id", ""))
+            existing_name, existing_result = orchestrator._find_existing_member_or_conflict(
+                mijnrood_id, new_data.get("email")
+            )
+            if existing_result and not existing_result.get("success"):
+                return existing_result  # Conflict
+            member_name = existing_name
+
+        if not member_name:
+            return {
+                "success": False,
+                "message": _("No linked member found for application MijnRood ID {0}").format(
+                    new_data.get("id")
+                ),
+            }
+
+        # Guard: don't overwrite data on already-approved/rejected applications
+        app_status = frappe.db.get_value("Member", member_name, "application_status")
+        if app_status and app_status not in ("Pending", ""):
+            return {
+                "success": True,
+                "message": _("Application {0} already {1}, skipping update").format(member_name, app_status),
+            }
+
+        # Chapter reassignment if preferred_division_id changed
+        chapter_msg = orchestrator._handle_division_field_change(
+            member_name, changed_fields, event, field_name="preferred_division_id"
+        )
+
+        row_data = get_mapping_service().map_member_fields(new_data)
+        member = frappe.get_doc("Member", member_name)
+        member.flags.ignore_workflow = True
+        member._system_update = True
+
+        changed_something = self._set_application_fields(member, row_data)
+
+        if changed_something:
+            # Security: system-initiated update from authoritative MijnRood data
+            member.save(ignore_permissions=True)
+            frappe.db.commit()
+
+        messages = []
+        if chapter_msg:
+            messages.append(chapter_msg)
+        messages.append(_("Application {0} updated").format(member_name))
+
+        event.linked_member = member_name
+        return {"success": True, "message": "; ".join(messages)}
+
 
 _service_instance: Optional[MijnRoodApplicationSyncService] = None
 

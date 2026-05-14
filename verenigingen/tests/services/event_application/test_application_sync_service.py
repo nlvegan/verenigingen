@@ -319,3 +319,140 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("No new data", result["message"])
+
+
+class TestApplyChangedMembershipApplication(EnhancedTestCase):
+    """Updates Pending application fields; guards against overwriting approved/rejected."""
+
+    def setUp(self):
+        super().setUp()
+        self._row_counter = {"n": 400000}
+        settings = frappe.get_single("MijnRood Sync Settings")
+        self._original_status_mapping = list(settings.status_mapping or [])
+        membership_type = self.factory.ensure_membership_type("App Sync Change Test Type")
+        settings.append("status_mapping", {
+            "mijnrood_status_id": 8002,
+            "label": "App Sync Change Test",
+            "membership_type_string": "test",
+            "is_active": 1,
+            "verenigingen_membership_type": membership_type.name,
+        })
+        settings.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.cache().delete_value("mijnrood_status_mapping")
+        self.addCleanup(self._cleanup_status_mapping)
+
+    def _cleanup_status_mapping(self):
+        s = frappe.get_single("MijnRood Sync Settings")
+        s.status_mapping = self._original_status_mapping
+        s.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.cache().delete_value("mijnrood_status_mapping")
+
+    def _cleanup_event(self, event_name):
+        frappe.delete_doc("MijnRood Sync Event", event_name, ignore_permissions=True, force=True)
+
+    def _cleanup_member_and_customer(self, member_name):
+        """apply_changed_membership_application commits — survives rollback.
+
+        The Member's after_insert / on_update hook creates a linked Customer
+        row keyed on the rendered "<first_name> <last_name>" pair; that row
+        must be cleaned up to avoid duplicate-primary-key collisions on
+        subsequent runs.
+        """
+        if not member_name:
+            return
+        customer_name = frappe.db.get_value("Customer", {"member": member_name}, "name")
+        if customer_name:
+            frappe.delete_doc(
+                "Customer", customer_name, ignore_permissions=True, force=True
+            )
+        if frappe.db.exists("Member", member_name):
+            frappe.delete_doc(
+                "Member", member_name, ignore_permissions=True, force=True
+            )
+        frappe.db.commit()
+
+    def test_updates_pending_application_fields(self):
+        member = self.factory.create_member(
+            first_name="OldFirst",
+            last_name="OldLast",
+            email="app-change-1@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+        frappe.db.set_value(
+            "Member", member.name, {"application_status": "Pending", "status": "Pending"},
+            update_modified=False,
+        )
+
+        event = _make_event(
+            self._row_counter,
+            event_type="Changed",
+            new_data={
+                "id": "APP-CHG-1",
+                "first_name": "NewFirst",
+                # EnhancedTestDataFactory uniquifies last_name; use the stored
+                # value so the no-change path on last_name behaves predictably.
+                "last_name": member.last_name,
+                "email": member.email,
+                "current_membership_status_id": 8002,
+            },
+            changed_fields=["first_name"],
+            linked_member=member.name,
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        result = get_application_sync_service().apply_changed_membership_application(event, orchestrator)
+
+        self.assertTrue(result["success"])
+        updated = frappe.db.get_value("Member", member.name, "first_name")
+        self.assertEqual(updated, "NewFirst")
+
+    def test_skips_update_when_application_already_approved(self):
+        member = self.factory.create_member(
+            first_name="Locked",
+            last_name="In",
+            email="app-change-locked@example.org",
+        )
+        frappe.db.set_value(
+            "Member", member.name, "application_status", "Approved", update_modified=False
+        )
+
+        event = _make_event(
+            self._row_counter,
+            event_type="Changed",
+            new_data={
+                "id": "APP-CHG-2",
+                "first_name": "ShouldNotChange",
+                "email": member.email,
+                "current_membership_status_id": 8002,
+            },
+            linked_member=member.name,
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        result = get_application_sync_service().apply_changed_membership_application(event, orchestrator)
+
+        self.assertTrue(result["success"])
+        self.assertIn("already Approved", result["message"])
+        self.assertEqual(frappe.db.get_value("Member", member.name, "first_name"), "Locked")
+
+    def test_returns_failure_when_no_linked_member(self):
+        event = _make_event(
+            self._row_counter,
+            event_type="Changed",
+            new_data={
+                "id": "APP-CHG-MISSING",
+                "email": "nobody-here@example.org",
+                "current_membership_status_id": 8002,
+            },
+        )
+        self.addCleanup(self._cleanup_event, event.name)
+
+        orchestrator = _FakeOrchestrator()
+        result = get_application_sync_service().apply_changed_membership_application(event, orchestrator)
+
+        self.assertFalse(result["success"])
+        self.assertIn("No linked member", result["message"])
