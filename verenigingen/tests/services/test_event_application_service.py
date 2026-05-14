@@ -40,6 +40,9 @@ from verenigingen.mijnrood_sync.services.event_application.mapping_service impor
 from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
     MijnRoodMemberSyncService,
 )
+from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+    MijnRoodVolunteerSyncService,
+)
 from verenigingen.mijnrood_sync.services.event_application_service import (
     MijnRoodEventApplicationService,
 )
@@ -1916,7 +1919,7 @@ class TestEnsureTeamMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value=None,
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_no_volunteer_returns_error(self, mock_frappe, _mock_get_vol):
         """When member has no Volunteer record, return an error message."""
         mock_frappe._ = frappe._
@@ -1930,7 +1933,7 @@ class TestEnsureTeamMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_team_does_not_exist(self, mock_frappe, _mock_get_vol):
         """When team doesn't exist, return error message."""
         mock_frappe._ = frappe._
@@ -1945,7 +1948,7 @@ class TestEnsureTeamMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_team_not_active(self, mock_frappe, _mock_get_vol):
         """When team exists but is not Active, return error message."""
         mock_frappe._ = frappe._
@@ -1960,7 +1963,7 @@ class TestEnsureTeamMembership(EnhancedTestCase):
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_already_active_member_returns_none(self, mock_frappe, _mock_get_vol):
         """When volunteer is already an active team member, return None (skip)."""
         mock_frappe._ = frappe._
@@ -1972,12 +1975,12 @@ class TestEnsureTeamMembership(EnhancedTestCase):
         self.assertIsNone(result)
         mock_frappe.get_doc.assert_not_called()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.today")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.today")
     @patch(
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_happy_path_adds_to_team(self, mock_frappe, _mock_get_vol, mock_today):
         """Happy path: volunteer added to team, team saved."""
         mock_frappe._ = frappe._
@@ -2008,12 +2011,12 @@ class TestEnsureTeamMembership(EnhancedTestCase):
         )
         mock_team_doc.save.assert_called_once_with(ignore_permissions=True)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.today")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.today")
     @patch(
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_save_exception_returns_error(self, mock_frappe, _mock_get_vol, mock_today):
         """When team save raises an exception, return error message and log it."""
         mock_frappe._ = frappe._
@@ -2057,14 +2060,14 @@ class TestPruneOrphanTeamMembers(EnhancedTestCase):
         """Empty child table → zero pruned, no DB lookup."""
         team_doc, _rows = self._make_team_doc([])
         with patch(
-            "verenigingen.mijnrood_sync.services.event_application_service.frappe"
+            "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe"
         ) as mock_frappe:
             result = self.service._prune_orphan_team_members(team_doc, "Some Team")
         self.assertEqual(result, 0)
         mock_frappe.get_all.assert_not_called()
         team_doc.remove.assert_not_called()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_all_volunteers_exist_no_prune(self, mock_frappe):
         """When every referenced volunteer exists, nothing is removed."""
         team_doc, rows = self._make_team_doc(["VOL-A", "VOL-B"])
@@ -2076,7 +2079,7 @@ class TestPruneOrphanTeamMembers(EnhancedTestCase):
         team_doc.remove.assert_not_called()
         self.assertEqual(len(rows), 2)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_orphans_are_pruned(self, mock_frappe):
         """Rows referencing deleted volunteers are removed; the rest stay."""
         team_doc, rows = self._make_team_doc(["VOL-A", "VOL-GONE-1", "VOL-B", "VOL-GONE-2"])
@@ -2104,7 +2107,7 @@ class TestHandleAdminRoleChange(EnhancedTestCase):
     def test_admin_unchanged_skips_role_actions(self):
         """ROLE_ADMIN in both old and new → no role actions fire (option 2 fix)."""
         role_config = {"ROLE_ADMIN": {"create_volunteer": 1, "add_to_team": 1, "default_team": "T"}}
-        with patch.object(self.service, "_apply_role_actions") as mock_apply:
+        with patch.object(MijnRoodVolunteerSyncService, "_apply_role_actions") as mock_apply:
             messages = self.service._handle_admin_role_change(
                 member_name="MEM-001",
                 current_roles={"ROLE_ADMIN"},
@@ -2118,7 +2121,9 @@ class TestHandleAdminRoleChange(EnhancedTestCase):
     def test_admin_added_fires_role_actions(self):
         """ROLE_ADMIN newly granted → _apply_role_actions runs."""
         role_config = {"ROLE_ADMIN": {"create_volunteer": 1}}
-        with patch.object(self.service, "_apply_role_actions", return_value=["did stuff"]) as mock_apply:
+        with patch.object(
+            MijnRoodVolunteerSyncService, "_apply_role_actions", return_value=["did stuff"]
+        ) as mock_apply:
             messages = self.service._handle_admin_role_change(
                 member_name="MEM-001",
                 current_roles={"ROLE_ADMIN"},
@@ -2132,7 +2137,9 @@ class TestHandleAdminRoleChange(EnhancedTestCase):
     def test_admin_added_on_first_sight_no_old_data(self):
         """First sync (old_roles empty) treats ROLE_ADMIN as a transition."""
         role_config = {"ROLE_ADMIN": {"create_volunteer": 1}}
-        with patch.object(self.service, "_apply_role_actions", return_value=[]) as mock_apply:
+        with patch.object(
+            MijnRoodVolunteerSyncService, "_apply_role_actions", return_value=[]
+        ) as mock_apply:
             self.service._handle_admin_role_change(
                 member_name="MEM-001",
                 current_roles={"ROLE_ADMIN"},
@@ -2147,7 +2154,9 @@ class TestHandleAdminRoleChange(EnhancedTestCase):
         role_config = {
             "ROLE_ADMIN": {"add_to_team": True, "default_team": "Landelijk Beheer"}
         }
-        with patch.object(self.service, "_end_team_membership", return_value="Ended") as mock_end:
+        with patch.object(
+            MijnRoodVolunteerSyncService, "_end_team_membership", return_value="Ended"
+        ) as mock_end:
             messages = self.service._handle_admin_role_change(
                 member_name="MEM-001",
                 current_roles=set(),
@@ -2155,6 +2164,7 @@ class TestHandleAdminRoleChange(EnhancedTestCase):
                 role_config=role_config,
                 event=None,
             )
+        # patch.object on a class includes `self` as the first positional arg
         mock_end.assert_called_once_with("MEM-001", "Landelijk Beheer", event=None)
         self.assertIn("Ended", messages)
 
@@ -2513,7 +2523,7 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         return_value="VOL-001",
     )
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_not_on_board_returns_none(self, mock_frappe, _mock_resolve, _mock_get_vol):
         """When volunteer has no active board membership, return None."""
         mock_frappe._ = frappe._
@@ -2525,13 +2535,16 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
 
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.today", return_value="2026-02-18")
+    @patch(
+        "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.today",
+        return_value="2026-02-18",
+    )
     @patch(
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_happy_path_delegates_to_board_manager(
         self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
     ):
@@ -2566,13 +2579,16 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         self.assertEqual(call_args[0]["end_date"], "2026-02-18")
         self.assertIn("MR-SYNC-2026-05523", call_args[0]["reason"])
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.today", return_value="2026-02-18")
+    @patch(
+        "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.today",
+        return_value="2026-02-18",
+    )
     @patch(
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_board_manager_failure_returns_error(
         self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
     ):
@@ -2597,13 +2613,16 @@ class TestEndChapterBoardMembership(EnhancedTestCase):
         self.assertIn("board removal failed", result)
         self.assertIn("Save failed", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.today", return_value="2026-02-18")
+    @patch(
+        "verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.today",
+        return_value="2026-02-18",
+    )
     @patch(
         "verenigingen.verenigingen.doctype.volunteer.volunteer.get_volunteer_for_member",
         return_value="VOL-001",
     )
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_exception_returns_error_and_logs(
         self, mock_frappe, _mock_resolve, _mock_get_vol, _mock_today
     ):
@@ -2654,13 +2673,13 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
 
         self.assertEqual(result, [])
 
-    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
+    @patch.object(MijnRoodVolunteerSyncService, "_notify_board_membership_change")
     @patch.object(
-        MijnRoodEventApplicationService,
+        MijnRoodVolunteerSyncService,
         "_end_chapter_board_membership",
         return_value="Removed from chapter 'Eindhoven' board",
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_removed_division_triggers_board_removal(
         self, mock_frappe, mock_end_board, mock_notify
     ):
@@ -2681,13 +2700,13 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
         self.assertIn("Removed from chapter 'Eindhoven' board", result)
         mock_notify.assert_called_once_with("MEM-001", {11}, event)
 
-    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
+    @patch.object(MijnRoodVolunteerSyncService, "_notify_board_membership_change")
     @patch.object(
-        MijnRoodEventApplicationService,
+        MijnRoodVolunteerSyncService,
         "_end_chapter_board_membership",
         return_value="Removed from chapter 'Eindhoven' board",
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_all_divisions_removed(self, mock_frappe, mock_end_board, mock_notify):
         """When all divisions are removed, all get processed."""
         mock_frappe._ = frappe._
@@ -2703,13 +2722,13 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
         self.assertEqual(mock_end_board.call_count, 2)
         mock_notify.assert_called_once()
 
-    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
+    @patch.object(MijnRoodVolunteerSyncService, "_notify_board_membership_change")
     @patch.object(
-        MijnRoodEventApplicationService,
+        MijnRoodVolunteerSyncService,
         "_end_chapter_board_membership",
         side_effect=Exception("Unexpected error"),
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_partial_failure_continues(self, mock_frappe, mock_end_board, mock_notify):
         """When one division removal fails, others still process and notification fires."""
         mock_frappe._ = frappe._
@@ -2730,9 +2749,9 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
         # Notification still sent
         mock_notify.assert_called_once()
 
-    @patch.object(MijnRoodEventApplicationService, "_end_chapter_board_membership", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_notify_board_membership_change")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch.object(MijnRoodVolunteerSyncService, "_end_chapter_board_membership", return_value=None)
+    @patch.object(MijnRoodVolunteerSyncService, "_notify_board_membership_change")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_none_result_not_appended(self, mock_frappe, mock_notify, mock_end_board):
         """When _end_chapter_board_membership returns None (not on board), no message added."""
         mock_frappe._ = frappe._
@@ -2762,7 +2781,7 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
 
     @patch("verenigingen.utils.notification_helpers.notify_administrators")
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_sends_notification_with_correct_key(self, mock_frappe, _mock_resolve, mock_notify):
         """Notification uses chapter_board_removed key and Chapter category."""
         mock_frappe._ = frappe._
@@ -2782,7 +2801,7 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
 
     @patch("verenigingen.utils.notification_helpers.notify_administrators")
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_also_sends_realtime(self, mock_frappe, _mock_resolve, _mock_notify):
         """Also publishes a realtime event for the current session."""
         mock_frappe._ = frappe._
@@ -2798,7 +2817,7 @@ class TestNotifyBoardMembershipChange(EnhancedTestCase):
 
     @patch("verenigingen.utils.notification_helpers.notify_administrators")
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Eindhoven")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service.frappe")
     def test_notification_failure_does_not_raise(self, mock_frappe, _mock_resolve, mock_notify):
         """If notify_administrators raises, the error is logged but not re-raised."""
         mock_frappe._ = frappe._
