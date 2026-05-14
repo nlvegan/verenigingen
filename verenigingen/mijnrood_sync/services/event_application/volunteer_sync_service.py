@@ -67,6 +67,100 @@ class MijnRoodVolunteerSyncService:
 
         return {r for r in parsed if isinstance(r, str) and r.startswith("ROLE_")}
 
+    def _ensure_volunteer(
+        self,
+        member_name: str,
+        config: dict,
+        orchestrator,
+        event=None,
+    ) -> Optional[str]:
+        """Create Volunteer record and assign role if configured.
+
+        Uses the existing create_volunteer_from_member() function which
+        handles account creation, deduplication, etc.
+
+        Returns:
+            Human-readable status message, or None if skipped.
+        """
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+            get_volunteer_for_member,
+        )
+
+        existing = get_volunteer_for_member(member_name)
+        if existing:
+            # Volunteer already exists — skip individual role assignment when
+            # add_to_team is configured, because the team hook will handle the
+            # role profile (which includes all necessary roles). Using add_roles()
+            # here is futile: Frappe's populate_role_profile_roles() overwrites
+            # individually added roles on every User.save().
+            if config.get("add_to_team"):
+                self.logger.debug(
+                    "Skipping individual role assignment for %s — team hook will set profile",
+                    member_name,
+                )
+                # Ensure User account exists — team hook needs it for profile sync
+                acr_msg = orchestrator._ensure_user_account_for_volunteer(member_name)
+                return acr_msg  # None if user exists or ACR already queued
+            role = config.get("verenigingen_role")
+            if role:
+                role_msg = self._ensure_user_role(member_name, role)
+                if role_msg:
+                    return role_msg
+            return None
+
+        # Create volunteer — account creation is needed when a role is assigned
+        # OR when the member will be added to a team (team hook needs a User
+        # account to sync role profiles).
+        roles = None
+        create_account = False
+        role = config.get("verenigingen_role")
+        role_profile = config.get("role_profile")
+        needs_team = config.get("add_to_team") and config.get("default_team")
+        if role:
+            create_account = True
+            roles = [role]
+        elif needs_team:
+            create_account = True
+
+        try:
+            result = create_volunteer_from_member(
+                member_name=member_name,
+                create_user_account=create_account,
+                roles=roles,
+                role_profile=role_profile,
+            )
+            if result.get("success") is False:
+                error = result.get("error", "Unknown error")
+                self.logger.warning("Volunteer creation skipped for %s: %s", member_name, error)
+                return _("Volunteer creation skipped: {0}").format(error)
+
+            volunteer_name = result.get("volunteer")
+            if create_account:
+                orchestrator._acr_queued_members.add(member_name)
+            self.logger.info(
+                "Created volunteer %s for member %s (event %s, role=%s, account=%s)",
+                volunteer_name,
+                member_name,
+                event.name if event else "N/A",
+                role,
+                create_account,
+            )
+            msg = _("Volunteer {0} created").format(volunteer_name)
+            if role:
+                msg += _("; role '{0}' assigned").format(role)
+            if create_account and not role:
+                msg += _("; account creation queued for team membership")
+            return msg
+
+        except Exception as e:
+            self.logger.error("Volunteer creation failed for %s: %s", member_name, e)
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"MijnRood Sync - Volunteer Creation Failed: {member_name}",
+            )
+            return _("Volunteer creation failed: {0}").format(str(e)[:200])
+
     def _ensure_user_role(self, member_name: str, role: str) -> Optional[str]:
         """Ensure a member's user account has the specified role.
 

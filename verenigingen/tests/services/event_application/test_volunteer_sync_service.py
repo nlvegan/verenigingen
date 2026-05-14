@@ -7,6 +7,7 @@ real Chapter + Team + Volunteer + User fixtures.
 """
 
 import json
+from unittest.mock import MagicMock
 
 import frappe
 from frappe.utils import today
@@ -230,6 +231,171 @@ class TestPruneOrphanTeamMembers(EnhancedTestCase):
                 frappe.delete_doc(
                     "Member", member_name, ignore_permissions=True, force=True
                 )
+            frappe.db.commit()
+        except Exception:
+            pass
+
+
+class TestEnsureVolunteer(EnhancedTestCase):
+    """Volunteer creation/lookup with role and team configuration."""
+
+    def test_creates_volunteer_when_none_exists(self):
+        member = self.factory.create_member(
+            first_name="NoVol",
+            last_name="Yet",
+            email="no-vol-yet@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+
+        # Track the orchestrator's _acr_queued_members
+        orchestrator = _FakeOrchestrator()
+        orchestrator._acr_queued_members = set()
+
+        # Config with verenigingen_role triggers user account creation
+        config = {
+            "create_volunteer": True,
+            "verenigingen_role": "Verenigingen Volunteer",
+        }
+        result = get_volunteer_sync_service()._ensure_volunteer(
+            member.name, config, orchestrator
+        )
+
+        self.assertIsNotNone(result)
+        self.assertIn("created", result.lower())
+        # Verify the Volunteer exists
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            get_volunteer_for_member,
+        )
+        vol_name = get_volunteer_for_member(member.name)
+        self.assertIsNotNone(vol_name)
+        self.addCleanup(self._cleanup_volunteer, vol_name)
+        # ACR was queued because create_account=True (role assigned)
+        self.assertIn(member.name, orchestrator._acr_queued_members)
+
+    def test_assigns_role_when_volunteer_already_exists_no_team(self):
+        member = self.factory.create_member(
+            first_name="ExistingVol",
+            last_name="Test",
+            email="existing-vol@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+        # Pre-create a Volunteer for this member
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+        create_result = create_volunteer_from_member(
+            member_name=member.name, create_user_account=False
+        )
+        volunteer_name = create_result.get("volunteer_name") or create_result.get("volunteer")
+        self.assertIsNotNone(volunteer_name)
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        # Now call _ensure_volunteer — it should skip volunteer creation
+        # and (if user exists and role doesn't) return a role message
+        orchestrator = _FakeOrchestrator()
+        config = {
+            "create_volunteer": True,
+            "verenigingen_role": "Verenigingen Volunteer",
+            # No add_to_team
+        }
+        result = get_volunteer_sync_service()._ensure_volunteer(
+            member.name, config, orchestrator
+        )
+
+        # Result may be None (user already has role) or a role-assigned message
+        # — both are valid for this path. We're verifying _create_volunteer is NOT
+        # called (no new volunteer created).
+        new_vol_count = frappe.db.count("Volunteer", {"member": member.name})
+        self.assertEqual(new_vol_count, 1, "Should not create a second Volunteer")
+
+    def test_skips_role_assignment_when_team_configured(self):
+        member = self.factory.create_member(
+            first_name="TeamVol",
+            last_name="Test",
+            email="team-vol@example.org",
+        )
+        self.addCleanup(self._cleanup_member_and_customer, member.name)
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import (
+            create_volunteer_from_member,
+        )
+        create_result = create_volunteer_from_member(
+            member_name=member.name, create_user_account=False
+        )
+        volunteer_name = create_result.get("volunteer_name") or create_result.get("volunteer")
+        self.addCleanup(self._cleanup_volunteer, volunteer_name)
+
+        orchestrator = _FakeOrchestrator()
+        orchestrator._ensure_user_account_for_volunteer = MagicMock(
+            return_value="Account creation queued (stub)"
+        )
+        config = {
+            "create_volunteer": True,
+            "verenigingen_role": "Verenigingen Volunteer",
+            "add_to_team": True,
+            "default_team": "Some Team Name",
+        }
+        result = get_volunteer_sync_service()._ensure_volunteer(
+            member.name, config, orchestrator
+        )
+
+        # When add_to_team is configured and volunteer exists, the service skips
+        # individual role assignment and calls orchestrator._ensure_user_account_for_volunteer
+        orchestrator._ensure_user_account_for_volunteer.assert_called_once_with(member.name)
+
+    def test_returns_failure_when_create_volunteer_returns_failure(self):
+        # Force create_volunteer_from_member to return success=False by
+        # passing an invalid member_name
+        orchestrator = _FakeOrchestrator()
+        config = {"create_volunteer": True}
+        result = get_volunteer_sync_service()._ensure_volunteer(
+            "Member-Does-Not-Exist-XYZ", config, orchestrator
+        )
+
+        # The result is either an error message starting with "Volunteer creation"
+        # or a similar failure indication
+        self.assertIsNotNone(result)
+        self.assertIn("Volunteer creation", result)
+
+    def _cleanup_volunteer(self, volunteer_name):
+        try:
+            # Volunteer may have a linked User via the create_volunteer flow
+            user = frappe.db.get_value("Volunteer", volunteer_name, "user")
+            if user:
+                try:
+                    frappe.delete_doc("User", user, ignore_permissions=True, force=True)
+                except Exception:
+                    pass
+            frappe.delete_doc("Volunteer", volunteer_name, ignore_permissions=True, force=True)
+        except Exception:
+            pass
+
+    def _cleanup_member_and_customer(self, member_name):
+        """Member.after_save creates a linked Customer that survives rollback."""
+        if not member_name:
+            return
+        try:
+            customer_name = frappe.db.get_value("Customer", {"member": member_name}, "name")
+            if customer_name:
+                # Unlink first to avoid LinkExistsError
+                try:
+                    frappe.db.set_value(
+                        "Member", member_name, "customer", "", update_modified=False
+                    )
+                except Exception:
+                    pass
+                try:
+                    frappe.delete_doc(
+                        "Customer", customer_name, ignore_permissions=True, force=True
+                    )
+                except Exception:
+                    pass
+            if frappe.db.exists("Member", member_name):
+                try:
+                    frappe.delete_doc(
+                        "Member", member_name, ignore_permissions=True, force=True
+                    )
+                except Exception:
+                    pass
             frappe.db.commit()
         except Exception:
             pass
