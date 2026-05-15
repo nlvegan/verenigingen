@@ -7,13 +7,16 @@ for the not-yet-extracted cross-cutting helpers.
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import frappe
 
 from verenigingen.mijnrood_sync.field_mapping import get_active_status_ids
 from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
     get_application_sync_service,
+)
+from verenigingen.mijnrood_sync.services.event_application.dispatcher import (
+    get_event_application_service,
 )
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     get_mapping_service,
@@ -769,3 +772,207 @@ class TestApplyApproved(EnhancedTestCase):
 
         orchestrator._apply_new_member.assert_called_once_with(event)
         self.assertTrue(result["success"])
+
+
+class TestApprovedEventEndToEnd(EnhancedTestCase):
+    """Integration test: Approved event → real Member + Membership + Dues Schedule.
+
+    The previous mocked TestApprovedEventCreatesMembershipAndDues used
+    _FakeOrchestrator everywhere, so the wiring from apply_event →
+    apply_approved → promote_application_member → MemberImportService →
+    real Membership + Dues creation was never end-to-end verified. This
+    test calls apply_event() on a real MijnRood Sync Event document of
+    type 'Approved' and verifies the downstream artifacts exist.
+
+    Status mapping: the event's new_data carries
+    current_membership_status_id=1. That id serves a dual role —
+    map_member_fields resolves it to the seeded "Lid" membership type AND
+    promote_application_member flips member.status to Active because 1 is
+    in get_active_status_ids() ([1, 2]). StatusMappingSetupMixin (with a
+    synthetic STATUS_ID) is deliberately NOT used: a synthetic id is not
+    in the active-status set, so it would never trigger the status flip
+    that membership creation depends on. The "Lid" type + the
+    Annual/Monthly/Quarterly CSV dues templates are standard site
+    fixtures, so no extra template setup is required.
+
+    Customer creation inside Member.after_insert is mocked out — it is an
+    unrelated side effect that depends on Selling Settings configuration
+    (which varies across test environments) and is out of scope here.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = get_event_application_service()
+        self._row_counter = {"n": 800000}
+        # Mock justified: Infrastructure - Member.after_insert creates a
+        # linked Customer; the test env's group-type customer_group in
+        # Selling Settings fails ERPNext Customer validation. Customer
+        # creation is unrelated to this approved-event regression.
+        self._customer_patcher = patch(
+            "verenigingen.services.customer_handling_service.CustomerHandlingService"
+            ".create_customer_for_member",
+            return_value=None,
+        )
+        self._customer_patcher.start()
+        self.addCleanup(self._customer_patcher.stop)
+
+    def _create_pending_member(self, email, application_id):
+        """Factory helper: Pending Member as _apply_new_membership_application creates it.
+
+        Commits because apply_event commits; the row must survive
+        EnhancedTestCase rollback for the end-to-end assertions.
+        """
+        member = frappe.new_doc("Member")
+        member.first_name = "EndToEnd"
+        member.last_name = "Approved"
+        member.email = email
+        member.application_id = application_id
+        member.application_status = "Pending"
+        member.status = "Pending"
+        member.application_date = frappe.utils.today()
+        member._csv_import = True
+        member._system_update = True
+        member.flags.ignore_workflow = True
+        member.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return member.name
+
+    def _create_approved_event(self, pending_member_name, old_data, new_data):
+        """Factory helper: persist an Approved MijnRood Sync Event."""
+        self._row_counter["n"] += 1
+        event = frappe.get_doc({
+            "doctype": "MijnRood Sync Event",
+            "event_type": "Approved",
+            "mijnrood_table": "admin_member",
+            "mijnrood_row_id": self._row_counter["n"],
+            "status": "Approved",
+            "linked_member": pending_member_name,
+            "old_data": json.dumps(old_data),
+            "new_data": json.dumps(new_data),
+            "change_summary": "End-to-end approved event test",
+            "sync_run_id": "test-e2e-run",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        return event.name
+
+    def _cleanup_event(self, event_name):
+        """Delete a MijnRood Sync Event; commit (apply_event commits)."""
+        try:
+            if frappe.db.exists("MijnRood Sync Event", event_name):
+                frappe.delete_doc(
+                    "MijnRood Sync Event", event_name, ignore_permissions=True, force=True
+                )
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def _cleanup_member_and_customer(self, member_name):
+        """Delete Member + its Membership + Dues Schedules + Customer; commit.
+
+        apply_event commits, so every downstream artifact survives
+        EnhancedTestCase rollback and must be removed explicitly.
+        """
+        if not member_name:
+            return
+        for sched in frappe.get_all(
+            "Membership Dues Schedule", filters={"member": member_name}, pluck="name"
+        ):
+            try:
+                frappe.delete_doc(
+                    "Membership Dues Schedule", sched, ignore_permissions=True, force=True
+                )
+            except Exception:
+                pass
+        for membership in frappe.get_all(
+            "Membership", filters={"member": member_name}, pluck="name"
+        ):
+            try:
+                mem = frappe.get_doc("Membership", membership)
+                if mem.docstatus == 1:
+                    mem.cancel()
+                frappe.delete_doc(
+                    "Membership", membership, ignore_permissions=True, force=True
+                )
+            except Exception:
+                pass
+        customer = frappe.db.get_value("Member", member_name, "customer")
+        if customer:
+            try:
+                frappe.delete_doc("Customer", customer, ignore_permissions=True, force=True)
+            except Exception:
+                pass
+        try:
+            if frappe.db.exists("Member", member_name):
+                frappe.delete_doc(
+                    "Member", member_name, ignore_permissions=True, force=True
+                )
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def test_approved_event_creates_member_membership_and_dues(self):
+        """apply_event on an Approved event promotes the Pending Member to
+        Approved/Active AND creates a real Membership + Dues Schedule."""
+        suffix = frappe.generate_hash(length=8)
+        email = f"e2e-approved-{suffix}@example.org"
+        application_id = f"MR-APP-E2E-{suffix}"
+        # Large integer member_id, unlikely to collide with real MijnRood IDs
+        new_member_id = int(suffix[:6], 16) + 8_000_000
+
+        pending_member_name = self._create_pending_member(email, application_id)
+        self.addCleanup(self._cleanup_member_and_customer, pending_member_name)
+
+        old_data = {
+            "id": application_id,
+            "email": email,
+            "first_name": "EndToEnd",
+            "last_name": "Approved",
+        }
+        new_data = {
+            "id": new_member_id,
+            "email": email,
+            "first_name": "EndToEnd",
+            "last_name": "Approved",
+            "current_membership_status_id": 1,  # 1 = active → "Lid" + status flip
+            "contribution_per_period_in_cents": 1000,  # €10
+            "contribution_period": 2,  # 2 = Jaarlijks → annual dues template
+        }
+        event_name = self._create_approved_event(pending_member_name, old_data, new_data)
+        self.addCleanup(self._cleanup_event, event_name)
+
+        result = self.service.apply_event(event_name)
+        self.assertTrue(
+            result["success"], f"apply_event failed: {result.get('message')}"
+        )
+
+        # Event was marked Applied.
+        self.assertEqual(
+            frappe.db.get_value("MijnRood Sync Event", event_name, "status"), "Applied"
+        )
+
+        # The Pending Member is now Approved + Active with the new member_id.
+        member = frappe.get_doc("Member", pending_member_name)
+        self.assertEqual(member.application_status, "Approved")
+        self.assertEqual(
+            member.status, "Active",
+            "Regression: promotion must flip member.status to Active",
+        )
+        self.assertEqual(str(member.member_id), str(new_member_id))
+
+        # A submitted Active Membership was created for the member.
+        membership = frappe.db.get_value(
+            "Membership",
+            {"member": pending_member_name, "status": "Active", "docstatus": 1},
+            "name",
+        )
+        self.assertIsNotNone(
+            membership,
+            "Regression: Membership must be created once member.status=Active",
+        )
+
+        # A real (non-template) Dues Schedule was created.
+        dues = frappe.db.exists(
+            "Membership Dues Schedule",
+            {"member": pending_member_name, "is_template": 0},
+        )
+        self.assertTrue(dues, "Regression: a Dues Schedule must be created on promotion")
