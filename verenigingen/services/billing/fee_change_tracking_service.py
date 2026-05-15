@@ -46,10 +46,19 @@ class FeeChangeTrackingService(StatelessService):
         super().__init__(service_name="FeeChangeTrackingService")
 
     def update_member_dues_rate(self, schedule_doc: "Document") -> None:
-        """
-        Update the member's dues_rate field to match the schedule.
+        """Mirror the schedule's dues_rate onto the member's dues_rate field.
 
-        Uses secure operations with explicit permission validation.
+        Member.dues_rate is a denormalized copy of the active schedule rate —
+        the Member controller has no logic keyed on it. This runs as an
+        automatic consequence of an already-authorized dues schedule change
+        (the schedule's own DuesSchedulePermissionService gate ran on save),
+        so it writes the mirror directly with set_value.
+
+        It was previously routed through secure_document_operation, which
+        required the *triggering* user to hold elevated-operation privileges.
+        That silently dropped the propagation for member self-service edits
+        and for non-Admin background syncs (e.g. MijnRood) — the schedule
+        rate updated but Member.dues_rate went stale.
 
         Args:
             schedule_doc: The dues schedule document with the new rate
@@ -58,35 +67,21 @@ class FeeChangeTrackingService(StatelessService):
             return
 
         try:
-            member_doc = frappe.get_doc("Member", schedule_doc.member)
-
-            if member_doc.dues_rate == schedule_doc.dues_rate:
+            current_rate = frappe.db.get_value("Member", schedule_doc.member, "dues_rate")
+            if current_rate == schedule_doc.dues_rate:
                 return  # No change needed
 
-            member_doc.dues_rate = schedule_doc.dues_rate
-
-            # Use secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            result = secure_document_operation(
-                operation="save",
-                doc=member_doc,
-                justification=f"Update member dues rate from schedule {schedule_doc.name}",
-                required_permissions=["Member:write"],
-            )
-
-            if not result.success:
-                self.logger.error(f"Failed to update member dues rate: {'; '.join(result.errors)}")
-            else:
-                self.logger.info(
-                    f"Updated member {schedule_doc.member} dues rate to {schedule_doc.dues_rate}"
-                )
+            # Security: denormalized mirror of an already-authorized schedule
+            # change, not a user-initiated Member edit — writes the field
+            # directly like the rest of this system-triggered sync path.
+            frappe.db.set_value("Member", schedule_doc.member, "dues_rate", schedule_doc.dues_rate)
+            self.logger.info(f"Updated member {schedule_doc.member} dues rate to {schedule_doc.dues_rate}")
 
         except Exception as e:
             self.logger.error(f"Error updating member dues rate: {str(e)}")
             frappe.log_error(
-                f"Error updating member dues rate: {str(e)}",
-                "Member Dues Rate Update",
+                title="Member Dues Rate Update",
+                message=f"Error updating member dues rate: {str(e)}",
             )
 
     def handle_schedule_update(self, schedule_doc: "Document") -> None:

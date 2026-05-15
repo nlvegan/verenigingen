@@ -70,11 +70,11 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         self.assertEqual(result, expected)
 
     def test_calculate_next_invoice_date_annual(self):
+        from frappe.utils import add_years
+
         from verenigingen.services.billing.dues_schedule_auto_creator import (
             _calculate_next_invoice_date,
         )
-
-        from frappe.utils import add_years
 
         result = getdate(_calculate_next_invoice_date("Annual"))
         expected = getdate(add_years(today(), 1))
@@ -873,6 +873,31 @@ class TestFeeChangeTrackingService(EnhancedTestCase):
         schedule = SimpleNamespace(member=None, dues_rate=25.0)
         # Should not raise
         self.svc.update_member_dues_rate(schedule)
+
+    def test_update_member_dues_rate_propagates_for_non_elevated_user(self):
+        """The schedule->member dues_rate mirror runs even when the triggering
+        user holds no elevated-operation privileges.
+
+        update_member_dues_rate is a system denormalization triggered by an
+        already-authorized dues schedule change — it must not depend on the
+        caller being trusted internal staff. Regression guard for the
+        secure_document_operation elevation gate that silently dropped the
+        propagation for member self-service edits and background syncs.
+        """
+        member = self.factory.create_member(
+            first_name="DuesMirror", last_name="Test",
+            email="dues-mirror@example.org",
+        )
+        schedule = SimpleNamespace(member=member.name, dues_rate=42.00, name="DS-TEST-001")
+
+        # Verenigingen Volunteer cannot request elevated system operations.
+        with self.as_role("Verenigingen Volunteer"):
+            self.svc.update_member_dues_rate(schedule)
+
+        self.assertEqual(
+            float(frappe.db.get_value("Member", member.name, "dues_rate")),
+            42.00,
+        )
 
     def test_handle_schedule_update_template_skips(self):
         """Template schedules skip fee tracking."""
