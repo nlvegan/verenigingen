@@ -36,6 +36,9 @@ from verenigingen.mijnrood_sync.field_mapping import get_role_mapping
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     get_mapping_service,
 )
+from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+    get_related_records_orchestrator,
+)
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.volunteer_sync")
 
@@ -100,7 +103,7 @@ class MijnRoodVolunteerSyncService:
                     member_name,
                 )
                 # Ensure User account exists — team hook needs it for profile sync
-                acr_msg = orchestrator._ensure_user_account_for_volunteer(member_name)
+                acr_msg = get_related_records_orchestrator()._ensure_user_account_for_volunteer(member_name)
                 return acr_msg  # None if user exists or ACR already queued
             role = config.get("verenigingen_role")
             if role:
@@ -137,7 +140,7 @@ class MijnRoodVolunteerSyncService:
 
             volunteer_name = result.get("volunteer_name")
             if create_account:
-                orchestrator._acr_queued_members.add(member_name)
+                get_related_records_orchestrator().mark_acr_queued(member_name)
             self.logger.info(
                 "Created volunteer %s for member %s (event %s, role=%s, account=%s)",
                 volunteer_name,
@@ -621,7 +624,7 @@ class MijnRoodVolunteerSyncService:
 
         # Create Volunteer if configured
         if config.get("create_volunteer"):
-            vol_msg = self._ensure_volunteer(member_name, config, orchestrator, event=event)
+            vol_msg = self._ensure_volunteer(member_name, config, event=event)
             if vol_msg:
                 messages.append(vol_msg)
 
@@ -670,7 +673,7 @@ class MijnRoodVolunteerSyncService:
 
         if admin_added and "ROLE_ADMIN" in role_config:
             config = role_config["ROLE_ADMIN"]
-            msgs = self._apply_role_actions(member_name, config, event=event, orchestrator=orchestrator)
+            msgs = self._apply_role_actions(member_name, config, event=event)
             messages.extend(msgs)
         elif admin_removed:
             config = role_config.get("ROLE_ADMIN", {})
@@ -701,9 +704,7 @@ class MijnRoodVolunteerSyncService:
 
         if new_division_ids and "ROLE_DIVISION_CONTACT" in role_config:
             config = role_config["ROLE_DIVISION_CONTACT"]
-            msgs = self._apply_role_actions(
-                member_name, config, division_ids=new_division_ids, event=event, orchestrator=orchestrator
-            )
+            msgs = self._apply_role_actions(member_name, config, division_ids=new_division_ids, event=event)
             messages.extend(msgs)
 
         # Detect division contact removal (normalize [] and None to empty set)
@@ -772,9 +773,7 @@ class MijnRoodVolunteerSyncService:
         old_roles = self._parse_mijnrood_roles(old_data.get("roles")) if old_data else set()
 
         messages.extend(
-            self._handle_admin_role_change(
-                member_name, current_roles, old_roles, role_config, event, orchestrator=orchestrator
-            )
+            self._handle_admin_role_change(member_name, current_roles, old_roles, role_config, event)
         )
 
         # 2. Process ROLE_DIVISION_CONTACT from managed_division_ids
@@ -788,7 +787,6 @@ class MijnRoodVolunteerSyncService:
                 old_division_ids,
                 role_config,
                 event,
-                orchestrator=orchestrator,
             )
         )
 

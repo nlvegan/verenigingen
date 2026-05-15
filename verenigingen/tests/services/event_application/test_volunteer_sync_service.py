@@ -12,11 +12,14 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.utils import today
 
+from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+    MijnRoodRelatedRecordsOrchestrator,
+    get_related_records_orchestrator,
+)
 from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
     get_volunteer_sync_service,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.services.event_application._fixtures import _FakeOrchestrator
 
 
 class TestParseMijnRoodRoles(EnhancedTestCase):
@@ -239,6 +242,13 @@ class TestPruneOrphanTeamMembers(EnhancedTestCase):
 class TestEnsureVolunteer(EnhancedTestCase):
     """Volunteer creation/lookup with role and team configuration."""
 
+    def setUp(self):
+        super().setUp()
+        # The ACR dedup set now lives on the shared related_records
+        # orchestrator singleton — reset it so dedup state never leaks
+        # between tests.
+        get_related_records_orchestrator().reset_acr_dedup()
+
     def test_creates_volunteer_when_none_exists(self):
         member = self.factory.create_member(
             first_name="NoVol",
@@ -247,17 +257,13 @@ class TestEnsureVolunteer(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_member_and_customer, member.name)
 
-        # Track the orchestrator's _acr_queued_members
-        orchestrator = _FakeOrchestrator()
-        orchestrator._acr_queued_members = set()
-
         # Config with verenigingen_role triggers user account creation
         config = {
             "create_volunteer": True,
             "verenigingen_role": "Verenigingen Volunteer",
         }
         result = get_volunteer_sync_service()._ensure_volunteer(
-            member.name, config, orchestrator
+            member.name, config
         )
 
         self.assertIsNotNone(result)
@@ -274,7 +280,7 @@ class TestEnsureVolunteer(EnhancedTestCase):
         self.assertIn(vol_name, result)
         self.assertNotIn("None", result)
         # ACR was queued because create_account=True (role assigned)
-        self.assertIn(member.name, orchestrator._acr_queued_members)
+        self.assertTrue(get_related_records_orchestrator().is_acr_queued(member.name))
 
     def test_assigns_role_when_volunteer_already_exists_no_team(self):
         member = self.factory.create_member(
@@ -296,14 +302,13 @@ class TestEnsureVolunteer(EnhancedTestCase):
 
         # Now call _ensure_volunteer — it should skip volunteer creation
         # and (if user exists and role doesn't) return a role message
-        orchestrator = _FakeOrchestrator()
         config = {
             "create_volunteer": True,
             "verenigingen_role": "Verenigingen Volunteer",
             # No add_to_team
         }
         result = get_volunteer_sync_service()._ensure_volunteer(
-            member.name, config, orchestrator
+            member.name, config
         )
 
         # Result may be None (user already has role) or a role-assigned message
@@ -328,31 +333,31 @@ class TestEnsureVolunteer(EnhancedTestCase):
         volunteer_name = create_result.get("volunteer_name") or create_result.get("volunteer")
         self.addCleanup(self._cleanup_volunteer, volunteer_name)
 
-        orchestrator = _FakeOrchestrator()
-        orchestrator._ensure_user_account_for_volunteer = MagicMock(
-            return_value="Account creation queued (stub)"
-        )
         config = {
             "create_volunteer": True,
             "verenigingen_role": "Verenigingen Volunteer",
             "add_to_team": True,
             "default_team": "Some Team Name",
         }
-        result = get_volunteer_sync_service()._ensure_volunteer(
-            member.name, config, orchestrator
-        )
+        # Mock justified: Infrastructure - ACR queueing covered by its own suite
+        with patch.object(
+            MijnRoodRelatedRecordsOrchestrator,
+            "_ensure_user_account_for_volunteer",
+            return_value="Account creation queued (stub)",
+        ) as mock_acr:
+            get_volunteer_sync_service()._ensure_volunteer(member.name, config)
 
         # When add_to_team is configured and volunteer exists, the service skips
-        # individual role assignment and calls orchestrator._ensure_user_account_for_volunteer
-        orchestrator._ensure_user_account_for_volunteer.assert_called_once_with(member.name)
+        # individual role assignment and calls
+        # related_records._ensure_user_account_for_volunteer
+        mock_acr.assert_called_once_with(member.name)
 
     def test_returns_failure_when_create_volunteer_returns_failure(self):
         # Force create_volunteer_from_member to return success=False by
         # passing an invalid member_name
-        orchestrator = _FakeOrchestrator()
         config = {"create_volunteer": True}
         result = get_volunteer_sync_service()._ensure_volunteer(
-            "Member-Does-Not-Exist-XYZ", config, orchestrator
+            "Member-Does-Not-Exist-XYZ", config
         )
 
         # The result is either an error message starting with "Volunteer creation"
@@ -909,15 +914,12 @@ class TestApplyRoleActions(EnhancedTestCase):
         self.service._ensure_volunteer = MagicMock(return_value="Volunteer V1 created")
         self.service._ensure_chapter_board_membership = MagicMock(return_value="Added to board")
         self.service._ensure_team_membership = MagicMock(return_value="Added to team")
-        self.orchestrator = _FakeOrchestrator()
 
     def test_create_volunteer_triggers_ensure_volunteer(self):
         config = {"create_volunteer": True, "verenigingen_role": "Verenigingen Volunteer"}
-        msgs = self.service._apply_role_actions(
-            "MEM-001", config, orchestrator=self.orchestrator
-        )
+        msgs = self.service._apply_role_actions("MEM-001", config)
         self.service._ensure_volunteer.assert_called_once_with(
-            "MEM-001", config, self.orchestrator, event=None
+            "MEM-001", config, event=None
         )
         self.assertIn("Volunteer V1 created", msgs)
 
@@ -927,7 +929,7 @@ class TestApplyRoleActions(EnhancedTestCase):
             "chapter_role": "Voorzitter",
         }
         msgs = self.service._apply_role_actions(
-            "MEM-002", config, division_ids=[10, 20], orchestrator=self.orchestrator
+            "MEM-002", config, division_ids=[10, 20]
         )
         # Called once per division_id
         self.assertEqual(self.service._ensure_chapter_board_membership.call_count, 2)
@@ -936,16 +938,14 @@ class TestApplyRoleActions(EnhancedTestCase):
     def test_add_to_chapter_board_without_chapter_role_warns(self):
         config = {"add_to_chapter_board": True}  # missing chapter_role
         msgs = self.service._apply_role_actions(
-            "MEM-003", config, division_ids=[10], orchestrator=self.orchestrator
+            "MEM-003", config, division_ids=[10]
         )
         self.service._ensure_chapter_board_membership.assert_not_called()
         self.assertTrue(any("no chapter_role configured" in m for m in msgs))
 
     def test_add_to_team_calls_ensure_team(self):
         config = {"add_to_team": True, "default_team": "TestTeam"}
-        msgs = self.service._apply_role_actions(
-            "MEM-004", config, orchestrator=self.orchestrator
-        )
+        msgs = self.service._apply_role_actions("MEM-004", config)
         self.service._ensure_team_membership.assert_called_once_with(
             "MEM-004", "TestTeam", event=None
         )
