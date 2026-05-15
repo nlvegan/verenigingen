@@ -71,7 +71,7 @@ class MijnRoodVolunteerSyncService:
         self,
         member_name: str,
         config: dict,
-        orchestrator,
+        orchestrator=None,
         event=None,
     ) -> Optional[str]:
         """Create Volunteer record and assign role if configured.

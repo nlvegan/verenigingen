@@ -124,7 +124,7 @@ class MijnRoodApplicationSyncService:
 
         return None
 
-    def apply_new_membership_application(self, event, orchestrator) -> dict:
+    def apply_new_membership_application(self, event, orchestrator=None) -> dict:
         """Create a pending membership application from MijnRood data.
 
         Creates a Member document with application_status=Pending so it
@@ -186,7 +186,7 @@ class MijnRoodApplicationSyncService:
             "message": _("Application created as {0} (pending review)").format(member.name),
         }
 
-    def apply_changed_membership_application(self, event, orchestrator) -> dict:
+    def apply_changed_membership_application(self, event, orchestrator=None) -> dict:
         """Update a pending membership application from changed MijnRood data.
 
         Finds the linked Member (application) and updates fields that changed.
@@ -332,7 +332,7 @@ class MijnRoodApplicationSyncService:
         messages.extend(related_msgs)
         return {"success": True, "message": "; ".join(messages)}
 
-    def try_promote_application(self, event, row_data: dict, orchestrator) -> Optional[dict]:
+    def try_promote_application(self, event, row_data: dict, orchestrator=None) -> Optional[dict]:
         """Handle MijnRood application->member promotion (apply-time safety net).
 
         This runs when the correlator didn't pair events at poll time (rare:
@@ -371,7 +371,7 @@ class MijnRoodApplicationSyncService:
 
         return self.promote_application_member(old_data_stub, new_data_stub, row_data, event, orchestrator)
 
-    def apply_approved(self, event, orchestrator) -> dict:
+    def apply_approved(self, event, orchestrator=None) -> dict:
         """Apply an Approved event synthesized by the approval correlator.
 
         The event's old_data is the deleted application row; new_data is the

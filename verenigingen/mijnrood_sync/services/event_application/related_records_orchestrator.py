@@ -249,7 +249,7 @@ class MijnRoodRelatedRecordsOrchestrator:
 
         return self._assign_chapter_from_division(member_name, new_division_id, event)
 
-    def _ensure_user_account(self, member_name: str, orchestrator) -> Optional[str]:
+    def _ensure_user_account(self, member_name: str, orchestrator=None) -> Optional[str]:
         """Queue an Account Creation Request for a synced member if enabled.
 
         Checks the 'create_member_accounts' setting. If disabled or the member
@@ -466,7 +466,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         self.logger.info("Updated dues schedule %s for member %s", schedule.name, member_name)
         return _("Dues schedule {0} updated: {1}").format(schedule.name, result.message)
 
-    def _ensure_user_account_for_volunteer(self, member_name: str, orchestrator) -> Optional[str]:
+    def _ensure_user_account_for_volunteer(self, member_name: str, orchestrator=None) -> Optional[str]:
         """Queue an ACR for a volunteer/staff member who needs a User account.
 
         Unlike ``_ensure_user_account()`` (which respects the global

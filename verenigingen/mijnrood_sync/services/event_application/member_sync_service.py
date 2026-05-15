@@ -64,7 +64,7 @@ class MijnRoodMemberSyncService:
                 }
         return None, None
 
-    def apply_new_member(self, event, orchestrator) -> dict:
+    def apply_new_member(self, event, orchestrator=None) -> dict:
         """Create a new Member from MijnRood admin_member data.
 
         Transitional `orchestrator` parameter exposes the not-yet-extracted
@@ -121,7 +121,7 @@ class MijnRoodMemberSyncService:
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
 
-    def apply_changed_member(self, event, orchestrator) -> dict:
+    def apply_changed_member(self, event, orchestrator=None) -> dict:
         """Update existing Member fields from MijnRood admin_member data.
 
         For status changes to terminated statuses, delegates to the
