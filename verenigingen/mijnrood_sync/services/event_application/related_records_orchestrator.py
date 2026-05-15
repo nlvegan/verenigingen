@@ -269,7 +269,7 @@ class MijnRoodRelatedRecordsOrchestrator:
 
         # Skip if ACR was already queued for this member in the current event
         # (e.g. via _ensure_volunteer → create_volunteer_from_member)
-        if member_name in orchestrator._acr_queued_members:
+        if self.is_acr_queued(member_name):
             return None
 
         from verenigingen.utils.account_creation_manager import (
@@ -284,7 +284,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 priority="Low",
             )
             if result.success:
-                orchestrator._acr_queued_members.add(member_name)
+                self.mark_acr_queued(member_name)
                 request_name = result.data.get("request_name", "") if result.data else ""
                 self.logger.info(
                     "Queued account creation for member %s (request=%s)",
@@ -484,7 +484,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         if user:
             return None
 
-        if member_name in orchestrator._acr_queued_members:
+        if self.is_acr_queued(member_name):
             return None
 
         from verenigingen.utils.account_creation_manager import (
@@ -499,7 +499,7 @@ class MijnRoodRelatedRecordsOrchestrator:
                 priority="Medium",
             )
             if result.success:
-                orchestrator._acr_queued_members.add(member_name)
+                self.mark_acr_queued(member_name)
                 request_name = result.data.get("request_name", "") if result.data else ""
                 self.logger.info(
                     "Queued account creation for volunteer %s (request=%s)",
@@ -554,7 +554,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         if membership_msg:
             messages.append(membership_msg)
 
-        account_msg = self._ensure_user_account(member_name, orchestrator)
+        account_msg = self._ensure_user_account(member_name)
         if account_msg:
             messages.append(account_msg)
 

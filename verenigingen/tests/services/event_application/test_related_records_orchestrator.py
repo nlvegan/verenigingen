@@ -2,8 +2,9 @@
 
 Tests cover address/Mollie/membership/dues creation + chapter assignment
 + user account queueing + MijnRood comment append. Each method tested
-against a real DB; the orchestrator parameter (god-class's
-_acr_queued_members) is stubbed via _FakeOrchestrator.
+against a real DB; the per-event ACR dedup state lives on the
+get_related_records_orchestrator() singleton (reset_acr_dedup /
+is_acr_queued / mark_acr_queued).
 """
 
 from unittest.mock import MagicMock, patch
@@ -15,7 +16,6 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
     get_related_records_orchestrator,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.services.event_application._fixtures import _FakeOrchestrator
 
 
 def _cleanup_member_and_customer(test, member_name):
@@ -564,10 +564,15 @@ class TestEnsureUserAccount(EnhancedTestCase):
 
     Respects the global ``create_member_accounts`` toggle in MijnRood Sync
     Settings. When enabled and the Member has no User, delegates to the
-    ACR pipeline and records the Member in
-    ``orchestrator._acr_queued_members`` to dedupe across the current
-    event.
+    ACR pipeline and records the Member in the singleton's per-event ACR
+    dedup set (mark_acr_queued / is_acr_queued).
     """
+
+    def setUp(self):
+        super().setUp()
+        # Dedup state lives on the shared singleton — reset it so state
+        # never leaks between tests.
+        get_related_records_orchestrator().reset_acr_dedup()
 
     def _set_create_member_accounts(self, value: int):
         """Toggle ``create_member_accounts`` and register a restore."""
@@ -597,14 +602,13 @@ class TestEnsureUserAccount(EnhancedTestCase):
         self.addCleanup(_cleanup_member_and_customer, self, member.name)
         frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
 
-        orchestrator = _FakeOrchestrator()
-        orchestrator._acr_queued_members = set()
-
         result = get_related_records_orchestrator()._ensure_user_account(
-            member.name, orchestrator
+            member.name
         )
         self.assertIsNone(result)
-        self.assertNotIn(member.name, orchestrator._acr_queued_members)
+        self.assertFalse(
+            get_related_records_orchestrator().is_acr_queued(member.name)
+        )
 
     def test_queues_acr_when_enabled_and_no_user(self):
         self._set_create_member_accounts(1)
@@ -616,9 +620,6 @@ class TestEnsureUserAccount(EnhancedTestCase):
         self.addCleanup(_cleanup_member_and_customer, self, member.name)
         frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
 
-        orchestrator = _FakeOrchestrator()
-        orchestrator._acr_queued_members = set()
-
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.data = {"request_name": "ACR-XYZ-001"}
@@ -629,7 +630,7 @@ class TestEnsureUserAccount(EnhancedTestCase):
             return_value=mock_result,
         ) as mock_queue:
             result = get_related_records_orchestrator()._ensure_user_account(
-                member.name, orchestrator
+                member.name
             )
 
         self.assertIsNotNone(result)
@@ -640,7 +641,9 @@ class TestEnsureUserAccount(EnhancedTestCase):
             role_profile="Verenigingen Member",
             priority="Low",
         )
-        self.assertIn(member.name, orchestrator._acr_queued_members)
+        self.assertTrue(
+            get_related_records_orchestrator().is_acr_queued(member.name)
+        )
 
 
 class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
@@ -649,6 +652,12 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
     Unconditional (no toggle); short-circuits if the Member already has a
     User or has already been queued in the current event's dedup set.
     """
+
+    def setUp(self):
+        super().setUp()
+        # Dedup state lives on the shared singleton — reset it so state
+        # never leaks between tests.
+        get_related_records_orchestrator().reset_acr_dedup()
 
     def _create_user_for_member(self, email, first_name):
         """Factory helper: create a User and return it. Registers cleanup."""
@@ -672,14 +681,13 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
         user_doc = self._create_user_for_member(member.email, "VolHasUser")
         frappe.db.set_value("Member", member.name, "user", user_doc.name, update_modified=False)
 
-        orchestrator = _FakeOrchestrator()
-        orchestrator._acr_queued_members = set()
-
         result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(
-            member.name, orchestrator
+            member.name
         )
         self.assertIsNone(result)
-        self.assertNotIn(member.name, orchestrator._acr_queued_members)
+        self.assertFalse(
+            get_related_records_orchestrator().is_acr_queued(member.name)
+        )
 
     def test_returns_none_when_already_in_acr_queue(self):
         member = self.factory.create_member(
@@ -689,11 +697,11 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
         self.addCleanup(_cleanup_member_and_customer, self, member.name)
         frappe.db.set_value("Member", member.name, "user", "", update_modified=False)
 
-        orchestrator = _FakeOrchestrator()
-        orchestrator._acr_queued_members = {member.name}
+        # Pre-seed the singleton dedup set so the method short-circuits.
+        get_related_records_orchestrator().mark_acr_queued(member.name)
 
         result = get_related_records_orchestrator()._ensure_user_account_for_volunteer(
-            member.name, orchestrator
+            member.name
         )
         self.assertIsNone(result)
 
@@ -1002,8 +1010,6 @@ class TestCreateRelatedRecords(EnhancedTestCase):
         self.service._ensure_membership_and_dues = MagicMock(return_value="Membership created")
         self.service._ensure_user_account = MagicMock(return_value="Account queued")
         self.service._apply_mijnrood_comments = MagicMock(return_value="Comments added")
-        self.orchestrator = _FakeOrchestrator()
-        self.orchestrator._acr_queued_members = set()
 
     def test_returns_all_sub_method_messages(self):
         event = MagicMock()
@@ -1012,7 +1018,6 @@ class TestCreateRelatedRecords(EnhancedTestCase):
             "MEM-001",
             {"chapter": 42, "member_since": "2025-01-01"},  # triggers chapter assignment
             event=event,
-            orchestrator=self.orchestrator,
         )
         self.assertIn("Chapter assigned", msgs)
         self.assertIn("Address linked", msgs)
@@ -1028,16 +1033,12 @@ class TestCreateRelatedRecords(EnhancedTestCase):
             setattr(self.service, attr, MagicMock(return_value=None))
 
         msgs = self.service._create_related_records(
-            "MEM-002", {}, event=MagicMock(name="EVT-002"), orchestrator=self.orchestrator
+            "MEM-002", {}, event=MagicMock(name="EVT-002")
         )
         self.assertEqual(msgs, [])
 
-    def test_threads_orchestrator_to_ensure_user_account(self):
+    def test_delegates_to_ensure_user_account(self):
         event = MagicMock()
         event.name = "EVT-003"
-        self.service._create_related_records(
-            "MEM-003", {}, event=event, orchestrator=self.orchestrator
-        )
-        self.service._ensure_user_account.assert_called_once_with(
-            "MEM-003", self.orchestrator
-        )
+        self.service._create_related_records("MEM-003", {}, event=event)
+        self.service._ensure_user_account.assert_called_once_with("MEM-003")
