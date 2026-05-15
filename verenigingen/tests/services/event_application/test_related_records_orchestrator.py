@@ -874,3 +874,62 @@ class TestUpdateExistingDuesSchedule(EnhancedTestCase):
             "Membership Dues Schedule", schedule.name, "dues_rate"
         )
         self.assertEqual(float(new_rate), 75.00)
+
+
+class TestCreateRelatedRecords(EnhancedTestCase):
+    """Entry-point orchestrator — fans out to sub-methods per row_data shape."""
+
+    def setUp(self):
+        super().setUp()
+        # Mock justified: Routing - testing dispatcher logic, sub-methods
+        # (_ensure_address, _ensure_mollie_data, etc.) are covered by
+        # their own real-DB tests in this same file.
+        from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+            MijnRoodRelatedRecordsOrchestrator,
+        )
+        self.service = MijnRoodRelatedRecordsOrchestrator()
+        self.service._assign_chapter_from_division = MagicMock(return_value="Chapter assigned")
+        self.service._ensure_address = MagicMock(return_value="Address linked")
+        self.service._ensure_mollie_data = MagicMock(return_value="Mollie synced")
+        self.service._ensure_membership_and_dues = MagicMock(return_value="Membership created")
+        self.service._ensure_user_account = MagicMock(return_value="Account queued")
+        self.service._apply_mijnrood_comments = MagicMock(return_value="Comments added")
+        self.orchestrator = _FakeOrchestrator()
+        self.orchestrator._acr_queued_members = set()
+
+    def test_returns_all_sub_method_messages(self):
+        event = MagicMock()
+        event.name = "EVT-001"
+        msgs = self.service._create_related_records(
+            "MEM-001",
+            {"chapter": 42, "member_since": "2025-01-01"},  # triggers chapter assignment
+            event=event,
+            orchestrator=self.orchestrator,
+        )
+        self.assertIn("Chapter assigned", msgs)
+        self.assertIn("Address linked", msgs)
+        self.assertIn("Mollie synced", msgs)
+        self.assertIn("Membership created", msgs)
+        self.assertIn("Account queued", msgs)
+        self.assertIn("Comments added", msgs)
+
+    def test_returns_empty_list_when_all_submethods_return_none(self):
+        for attr in ("_assign_chapter_from_division", "_ensure_address",
+                     "_ensure_mollie_data", "_ensure_membership_and_dues",
+                     "_ensure_user_account", "_apply_mijnrood_comments"):
+            setattr(self.service, attr, MagicMock(return_value=None))
+
+        msgs = self.service._create_related_records(
+            "MEM-002", {}, event=MagicMock(name="EVT-002"), orchestrator=self.orchestrator
+        )
+        self.assertEqual(msgs, [])
+
+    def test_threads_orchestrator_to_ensure_user_account(self):
+        event = MagicMock()
+        event.name = "EVT-003"
+        self.service._create_related_records(
+            "MEM-003", {}, event=event, orchestrator=self.orchestrator
+        )
+        self.service._ensure_user_account.assert_called_once_with(
+            "MEM-003", self.orchestrator
+        )

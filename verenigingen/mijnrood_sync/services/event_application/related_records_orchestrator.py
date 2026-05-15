@@ -495,6 +495,52 @@ class MijnRoodRelatedRecordsOrchestrator:
             self.logger.warning("Account creation failed for volunteer %s: %s", member_name, e)
             return _("Account creation failed: {0}").format(str(e)[:200])
 
+    def _create_related_records(
+        self, member_name: str, row_data: dict, event=None, orchestrator=None
+    ) -> list[str]:
+        """Create related records (chapter, address, Mollie, membership, notes) for a synced member.
+
+        Mirrors the CSV import's _create_related_records_via_services() but
+        adapted for the sync event path. Each operation is independent —
+        a failure in one does not block the others.
+
+        Returns:
+            List of human-readable status messages (empty if all skipped).
+        """
+        messages = []
+
+        # Chapter assignment from division_id
+        # Use membership start date as chapter join date (best proxy for historical data)
+        division_id = safe_int(row_data.get("chapter"))
+        if division_id and event:
+            chapter_msg = self._assign_chapter_from_division(
+                member_name, division_id, event, join_date=row_data.get("member_since")
+            )
+            if chapter_msg:
+                messages.append(chapter_msg)
+
+        address_msg = self._ensure_address(member_name, row_data)
+        if address_msg:
+            messages.append(address_msg)
+
+        mollie_msg = self._ensure_mollie_data(member_name, row_data)
+        if mollie_msg:
+            messages.append(mollie_msg)
+
+        membership_msg = self._ensure_membership_and_dues(member_name, row_data)
+        if membership_msg:
+            messages.append(membership_msg)
+
+        account_msg = self._ensure_user_account(member_name, orchestrator)
+        if account_msg:
+            messages.append(account_msg)
+
+        notes_msg = self._apply_mijnrood_comments(member_name, row_data)
+        if notes_msg:
+            messages.append(notes_msg)
+
+        return messages
+
 
 _service_instance: Optional[MijnRoodRelatedRecordsOrchestrator] = None
 
