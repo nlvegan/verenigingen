@@ -1,8 +1,19 @@
 # event_application_service.py Refactor — Design
 
 **Date:** 2026-05-12
-**Status:** Approved — ready for implementation plan
+**Status:** COMPLETE (2026-05-15) — Phases 1-2 shipped; Phase 3 dropped; orchestrator decoupling done.
 **Scope:** Tier C audit follow-up. Decomposes the MijnRood sync event-application god-class, rewrites its test suite, and unifies result idioms across the touched code.
+
+> **Completion note (2026-05-15).** Phase 1 (PRs 1-7) and Phase 2 (PR 8) shipped as
+> designed: the 2,433-LOC god-class is now a 19-LOC re-export shim over 6 services
+> plus a dispatcher, and the 3,145-LOC mock test file was replaced by ~129 real-DB
+> integration tests. **Phase 3 (result-idiom unification) was dropped** — a pre-flight
+> audit found the "three competing idioms" premise did not survive the extraction
+> (`OperationResult` had effectively vanished; what remained were different return
+> types for genuinely different kinds of method, not competing idioms). Forcing
+> `OperationResult` onto the ~40 `Optional[str]` helpers would have been ceremony.
+> A follow-on **orchestrator decoupling** (design: `2026-05-15-orchestrator-decoupling-design.md`)
+> removed the transitional `orchestrator` parameter and the dispatcher shim methods.
 
 ## Background
 
