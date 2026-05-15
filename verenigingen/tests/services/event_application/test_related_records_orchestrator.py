@@ -410,6 +410,93 @@ class TestAssignChapterFromDivision(EnhancedTestCase):
         )
         self.assertEqual(after, 1, "Second call must not add a duplicate Chapter Member row")
 
+    # ─── join_date parameter coverage ─────────────────────────────────
+    # Source: related_records_orchestrator._assign_chapter_from_division
+    # (lines ~159-173). A valid past join_date is passed through to
+    # ChapterAssignmentService.assign_with_cleanup → MemberManager, which
+    # records it as Chapter Member.chapter_join_date. Future or unparseable
+    # join_date values are coerced to None, and MemberManager then defaults
+    # chapter_join_date to today(). These three tests exercise the real
+    # validation/coercion path end to end against the Chapter Member row.
+
+    def test_uses_join_date_when_provided(self):
+        """A valid past join_date is recorded on the Chapter Member row."""
+        chapter = self.factory.create_chapter(mijnrood_division_id=4444)
+        self.addCleanup(_cleanup_chapter, chapter.name)
+
+        member = self.factory.create_member(
+            first_name="JoinDateValid", last_name="Test",
+            email="join-date-valid@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        event = MagicMock()
+        event.name = "EVT-RR-JD-001"
+
+        result = get_related_records_orchestrator()._assign_chapter_from_division(
+            member.name, 4444, event, join_date="2025-01-15"
+        )
+        self.assertIsNotNone(result)
+
+        cm_join = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": member.name, "enabled": 1},
+            "chapter_join_date",
+        )
+        self.assertEqual(str(cm_join), "2025-01-15")
+
+    def test_falls_back_to_today_when_join_date_invalid(self):
+        """An unparseable join_date string is coerced to None → today() used."""
+        chapter = self.factory.create_chapter(mijnrood_division_id=4445)
+        self.addCleanup(_cleanup_chapter, chapter.name)
+
+        member = self.factory.create_member(
+            first_name="JoinDateInvalid", last_name="Test",
+            email="join-date-invalid@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        event = MagicMock()
+        event.name = "EVT-RR-JD-002"
+
+        result = get_related_records_orchestrator()._assign_chapter_from_division(
+            member.name, 4445, event, join_date="not-a-date"
+        )
+        self.assertIsNotNone(result)
+
+        cm_join = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": member.name, "enabled": 1},
+            "chapter_join_date",
+        )
+        self.assertEqual(str(cm_join), today())
+
+    def test_falls_back_to_today_when_join_date_in_future(self):
+        """A future join_date is rejected (coerced to None) → today() used."""
+        chapter = self.factory.create_chapter(mijnrood_division_id=4446)
+        self.addCleanup(_cleanup_chapter, chapter.name)
+
+        member = self.factory.create_member(
+            first_name="JoinDateFuture", last_name="Test",
+            email="join-date-future@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        event = MagicMock()
+        event.name = "EVT-RR-JD-003"
+
+        result = get_related_records_orchestrator()._assign_chapter_from_division(
+            member.name, 4446, event, join_date="2099-01-01"
+        )
+        self.assertIsNotNone(result)
+
+        cm_join = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": member.name, "enabled": 1},
+            "chapter_join_date",
+        )
+        self.assertEqual(str(cm_join), today())
+
 
 class TestHandleDivisionFieldChange(EnhancedTestCase):
     """Routes division_id changes to _assign_chapter_from_division.
@@ -743,9 +830,12 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         return membership
 
     def test_backfills_dues_schedule_when_membership_exists_without_schedule(self):
-        # When an active Membership exists but no dues schedule, the
-        # source routes to _backfill_dues_schedule. We mock that helper
-        # (its own coverage lives in its own tests).
+        # When an active Membership exists but no dues schedule, the source
+        # routes to _backfill_dues_schedule which runs for real here: it
+        # resolves the dues template from payment_period ("Per kwartaal" →
+        # csv_quarterly_dues_schedule in Verenigingen Settings) and calls
+        # MembershipDuesSchedule.create_from_template. We assert a real
+        # non-template Dues Schedule row lands in the DB at the right rate.
         membership_type = self.factory.ensure_membership_type(
             "Related Records Dues Test Type"
         )
@@ -759,25 +849,43 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         self._create_submitted_membership_without_schedule(
             member.name, membership_type.name
         )
+        self.addCleanup(self._cleanup_member_dues_schedules, member.name)
 
-        service = get_related_records_orchestrator()
-        original_backfill = service._backfill_dues_schedule
-        # Mock justified: Routing - _backfill_dues_schedule has its own
-        # logic path through dues template resolution and
-        # MembershipDuesSchedule.create_from_template; tested separately.
-        service._backfill_dues_schedule = MagicMock(
-            return_value="Dues schedule DS-001 created for existing membership"
+        result = get_related_records_orchestrator()._ensure_membership_and_dues(
+            member.name,
+            {"dues_rate": 12.50, "payment_period": "Per kwartaal"},
         )
-        try:
-            result = service._ensure_membership_and_dues(
-                member.name,
-                {"dues_rate": 15.00, "payment_period": "Maandelijks"},
-            )
-        finally:
-            service._backfill_dues_schedule = original_backfill
 
         self.assertIsNotNone(result)
-        self.assertIn("DS-001", result)
+        self.assertIn("created for existing membership", result)
+
+        # A real non-template Dues Schedule row was created for the member.
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0},
+            "name",
+        )
+        self.assertIsNotNone(
+            schedule_name, "Backfill should create a real Dues Schedule row"
+        )
+        # custom_amount (dues_rate) is applied as the schedule rate.
+        rate = frappe.db.get_value(
+            "Membership Dues Schedule", schedule_name, "dues_rate"
+        )
+        self.assertEqual(float(rate), 12.50)
+
+    def _cleanup_member_dues_schedules(self, member_name):
+        """Delete any non-template Dues Schedules left for a member; commit.
+
+        _backfill_dues_schedule's create_from_template commits, so the rows
+        survive EnhancedTestCase rollback and must be removed explicitly.
+        """
+        for name in frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "is_template": 0},
+            pluck="name",
+        ):
+            _cleanup_dues_schedule(name)
 
 
 class TestUpdateExistingDuesSchedule(EnhancedTestCase):
