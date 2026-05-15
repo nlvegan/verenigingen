@@ -31,6 +31,9 @@ from verenigingen.mijnrood_sync.field_mapping import get_active_status_ids
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     get_mapping_service,
 )
+from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+    get_related_records_orchestrator,
+)
 from verenigingen.mijnrood_sync.utils import safe_int, safe_json_load
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.application_sync")
@@ -141,10 +144,11 @@ class MijnRoodApplicationSyncService:
         row_data = get_mapping_service().map_member_fields(new_data)
 
         # Idempotency — member_id is authoritative, email is fallback.
-        # _find_existing_member_or_conflict is still a shim on the god-class
-        # (PR #2 left it there because _apply_changed_membership_application
-        # still calls it via self). Use the orchestrator to honour the shim.
-        existing_name, existing_result = orchestrator._find_existing_member_or_conflict(
+        from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
+            get_member_sync_service,
+        )
+
+        existing_name, existing_result = get_member_sync_service().find_existing_member_or_conflict(
             row_data.get("member_id"), row_data.get("email")
         )
         if existing_result is not None:
@@ -170,10 +174,12 @@ class MijnRoodApplicationSyncService:
         member.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # Assign to preferred chapter (orchestrator helper, not yet extracted)
+        # Assign to preferred chapter
         preferred_div_id = safe_int(new_data.get("preferred_division_id"))
         if preferred_div_id:
-            orchestrator._assign_chapter_from_division(member.name, preferred_div_id, event)
+            get_related_records_orchestrator()._assign_chapter_from_division(
+                member.name, preferred_div_id, event
+            )
 
         event.linked_member = member.name
         self.logger.info(
@@ -203,8 +209,12 @@ class MijnRoodApplicationSyncService:
         # Find the linked member — event link first, then member_id, then email
         member_name = event.linked_member
         if not member_name:
+            from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
+                get_member_sync_service,
+            )
+
             mijnrood_id = str(new_data.get("id", ""))
-            existing_name, existing_result = orchestrator._find_existing_member_or_conflict(
+            existing_name, existing_result = get_member_sync_service().find_existing_member_or_conflict(
                 mijnrood_id, new_data.get("email")
             )
             if existing_result and not existing_result.get("success"):
@@ -228,7 +238,7 @@ class MijnRoodApplicationSyncService:
             }
 
         # Chapter reassignment if preferred_division_id changed
-        chapter_msg = orchestrator._handle_division_field_change(
+        chapter_msg = get_related_records_orchestrator()._handle_division_field_change(
             member_name, changed_fields, event, field_name="preferred_division_id"
         )
 
@@ -258,7 +268,7 @@ class MijnRoodApplicationSyncService:
         new_data: dict,
         row_data: dict,
         event,
-        orchestrator,
+        orchestrator=None,
     ) -> dict:
         """Promote a local Pending Member to Approved/Active using MijnRood data.
 
@@ -322,7 +332,9 @@ class MijnRoodApplicationSyncService:
 
         event.linked_member = updated_name
 
-        related_msgs = orchestrator._create_related_records(updated_name, row_data, event)
+        related_msgs = get_related_records_orchestrator()._create_related_records(
+            updated_name, row_data, event
+        )
 
         messages = [
             _("Application {0} promoted (id {1} → member_id {2})").format(
@@ -369,7 +381,7 @@ class MijnRoodApplicationSyncService:
         old_data_stub = {"id": old_member_id}
         new_data_stub = {"id": new_member_id, "current_membership_status_id": 1}
 
-        return self.promote_application_member(old_data_stub, new_data_stub, row_data, event, orchestrator)
+        return self.promote_application_member(old_data_stub, new_data_stub, row_data, event)
 
     def apply_approved(self, event, orchestrator=None) -> dict:
         """Apply an Approved event synthesized by the approval correlator.
@@ -398,9 +410,13 @@ class MijnRoodApplicationSyncService:
                 "Approved event %s could not locate a Pending Member; falling " "through to apply_new_member",
                 event.name,
             )
-            return orchestrator._apply_new_member(event)
+            from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
+                get_member_sync_service,
+            )
 
-        return self.promote_application_member(old_data or {}, new_data, row_data, event, orchestrator)
+            return get_member_sync_service().apply_new_member(event)
+
+        return self.promote_application_member(old_data or {}, new_data, row_data, event)
 
 
 _service_instance: Optional[MijnRoodApplicationSyncService] = None

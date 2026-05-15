@@ -2,12 +2,13 @@
 
 set_application_fields and locate_application_member are private but
 tested directly via the service instance. The four public methods are
-tested with real MijnRood Sync Event rows and a _FakeOrchestrator stub
-for the not-yet-extracted cross-cutting helpers.
+tested with real MijnRood Sync Event rows; cross-service routing to the
+peer services is verified by patching the real peer classes (those
+services are covered by their own test suites).
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import frappe
 
@@ -21,9 +22,14 @@ from verenigingen.mijnrood_sync.services.event_application.dispatcher import (
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     get_mapping_service,
 )
+from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
+    MijnRoodMemberSyncService,
+)
+from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+    MijnRoodRelatedRecordsOrchestrator,
+)
 from verenigingen.mijnrood_sync.utils import safe_json_load
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.services.event_application._fixtures import _FakeOrchestrator
 
 
 def _make_event(
@@ -253,8 +259,7 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
         self.addCleanup(self._cleanup_event, event.name)
         self.addCleanup(self._cleanup_member_by_application_id, "MR-APP-APP-NEW-1")
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().apply_new_membership_application(event, orchestrator)
+        result = get_application_sync_service().apply_new_membership_application(event)
 
         self.assertTrue(result["success"])
         self.assertTrue(event.linked_member)
@@ -284,18 +289,21 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        # Simulate the not-yet-extracted conflict detector finding the existing
-        # member by email. The default stub returns (None, None) which would
-        # cause a new Member to be created — override here to exercise the
-        # idempotent path.
-        orchestrator._find_existing_member_or_conflict = MagicMock(
-            return_value=(existing.name, {
-                "success": True,
-                "message": f"Member {existing.name} already exists (email={existing.email})",
-            }),
-        )
-        result = get_application_sync_service().apply_new_membership_application(event, orchestrator)
+        # Mock justified: Routing - peer services covered by their own suites.
+        # Simulate the conflict detector finding the existing member by email
+        # so the idempotent path is exercised.
+        with patch.object(
+            MijnRoodMemberSyncService,
+            "find_existing_member_or_conflict",
+            return_value=(
+                existing.name,
+                {
+                    "success": True,
+                    "message": f"Member {existing.name} already exists (email={existing.email})",
+                },
+            ),
+        ):
+            result = get_application_sync_service().apply_new_membership_application(event)
 
         self.assertTrue(result["success"])
         # No new Member created for the duplicate application
@@ -306,8 +314,7 @@ class TestApplyNewMembershipApplication(EnhancedTestCase):
         event = _make_event(self._row_counter, new_data={})
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().apply_new_membership_application(event, orchestrator)
+        result = get_application_sync_service().apply_new_membership_application(event)
 
         self.assertFalse(result["success"])
         self.assertIn("No new data", result["message"])
@@ -394,8 +401,16 @@ class TestApplyChangedMembershipApplication(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().apply_changed_membership_application(event, orchestrator)
+        # Mock justified: Routing - peer services covered by their own suites.
+        # changed_fields here is a simple field-name list (no division change);
+        # _handle_division_field_change's dict-scan path is verified by the
+        # related_records suite.
+        with patch.object(
+            MijnRoodRelatedRecordsOrchestrator,
+            "_handle_division_field_change",
+            return_value=None,
+        ):
+            result = get_application_sync_service().apply_changed_membership_application(event)
 
         self.assertTrue(result["success"])
         updated = frappe.db.get_value("Member", member.name, "first_name")
@@ -424,8 +439,7 @@ class TestApplyChangedMembershipApplication(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().apply_changed_membership_application(event, orchestrator)
+        result = get_application_sync_service().apply_changed_membership_application(event)
 
         self.assertTrue(result["success"])
         self.assertIn("already Approved", result["message"])
@@ -443,8 +457,7 @@ class TestApplyChangedMembershipApplication(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().apply_changed_membership_application(event, orchestrator)
+        result = get_application_sync_service().apply_changed_membership_application(event)
 
         self.assertFalse(result["success"])
         self.assertIn("No linked member", result["message"])
@@ -559,14 +572,18 @@ class TestPromoteApplicationMember(EnhancedTestCase):
             safe_json_load(event.new_data)
         )
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().promote_application_member(
-            safe_json_load(event.old_data),
-            safe_json_load(event.new_data),
-            row_data,
-            event,
-            orchestrator,
-        )
+        # Mock justified: Routing - peer services covered by their own suites
+        with patch.object(
+            MijnRoodRelatedRecordsOrchestrator,
+            "_create_related_records",
+            return_value=[],
+        ):
+            result = get_application_sync_service().promote_application_member(
+                safe_json_load(event.old_data),
+                safe_json_load(event.new_data),
+                row_data,
+                event,
+            )
 
         self.assertTrue(result["success"])
         app_status = frappe.db.get_value("Member", member.name, "application_status")
@@ -617,11 +634,9 @@ class TestTryPromoteApplication(EnhancedTestCase):
         event = _make_event(self._row_counter, event_type="New")
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
         result = get_application_sync_service().try_promote_application(
             event,
             {"email": "no-match-here@example.org", "member_id": "MR-NOMATCH"},
-            orchestrator,
         )
         self.assertIsNone(result)
 
@@ -638,9 +653,8 @@ class TestTryPromoteApplication(EnhancedTestCase):
         event = _make_event(self._row_counter, event_type="New")
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
         result = get_application_sync_service().try_promote_application(
-            event, {"email": member.email, "member_id": "MR-NEW"}, orchestrator
+            event, {"email": member.email, "member_id": "MR-NEW"}
         )
         self.assertIsNone(result)
 
@@ -681,10 +695,13 @@ class TestTryPromoteApplication(EnhancedTestCase):
             ).name,
         }
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().try_promote_application(
-            event, row_data, orchestrator
-        )
+        # Mock justified: Routing - peer services covered by their own suites
+        with patch.object(
+            MijnRoodRelatedRecordsOrchestrator,
+            "_create_related_records",
+            return_value=[],
+        ) as mock_create_related:
+            result = get_application_sync_service().try_promote_application(event, row_data)
 
         self.assertIsNotNone(result)
         self.assertTrue(result["success"])
@@ -693,7 +710,7 @@ class TestTryPromoteApplication(EnhancedTestCase):
         app_status = frappe.db.get_value("Member", member.name, "application_status")
         self.assertEqual(app_status, "Approved")
         # _create_related_records was invoked once by promote_application_member.
-        orchestrator._create_related_records.assert_called_once()
+        mock_create_related.assert_called_once()
 
     def _cleanup_member_and_customer(self, member_name):
         """Cleanup leaked Member + linked Customer (MemberImportService commits)."""
@@ -748,8 +765,7 @@ class TestApplyApproved(EnhancedTestCase):
         event = _make_event(self._row_counter, event_type="Approved", new_data={})
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_application_sync_service().apply_approved(event, orchestrator)
+        result = get_application_sync_service().apply_approved(event)
 
         self.assertFalse(result["success"])
 
@@ -766,11 +782,15 @@ class TestApplyApproved(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        # Orchestrator stub returns success — we just verify the fallback was invoked
-        result = get_application_sync_service().apply_approved(event, orchestrator)
+        # Mock justified: Routing - peer services covered by their own suites
+        with patch.object(
+            MijnRoodMemberSyncService,
+            "apply_new_member",
+            return_value={"success": True, "message": "fallback from stub"},
+        ) as mock_apply_new_member:
+            result = get_application_sync_service().apply_approved(event)
 
-        orchestrator._apply_new_member.assert_called_once_with(event)
+        mock_apply_new_member.assert_called_once_with(event)
         self.assertTrue(result["success"])
 
 
