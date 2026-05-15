@@ -655,6 +655,7 @@ class DuesScheduleRepository:
         new_rate: float,
         reason: str,
         mark_as_custom: bool = True,
+        ignore_permissions: bool = False,
     ) -> CancellationResult:
         """Update a dues schedule's rate with audit trail.
 
@@ -670,6 +671,9 @@ class DuesScheduleRepository:
             new_rate: New dues rate amount (must be non-negative)
             reason: Reason for the change (appended to notes + custom_amount_reason)
             mark_as_custom: Set uses_custom_amount=1 and record reason
+            ignore_permissions: Skip the DocPerm write check and save with
+                ignore_permissions. For trusted system callers (e.g. MijnRood
+                sync) that run outside a permissive user context.
 
         Returns:
             CancellationResult — method_used is "no_change_needed" when rates match
@@ -694,7 +698,7 @@ class DuesScheduleRepository:
             )
 
         try:
-            if not frappe.has_permission(self.doctype, "write", schedule_name):
+            if not ignore_permissions and not frappe.has_permission(self.doctype, "write", schedule_name):
                 return CancellationResult(
                     success=False,
                     schedule_name=schedule_name,
@@ -704,6 +708,14 @@ class DuesScheduleRepository:
                 )
 
             schedule = frappe.get_doc(self.doctype, schedule_name)
+            if ignore_permissions:
+                # Security: the Membership Dues Schedule controller runs a
+                # custom validate()-level permission gate
+                # (DuesSchedulePermissionService) that save(ignore_permissions=...)
+                # does NOT skip. _ignore_permissions is the per-document hook
+                # that service explicitly honours. Set only when the caller
+                # already opted into ignore_permissions (trusted system code).
+                schedule._ignore_permissions = True
             old_rate = flt(schedule.dues_rate)
 
             if old_rate == new_rate:
@@ -728,7 +740,7 @@ class DuesScheduleRepository:
                 f"{schedule.notes or ''}\n" f"[{today()}] Rate: {old_rate} → {new_rate}. {reason}"
             ).strip()
 
-            schedule.save()
+            schedule.save(ignore_permissions=ignore_permissions)
 
             frappe.logger().info(
                 "Updated schedule %s rate: %s → %s (%s)",

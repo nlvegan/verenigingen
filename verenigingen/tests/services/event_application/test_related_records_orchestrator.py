@@ -991,6 +991,44 @@ class TestUpdateExistingDuesSchedule(EnhancedTestCase):
         )
         self.assertEqual(float(new_rate), 75.00)
 
+    def test_updates_rate_as_non_admin_role(self):
+        """The MijnRood sync updates the dues rate even when the calling user
+        lacks Membership Dues Schedule write permission.
+
+        The sync is a trusted system process and bypasses DocPerms like every
+        other write in the mijnrood_sync module. Regression guard for the
+        permission-gate inconsistency in
+        DuesScheduleRepository.update_schedule_rate().
+        """
+        membership_type = self.factory.ensure_membership_type(
+            "Related Records Dues Test Type"
+        )
+        member = self.factory.create_member(
+            first_name="NonAdminRate", last_name="Test",
+            email="non-admin-rate@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+        self._create_active_membership(member.name, membership_type.name)
+        schedule = self._create_active_dues_schedule(
+            member.name, membership_type.name, rate=50.00
+        )
+
+        # Verenigingen Volunteer holds no write DocPerm on Membership Dues
+        # Schedule — without the orchestrator passing ignore_permissions the
+        # rate update is rejected with "Permission denied".
+        with self.as_role("Verenigingen Volunteer"):
+            result = get_related_records_orchestrator()._update_existing_dues_schedule(
+                member.name, 75.00
+            )
+
+        self.assertIsNotNone(result)
+        self.assertNotIn("failed", result.lower())
+
+        new_rate = frappe.db.get_value(
+            "Membership Dues Schedule", schedule.name, "dues_rate"
+        )
+        self.assertEqual(float(new_rate), 75.00)
+
 
 class TestCreateRelatedRecords(EnhancedTestCase):
     """Entry-point orchestrator — fans out to sub-methods per row_data shape."""

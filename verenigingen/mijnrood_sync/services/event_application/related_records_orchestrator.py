@@ -121,8 +121,8 @@ class MijnRoodRelatedRecordsOrchestrator:
         except Exception as e:
             self.logger.error("Address creation failed for %s: %s", member_name, e)
             frappe.log_error(
-                frappe.get_traceback(),
-                f"MijnRood Sync - Address Creation Failed: {member_name}",
+                title=f"MijnRood Sync - Address Creation Failed: {member_name}",
+                message=frappe.get_traceback(),
             )
             return _("Address creation failed: {0}").format(str(e)[:200])
 
@@ -162,8 +162,8 @@ class MijnRoodRelatedRecordsOrchestrator:
         except Exception as e:
             self.logger.error("Mollie sync failed for %s: %s", member_name, e)
             frappe.log_error(
-                frappe.get_traceback(),
-                f"MijnRood Sync - Mollie Sync Failed: {member_name}",
+                title=f"MijnRood Sync - Mollie Sync Failed: {member_name}",
+                message=frappe.get_traceback(),
             )
             return _("Mollie sync failed: {0}").format(str(e)[:200])
 
@@ -217,7 +217,10 @@ class MijnRoodRelatedRecordsOrchestrator:
             return None
         except Exception as e:
             self.logger.error("Chapter assignment failed for %s: %s", member_name, e)
-            frappe.log_error(frappe.get_traceback(), f"MijnRood Chapter Assignment Failed: {member_name}")
+            frappe.log_error(
+                title=f"MijnRood Chapter Assignment Failed: {member_name}",
+                message=frappe.get_traceback(),
+            )
             return _("Chapter assignment error: {0}").format(str(e))
 
         if result.get("success"):
@@ -366,8 +369,8 @@ class MijnRoodRelatedRecordsOrchestrator:
         except Exception as e:
             self.logger.error("Membership creation failed for %s: %s", member_name, e)
             frappe.log_error(
-                frappe.get_traceback(),
-                f"MijnRood Sync - Membership Creation Failed: {member_name}",
+                title=f"MijnRood Sync - Membership Creation Failed: {member_name}",
+                message=frappe.get_traceback(),
             )
             return _("Membership creation failed: {0}").format(str(e)[:200])
 
@@ -424,8 +427,8 @@ class MijnRoodRelatedRecordsOrchestrator:
         except Exception as e:
             self.logger.error("Dues schedule backfill failed for %s: %s", member_doc.name, e)
             frappe.log_error(
-                frappe.get_traceback(),
-                f"MijnRood Sync - Dues Schedule Backfill Failed: {member_doc.name}",
+                title=f"MijnRood Sync - Dues Schedule Backfill Failed: {member_doc.name}",
+                message=frappe.get_traceback(),
             )
             return _("Dues schedule backfill failed: {0}").format(str(e)[:200])
 
@@ -449,13 +452,19 @@ class MijnRoodRelatedRecordsOrchestrator:
             schedule_name=schedule.name,
             new_rate=new_rate,
             reason="MijnRood sync",
+            # Security: MijnRood sync is a trusted system process running
+            # outside a permissive user context. It bypasses DocPerms like
+            # every other write in this module (event/chapter/state writes
+            # all use ignore_permissions). Data originates from the
+            # authenticated MijnRood SSH tunnel, not from end users.
+            ignore_permissions=True,
         )
 
         if not result.success:
             self.logger.error("Dues schedule update failed for %s: %s", member_name, result.message)
             frappe.log_error(
-                "; ".join(result.errors or [result.message]),
-                f"MijnRood Sync - Dues Schedule Update Failed: {member_name}",
+                title=f"MijnRood Sync - Dues Schedule Update Failed: {member_name}",
+                message="; ".join(result.errors or [result.message]),
             )
             return _("Dues schedule update failed: {0}").format(result.message[:200])
 
