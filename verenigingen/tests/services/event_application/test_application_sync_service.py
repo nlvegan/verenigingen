@@ -396,21 +396,16 @@ class TestApplyChangedMembershipApplication(EnhancedTestCase):
                 "email": member.email,
                 "current_membership_status_id": 8002,
             },
-            changed_fields=["first_name"],
+            # changed_fields is a list of {field, old, new} dicts — the shape
+            # _handle_division_field_change scans. No preferred_division_id
+            # entry here, so the real division-handler runs and returns None
+            # (chapter-reassignment path covered by the related_records suite).
+            changed_fields=[{"field": "first_name", "old": "OldFirst", "new": "NewFirst"}],
             linked_member=member.name,
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        # Mock justified: Routing - peer services covered by their own suites.
-        # changed_fields here is a simple field-name list (no division change);
-        # _handle_division_field_change's dict-scan path is verified by the
-        # related_records suite.
-        with patch.object(
-            MijnRoodRelatedRecordsOrchestrator,
-            "_handle_division_field_change",
-            return_value=None,
-        ):
-            result = get_application_sync_service().apply_changed_membership_application(event)
+        result = get_application_sync_service().apply_changed_membership_application(event)
 
         self.assertTrue(result["success"])
         updated = frappe.db.get_value("Member", member.name, "first_name")
