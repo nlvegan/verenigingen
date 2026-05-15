@@ -40,6 +40,9 @@ from verenigingen.mijnrood_sync.services.event_application.mapping_service impor
 from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
     MijnRoodMemberSyncService,
 )
+from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+    MijnRoodRelatedRecordsOrchestrator,
+)
 from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
     MijnRoodVolunteerSyncService,
 )
@@ -224,7 +227,7 @@ class TestHandleDivisionFieldChange(EnhancedTestCase):
 
         self.assertIsNone(result)
 
-    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_assign_chapter_from_division")
     def test_delegates_to_assign_chapter(self, mock_assign):
         """When field found, delegates to _assign_chapter_from_division."""
         mock_assign.return_value = "Assigned to chapter 'Amsterdam'"
@@ -914,20 +917,20 @@ class TestApplyMijnRoodComments(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_skips_empty_comment(self, mock_frappe):
         """Returns None when comment is empty."""
         result = self.service._apply_mijnrood_comments("MEM-001", {"mijnrood_comments": ""})
         self.assertIsNone(result)
         mock_frappe.db.set_value.assert_not_called()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_skips_missing_comment(self, mock_frappe):
         """Returns None when mijnrood_comments key is missing."""
         result = self.service._apply_mijnrood_comments("MEM-001", {})
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_skips_duplicate_comment(self, mock_frappe):
         """Returns None when comment already exists in notes (idempotent)."""
         mock_frappe.db.get_value.return_value = "MijnRood notitie: test comment"
@@ -935,7 +938,7 @@ class TestApplyMijnRoodComments(EnhancedTestCase):
         self.assertIsNone(result)
         mock_frappe.db.set_value.assert_not_called()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_appends_comment_to_existing_notes(self, mock_frappe):
         """Appends comment to existing notes with <br> separator."""
         mock_frappe._ = frappe._
@@ -948,7 +951,7 @@ class TestApplyMijnRoodComments(EnhancedTestCase):
         self.assertIn("<br>", new_notes)
         self.assertIn("new comment", new_notes)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_creates_notes_when_empty(self, mock_frappe):
         """Creates notes from scratch when member has no notes."""
         mock_frappe._ = frappe._
@@ -978,7 +981,7 @@ class TestEnsureAddress(EnhancedTestCase):
         result = self.service._ensure_address("MEM-001", {"address_line1": "Kerkstraat 1"})
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_happy_path_creates_address(self, mock_frappe):
         """Creates address via AddressImportService and links to member."""
         mock_frappe._ = frappe._
@@ -1000,7 +1003,7 @@ class TestEnsureAddress(EnhancedTestCase):
         self.assertIn("ADDR-001", result)
         mock_frappe.db.set_value.assert_called_once()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_handles_service_error(self, mock_frappe):
         """Returns error message when address service throws."""
         mock_frappe._ = frappe._
@@ -1027,7 +1030,7 @@ class TestEnsureMollieData(EnhancedTestCase):
         result = self.service._ensure_mollie_data("MEM-001", {})
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_active_member_with_subscription_gets_active_status(self, mock_frappe):
         """Active member with subscription_id gets status='active'."""
         mock_frappe._ = frappe._
@@ -1051,7 +1054,7 @@ class TestEnsureMollieData(EnhancedTestCase):
             mollie_data = call_args[0][1]
             self.assertEqual(mollie_data["custom_subscription_status"], "active")
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_terminated_member_with_subscription_gets_cancelled_status(self, mock_frappe):
         """Terminated member with subscription_id gets status='cancelled'."""
         mock_frappe._ = frappe._
@@ -1077,7 +1080,7 @@ class TestEnsureMollieData(EnhancedTestCase):
             # so no post-call override on Member is needed.
             mock_frappe.db.set_value.assert_not_called()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_member_without_subscription_gets_none_status(self, mock_frappe):
         """Member without subscription_id gets status=None (no transition)."""
         mock_frappe._ = frappe._
@@ -1099,7 +1102,7 @@ class TestEnsureMollieData(EnhancedTestCase):
             mollie_data = call_args[0][1]
             self.assertIsNone(mollie_data["custom_subscription_status"])
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_handles_service_error(self, mock_frappe):
         """Returns error message when Mollie sync throws."""
         mock_frappe._ = frappe._
@@ -1133,7 +1136,7 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         )
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_skips_when_member_not_active(self, mock_frappe):
         """Returns None when member status is not Active."""
         member_doc = MagicMock()
@@ -1145,8 +1148,12 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         )
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
-    def test_calls_update_when_schedule_exists_and_rate_provided(self, mock_frappe):
+    @patch.object(
+        MijnRoodRelatedRecordsOrchestrator, "_update_existing_dues_schedule",
+        return_value="Dues schedule SCHED-001 updated: rate 10.0 → 12.5",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
+    def test_calls_update_when_schedule_exists_and_rate_provided(self, mock_frappe, mock_update):
         """Calls _update_existing_dues_schedule when schedule exists and dues_rate in row_data."""
         mock_frappe._ = frappe._
         member_doc = MagicMock()
@@ -1155,18 +1162,14 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         mock_frappe.db.get_value.return_value = "MEMB-001"
         mock_frappe.db.exists.return_value = "SCHED-001"
 
-        with patch.object(
-            self.service, "_update_existing_dues_schedule",
-            return_value="Dues schedule SCHED-001 updated: rate 10.0 → 12.5",
-        ) as mock_update:
-            result = self.service._ensure_membership_and_dues(
-                "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
-            )
+        result = self.service._ensure_membership_and_dues(
+            "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+        )
 
         mock_update.assert_called_once_with("MEM-001", 12.50)
         self.assertIn("SCHED-001", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_skips_when_schedule_exists_but_no_rate_in_data(self, mock_frappe):
         """Returns None when schedule exists but dues_rate not in row_data."""
         member_doc = MagicMock()
@@ -1180,8 +1183,12 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         )
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
-    def test_backfills_when_membership_exists_without_schedule(self, mock_frappe):
+    @patch.object(
+        MijnRoodRelatedRecordsOrchestrator, "_backfill_dues_schedule",
+        return_value="Dues schedule SCHED-NEW created for existing membership",
+    )
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
+    def test_backfills_when_membership_exists_without_schedule(self, mock_frappe, mock_backfill):
         """Calls _backfill_dues_schedule when membership exists but has no schedule."""
         mock_frappe._ = frappe._
         member_doc = MagicMock()
@@ -1191,18 +1198,14 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         mock_frappe.db.get_value.return_value = "MEMB-001"
         mock_frappe.db.exists.return_value = None  # no dues schedule
 
-        with patch.object(
-            self.service, "_backfill_dues_schedule",
-            return_value="Dues schedule SCHED-NEW created for existing membership",
-        ) as mock_backfill:
-            result = self.service._ensure_membership_and_dues(
-                "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
-            )
+        result = self.service._ensure_membership_and_dues(
+            "MEM-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"}
+        )
 
         mock_backfill.assert_called_once_with(member_doc, "MEMB-001", {"dues_rate": 12.50, "payment_period": "Per kwartaal"})
         self.assertIn("SCHED-NEW", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_happy_path_creates_membership(self, mock_frappe):
         """Creates membership and returns success message when no existing membership."""
         mock_frappe._ = frappe._
@@ -1225,7 +1228,7 @@ class TestEnsureMembershipAndDues(EnhancedTestCase):
         self.assertIsNotNone(result)
         self.assertIn("MEMB-NEW", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_handles_creation_error(self, mock_frappe):
         """Returns error message when membership creation throws."""
         mock_frappe._ = frappe._
@@ -1257,7 +1260,7 @@ class TestBackfillDuesSchedule(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_happy_path_creates_schedule(self, mock_frappe):
         """Creates dues schedule from template and returns success message."""
         mock_frappe._ = frappe._
@@ -1304,7 +1307,7 @@ class TestBackfillDuesSchedule(EnhancedTestCase):
 
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_handles_template_resolution_error(self, mock_frappe):
         """Returns skip message when template resolution raises."""
         mock_frappe._ = frappe._
@@ -1322,7 +1325,7 @@ class TestBackfillDuesSchedule(EnhancedTestCase):
 
         self.assertIn("skipped", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_handles_create_from_template_error(self, mock_frappe):
         """Returns error message when create_from_template raises."""
         mock_frappe._ = frappe._
@@ -1414,7 +1417,7 @@ class TestUpdateExistingDuesSchedule(EnhancedTestCase):
         )
         self.assertIn("SCHED-001", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_logs_and_returns_error_on_repo_failure(self, mock_frappe):
         """Logs error and returns failure message when repository update fails."""
         mock_frappe._ = frappe._
@@ -1449,12 +1452,12 @@ class TestCreateRelatedRecords(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_user_account", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_user_account", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_address", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_assign_chapter_from_division")
     def test_calls_chapter_assignment_with_division_id(
         self, mock_chapter, mock_addr, mock_mollie, mock_membership, mock_account, mock_comments
     ):
@@ -1469,12 +1472,12 @@ class TestCreateRelatedRecords(EnhancedTestCase):
         mock_chapter.assert_called_once_with("MEM-001", 5, event, join_date=None)
         self.assertIn("Assigned to chapter 'Amsterdam'", messages)
 
-    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_user_account", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_user_account", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_address", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_assign_chapter_from_division")
     def test_passes_member_since_as_join_date(
         self, mock_chapter, mock_addr, mock_mollie, mock_membership, mock_account, mock_comments
     ):
@@ -1488,12 +1491,12 @@ class TestCreateRelatedRecords(EnhancedTestCase):
 
         mock_chapter.assert_called_once_with("MEM-001", 5, event, join_date="2024-03-15")
 
-    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_user_account", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_assign_chapter_from_division")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_user_account", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_address", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_assign_chapter_from_division")
     def test_skips_chapter_when_no_event(
         self, mock_chapter, mock_addr, mock_mollie, mock_membership, mock_account, mock_comments
     ):
@@ -1501,11 +1504,11 @@ class TestCreateRelatedRecords(EnhancedTestCase):
         self.service._create_related_records("MEM-001", {"chapter": "5"}, event=None)
         mock_chapter.assert_not_called()
 
-    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value="Notes added")
-    @patch.object(MijnRoodEventApplicationService, "_ensure_user_account", return_value="Account creation queued (ACR-001)")
-    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value="Membership created")
-    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value="Mollie synced")
-    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value="Address linked")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_apply_mijnrood_comments", return_value="Notes added")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_user_account", return_value="Account creation queued (ACR-001)")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_membership_and_dues", return_value="Membership created")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_mollie_data", return_value="Mollie synced")
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_address", return_value="Address linked")
     def test_collects_all_messages(self, mock_addr, mock_mollie, mock_membership, mock_account, mock_comments):
         """Collects messages from all sub-operations."""
         messages = self.service._create_related_records("MEM-001", {})
@@ -1517,11 +1520,11 @@ class TestCreateRelatedRecords(EnhancedTestCase):
         self.assertIn("Account creation queued (ACR-001)", messages)
         self.assertIn("Notes added", messages)
 
-    @patch.object(MijnRoodEventApplicationService, "_apply_mijnrood_comments", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_user_account", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_membership_and_dues", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_mollie_data", return_value=None)
-    @patch.object(MijnRoodEventApplicationService, "_ensure_address", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_apply_mijnrood_comments", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_user_account", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_membership_and_dues", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_mollie_data", return_value=None)
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_ensure_address", return_value=None)
     def test_returns_empty_when_all_skipped(self, mock_addr, mock_mollie, mock_membership, mock_account, mock_comments):
         """Returns empty list when all sub-operations are skipped."""
         messages = self.service._create_related_records("MEM-001", {})
@@ -1535,7 +1538,7 @@ class TestEnsureUserAccount(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_returns_none_when_setting_disabled(self, mock_frappe):
         """Returns None when create_member_accounts is disabled."""
         mock_frappe.db.get_single_value.return_value = 0
@@ -1547,7 +1550,7 @@ class TestEnsureUserAccount(EnhancedTestCase):
             "MijnRood Sync Settings", "create_member_accounts"
         )
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_returns_none_when_member_has_user(self, mock_frappe):
         """Returns None when member already has a user account."""
         mock_frappe.db.get_single_value.return_value = 1
@@ -1557,7 +1560,7 @@ class TestEnsureUserAccount(EnhancedTestCase):
 
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_queues_account_creation_on_success(self, mock_frappe):
         """Queues ACR and returns message on success."""
         mock_frappe.db.get_single_value.return_value = 1
@@ -1582,7 +1585,7 @@ class TestEnsureUserAccount(EnhancedTestCase):
         )
         self.assertIn("ACR-001", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_returns_none_on_expected_failure(self, mock_frappe):
         """Returns None when queue function returns failure (e.g., no email)."""
         mock_frappe.db.get_single_value.return_value = 1
@@ -1600,7 +1603,7 @@ class TestEnsureUserAccount(EnhancedTestCase):
 
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_returns_error_message_on_exception(self, mock_frappe):
         """Returns error message when queue function raises an exception."""
         mock_frappe.db.get_single_value.return_value = 1
@@ -1616,7 +1619,7 @@ class TestEnsureUserAccount(EnhancedTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Permission denied", result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_handles_none_result_data(self, mock_frappe):
         """Handles success result with None data gracefully."""
         mock_frappe.db.get_single_value.return_value = 1
@@ -2180,7 +2183,7 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_user_already_exists_returns_none(self, mock_frappe):
         """When member already has a linked User, return None (no-op)."""
         mock_frappe._ = frappe._
@@ -2190,7 +2193,7 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
 
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_acr_already_queued_returns_none(self, mock_frappe):
         """When ACR was already queued this sync run, return None."""
         mock_frappe._ = frappe._
@@ -2205,7 +2208,7 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
     @patch(
         "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_happy_path_queues_acr(self, mock_frappe, mock_queue):
         """Happy path: queues ACR with volunteer profile and adds to dedup set."""
         mock_frappe._ = frappe._
@@ -2231,7 +2234,7 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
     @patch(
         "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_queue_returns_failure_returns_none(self, mock_frappe, mock_queue):
         """When queue_account_creation returns failure (e.g. no email), return None."""
         mock_frappe._ = frappe._
@@ -2250,7 +2253,7 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
     @patch(
         "verenigingen.utils.account_creation_manager.queue_account_creation_for_member"
     )
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator.frappe")
     def test_queue_exception_returns_error(self, mock_frappe, mock_queue):
         """When queue function raises an exception, return error message."""
         mock_frappe._ = frappe._
