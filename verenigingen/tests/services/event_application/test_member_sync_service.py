@@ -3,22 +3,32 @@
 find_existing_member_or_conflict is a pure DB lookup — exercised against
 real Member rows created via the factory. apply_new_member and
 apply_changed_member integrate against MijnRood Sync Event +
-MemberImportService and use a stub orchestrator for the not-yet-extracted
-cross-cutting helpers (create_related_records, process_member_roles,
-try_promote_application, check_and_handle_termination,
-handle_division_field_change).
+MemberImportService; their calls into the peer services
+(related_records, volunteer, termination, application) are patched at the
+peer service class level — those peers are covered by their own suites.
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import frappe
 
+from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
+    MijnRoodApplicationSyncService,
+)
 from verenigingen.mijnrood_sync.services.event_application.member_sync_service import (
     get_member_sync_service,
 )
+from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+    MijnRoodRelatedRecordsOrchestrator,
+)
+from verenigingen.mijnrood_sync.services.event_application.termination_sync_service import (
+    MijnRoodTerminationSyncService,
+)
+from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+    MijnRoodVolunteerSyncService,
+)
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.services.event_application._fixtures import _FakeOrchestrator
 
 
 class TestFindExistingMemberOrConflict(EnhancedTestCase):
@@ -156,7 +166,11 @@ class TestApplyNewMember(EnhancedTestCase):
         if name:
             frappe.delete_doc("Member", name, ignore_permissions=True, force=True)
 
-    def test_creates_new_member_when_none_exists(self):
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodVolunteerSyncService, "_process_member_roles", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_create_related_records", return_value=[])
+    def test_creates_new_member_when_none_exists(self, mock_create_related, mock_process_roles):
         # Pre-clean to handle prior-run leftovers (MemberImportService commits)
         self._cleanup_member_by_member_id("MR-NEW-1")
         event = _make_event(new_data={
@@ -169,8 +183,7 @@ class TestApplyNewMember(EnhancedTestCase):
         self.addCleanup(self._cleanup_event, event.name)
         self.addCleanup(self._cleanup_member_by_member_id, "MR-NEW-1")
 
-        orchestrator = _FakeOrchestrator()
-        result = get_member_sync_service().apply_new_member(event, orchestrator)
+        result = get_member_sync_service().apply_new_member(event)
 
         self.assertTrue(result["success"])
         self.assertTrue(event.linked_member)
@@ -181,10 +194,16 @@ class TestApplyNewMember(EnhancedTestCase):
         self.assertEqual(member.first_name, "Eve")
         self.assertEqual(member.email, "eve-new@example.org")
         # Cross-cutting helpers were called
-        orchestrator._create_related_records.assert_called_once()
-        orchestrator._process_member_roles.assert_called_once()
+        mock_create_related.assert_called_once()
+        mock_process_roles.assert_called_once()
 
-    def test_idempotent_when_member_already_exists_by_member_id(self):
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodVolunteerSyncService, "_process_member_roles", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_create_related_records", return_value=[])
+    def test_idempotent_when_member_already_exists_by_member_id(
+        self, mock_create_related, mock_process_roles
+    ):
         existing = self.factory.create_member(
             first_name="Frank",
             last_name="Existing",
@@ -202,17 +221,22 @@ class TestApplyNewMember(EnhancedTestCase):
         })
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_member_sync_service().apply_new_member(event, orchestrator)
+        result = get_member_sync_service().apply_new_member(event)
 
         self.assertTrue(result["success"])
         self.assertIn("already exists", result["message"])
         self.assertEqual(event.linked_member, existing.name)
         # No new member was created; cross-cutting helpers were NOT called
-        orchestrator._create_related_records.assert_not_called()
-        orchestrator._process_member_roles.assert_not_called()
+        mock_create_related.assert_not_called()
+        mock_process_roles.assert_not_called()
 
-    def test_email_conflict_invokes_promotion_fallback(self):
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(
+        MijnRoodApplicationSyncService,
+        "try_promote_application",
+        return_value={"success": True, "message": "Promoted via test stub"},
+    )
+    def test_email_conflict_invokes_promotion_fallback(self, mock_promote):
         # Pre-existing member with a different MijnRood id but same email
         # — simulates an application that was promoted on the MijnRood side
         # but never correlated on our end.
@@ -233,16 +257,11 @@ class TestApplyNewMember(EnhancedTestCase):
         })
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        orchestrator._try_promote_application = MagicMock(
-            return_value={"success": True, "message": "Promoted via test stub"}
-        )
-
-        result = get_member_sync_service().apply_new_member(event, orchestrator)
+        result = get_member_sync_service().apply_new_member(event)
 
         self.assertTrue(result["success"])
         self.assertIn("Promoted", result["message"])
-        orchestrator._try_promote_application.assert_called_once()
+        mock_promote.assert_called_once()
 
 
 class TestApplyChangedMember(EnhancedTestCase):
@@ -288,7 +307,17 @@ class TestApplyChangedMember(EnhancedTestCase):
         if name:
             frappe.delete_doc("Member", name, ignore_permissions=True, force=True)
 
-    def test_updates_existing_member_fields(self):
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodVolunteerSyncService, "_process_member_roles", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_create_related_records", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_handle_division_field_change", return_value=None)
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodTerminationSyncService, "_check_and_handle_termination", return_value=None)
+    def test_updates_existing_member_fields(
+        self, mock_termination, mock_division, mock_create_related, mock_process_roles
+    ):
         # Pre-clean to handle prior-run leftovers (MemberImportService commits)
         self._cleanup_member_by_member_id("MR-CHG-1")
         member = self.factory.create_member(
@@ -318,14 +347,25 @@ class TestApplyChangedMember(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_member_sync_service().apply_changed_member(event, orchestrator)
+        result = get_member_sync_service().apply_changed_member(event)
 
         self.assertTrue(result["success"])
         updated_last = frappe.db.get_value("Member", member.name, "last_name")
         self.assertEqual(updated_last, "NewName")
 
-    def test_termination_short_circuits_field_update(self):
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodVolunteerSyncService, "_process_member_roles", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodRelatedRecordsOrchestrator, "_create_related_records", return_value=[])
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(
+        MijnRoodTerminationSyncService,
+        "_check_and_handle_termination",
+        return_value={"success": True, "message": "Termination handled (stub)"},
+    )
+    def test_termination_short_circuits_field_update(
+        self, mock_termination, mock_create_related, mock_process_roles
+    ):
         # Pre-clean to handle prior-run leftovers
         self._cleanup_member_by_member_id("MR-CHG-2")
         member = self.factory.create_member(
@@ -348,20 +388,17 @@ class TestApplyChangedMember(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        orchestrator._check_and_handle_termination = MagicMock(
-            return_value={"success": True, "message": "Termination handled (stub)"}
-        )
-
-        result = get_member_sync_service().apply_changed_member(event, orchestrator)
+        result = get_member_sync_service().apply_changed_member(event)
 
         self.assertTrue(result["success"])
         self.assertIn("Termination handled", result["message"])
         # Other helpers should NOT have been called because termination short-circuited
-        orchestrator._process_member_roles.assert_not_called()
-        orchestrator._create_related_records.assert_not_called()
+        mock_process_roles.assert_not_called()
+        mock_create_related.assert_not_called()
 
-    def test_returns_failure_when_no_linked_member_found(self):
+    # Mock justified: Routing - testing dispatcher logic, peer services covered by their own suites
+    @patch.object(MijnRoodTerminationSyncService, "_check_and_handle_termination", return_value=None)
+    def test_returns_failure_when_no_linked_member_found(self, mock_termination):
         event = _make_event(
             event_type="Changed",
             new_data={
@@ -371,8 +408,7 @@ class TestApplyChangedMember(EnhancedTestCase):
         )
         self.addCleanup(self._cleanup_event, event.name)
 
-        orchestrator = _FakeOrchestrator()
-        result = get_member_sync_service().apply_changed_member(event, orchestrator)
+        result = get_member_sync_service().apply_changed_member(event)
 
         self.assertFalse(result["success"])
         self.assertIn("No linked member found", result["message"])

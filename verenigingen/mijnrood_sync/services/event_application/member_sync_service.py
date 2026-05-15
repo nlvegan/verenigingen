@@ -23,6 +23,15 @@ from frappe import _
 from verenigingen.mijnrood_sync.services.event_application.mapping_service import (
     get_mapping_service,
 )
+from verenigingen.mijnrood_sync.services.event_application.related_records_orchestrator import (
+    get_related_records_orchestrator,
+)
+from verenigingen.mijnrood_sync.services.event_application.termination_sync_service import (
+    get_termination_sync_service,
+)
+from verenigingen.mijnrood_sync.services.event_application.volunteer_sync_service import (
+    get_volunteer_sync_service,
+)
 from verenigingen.mijnrood_sync.utils import safe_json_load
 
 logger = logging.getLogger("verenigingen.mijnrood_sync.event_application.member_sync")
@@ -89,7 +98,11 @@ class MijnRoodMemberSyncService:
             # match, member_id mismatch). If the existing member is a pending
             # application, this is actually a promotion, not a conflict.
             if not existing_result.get("success") and row_data.get("email"):
-                promotion_result = orchestrator._try_promote_application(event, row_data)
+                from verenigingen.mijnrood_sync.services.event_application.application_sync_service import (
+                    get_application_sync_service,
+                )
+
+                promotion_result = get_application_sync_service().try_promote_application(event, row_data)
                 if promotion_result:
                     return promotion_result
 
@@ -111,8 +124,10 @@ class MijnRoodMemberSyncService:
         if status in ("created", "updated"):
             event.linked_member = member_name
 
-            related_msgs = orchestrator._create_related_records(member_name, row_data, event)
-            role_msgs = orchestrator._process_member_roles(member_name, new_data, event=event)
+            related_msgs = get_related_records_orchestrator()._create_related_records(
+                member_name, row_data, event
+            )
+            role_msgs = get_volunteer_sync_service()._process_member_roles(member_name, new_data, event=event)
             related_msgs.extend(role_msgs)
 
             messages = [_("Member {0} {1}").format(member_name, status)]
@@ -139,7 +154,7 @@ class MijnRoodMemberSyncService:
             return {"success": False, "message": _("No new data in event")}
 
         # Check for status change to a terminated status — short-circuits the rest
-        termination_result = orchestrator._check_and_handle_termination(
+        termination_result = get_termination_sync_service()._check_and_handle_termination(
             event, old_data, new_data, changed_fields
         )
         if termination_result is not None:
@@ -161,7 +176,7 @@ class MijnRoodMemberSyncService:
             }
 
         # Chapter transfer if division_id changed
-        chapter_result = orchestrator._handle_division_field_change(
+        chapter_result = get_related_records_orchestrator()._handle_division_field_change(
             member_name, changed_fields, event, field_name="division_id"
         )
 
@@ -190,11 +205,15 @@ class MijnRoodMemberSyncService:
                 member_name = updated_name
                 messages.append(_("Member {0} updated").format(updated_name))
 
-                messages.extend(orchestrator._create_related_records(updated_name, row_data, event))
+                messages.extend(
+                    get_related_records_orchestrator()._create_related_records(updated_name, row_data, event)
+                )
             else:
                 return {"success": False, "message": _("Member update {0}").format(status)}
 
-        role_msgs = orchestrator._process_member_roles(member_name, new_data, old_data=old_data, event=event)
+        role_msgs = get_volunteer_sync_service()._process_member_roles(
+            member_name, new_data, old_data=old_data, event=event
+        )
         messages.extend(role_msgs)
 
         return {
