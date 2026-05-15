@@ -263,7 +263,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         self.service = MijnRoodEventApplicationService()
 
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_passes_valid_join_date(self, mock_frappe, mock_resolve):
         """Valid past date is passed through to assign_with_cleanup."""
         mock_frappe.db.exists.return_value = True
@@ -281,7 +281,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         self.assertEqual(call_kwargs.kwargs["join_date"], "2024-03-15")
 
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_rejects_future_join_date(self, mock_frappe, mock_resolve):
         """Future date is rejected; None is passed instead."""
         mock_frappe.db.exists.return_value = True
@@ -298,7 +298,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         self.assertIsNone(call_kwargs.kwargs["join_date"])
 
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_rejects_invalid_join_date_format(self, mock_frappe, mock_resolve):
         """Unparseable date string is rejected; None is passed instead."""
         mock_frappe.db.exists.return_value = True
@@ -315,7 +315,7 @@ class TestAssignChapterFromDivisionJoinDate(EnhancedTestCase):
         self.assertIsNone(call_kwargs.kwargs["join_date"])
 
     @patch.object(MijnRoodMappingService, "resolve_division_id", return_value="Amsterdam")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_none_join_date_passes_through(self, mock_frappe, mock_resolve):
         """None join_date is passed through (MemberManager defaults to today)."""
         mock_frappe.db.exists.return_value = True
@@ -446,7 +446,7 @@ class TestApplyChangedMembershipApplication(EnhancedTestCase):
         self.assertIn("already Approved", result["message"])
 
     @patch.object(MijnRoodEventApplicationService, "_find_existing_member_or_conflict")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_email_conflict_returns_error(self, mock_frappe, mock_find):
         """Email conflict when looking up unlinked member returns error."""
         mock_frappe._ = frappe._
@@ -1653,7 +1653,7 @@ class TestAcrDeduplication(EnhancedTestCase):
         # Calling apply_event on a non-existent event will fail, but the set
         # should already be cleared before the event is fetched.
         with patch(
-            "verenigingen.mijnrood_sync.services.event_application_service.frappe"
+            "verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe"
         ) as mock_frappe:
             mock_frappe.get_doc.side_effect = Exception("not found")
             try:
@@ -1662,7 +1662,7 @@ class TestAcrDeduplication(EnhancedTestCase):
                 pass
         self.assertEqual(len(self.service._acr_queued_members), 0)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_skips_when_already_queued(self, mock_frappe):
         """_ensure_user_account skips when member already in _acr_queued_members."""
         mock_frappe.db.get_single_value.return_value = 1
@@ -1678,7 +1678,7 @@ class TestAcrDeduplication(EnhancedTestCase):
         self.assertIsNone(result)
         mock_queue.assert_not_called()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_adds_to_set_on_success(self, mock_frappe):
         """Member added to _acr_queued_members after successful queue."""
         mock_frappe.db.get_single_value.return_value = 1
@@ -1697,7 +1697,7 @@ class TestAcrDeduplication(EnhancedTestCase):
 
         self.assertIn("MEM-001", self.service._acr_queued_members)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_volunteer_creation_marks_acr_queued(self, mock_frappe):
         """_ensure_volunteer marks member in _acr_queued_members when creating account."""
         mock_frappe._ = frappe._
@@ -1715,7 +1715,7 @@ class TestAcrDeduplication(EnhancedTestCase):
 
         self.assertIn("MEM-001", self.service._acr_queued_members)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_dual_acr_scenario_second_call_skipped(self, mock_frappe):
         """When _ensure_volunteer queues ACR, _ensure_user_account skips for same member."""
         mock_frappe._ = frappe._
@@ -1751,7 +1751,7 @@ class TestTryPromoteApplication(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_returns_none_when_no_email_match(self, mock_frappe):
         """Returns None when no member found by email."""
         mock_frappe.db.get_value.return_value = None
@@ -1760,7 +1760,7 @@ class TestTryPromoteApplication(EnhancedTestCase):
         result = self.service._try_promote_application(event, {"email": "new@example.com"})
         self.assertIsNone(result)
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_returns_none_when_not_pending(self, mock_frappe):
         """Returns None when existing member's application_status is not Pending."""
         mock_frappe.db.get_value.return_value = frappe._dict({
@@ -2662,7 +2662,7 @@ class TestHandleDivisionContactChange(EnhancedTestCase):
         super().setUp()
         self.service = MijnRoodEventApplicationService()
 
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_no_removals_no_action(self, mock_frappe):
         """When no divisions were removed, no board removal or notification occurs."""
         mock_frappe._ = frappe._
@@ -3007,7 +3007,7 @@ class TestApplyEventDispatchesApproved(EnhancedTestCase):
         self.service = MijnRoodEventApplicationService()
 
     @patch.object(MijnRoodEventApplicationService, "_apply_approved")
-    @patch("verenigingen.mijnrood_sync.services.event_application_service.frappe")
+    @patch("verenigingen.mijnrood_sync.services.event_application.dispatcher.frappe")
     def test_approved_event_routes_to_apply_approved(self, mock_frappe, mock_apply_approved):
         """apply_event('...') with event_type='Approved' calls _apply_approved."""
         mock_frappe._ = frappe._
