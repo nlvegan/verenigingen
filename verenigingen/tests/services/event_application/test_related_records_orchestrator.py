@@ -609,3 +609,268 @@ class TestEnsureUserAccountForVolunteer(EnhancedTestCase):
             member.name, orchestrator
         )
         self.assertIsNone(result)
+
+
+def _cleanup_membership(name):
+    """Cancel + delete a Membership and commit."""
+    try:
+        if frappe.db.exists("Membership", name):
+            mem = frappe.get_doc("Membership", name)
+            if mem.docstatus == 1:
+                mem.cancel()
+            frappe.delete_doc("Membership", name, ignore_permissions=True, force=True)
+    except Exception:
+        pass
+    frappe.db.commit()
+
+
+def _cleanup_dues_schedule(name):
+    """Delete a Membership Dues Schedule and commit."""
+    try:
+        if frappe.db.exists("Membership Dues Schedule", name):
+            frappe.delete_doc(
+                "Membership Dues Schedule", name, ignore_permissions=True, force=True
+            )
+    except Exception:
+        pass
+    frappe.db.commit()
+
+
+class TestEnsureMembershipAndDues(EnhancedTestCase):
+    """Creates a Membership + Dues Schedule for the synced Member.
+
+    Source behaviour (verified against event_application_service.py):
+    - Short-circuits if ``dues_rate`` is not in row_data → returns None.
+    - Short-circuits if ``payment_period`` is not in row_data → returns None.
+    - Short-circuits if Member.status != "Active" → returns None.
+    - If an active submitted Membership exists, routes to either
+      ``_update_existing_dues_schedule`` (when a schedule exists and
+      dues_rate is supplied) or ``_backfill_dues_schedule`` (no schedule).
+    - Otherwise delegates to
+      ``MembershipImportService.create_membership_from_csv()``.
+
+    The inner Membership creation pipeline (MembershipImportService →
+    create_membership_on_approval → application workflow) is covered by
+    its own test suite and requires a Verenigingen Settings
+    default_membership_type fixture that is impractical to set up here.
+    We use a justified mock for that inner call and verify the dispatcher
+    routing only.
+    """
+
+    def test_returns_none_when_dues_rate_missing(self):
+        # The plan referenced ``membership_type`` but the actual source
+        # gate is ``dues_rate``. Verify the real gate.
+        member = self.factory.create_member(
+            first_name="NoDuesRate", last_name="Test",
+            email="no-dues-rate@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        result = get_related_records_orchestrator()._ensure_membership_and_dues(
+            member.name, {"payment_period": "Maandelijks"}
+        )
+        self.assertIsNone(result)
+
+    def test_creates_membership_when_none_exists(self):
+        membership_type = self.factory.ensure_membership_type(
+            "Related Records Dues Test Type"
+        )
+        member = self.factory.create_member(
+            first_name="NewMembership", last_name="Test",
+            email="new-membership@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        # Ensure status is Active (required by source gate)
+        frappe.db.set_value("Member", member.name, "status", "Active", update_modified=False)
+        frappe.db.commit()
+
+        row_data = {
+            "dues_rate": 12.50,
+            "payment_period": "Maandelijks",
+            "membership_type": membership_type.name,
+            "member_since": today(),
+        }
+
+        # Mock justified: Infrastructure - the inner MembershipImportService
+        # pipeline (create_membership_on_approval → application workflow) is
+        # covered by its own test suite and requires fixtures
+        # (default_membership_type, csv_*_dues_schedule, etc. in
+        # Verenigingen Settings) that are impractical to set up at this
+        # unit-test level. We verify the dispatcher routes to the import
+        # service with the correct arguments.
+        mock_service = MagicMock()
+        mock_service.create_membership_from_csv = MagicMock(
+            return_value="MEM-DUMMY-001"
+        )
+        with patch(
+            "verenigingen.services.csv_import.membership_import_service.get_membership_import_service",
+            return_value=mock_service,
+        ):
+            result = get_related_records_orchestrator()._ensure_membership_and_dues(
+                member.name, row_data
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIn("MEM-DUMMY-001", result)
+        mock_service.create_membership_from_csv.assert_called_once()
+        # Verify first positional arg is the Member doc and second is row_data
+        call_args = mock_service.create_membership_from_csv.call_args
+        self.assertEqual(call_args[0][0].name, member.name)
+        self.assertEqual(call_args[0][1], row_data)
+
+    def _create_submitted_membership_without_schedule(
+        self, member_name, membership_type_name
+    ):
+        """Factory helper: submitted Active Membership with no dues schedule.
+
+        Sets flags.skip_dues_schedule_creation so on_submit doesn't auto-
+        create a schedule (which would defeat the "no schedule" branch).
+        """
+        # Security: Test fixture - sets up controlled state for the
+        # _ensure_membership_and_dues backfill branch.
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": member_name,
+            "membership_type": membership_type_name,
+            "start_date": today(),
+            "status": "Active",
+        }).insert(ignore_permissions=True)
+        membership.flags.skip_dues_schedule_creation = True
+        membership.submit()
+        frappe.db.commit()
+        self.addCleanup(_cleanup_membership, membership.name)
+        return membership
+
+    def test_backfills_dues_schedule_when_membership_exists_without_schedule(self):
+        # When an active Membership exists but no dues schedule, the
+        # source routes to _backfill_dues_schedule. We mock that helper
+        # (its own coverage lives in its own tests).
+        membership_type = self.factory.ensure_membership_type(
+            "Related Records Dues Test Type"
+        )
+        member = self.factory.create_member(
+            first_name="BackfillNeeded", last_name="Test",
+            email="backfill-needed@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+        frappe.db.set_value("Member", member.name, "status", "Active", update_modified=False)
+
+        self._create_submitted_membership_without_schedule(
+            member.name, membership_type.name
+        )
+
+        service = get_related_records_orchestrator()
+        original_backfill = service._backfill_dues_schedule
+        # Mock justified: Routing - _backfill_dues_schedule has its own
+        # logic path through dues template resolution and
+        # MembershipDuesSchedule.create_from_template; tested separately.
+        service._backfill_dues_schedule = MagicMock(
+            return_value="Dues schedule DS-001 created for existing membership"
+        )
+        try:
+            result = service._ensure_membership_and_dues(
+                member.name,
+                {"dues_rate": 15.00, "payment_period": "Maandelijks"},
+            )
+        finally:
+            service._backfill_dues_schedule = original_backfill
+
+        self.assertIsNotNone(result)
+        self.assertIn("DS-001", result)
+
+
+class TestUpdateExistingDuesSchedule(EnhancedTestCase):
+    """Updates the dues rate on an existing schedule via DuesScheduleRepository.
+
+    The orchestrator method is a thin wrapper over
+    ``DuesScheduleRepository.update_schedule_rate`` which is idempotent
+    (returns ``method_used="no_change_needed"`` when the rate matches).
+    """
+
+    def _create_active_dues_schedule(self, member_name, membership_type_name, rate):
+        """Factory helper: create a non-template active Dues Schedule."""
+        # Security: Test fixture - sets up controlled state for the
+        # _update_existing_dues_schedule code path.
+        schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "schedule_name": f"DS-{member_name}",
+            "is_template": 0,
+            "member": member_name,
+            "membership_type": membership_type_name,
+            "status": "Active",
+            "billing_frequency": "Monthly",
+            "dues_rate": rate,
+            "currency": "EUR",
+            "contribution_mode": "Custom",
+            "minimum_amount": 0,
+            "suggested_amount": rate,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(_cleanup_dues_schedule, schedule.name)
+        return schedule
+
+    def test_returns_none_when_no_active_schedule(self):
+        member = self.factory.create_member(
+            first_name="NoSchedule", last_name="Test",
+            email="no-schedule@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        result = get_related_records_orchestrator()._update_existing_dues_schedule(
+            member.name, 25.0
+        )
+        self.assertIsNone(result)
+
+    def _create_active_membership(self, member_name, membership_type_name):
+        """Factory helper: create a submitted, Active Membership.
+
+        Sets ``flags.skip_dues_schedule_creation`` to prevent on_submit's
+        auto dues-schedule creation — our test creates its own controlled
+        schedule fixture afterwards.
+        """
+        # Security: Test fixture - required to satisfy
+        # MembershipDuesSchedule.validate_member_membership() during
+        # _create_active_dues_schedule below.
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": member_name,
+            "membership_type": membership_type_name,
+            "start_date": today(),
+            "status": "Active",
+        }).insert(ignore_permissions=True)
+        membership.flags.skip_dues_schedule_creation = True
+        membership.submit()
+        frappe.db.commit()
+        self.addCleanup(_cleanup_membership, membership.name)
+        return membership
+
+    def test_updates_rate_on_existing_schedule(self):
+        membership_type = self.factory.ensure_membership_type(
+            "Related Records Dues Test Type"
+        )
+        member = self.factory.create_member(
+            first_name="UpdateRate", last_name="Test",
+            email="update-rate@example.org",
+        )
+        self.addCleanup(_cleanup_member_and_customer, self, member.name)
+
+        # Validate_member_membership requires an active submitted Membership.
+        # ensure_membership_type creates the type with minimum_amount=50.00
+        # by default, so schedule rates must be >= 50.00.
+        self._create_active_membership(member.name, membership_type.name)
+        schedule = self._create_active_dues_schedule(
+            member.name, membership_type.name, rate=50.00
+        )
+
+        result = get_related_records_orchestrator()._update_existing_dues_schedule(
+            member.name, 75.00
+        )
+        self.assertIsNotNone(result)
+        self.assertIn(schedule.name, result)
+
+        # Verify the rate was persisted
+        new_rate = frappe.db.get_value(
+            "Membership Dues Schedule", schedule.name, "dues_rate"
+        )
+        self.assertEqual(float(new_rate), 75.00)
