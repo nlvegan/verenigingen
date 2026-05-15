@@ -13,11 +13,10 @@ created/updated" pipeline:
 - MijnRood comment append
 - Chapter assignment via division_id
 
-The dedup Set (_acr_queued_members) STAYS on the god-class because it is
-per-event state initialized in MijnRoodEventApplicationService.__init__
-and cleared at the start of every apply_event call. Methods that touch
-the dedup set accept an `orchestrator` parameter and use
-`orchestrator._acr_queued_members`.
+The per-event ACR dedup Set (_acr_queued_members) lives on this service.
+The dispatcher resets it at the start of every apply_event call via
+reset_acr_dedup(); peer services call each other via their
+``get_xxx_service()`` accessors.
 """
 
 import logging
@@ -249,7 +248,7 @@ class MijnRoodRelatedRecordsOrchestrator:
 
         return self._assign_chapter_from_division(member_name, new_division_id, event)
 
-    def _ensure_user_account(self, member_name: str, orchestrator=None) -> Optional[str]:
+    def _ensure_user_account(self, member_name: str) -> Optional[str]:
         """Queue an Account Creation Request for a synced member if enabled.
 
         Checks the 'create_member_accounts' setting. If disabled or the member
@@ -466,7 +465,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         self.logger.info("Updated dues schedule %s for member %s", schedule.name, member_name)
         return _("Dues schedule {0} updated: {1}").format(schedule.name, result.message)
 
-    def _ensure_user_account_for_volunteer(self, member_name: str, orchestrator=None) -> Optional[str]:
+    def _ensure_user_account_for_volunteer(self, member_name: str) -> Optional[str]:
         """Queue an ACR for a volunteer/staff member who needs a User account.
 
         Unlike ``_ensure_user_account()`` (which respects the global
@@ -518,9 +517,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             self.logger.warning("Account creation failed for volunteer %s: %s", member_name, e)
             return _("Account creation failed: {0}").format(str(e)[:200])
 
-    def _create_related_records(
-        self, member_name: str, row_data: dict, event=None, orchestrator=None
-    ) -> list[str]:
+    def _create_related_records(self, member_name: str, row_data: dict, event=None) -> list[str]:
         """Create related records (chapter, address, Mollie, membership, notes) for a synced member.
 
         Mirrors the CSV import's _create_related_records_via_services() but

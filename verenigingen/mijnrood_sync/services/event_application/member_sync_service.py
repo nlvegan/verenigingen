@@ -5,13 +5,9 @@ Tier C refactor (see docs/plans/2026-05-12-event-application-service-
 refactor-design.md).
 
 The service owns the New-Member and Changed-Member event paths plus the
-existing-member-or-conflict lookup. It delegates back to the calling
-event-application orchestrator for cross-cutting helpers
-(create_related_records, process_member_roles, try_promote_application,
-check_and_handle_termination, handle_division_field_change) that have
-not yet been extracted into their own services. The `orchestrator`
-parameter on the public methods will be removed once all of those are
-moved to their own services in later PRs.
+existing-member-or-conflict lookup. It calls peer services
+(application_sync, related_records, volunteer_sync, termination_sync)
+directly via their ``get_xxx_service()`` accessors.
 """
 
 import logging
@@ -73,14 +69,8 @@ class MijnRoodMemberSyncService:
                 }
         return None, None
 
-    def apply_new_member(self, event, orchestrator=None) -> dict:
-        """Create a new Member from MijnRood admin_member data.
-
-        Transitional `orchestrator` parameter exposes the not-yet-extracted
-        cross-cutting helpers (_try_promote_application,
-        _create_related_records, _process_member_roles). This parameter
-        will be removed once those helpers are extracted in later PRs.
-        """
+    def apply_new_member(self, event) -> dict:
+        """Create a new Member from MijnRood admin_member data."""
         new_data = safe_json_load(event.new_data)
         if not new_data:
             return {"success": False, "message": _("No new data in event")}
@@ -136,15 +126,12 @@ class MijnRoodMemberSyncService:
         else:
             return {"success": False, "message": _("Member creation {0}").format(status)}
 
-    def apply_changed_member(self, event, orchestrator=None) -> dict:
+    def apply_changed_member(self, event) -> dict:
         """Update existing Member fields from MijnRood admin_member data.
 
         For status changes to terminated statuses, delegates to the
-        orchestrator's _check_and_handle_termination which creates a
-        Membership Termination Request rather than directly modifying
-        the member.
-
-        Transitional `orchestrator` parameter: see apply_new_member.
+        termination_sync service which creates a Membership Termination
+        Request rather than directly modifying the member.
         """
         new_data = safe_json_load(event.new_data)
         old_data = safe_json_load(event.old_data)

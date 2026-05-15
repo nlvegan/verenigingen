@@ -1,42 +1,11 @@
 """Shared test fixtures for the event_application service test suite.
 
-_FakeOrchestrator: stand-in for MijnRoodEventApplicationService.
-    Records calls to cross-cutting helpers that have not yet been
-    extracted from the god-class. Each PR in the Phase 1 sequence
-    extends this stub as new orchestrator methods are needed.
-
 StatusMappingSetupMixin: mixin that handles the MijnRood Sync Settings
     status_mapping append/restore boilerplate. Subclass must call
     super().setUp() and define cls.STATUS_ID + cls.MEMBERSHIP_TYPE_LABEL.
 """
 
-from unittest.mock import MagicMock
-
 import frappe
-
-
-class _FakeOrchestrator:
-    """Stand-in for MijnRoodEventApplicationService.
-
-    Each attribute is a MagicMock with a sane default return value. Tests
-    override per-instance attributes when they need specific behaviour.
-    """
-
-    def __init__(self):
-        # PR #2 surface — member sync orchestrator deps
-        self._create_related_records = MagicMock(return_value=[])
-        self._process_member_roles = MagicMock(return_value=[])
-        self._try_promote_application = MagicMock(return_value=None)
-        self._check_and_handle_termination = MagicMock(return_value=None)
-        self._handle_division_field_change = MagicMock(return_value=None)
-        # PR #3 additions
-        self._find_existing_member_or_conflict = MagicMock(return_value=(None, None))
-        self._assign_chapter_from_division = MagicMock(return_value=None)
-        self._apply_new_member = MagicMock(
-            return_value={"success": True, "message": "fallback from stub"}
-        )
-        # PR #4 additions
-        self._ensure_user_account_for_volunteer = MagicMock(return_value=None)
 
 
 class StatusMappingSetupMixin:

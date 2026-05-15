@@ -1,14 +1,17 @@
 """
 MijnRood Event Application Service — Dispatcher
 
-Phase 1, PR #7 of the Tier C decomposition: the dispatcher module
-housing MijnRoodEventApplicationService, its singleton accessor, and
-the batch_approve/batch_apply whitelist endpoints. All per-concern
-logic has been extracted into the sibling service modules
+The dispatcher module housing MijnRoodEventApplicationService, its
+singleton accessor, and the batch_approve/batch_apply whitelist
+endpoints. MijnRoodEventApplicationService is the external entry
+point: ``apply_event`` resets the per-event ACR dedup state and
+routes via the ``_dispatch`` table to the per-table ``_apply_*``
+handlers, plus ``_sync_division_to_chapter`` for division events.
+All per-concern logic lives in the sibling service modules
 (mapping_service, member_sync_service, application_sync_service,
 volunteer_sync_service, termination_sync_service,
-related_records_orchestrator). The 30+ shim methods on this class
-exist to preserve caller/test compatibility through Phase 2-3.
+related_records_orchestrator), called via their ``get_xxx_service()``
+accessors.
 
 Originally defined in event_application_service.py — that module is
 now a re-export shim importing from this file.

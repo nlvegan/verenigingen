@@ -17,11 +17,8 @@ The service owns:
   _handle_division_contact_change)
 - Role-processing entry point (_process_member_roles)
 
-It delegates back to the calling event-application orchestrator only
-for _ensure_user_account_for_volunteer, which depends on the
-orchestrator's _acr_queued_members instance-state and stays in the
-god-class. That parameter will go away when the god-class's per-run
-dedup state moves to a context object in PR #6.
+It calls the related_records service directly via
+``get_related_records_orchestrator()`` for user-account creation.
 """
 
 import json
@@ -74,7 +71,6 @@ class MijnRoodVolunteerSyncService:
         self,
         member_name: str,
         config: dict,
-        orchestrator=None,
         event=None,
     ) -> Optional[str]:
         """Create Volunteer record and assign role if configured.
@@ -604,7 +600,6 @@ class MijnRoodVolunteerSyncService:
         config: dict,
         division_ids: Optional[list[int]] = None,
         event=None,
-        orchestrator=None,
     ) -> list[str]:
         """Apply the configured actions for a single role mapping entry.
 
@@ -613,9 +608,6 @@ class MijnRoodVolunteerSyncService:
             config: Role mapping config dict from get_role_mapping()
             division_ids: Division IDs for ROLE_DIVISION_CONTACT (None for ROLE_ADMIN)
             event: Sync event for logging context
-            orchestrator: The event-application orchestrator; passed through to
-                _ensure_volunteer, which needs it for _ensure_user_account_for_volunteer
-                (which depends on the orchestrator's _acr_queued_members state).
 
         Returns:
             List of human-readable status messages.
@@ -656,7 +648,6 @@ class MijnRoodVolunteerSyncService:
         old_roles: set,
         role_config: dict,
         event=None,
-        orchestrator=None,
     ) -> list[str]:
         """Handle ROLE_ADMIN addition or removal.
 
@@ -697,7 +688,6 @@ class MijnRoodVolunteerSyncService:
         old_division_ids,
         role_config: dict,
         event=None,
-        orchestrator=None,
     ) -> list[str]:
         """Handle ROLE_DIVISION_CONTACT addition or removal."""
         messages = []
@@ -740,7 +730,6 @@ class MijnRoodVolunteerSyncService:
         mijnrood_data: dict,
         old_data: Optional[dict] = None,
         event=None,
-        orchestrator=None,
     ) -> list[str]:
         """Process MijnRood admin roles for a member.
 
@@ -756,8 +745,6 @@ class MijnRoodVolunteerSyncService:
             mijnrood_data: Current MijnRood row data (new_data from event)
             old_data: Previous MijnRood row data (for removal detection)
             event: The sync event (for logging context)
-            orchestrator: The event-application orchestrator; passed through to
-                _apply_role_actions → _ensure_volunteer.
 
         Returns:
             List of human-readable status messages.

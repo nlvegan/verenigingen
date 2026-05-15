@@ -13,11 +13,8 @@ The service owns:
 - Field-by-field Member update from MijnRood data
 - Linked-Member lookup for approved events
 
-It delegates back to the calling event-application orchestrator for
-cross-cutting helpers (create_related_records, assign_chapter_from_division,
-handle_division_field_change, apply_new_member fallback) that have not
-yet been extracted. The `orchestrator` parameter on public methods will
-be removed once those are moved to their own services in later PRs.
+It calls peer services (member_sync, related_records) directly via
+their ``get_xxx_service()`` accessors.
 """
 
 import logging
@@ -127,15 +124,11 @@ class MijnRoodApplicationSyncService:
 
         return None
 
-    def apply_new_membership_application(self, event, orchestrator=None) -> dict:
+    def apply_new_membership_application(self, event) -> dict:
         """Create a pending membership application from MijnRood data.
 
         Creates a Member document with application_status=Pending so it
         enters the normal membership application review workflow.
-
-        Transitional `orchestrator` parameter exposes the not-yet-extracted
-        cross-cutting helpers (_find_existing_member_or_conflict via the
-        god-class shim, _assign_chapter_from_division).
         """
         new_data = safe_json_load(event.new_data)
         if not new_data:
@@ -192,13 +185,11 @@ class MijnRoodApplicationSyncService:
             "message": _("Application created as {0} (pending review)").format(member.name),
         }
 
-    def apply_changed_membership_application(self, event, orchestrator=None) -> dict:
+    def apply_changed_membership_application(self, event) -> dict:
         """Update a pending membership application from changed MijnRood data.
 
         Finds the linked Member (application) and updates fields that changed.
         Handles preferred_division_id changes as chapter reassignment.
-
-        Transitional `orchestrator` parameter: see apply_new_membership_application.
         """
         new_data = safe_json_load(event.new_data)
         changed_fields = safe_json_load(event.changed_fields, default=[])
@@ -268,27 +259,23 @@ class MijnRoodApplicationSyncService:
         new_data: dict,
         row_data: dict,
         event,
-        orchestrator=None,
     ) -> dict:
         """Promote a local Pending Member to Approved/Active using MijnRood data.
 
         Shared by:
         - apply_approved (correlator-driven path, preferred)
         - try_promote_application (apply-time cross-run safety net)
-        - PR #2's member_sync_service.apply_new_member (via orchestrator)
 
         Handles:
         1. Field sync via MemberImportService.create_or_update_member
         2. Flipping application_status to Approved AND member.status to Active
-        3. Running the standard related-records side effects via orchestrator
+        3. Running the standard related-records side effects via related_records
 
         The target Member is resolved by MemberImportService's own cascade
         lookup (member_id → email) from `row_data`. Callers should still
         run their own lookup beforehand to decide whether to invoke this
         method versus falling through to apply_new_member, but the
         resolved name is not threaded through — it would be ignored.
-
-        Transitional `orchestrator` parameter exposes _create_related_records.
         """
         from verenigingen.services.csv_import.member_import_service import (
             get_member_import_service,
@@ -344,7 +331,7 @@ class MijnRoodApplicationSyncService:
         messages.extend(related_msgs)
         return {"success": True, "message": "; ".join(messages)}
 
-    def try_promote_application(self, event, row_data: dict, orchestrator=None) -> Optional[dict]:
+    def try_promote_application(self, event, row_data: dict) -> Optional[dict]:
         """Handle MijnRood application->member promotion (apply-time safety net).
 
         This runs when the correlator didn't pair events at poll time (rare:
@@ -383,16 +370,13 @@ class MijnRoodApplicationSyncService:
 
         return self.promote_application_member(old_data_stub, new_data_stub, row_data, event)
 
-    def apply_approved(self, event, orchestrator=None) -> dict:
+    def apply_approved(self, event) -> dict:
         """Apply an Approved event synthesized by the approval correlator.
 
         The event's old_data is the deleted application row; new_data is the
         newly-created admin_member row. We locate the local Pending Member
         that was created when the application first synced, then delegate to
         promote_application_member.
-
-        Transitional `orchestrator` parameter exposes _apply_new_member
-        (god-class shim into PR #2's member_sync_service) for fallback.
         """
         new_data = safe_json_load(event.new_data)
         old_data = safe_json_load(event.old_data)
