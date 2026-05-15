@@ -42,6 +42,29 @@ class MijnRoodRelatedRecordsOrchestrator:
 
     def __init__(self):
         self.logger = logger
+        # Per-event ACR dedup: tracks which members have already had an
+        # Account Creation Request queued during the current apply_event
+        # invocation. Reset by the dispatcher via reset_acr_dedup() at the
+        # start of each event. Previously lived on the dispatcher god-class
+        # as _acr_queued_members.
+        self._acr_queued_members: set[str] = set()
+
+    def reset_acr_dedup(self) -> None:
+        """Clear the per-event ACR dedup set.
+
+        Called by the dispatcher at the start of every apply_event
+        invocation so dedup state never leaks between events.
+        """
+        self._acr_queued_members.clear()
+
+    def is_acr_queued(self, member_name: str) -> bool:
+        """True if an ACR has already been queued for this member in the
+        current event."""
+        return member_name in self._acr_queued_members
+
+    def mark_acr_queued(self, member_name: str) -> None:
+        """Record that an ACR has been queued for this member."""
+        self._acr_queued_members.add(member_name)
 
     def _apply_mijnrood_comments(self, member_name: str, row_data: dict) -> Optional[str]:
         """Append MijnRood comments to the Member's notes field.
