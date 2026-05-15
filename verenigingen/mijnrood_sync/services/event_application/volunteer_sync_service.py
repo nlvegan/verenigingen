@@ -135,7 +135,7 @@ class MijnRoodVolunteerSyncService:
                 self.logger.warning("Volunteer creation skipped for %s: %s", member_name, error)
                 return _("Volunteer creation skipped: {0}").format(error)
 
-            volunteer_name = result.get("volunteer")
+            volunteer_name = result.get("volunteer_name")
             if create_account:
                 orchestrator._acr_queued_members.add(member_name)
             self.logger.info(

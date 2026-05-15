@@ -269,6 +269,10 @@ class TestEnsureVolunteer(EnhancedTestCase):
         vol_name = get_volunteer_for_member(member.name)
         self.assertIsNotNone(vol_name)
         self.addCleanup(self._cleanup_volunteer, vol_name)
+        # The success message must name the actual Volunteer, not "None":
+        # create_volunteer_from_member returns the name under "volunteer_name".
+        self.assertIn(vol_name, result)
+        self.assertNotIn("None", result)
         # ACR was queued because create_account=True (role assigned)
         self.assertIn(member.name, orchestrator._acr_queued_members)
 
