@@ -125,7 +125,6 @@ Quality is maintained at multiple stages:
 ### Migration Tools
 
 - `eboekhouden_enhanced_migration.py` -- Multi-phase migration engine
-- `migration_api.py` -- API entry point
 - `migration_error_logger.py` -- Error logging
 - `migration/quality_checker.py`, `migration/transaction_processor.py`
 

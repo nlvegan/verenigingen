@@ -311,9 +311,3 @@ class MonitoringMetricsService:
                 title="Monitoring - Member Growth Rate Error",
             )
             return {"today": 0, "week": 0, "daily_average": 0}
-
-
-# Convenience function for getting service instance
-def get_monitoring_metrics_service() -> MonitoringMetricsService:
-    """Get a MonitoringMetricsService instance."""
-    return MonitoringMetricsService()

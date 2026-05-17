@@ -390,8 +390,3 @@ class ANBIValidationService(StatelessService):
             "warnings": [],
             "message": "ANBI validation passed" if is_valid else f"{len(errors)} validation errors found",
         }
-
-
-def get_anbi_validation_service() -> ANBIValidationService:
-    """Get instance of ANBIValidationService."""
-    return ANBIValidationService()
