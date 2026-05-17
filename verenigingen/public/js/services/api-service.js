@@ -483,16 +483,6 @@ class APIService {
 	}
 
 	/**
-   * Test API connectivity
-   */
-	async testConnection() {
-		return this.call(
-			'verenigingen.api.membership_application.test_connection',
-			{}
-		);
-	}
-
-	/**
    * Utility methods
    */
 	_getCacheKey(method, args) {
