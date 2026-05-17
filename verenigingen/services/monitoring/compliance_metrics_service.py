@@ -250,9 +250,3 @@ class ComplianceMetricsService:
             }
         except Exception:
             return {"mandate_validation_failures": 0, "payment_security_events": 0}
-
-
-# Convenience function for getting service instance
-def get_compliance_metrics_service() -> ComplianceMetricsService:
-    """Get a ComplianceMetricsService instance."""
-    return ComplianceMetricsService()

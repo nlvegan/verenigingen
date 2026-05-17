@@ -412,8 +412,3 @@ class DuplicateInvoiceDetector(StatelessService):
                 continue
 
         return overlapping_fallback_invoices
-
-
-def get_duplicate_invoice_detector(schedule_doc) -> DuplicateInvoiceDetector:
-    """Get instance of DuplicateInvoiceDetector."""
-    return DuplicateInvoiceDetector(schedule_doc)
