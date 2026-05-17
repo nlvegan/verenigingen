@@ -182,6 +182,10 @@ class Donation(Document):
             if not self.status or self.status == "One-time":
                 self.status = "Recurring"
 
+            # Donations under a periodic agreement (ANBI or pledge) are always
+            # reportable to the Belastingdienst.
+            self.belastingdienst_reportable = 1
+
     def generate_anbi_report_data(self):
         """
         Generate data for ANBI reporting to Belastingdienst
