@@ -278,7 +278,7 @@ class TerminationAuditService(StatelessService):
             doc: MembershipTerminationRequest document
         """
         rejector = doc.approved_by or "Unknown"  # Same field used for rejection
-        reason = doc.rejection_reason or "No reason provided"
+        reason = doc.approver_notes or "No reason provided"  # DocType has no rejection_reason field
         self.add_entry(doc, "Request Rejected", f"Rejected by: {rejector}. Reason: {reason}", is_system=False)
 
 
