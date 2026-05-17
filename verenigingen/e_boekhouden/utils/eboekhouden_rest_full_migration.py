@@ -1913,36 +1913,6 @@ def _get_or_create_stock_temporary_account(company, debug_info):
         return _get_or_create_temporary_diff_account(company, debug_info)
 
 
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def import_opening_balances_only(migration_name: str):
-    """Import only opening balances via REST API"""
-    try:
-        # Get migration record and check permissions
-        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-        migration_doc.check_permission("write")
-
-        # Get settings
-        settings = frappe.get_single("E-Boekhouden Settings")
-        company = settings.default_company
-
-        # Get cost center
-        cost_center = get_default_cost_center(company)
-
-        if not cost_center:
-            return {"success": False, "error": "No cost center found for company"}
-
-        debug_info = []
-        result = _import_opening_balances(company, cost_center, debug_info)
-
-        return {"success": True, "result": result, "company": company, "cost_center": cost_center}
-
-    except Exception as e:
-        import traceback
-
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
-
-
 def _process_single_mutation(mutation, company, cost_center, debug_info):
     """Process a single mutation and return the created document"""
     try:

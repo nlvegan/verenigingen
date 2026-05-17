@@ -800,53 +800,6 @@ class EBoekhoudenMigration(Document):
             )
             return f"Error migrating Stock Transactions: {str(e)[:100]}..."  # Truncate for display
 
-    def parse_grootboekrekeningen_xml(self, xml_data):
-        """Parse Chart of Accounts XML response"""
-        try:
-            # This is a simplified parser - you'll need to adjust based on actual XML structure
-            accounts = []
-
-            # Basic parsing - adjust based on actual e-Boekhouden XML structure
-            if "Grootboekrekening" in xml_data:
-                # Parse the XML properly here
-                # For now, return mock data structure
-                pass
-
-            return accounts
-        except Exception as e:
-            frappe.log_error(f"Error parsing Chart of Accounts XML: {str(e)}")
-            return []
-
-    def parse_relaties_xml(self, xml_data):
-        """Parse Relations (Customers/Suppliers) XML response"""
-        try:
-            relations = []
-
-            # Basic parsing - adjust based on actual e-Boekhouden XML structure
-            if "Relatie" in xml_data:
-                # Parse the XML properly here
-                pass
-
-            return relations
-        except Exception as e:
-            frappe.log_error(f"Error parsing Relations XML: {str(e)}")
-            return []
-
-    def parse_mutaties_xml(self, xml_data):
-        """Parse Transactions (Mutaties) XML response"""
-        try:
-            transactions = []
-
-            # Basic parsing - adjust based on actual e-Boekhouden XML structure
-            if "Mutatie" in xml_data:
-                # Parse the XML properly here
-                pass
-
-            return transactions
-        except Exception as e:
-            frappe.log_error(f"Error parsing Transactions XML: {str(e)}")
-            return []
-
     def _get_error_logger(self):
         """Get or create MigrationErrorLogger instance."""
         if not hasattr(self, "_error_logger"):
