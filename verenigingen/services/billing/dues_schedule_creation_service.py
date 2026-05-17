@@ -360,7 +360,9 @@ class DuesScheduleCreationService(StatelessService):
             True if circuit is open (should NOT retry)
         """
         try:
-            failure_count = frappe.cache().get(self.CIRCUIT_BREAKER_CACHE_KEY) or 0
+            # get_value() applies Frappe's key prefix to match set_value() in
+            # _record_failure(); raw .get() would miss the key entirely.
+            failure_count = frappe.cache().get_value(self.CIRCUIT_BREAKER_CACHE_KEY) or 0
             is_open = failure_count >= self.CIRCUIT_BREAKER_THRESHOLD
 
             if is_open:
@@ -382,7 +384,9 @@ class DuesScheduleCreationService(StatelessService):
         """Record a failure for circuit breaker tracking."""
         try:
             key = self.CIRCUIT_BREAKER_CACHE_KEY
-            current_failures = frappe.cache().get(key) or 0
+            # get_value() applies Frappe's key prefix to match set_value() below;
+            # raw .get() would always read None, so the counter never incremented.
+            current_failures = frappe.cache().get_value(key) or 0
             new_failures = current_failures + 1
 
             # Set with TTL - automatically resets after window expires
