@@ -665,9 +665,11 @@ result = import_mutations_by_date_range(
 #### Opening Balances Only
 
 ```python
-from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import import_opening_balances_only
+from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
+    import_opening_balances_only,
+)
 
-result = import_opening_balances_only()
+result = import_opening_balances_only(migration_name)
 ```
 
 #### Specific Date Range
