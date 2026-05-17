@@ -355,12 +355,7 @@ class TestTeamValidationService(EnhancedTestCase):
 # 3. DonationDashboardService
 # ---------------------------------------------------------------------------
 class TestDonationDashboardService(EnhancedTestCase):
-    """Tests for DonationDashboardService — dashboard data aggregation.
-
-    Note: get_dashboard_context() calls _get_reportable_donations() which
-    references a non-existent 'belastingdienst_reportable' column on the
-    Donation table (schema bug). We test the working sub-methods individually.
-    """
+    """Tests for DonationDashboardService — dashboard data aggregation."""
 
     def _get_service(self):
         from verenigingen.services.donation.dashboard_service import (
@@ -368,6 +363,22 @@ class TestDonationDashboardService(EnhancedTestCase):
         )
 
         return get_donation_dashboard_service()
+
+    # --- _get_reportable_donations ---
+    def test_reportable_donations_query_runs(self):
+        """_get_reportable_donations executes and returns count/amount keys.
+
+        Regression (audit T1.2, 2026-05-17): the query referenced a
+        belastingdienst_reportable column absent from the Donation DocType,
+        so the whole donation dashboard failed to load with 'Unknown column'.
+        """
+        svc = self._get_service()
+        from frappe.utils import getdate
+
+        year = getdate(today()).year
+        result = svc._get_reportable_donations(f"{year}-01-01", f"{year}-12-31", 500.0)
+        self.assertIn("reportable_donations_count", result)
+        self.assertIn("reportable_donations_amount", result)
 
     # --- _get_year_to_date_stats ---
     def test_year_to_date_stats_returns_amounts(self):

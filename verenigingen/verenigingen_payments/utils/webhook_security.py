@@ -69,10 +69,12 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
         signature_header (str): X-Mollie-Signature header value
 
     Returns:
-        bool: True if signature is valid, False otherwise
+        bool: True if the request is accepted — either the signature verified,
+            or no signature was present (standard Mollie webhooks are unsigned).
 
     Raises:
-        WebhookAuthenticationError: If signature verification fails or is missing
+        WebhookAuthenticationError: If a signature IS present and fails
+            verification, or a signature is present but no secret is configured.
     """
     # Get Mollie settings
     settings = frappe.get_single("Mollie Settings")
@@ -94,17 +96,29 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
         frappe.logger().info(f"🔒 Test mode: Accepting test signature: {signature_header}")
         return True
 
-    # Check if webhook secret is configured
+    # Standard Mollie Payments API webhooks are UNSIGNED: the request body
+    # carries only an opaque resource id and no X-Mollie-Signature header
+    # (signed webhooks exist only for Mollie Connect / next-gen webhooks).
+    # The trust anchor is that the webhook handler re-fetches authoritative
+    # state from the Mollie API by id. A missing signature is therefore
+    # expected — accept it. If a signature IS present it is still verified
+    # below. Hard-raising here would reject every genuine live webhook.
+    if not signature_header:
+        # Debug level: this is the normal path for every live webhook, so
+        # logging it louder would only flood the log with non-actionable noise.
+        frappe.logger().debug(
+            "🔒 Webhook received without signature header — standard Mollie "
+            "webhooks are unsigned; authenticity is confirmed via API re-fetch."
+        )
+        return True
+
+    # A signature is present (Connect / next-gen webhook): a secret is
+    # required to verify it.
     if not webhook_secret:
-        frappe.logger().error("🔒 Webhook secret not configured in Mollie Settings")
+        frappe.logger().error("🔒 Signed webhook received but no webhook secret is configured")
         raise WebhookAuthenticationError(
             "Webhook secret not configured. Please add your webhook secret key to Mollie Settings."
         )
-
-    # Check if signature header is present (only required in live mode)
-    if not signature_header:
-        frappe.logger().warning("🔒 Webhook received without signature header in live mode")
-        raise WebhookAuthenticationError("Missing X-Mollie-Signature header")
 
     try:
         # Create expected signature using webhook secret
@@ -127,6 +141,10 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
             )
             raise WebhookAuthenticationError("Invalid webhook signature")
 
+    except WebhookAuthenticationError:
+        # Already a clean authentication error (e.g. "Invalid webhook
+        # signature") — re-raise as-is rather than double-wrapping it.
+        raise
     except Exception as e:
         frappe.logger().error(f"🔒 Webhook signature verification error: {str(e)}")
         raise WebhookAuthenticationError(f"Signature verification failed: {str(e)}")

@@ -57,6 +57,7 @@
   "anbi_agreement_number",
   "column_break_anbi",
   "anbi_agreement_date",
+  "belastingdienst_reportable",
   "accounting_section",
   "sales_invoice",
   "column_break_revc",
@@ -267,6 +268,13 @@
    "fieldname": "anbi_agreement_date",
    "fieldtype": "Date",
    "label": "ANBI Agreement Date"
+  },
+  {
+   "default": "0",
+   "description": "Donation must be reported to the Dutch tax authority (Belastingdienst). Set automatically for donations linked to a periodic donation agreement.",
+   "fieldname": "belastingdienst_reportable",
+   "fieldtype": "Check",
+   "label": "Belastingdienst Reportable"
   },
   {
    "fieldname": "purpose_section",

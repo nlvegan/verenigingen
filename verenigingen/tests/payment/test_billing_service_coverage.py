@@ -429,6 +429,23 @@ class TestDuesScheduleCreationService(EnhancedTestCase):
         count = frappe.cache().get_value(key)
         self.assertIsNone(count)
 
+    def test_circuit_breaker_opens_after_threshold_failures(self):
+        """Circuit breaker opens (blocks retries) once failures reach the threshold.
+
+        Regression (audit T1.3, 2026-05-17): _record_failure and _should_circuit_break
+        read the counter with raw frappe.cache().get(), which does not apply Frappe's
+        key prefix, while _record_failure writes with set_value() (prefixed). The reads
+        always missed — the counter never incremented past 1 and the breaker never
+        opened. Both reads must use get_value().
+        """
+        self.svc._record_success()  # reset to a known-closed state
+        try:
+            for _ in range(self.svc.CIRCUIT_BREAKER_THRESHOLD):
+                self.svc._record_failure()
+            self.assertTrue(self.svc._should_circuit_break())
+        finally:
+            self.svc._record_success()  # cleanup
+
     def test_retry_count_clamping(self):
         """Invalid retry_count values are clamped to valid range."""
         result = self.svc.create_schedule_with_retry(

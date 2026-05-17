@@ -219,21 +219,22 @@ class TestTerminationAuditService(EnhancedTestCase):
         self.assertGreater(len(req.audit_trail), initial_count)
 
     def test_log_status_change_rejected_logs_reason(self):
-        """log_status_change for Rejected transition logs rejector info.
+        """log_status_change for Rejected transition logs the rejector and the
+        approver_notes as the rejection reason.
 
-        Note: The audit service references doc.rejection_reason which does not
-        exist on the DocType schema (uses termination_reason instead). We set
-        the attribute manually to test the audit logic without hitting the
-        AttributeError. This is a known schema mismatch in the service.
+        Regression (audit T1.1, 2026-05-17): the service previously read
+        doc.rejection_reason, a field absent from the Membership Termination
+        Request DocType, raising AttributeError on every rejection. It must
+        read approver_notes (the real field) instead.
         """
         svc = self._get_service()
         req = _create_termination_request(self.member.name, status="Rejected")
         req.approved_by = frappe.session.user
-        # Set the attribute the service expects (not on DocType schema)
-        req.rejection_reason = "Policy violation"
+        req.approver_notes = "Policy violation"
         svc.log_status_change(req, old_status="Approved", new_status="Rejected")
         reject_entries = [r for r in req.audit_trail if r.action == "Request Rejected"]
-        self.assertTrue(len(reject_entries) > 0)
+        self.assertEqual(len(reject_entries), 1)
+        self.assertIn("Policy violation", reject_entries[0].details)
 
     # --- log_document_update ---
     def test_log_document_update(self):
