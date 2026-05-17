@@ -69,10 +69,12 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
         signature_header (str): X-Mollie-Signature header value
 
     Returns:
-        bool: True if signature is valid, False otherwise
+        bool: True if the request is accepted — either the signature verified,
+            or no signature was present (standard Mollie webhooks are unsigned).
 
     Raises:
-        WebhookAuthenticationError: If signature verification fails or is missing
+        WebhookAuthenticationError: If a signature IS present and fails
+            verification, or a signature is present but no secret is configured.
     """
     # Get Mollie settings
     settings = frappe.get_single("Mollie Settings")
@@ -102,7 +104,9 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
     # expected — accept it. If a signature IS present it is still verified
     # below. Hard-raising here would reject every genuine live webhook.
     if not signature_header:
-        frappe.logger().info(
+        # Debug level: this is the normal path for every live webhook, so
+        # logging it louder would only flood the log with non-actionable noise.
+        frappe.logger().debug(
             "🔒 Webhook received without signature header — standard Mollie "
             "webhooks are unsigned; authenticity is confirmed via API re-fetch."
         )
@@ -137,6 +141,10 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
             )
             raise WebhookAuthenticationError("Invalid webhook signature")
 
+    except WebhookAuthenticationError:
+        # Already a clean authentication error (e.g. "Invalid webhook
+        # signature") — re-raise as-is rather than double-wrapping it.
+        raise
     except Exception as e:
         frappe.logger().error(f"🔒 Webhook signature verification error: {str(e)}")
         raise WebhookAuthenticationError(f"Signature verification failed: {str(e)}")

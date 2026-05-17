@@ -68,9 +68,13 @@ class TestMollieWebhookSignatureOptional(unittest.TestCase):
         self.assertTrue(self._verify(payload, sig, secret))
 
     def test_invalid_signature_still_rejected(self):
-        """An incorrect signature, when present, is still rejected."""
-        with self.assertRaises(WebhookAuthenticationError):
+        """An incorrect signature, when present, is still rejected — and the
+        error is not double-wrapped (review M2, PR #37): the bare except must
+        re-raise the WebhookAuthenticationError as-is, not nest its message.
+        """
+        with self.assertRaises(WebhookAuthenticationError) as ctx:
             self._verify('{"id": "tr_test"}', "sha256=deadbeef")
+        self.assertEqual(str(ctx.exception), "Invalid webhook signature")
 
 
 if __name__ == "__main__":
