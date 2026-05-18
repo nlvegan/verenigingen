@@ -23,6 +23,7 @@ from frappe import _
 from frappe.utils import now
 
 from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -139,9 +140,8 @@ def queue_account_creation_for_member(
             roles = ["Verenigingen Member"]
         if not role_profile:
             # Infer role_profile from roles - volunteers need employee records
-            # Check for any role containing "Volunteer" keyword
-            has_volunteer_role = any("Volunteer" in r for r in roles) if roles else False
-            if has_volunteer_role:
+            requests_volunteer_role = bool(roles) and Roles.VOLUNTEER in roles
+            if requests_volunteer_role:
                 role_profile = "Verenigingen Volunteer"
             else:
                 role_profile = "Verenigingen Member"
