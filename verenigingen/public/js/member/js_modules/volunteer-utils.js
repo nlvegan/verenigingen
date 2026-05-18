@@ -344,7 +344,7 @@ function show_volunteer_activation_dialog(options) {
 			}
 
 			frappe.call({
-				method: 'verenigingen.services.member.account.account_creation_manager.queue_account_creation_for_member',
+				method: 'verenigingen.services.member.account.account_creation_api.queue_account_creation_for_member',
 				args: {
 					member_name: member_name,
 					roles: roles,
