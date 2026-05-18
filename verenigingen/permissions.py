@@ -1588,7 +1588,7 @@ def update_all_chapter_board_roles():
 def _users_with_chapter_board_role():
     """Return user emails that currently hold the Chapter Board Member role."""
     rows = frappe.db.sql(
-        "SELECT parent as user_email FROM `tabHas Role` WHERE role = %s",
+        "SELECT parent as user_email FROM `tabHas Role` WHERE role = %s AND parenttype = 'User'",
         Roles.CHAPTER_BOARD_MEMBER,
         as_dict=True,
     )
