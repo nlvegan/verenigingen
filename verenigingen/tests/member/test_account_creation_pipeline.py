@@ -1428,6 +1428,52 @@ class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
             )
 
 
+class TestQueueRoleProfileInference(EnhancedTestCase):
+    """queue_account_creation_for_member infers role_profile from the requested
+    roles when no role_profile is passed (audit T4.6).
+
+    The inference must key off the genuine Volunteer role, not a substring
+    match — a role whose name merely contains "Volunteer" must not trip the
+    volunteer profile (the fragility fixed in this PR).
+    """
+
+    def _request_for(self, roles, suffix):
+        """Queue member account creation with `roles` and no explicit
+        role_profile; return the created Account Creation Request."""
+        member = self.create_test_member(
+            first_name=f"Infer{suffix}{self.uid}",
+            last_name="Profile",
+            email=f"infer.{suffix}.{self.uid}@test.invalid".lower(),
+        )
+        result = queue_account_creation_for_member(member.name, roles=roles)
+        self.assertTrue(result.get("success"), f"queue failed: {result.get('errors')}")
+        request_name = result.get("request_name") or result.get("data", {}).get("request_name")
+        self.assertTrue(request_name, f"no request_name in result: {result}")
+        return frappe.get_doc("Account Creation Request", request_name)
+
+    def test_volunteer_role_infers_volunteer_profile(self):
+        """A requested Verenigingen Volunteer role -> Volunteer profile + employee record."""
+        request = self._request_for(["Verenigingen Member", "Verenigingen Volunteer"], "vol")
+        self.assertEqual(request.role_profile, "Verenigingen Volunteer")
+        self.assertTrue(request.create_employee_record)
+
+    def test_member_only_role_infers_member_profile(self):
+        """Only the Member role -> Member profile, no employee record."""
+        request = self._request_for(["Verenigingen Member"], "mem")
+        self.assertEqual(request.role_profile, "Verenigingen Member")
+        self.assertFalse(request.create_employee_record)
+
+    def test_volunteer_substring_role_does_not_infer_volunteer_profile(self):
+        """A non-volunteer role whose name merely contains "Volunteer" must NOT
+        infer the Volunteer profile. The old substring check did; the exact
+        Roles.VOLUNTEER membership check does not."""
+        if not frappe.db.exists("Role", "Volunteer Manager"):
+            frappe.get_doc({"doctype": "Role", "role_name": "Volunteer Manager"}).insert()
+        request = self._request_for(["Volunteer Manager"], "volmgr")
+        self.assertEqual(request.role_profile, "Verenigingen Member")
+        self.assertFalse(request.create_employee_record)
+
+
 if __name__ == "__main__":
     # Run the test suite
     unittest.main(verbosity=2)
