@@ -95,15 +95,56 @@ subscription") and removes the only behavioural reason the legacy path exists.
 Each phase is its own double-reviewed PR.
 
 ### Phase 1 — collapse the two bottom-level implementations
-- Add IBAN-based mandate provisioning to `CompletePaymentService`'s create
-  flow (§3).
-- Re-point `MollieGateway.create_subscription` / `cancel_subscription` to
-  `CompletePaymentService` / `MollieClient`, preserving `MollieGateway`'s
-  current dict return shape and Member updates at the gateway boundary.
-- Delete `MollieSettings.create_subscription` / `cancel_subscription`.
-- Delete the dead+broken `SubscriptionService.create_membership_subscription`
-  / `create_donation_subscription`.
-- Net: one SDK path.
+
+Branch: `refactor/mollie-subscription-consolidation-phase1` (this doc lives
+there). TDD each step — payment code.
+
+Precise task list:
+
+1. **`mollie/core/client.py` `MollieClient`** — add
+   `create_mandate(customer_id, mandate_data)` wrapping
+   `customer.mandates.create(data=mandate_data)` (same error-handling shape
+   as the existing `create_subscription`).
+2. **`mollie/services/complete_payment_service.py`
+   `create_customer_subscription`** — opt-in mandate provisioning: when
+   `subscription_data` carries a truthy `consumerAccount`, build the legacy
+   mandate payload and provision a mandate before creating the subscription,
+   then strip `consumerAccount` from `subscription_data`. Legacy payload
+   shape (from the soon-deleted `MollieSettings.create_subscription`):
+   ```python
+   mandate_data = {
+       "method": "directdebit",
+       "consumerName": customer_data.get("name", ""),
+       "consumerAccount": subscription_data["consumerAccount"],
+       "signatureDate": frappe.utils.today(),
+       "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
+   }
+   ```
+3. **`verenigingen_payments/utils/payment_gateways.py`
+   `MollieGateway.create_subscription`** — replace
+   `self.settings.create_subscription(customer_data, mollie_subscription_data)`
+   with `CompletePaymentService().create_customer_subscription(...)`. NOTE the
+   return-shape difference: `CompletePaymentService` returns
+   `subscription_status` (not `status` — its `status` key is the literal
+   `"success"`). Map `result["subscription_status"]` onto the member's
+   `subscription_status` field.
+4. **`MollieGateway.cancel_subscription`** — replace
+   `self.settings.cancel_subscription(...)` (returns `bool`) with
+   `MollieClient().cancel_subscription(customer_id, subscription_id)` (returns
+   the cancelled object, *raises* on failure). Adapt: success path on no
+   exception; the `except` already handles failure.
+5. **Delete** `MollieSettings.create_subscription` and `cancel_subscription`
+   (keep `get_subscription`, `create_customer`, etc.).
+6. **Delete** `SubscriptionService.create_membership_subscription`,
+   `create_donation_subscription`, and their now-orphaned private helpers —
+   all used only by those two: `_ensure_customer_exists`,
+   `_ensure_donor_customer_exists`, `_has_valid_mandate`, `_get_webhook_url`,
+   `_update_member_subscription_info`, `_update_donor_subscription_info`.
+   KEEP `cancel_subscription` and `_update_*_subscription_canceled` (live).
+7. **Tests** — `MollieGateway` create/cancel currently has zero coverage; add
+   TDD tests: create-with-IBAN provisions a mandate, create-without does not,
+   cancel.
+- Net: one SDK path (`MollieClient`).
 
 ### Phase 2 — standardise the mid-level contract
 - Make row locking mandatory on every create path (port the
