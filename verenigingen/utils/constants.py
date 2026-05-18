@@ -20,7 +20,16 @@ class Roles:
     VOLUNTEER_MANAGER = "Volunteer Manager"
     AUDITOR = "Verenigingen Auditor"
     CHAPTER_ADMIN = "Chapter Administrator"
+    CHAPTER_BOARD_MEMBER = "Verenigingen Chapter Board Member"
+    CHAPTER_MANAGER = "Verenigingen Chapter Manager"
+    EXPENSE_APPROVER = "Expense Approver"
     HR_MANAGER = "HR Manager"
+    HR_USER = "HR User"
+    TEAM_LEADER = "Team Leader"
+    # Distinct from MEMBER ("Member") — "Verenigingen Member" is a separate role.
+    VERENIGINGEN_MEMBER = "Verenigingen Member"
+    VOLUNTEER_COORDINATOR = "Volunteer Coordinator"
+    WEBHOOK_USER = "Verenigingen Webhook User"
 
     # Role groups for common permission checks (frozenset prevents accidental mutation)
     ADMIN_ROLES: FrozenSet[str] = frozenset({SYSTEM_MANAGER, VERENIGINGEN_ADMIN, VERENIGINGEN_STAFF})
