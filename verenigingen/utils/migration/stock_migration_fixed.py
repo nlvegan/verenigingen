@@ -99,15 +99,15 @@ class StockMigrationFixed:
 
             # Create summary message
             message_parts = [
-                "Found {len(stock_mutations)} stock-related transactions in E-Boekhouden.",
+                f"Found {len(stock_mutations)} stock-related transactions in E-Boekhouden.",
                 "",
                 "Stock Account Summary:",
             ]
 
             for acc_summary in summary["account_summaries"]:
                 message_parts.append(
-                    "- {acc_summary['code']} {acc_summary['name']}: "
-                    "€{acc_summary['total_amount']:.2f} ({acc_summary['transaction_count']} transactions)"
+                    f"- {acc_summary['code']} {acc_summary['name']}: "
+                    f"€{acc_summary['total_amount']:.2f} ({acc_summary['transaction_count']} transactions)"
                 )
 
             message_parts.extend(
@@ -189,7 +189,7 @@ def migrate_stock_transactions_safe(migration_doc, from_date=None, to_date=None)
         fixed_migration = StockMigrationFixed(migration_doc)
         result = fixed_migration.migrate_stock_transactions(from_date, to_date)
 
-        # Update migration document with result
+        # Compose a human-readable message and record it on the migration doc.
         if migration_doc:
             if result["success"]:
                 message = result.get("message", "Stock migration completed")
@@ -204,11 +204,13 @@ def migrate_stock_transactions_safe(migration_doc, from_date=None, to_date=None)
             if hasattr(migration_doc, "stock_migration_notes"):
                 migration_doc.stock_migration_notes = message
 
-            return message
+            result["message"] = message
 
-        return result.get("message", "Stock migration completed")
+        # Always return the structured result so callers can distinguish
+        # success from failure — never collapse it to a bare string.
+        return result
 
     except Exception as e:
         error_msg = f"Error in stock migration: {str(e)}"
         frappe.log_error(title="Stock Migration Error", message=error_msg + "\n\n" + frappe.get_traceback())
-        return error_msg
+        return {"success": False, "message": error_msg}
