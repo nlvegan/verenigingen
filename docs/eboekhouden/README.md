@@ -100,7 +100,7 @@ verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.start_full_rest_
 verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.test_opening_balance_import()
 
 # Run quality checks
-verenigingen.e_boekhouden.utils.migration.quality_checker.run_migration_quality_check()
+verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.check_migration_data_quality(migration_name)
 
 # Get cache statistics
 verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.get_cache_statistics()

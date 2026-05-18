@@ -208,13 +208,13 @@ migration.pause_migration()
 
 ### Migration Quality Check
 
-#### `run_migration_quality_check`
+#### `check_migration_data_quality`
 
-**Endpoint**: `verenigingen.e_boekhouden.utils.migration.quality_checker.run_migration_quality_check`
+**Endpoint**: `verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.check_migration_data_quality`
 
 Runs comprehensive quality checks on migrated data.
 
-**Parameters**: None
+**Parameters**: `migration_name` (str)
 
 **Response**:
 

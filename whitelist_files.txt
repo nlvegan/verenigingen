@@ -244,7 +244,6 @@
 ./verenigingen/e_boekhouden/utils/eboekhouden_rest_iterator.py
 ./verenigingen/e_boekhouden/utils/eboekhouden_transaction_type_mapper.py
 ./verenigingen/e_boekhouden/utils/import_manager.py
-./verenigingen/e_boekhouden/utils/migration/quality_checker.py
 ./verenigingen/e_boekhouden/utils/reconcile_eboekhouden_balances.py
 ./verenigingen/e_boekhouden/utils/smart_tegenrekening_mapper.py
 ./verenigingen/e_boekhouden/utils/stock_account_handler.py
