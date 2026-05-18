@@ -271,6 +271,7 @@
 ./verenigingen/services/chapter/chapter_role_profile_manager.py
 ./verenigingen/services/chapter/chapter_security.py
 ./verenigingen/services/chapter/chapter_utils.py
+./verenigingen/services/member/account/account_creation_api.py
 ./verenigingen/services/member/account/account_creation_manager.py
 ./verenigingen/services/member/account/base_role_profile_manager.py
 ./verenigingen/services/member/donor/donor_auto_creation.py

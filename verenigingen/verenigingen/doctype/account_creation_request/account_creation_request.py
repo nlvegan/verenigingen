@@ -442,7 +442,7 @@ class AccountCreationRequest(Document):
 
         # Queue background job
         frappe.enqueue(
-            "verenigingen.utils.account_creation_manager.process_account_creation_request",
+            "verenigingen.services.member.account.account_creation_api.process_account_creation_request",
             request_name=self.name,
             queue="long",
             timeout=600,
