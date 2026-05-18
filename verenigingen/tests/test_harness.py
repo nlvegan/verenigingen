@@ -3,13 +3,9 @@ Test Harness for Mollie Backend Integration
 Allows testing without full Frappe environment
 """
 
-import json
 import os
 import sys
-from datetime import datetime, timedelta
-from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, Mock, patch
 
 # Add project root to path
@@ -215,55 +211,6 @@ class TestRunner:
         return len(self.results["failed"]) == 0 and len(self.results["errors"]) == 0
 
 
-def test_mollie_connector():
-    """Test Mollie connector functionality"""
-    env = TestEnvironment(use_sandbox=True)
-    
-    try:
-        # Mock the Mollie client import
-        with patch('verenigingen.verenigingen_payments.integration.mollie_connector.MollieClient') as mock_class:
-            mock_class.return_value = env.get_mock_client()
-            
-            # Import after mocking
-            from verenigingen.verenigingen_payments.integration.mollie_connector import (
-                MollieConnector, get_mollie_connector
-            )
-            
-            # Test connector initialization
-            connector = MollieConnector("Test Settings")
-            assert connector is not None, "Connector should initialize"
-            
-            # Test balance operations
-            balance = connector.get_balance("primary")
-            assert balance["id"] == "primary", "Should get primary balance"
-            assert balance["currency"] == "EUR", "Should have EUR currency"
-            assert balance["available"]["amount"] == "1000.00", "Should have correct available amount"
-            
-            # Test settlement operations
-            settlements = connector.list_settlements()
-            assert len(settlements) > 0, "Should list settlements"
-            assert settlements[0]["id"] == "stl_test123", "Should have test settlement"
-            
-            # Test payment creation
-            payment = connector.create_payment(
-                amount=Decimal("25.00"),
-                currency="EUR",
-                description="Test payment"
-            )
-            assert payment["id"] == "tr_test123", "Should create payment"
-            assert payment["status"] == "paid", "Payment should be paid"
-            
-            print("✅ All connector tests passed!")
-            return True
-            
-    except Exception as e:
-        print(f"❌ Connector test failed: {str(e)}")
-        return False
-        
-    finally:
-        env.cleanup()
-
-
 def test_resilience_patterns():
     """Test resilience patterns (rate limiter, retry)"""
     try:
@@ -406,16 +353,13 @@ def main():
     runner = TestRunner(verbose=True)
     
     # Run test suites
-    print("1. Testing Mollie Connector...")
-    runner.run_test("Mollie Connector", test_mollie_connector)
-    
-    print("\n2. Testing Resilience Patterns...")
+    print("\n1. Testing Resilience Patterns...")
     runner.run_test("Resilience Patterns", test_resilience_patterns)
     
-    print("\n3. Testing Security Components...")
+    print("\n2. Testing Security Components...")
     runner.run_test("Security Components", test_security_components)
     
-    print("\n4. Testing Business Workflows...")
+    print("\n3. Testing Business Workflows...")
     runner.run_test("Business Workflows", test_business_workflows)
     
     # Print summary

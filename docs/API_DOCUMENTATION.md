@@ -356,18 +356,6 @@ Member-facing payment dashboard endpoints. All require login.
 
 ---
 
-## Mollie Connector (Balance/Settlements)
-
-**Module:** `verenigingen.verenigingen_payments.integration.mollie_connector`
-
-| Endpoint | Auth | Security Decorator | Description |
-|---|---|---|---|
-| `test_mollie_connection(settings_name)` | Login | `@critical_api(ADMIN)` | Tests connectivity to the Mollie API |
-| `get_account_balance(balance_id)` | Login | `@critical_api(FINANCIAL)` | Returns the Mollie account balance |
-| `list_recent_settlements(days)` | Login | `@critical_api(FINANCIAL)` | Lists recent Mollie settlements |
-
----
-
 ## Mollie Balance Transaction Processing
 
 **Module:** `verenigingen.verenigingen_payments.api.balance_transaction_processing`

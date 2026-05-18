@@ -245,9 +245,11 @@ class PayNLClient:
         if not frappe.conf.get("developer_mode"):
             return
 
-        frappe.log_error(
-            title="Pay.nl API Request",
-            message=json.dumps(
+        # Use the site logger (writes to logs/paynl.log) rather than
+        # frappe.log_error() -- the latter always creates an "Error Log"
+        # record even for successful calls, which looks like a failure.
+        frappe.logger("paynl", allow_site=True).debug(
+            json.dumps(
                 {
                     "method": method,
                     "url": url,
@@ -255,9 +257,8 @@ class PayNLClient:
                     "status_code": response.status_code,
                     "response_text": response.text[:1000] if response.text else None,
                 },
-                indent=2,
                 default=str,
-            ),
+            )
         )
 
     # ==========================================
@@ -433,10 +434,14 @@ class PayNLClient:
             dict with success status and message
         """
         try:
-            # Try to fetch service config to validate credentials
+            # Try to fetch service config to validate credentials.
+            # Pay.nl's Service:GetConfig endpoint is /v2/services/config with the
+            # service ID passed as the `serviceId` query parameter (required when
+            # authenticating with an AT-code/token). It is NOT a path segment --
+            # /v2/services/{serviceId}/config returns 404 PAY-1404.
             credentials = self.settings.get_api_credentials()
-            url = f"{self.GMS_BASE_URL}/{self.GMS_VERSION}/services/{credentials['service_id']}/config"
-            result = self._make_request("GET", url)
+            url = f"{self.GMS_BASE_URL}/{self.GMS_VERSION}/services/config"
+            result = self._make_request("GET", url, params={"serviceId": credentials["service_id"]})
             return {
                 "success": True,
                 "message": _("Connection successful"),

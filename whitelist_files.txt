@@ -503,7 +503,6 @@
 ./verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py
 ./verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py
 ./verenigingen/verenigingen_payments/doctype/sepa_mandate_usage/sepa_mandate_usage.py
-./verenigingen/verenigingen_payments/integration/mollie_connector.py
 ./verenigingen/verenigingen_payments/monitoring/balance_monitor.py
 ./verenigingen/verenigingen_payments/templates/pages/mollie_checkout.py
 ./verenigingen/verenigingen_payments/utils/bank_specific_validator.py
