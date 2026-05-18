@@ -154,6 +154,22 @@ Precise task list:
 - Service layer always updates the owning Member/Donor record on create and
   cancel (eliminate the "caller is responsible" gaps).
 - One result dataclass / shape for create and for cancel.
+- **`enable_subscriptions` gate lives only at the caller.** After Phase 1
+  the gate survives because `MollieGateway.create_subscription` checks
+  `settings.enable_subscriptions` itself, but `CompletePaymentService.`
+  `create_customer_subscription` — the consolidation target — has no such
+  check. Any caller wired straight to the service (e.g. the Phase 3 debug
+  service) would bypass the gate. Phase 2 should move the check into the
+  standardised create contract. (Found during Phase 1 review.)
+- **Customer resolution is Donor-only today.** `CompletePaymentService.`
+  `_create_or_get_customer` resolves the Mollie customer by looking up a
+  `Donor` on `donor_email`. After Phase 1, `MollieGateway` (membership dues)
+  routes through this method, so a member whose email matches a `Donor` row
+  binds the membership subscription to that Donor's Mollie customer and
+  writes `mollie_customer_id` back onto the Donor. The legacy path always
+  created a fresh Mollie customer. Phase 2 must make customer resolution
+  owner-aware (Member vs Donor) so each owning DocType resolves against its
+  own record. (Found during Phase 1 review; deferred here by decision.)
 
 ### Phase 3 — fold in the debug-service paths
 - Route `MollieDebugService.create_subscription` / `admin_cancel_subscription`
