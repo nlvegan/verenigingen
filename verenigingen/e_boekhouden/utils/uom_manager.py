@@ -174,8 +174,11 @@ class UOMManager:
                     uom.symbol = symbols[uom_name]
 
                 # Security: UOM setup during eBoekhouden import - system configuration
+                # No commit here: the insert participates in the caller's
+                # transaction (request-level, or a per-mutation savepoint during
+                # batch import). An inserted UOM is already visible to later
+                # reads in the same transaction.
                 uom.insert(ignore_permissions=True)
-                frappe.db.commit()
 
             except Exception as e:
                 # UOM might already exist or other error
@@ -226,9 +229,9 @@ class UOMManager:
             uom.custom_eboekhouden_uom = 1  # Mark as E-Boekhouden import
             # Security: UOM creation during E-Boekhouden data migration.
             # Creates master data (Units of Measure) from external accounting system.
+            # No commit: participates in the caller's transaction (see
+            # _ensure_uom_exists) so batch-import savepoints stay intact.
             uom.insert(ignore_permissions=True)
-
-            frappe.db.commit()
             return clean_name
 
         except Exception as e:
@@ -272,8 +275,9 @@ class UOMManager:
                 conversion.to_uom = to_uom
                 conversion.value = conversion_factor
                 # Security: UOM conversion setup during eBoekhouden import - system configuration
+                # No commit: participates in the caller's transaction (see
+                # _ensure_uom_exists) so batch-import savepoints stay intact.
                 conversion.insert(ignore_permissions=True)
-                frappe.db.commit()
 
         except Exception as e:
             frappe.log_error(f"Could not create conversion {from_uom} to {to_uom}: {str(e)}")

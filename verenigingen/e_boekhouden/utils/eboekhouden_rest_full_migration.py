@@ -4028,6 +4028,22 @@ def _retry_transient_failures(migration_name, errors, failed, imported, debug_in
     }
 
 
+def _finalize_mutation_savepoint(savepoint_name, succeeded, debug_info):
+    """Release a per-mutation savepoint, rolling back first if the mutation
+    did not succeed.
+
+    Tolerates the savepoint having been dropped (e.g. by a stray commit deeper
+    in the call stack): a missing savepoint is logged to debug_info but must
+    not abort the whole batch.
+    """
+    try:
+        if not succeeded:
+            frappe.db.rollback(save_point=savepoint_name)
+        frappe.db.release_savepoint(savepoint_name)
+    except Exception as savepoint_error:
+        debug_info.append(f"SAVEPOINT WARNING - could not finalize {savepoint_name}: {savepoint_error}")
+
+
 def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, mutation_type=None):
     """
     Enhanced batch import that handles new fields gracefully.
@@ -4102,6 +4118,16 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
             coordinator = None
 
     for i, mutation in enumerate(mutations):
+        # Process each mutation inside its own savepoint: a mutation can create
+        # several documents, so a failure partway through must roll back its
+        # partial writes instead of leaving an orphaned half-record to be
+        # committed at the type-batch boundary. _process_mutation_with_coordinator
+        # catches its own errors and returns a result dict, so the savepoint is
+        # rolled back whenever the mutation did not succeed — not only on an
+        # uncaught exception.
+        savepoint_name = f"eb_mut_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(savepoint_name)
+        mutation_succeeded = False
         try:
             # Skip if already imported
             mutation_id = mutation.get("id")
@@ -4138,6 +4164,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                 continue
             elif result["action"] == "success":
                 imported += 1
+                mutation_succeeded = True
                 if result.get("method") == "new_processors":
                     processed_with_new += 1
                 else:
@@ -4156,6 +4183,12 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
             error_msg = f"Error in batch processing loop for mutation {i}: {str(e)}"
             errors.append(error_msg)
             debug_info.append(f"LOOP ERROR - {error_msg}")
+        finally:
+            # Roll back unless the mutation fully succeeded — a failed/errored
+            # mutation reaches here without an exception (its error was caught
+            # in _process_mutation_with_coordinator), so its partial writes
+            # must still be undone.
+            _finalize_mutation_savepoint(savepoint_name, mutation_succeeded, debug_info)
 
     # Post-processing: categorize errors, log summary, retry transient failures
     error_categories = _categorize_batch_errors(errors)
