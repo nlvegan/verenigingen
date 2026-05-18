@@ -199,8 +199,8 @@ def has_volunteer_role(user):
 
         user_roles = safe_get_roles(user)
         volunteer_roles = [
-            "Volunteer",
-            "Chapter Board Member",
+            Roles.VOLUNTEER,
+            Roles.CHAPTER_BOARD_MEMBER,
         ]
         return any(role in user_roles for role in volunteer_roles)
     except Exception as e:
