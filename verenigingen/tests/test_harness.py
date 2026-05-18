@@ -353,13 +353,13 @@ def main():
     runner = TestRunner(verbose=True)
     
     # Run test suites
-    print("\n2. Testing Resilience Patterns...")
+    print("\n1. Testing Resilience Patterns...")
     runner.run_test("Resilience Patterns", test_resilience_patterns)
     
-    print("\n3. Testing Security Components...")
+    print("\n2. Testing Security Components...")
     runner.run_test("Security Components", test_security_components)
     
-    print("\n4. Testing Business Workflows...")
+    print("\n3. Testing Business Workflows...")
     runner.run_test("Business Workflows", test_business_workflows)
     
     # Print summary
