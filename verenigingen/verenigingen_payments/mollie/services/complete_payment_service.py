@@ -206,13 +206,36 @@ class CompletePaymentService:
                     f"Failed to create customer for subscription: {customer_result.get('error')}"
                 )
 
-            # Create subscription (NOTE: This will fail if no mandate exists!)
-            # For recurring donations, use create_recurring_donation_payment() instead
-            # which establishes mandate first
+            customer_id = customer_result["customer_id"]
+
+            # Opt-in mandate provisioning: when an IBAN is supplied via
+            # `consumerAccount`, provision a SEPA direct-debit mandate before
+            # creating the subscription. This replaces the legacy
+            # MollieSettings.create_subscription path (which always did this)
+            # and keeps mandate provisioning an explicit, requested step
+            # rather than a hidden side effect of "create subscription".
+            consumer_account = subscription_data.get("consumerAccount")
+            if consumer_account:
+                mandate_data = {
+                    "method": "directdebit",
+                    "consumerName": customer_data.get("name", ""),
+                    "consumerAccount": consumer_account,
+                    "signatureDate": frappe.utils.today(),
+                    "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
+                }
+                self.client.create_mandate(customer_id, mandate_data)
+
+            # consumerAccount is mandate-only input; Mollie's subscription API
+            # does not accept it, so strip it before creating the subscription
+            # (always - including the falsy "no IBAN" case).
+            if "consumerAccount" in subscription_data:
+                subscription_data = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
+
+            # Create subscription. Without a mandate (no consumerAccount and
+            # none established via a sequenceType="first" payment) Mollie
+            # rejects this with "No suitable mandates found".
             try:
-                mollie_subscription = self.client.create_subscription(
-                    customer_result["customer_id"], subscription_data
-                )
+                mollie_subscription = self.client.create_subscription(customer_id, subscription_data)
             except Exception as e:
                 if "No suitable mandates found" in str(e):
                     raise MolliePaymentError(
@@ -234,6 +257,11 @@ class CompletePaymentService:
                 "message": "Subscription created successfully",
             }
 
+        except MolliePaymentError:
+            # Already a specific Mollie error (e.g. mandate provisioning or the
+            # subscription create itself) - propagate it without relabelling it
+            # as a generic "Failed to create subscription".
+            raise
         except Exception as e:
             error_msg = f"Failed to create subscription: {e}"
             frappe.log_error(error_msg, "Subscription Creation Error")
@@ -349,10 +377,19 @@ class CompletePaymentService:
         if not subscription_data.get("amount"):
             raise MollieValidationError("Subscription amount is required")
 
-        # Validate amount using centralized validation
+        # Mollie's subscription API requires `amount` as a {"value", "currency"}
+        # dict, so callers pass that shape. Validate the numeric value out of it
+        # (a bare scalar is also accepted for backward compatibility).
+        amount = subscription_data["amount"]
+        if isinstance(amount, dict):
+            if "value" not in amount:
+                raise MollieValidationError("Subscription amount dict must contain a 'value' key")
+            amount_value = amount["value"]
+        else:
+            amount_value = amount
         try:
-            validate_mollie_amount(subscription_data["amount"])
-        except ValueError as e:
+            validate_mollie_amount(amount_value)
+        except (ValueError, TypeError) as e:
             raise MollieValidationError(f"Invalid subscription amount: {e}") from e
 
         if not subscription_data.get("interval"):
@@ -487,6 +524,8 @@ class CompletePaymentService:
             mollie_customer_data = {"name": customer_data.get("name", ""), "email": email}
             if customer_data.get("locale"):
                 mollie_customer_data["locale"] = customer_data["locale"]
+            if customer_data.get("metadata"):
+                mollie_customer_data["metadata"] = customer_data["metadata"]
 
             customer = self.client.create_customer(mollie_customer_data)
             frappe.logger().info(f"Created new Mollie customer {customer.id}")
@@ -513,6 +552,8 @@ class CompletePaymentService:
             }
             if customer_data.get("locale"):
                 mollie_customer_data["locale"] = customer_data["locale"]
+            if customer_data.get("metadata"):
+                mollie_customer_data["metadata"] = customer_data["metadata"]
 
             customer = self.client.create_customer(mollie_customer_data)
             frappe.logger().info(f"Created new Mollie customer {customer.id} (no donor)")

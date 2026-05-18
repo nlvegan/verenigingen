@@ -4,16 +4,15 @@ Mollie Subscription Service
 Business logic for managing recurring payments and subscriptions through Mollie.
 """
 
-from decimal import Decimal
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import add_months, getdate, now_datetime
+from frappe.utils import now_datetime
 
 from ..core.client import MollieClient
-from ..core.mollie_models import Money, Subscription
-from ..exceptions import MollieIntegrationError, MollieValidationError
+from ..core.mollie_models import Subscription
+from ..exceptions import MollieIntegrationError
 from ..utils.amount_helpers import extract_amount_currency, extract_amount_float
 from ..utils.validators import PaymentDataValidator
 
@@ -38,94 +37,6 @@ class SubscriptionService:
         """
         self.client = client or MollieClient()
         self.validator = PaymentDataValidator()
-
-    def create_membership_subscription(
-        self, member_id: str, monthly_fee: Union[Decimal, float], start_date: Optional[str] = None
-    ) -> Subscription:
-        """
-        Create a recurring subscription for membership dues.
-
-        Args:
-            member_id: Frappe member document ID
-            monthly_fee: Monthly membership fee in EUR
-            start_date: Optional start date (defaults to next month)
-
-        Returns:
-            Created subscription object
-
-        Raises:
-            MollieValidationError: If subscription data is invalid
-            MollieIntegrationError: If subscription creation fails
-        """
-        # Validate member and fee
-        member = frappe.get_doc("Member", member_id)
-        if not self.validator.validate_amount(monthly_fee):
-            raise MollieValidationError(f"Invalid monthly fee: {monthly_fee}")
-
-        # Ensure member has Mollie customer ID
-        customer_id = self._ensure_customer_exists(member)
-
-        # Validate SEPA mandate if required
-        if not self._has_valid_mandate(member):
-            raise MollieValidationError(f"Member {member_id} does not have a valid SEPA mandate")
-
-        # Create subscription
-        money = Money(amount=Decimal(str(monthly_fee)), currency="EUR")
-        subscription = self.client.create_subscription(
-            customer_id=customer_id,
-            amount=money,
-            interval="1 month",
-            description=f"Membership dues - {member.first_name} {member.last_name}",
-            webhook_url=self._get_webhook_url(),
-            metadata={
-                "member_id": member_id,
-                "subscription_type": "membership_dues",
-                "start_date": start_date or str(getdate()),
-            },
-        )
-
-        # Update member record
-        self._update_member_subscription_info(member, subscription)
-
-        return subscription
-
-    def create_donation_subscription(
-        self, donor_id: str, monthly_amount: Union[Decimal, float], interval: str = "1 month"
-    ) -> Subscription:
-        """
-        Create a recurring subscription for donations.
-
-        Args:
-            donor_id: Frappe donor document ID
-            monthly_amount: Monthly donation amount in EUR
-            interval: Payment interval (e.g., "1 month", "3 months")
-
-        Returns:
-            Created subscription object
-        """
-        # Validate donor and amount
-        donor = frappe.get_doc("Donor", donor_id)
-        if not self.validator.validate_amount(monthly_amount):
-            raise MollieValidationError(f"Invalid donation amount: {monthly_amount}")
-
-        # Ensure donor has Mollie customer ID
-        customer_id = self._ensure_donor_customer_exists(donor)
-
-        # Create subscription
-        money = Money(amount=Decimal(str(monthly_amount)), currency="EUR")
-        subscription = self.client.create_subscription(
-            customer_id=customer_id,
-            amount=money,
-            interval=interval,
-            description=f"Recurring donation - {donor.donor_name}",
-            webhook_url=self._get_webhook_url(),
-            metadata={"donor_id": donor_id, "subscription_type": "recurring_donation", "interval": interval},
-        )
-
-        # Update donor record
-        self._update_donor_subscription_info(donor, subscription)
-
-        return subscription
 
     def get_subscription_status(self, customer_id: str, subscription_id: str) -> Dict[str, Any]:
         """
@@ -250,140 +161,6 @@ class SubscriptionService:
                 frappe.log_error(f"Failed to get subscription {member.mollie_subscription_id}: {e}")
 
         return subscriptions
-
-    def _ensure_customer_exists(self, member) -> str:
-        """
-        Ensure member has a Mollie customer ID.
-        Uses row locking to prevent duplicate customer creation on concurrent requests.
-        """
-        member_name = member.name
-
-        # Use row lock to prevent race condition
-        frappe.db.begin()
-        try:
-            # Acquire row lock - other requests will wait here
-            locked_row = frappe.db.sql(
-                """
-                SELECT mollie_customer_id, first_name, last_name, email
-                FROM `tabMember` WHERE name = %s FOR UPDATE
-                """,
-                member_name,
-                as_dict=True,
-            )
-
-            if not locked_row:
-                frappe.db.commit()
-                raise ValueError(f"Member {member_name} not found")
-
-            member_data = locked_row[0]
-            existing_customer_id = member_data.get("mollie_customer_id")
-
-            # Check if customer already exists (may have been created by concurrent request)
-            if existing_customer_id:
-                frappe.db.commit()  # Release lock
-                return existing_customer_id
-
-            # Create new customer while holding the lock
-            full_name = f"{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()
-            customer = self.client.create_customer(
-                name=full_name,
-                email=member_data.get("email"),
-                metadata={"member_id": member_name},
-            )
-
-            # Update member record while holding lock
-            frappe.db.set_value(
-                "Member", member_name, "mollie_customer_id", customer.id, update_modified=False
-            )
-            frappe.db.commit()  # Commit and release lock
-
-            return customer.id
-
-        except Exception as e:
-            frappe.db.rollback()
-            raise
-
-    def _ensure_donor_customer_exists(self, donor) -> str:
-        """
-        Ensure donor has a Mollie customer ID.
-        Uses row locking to prevent duplicate customer creation on concurrent requests.
-        """
-        donor_name = donor.name
-
-        # Use row lock to prevent race condition
-        frappe.db.begin()
-        try:
-            # Acquire row lock - other requests will wait here
-            locked_row = frappe.db.sql(
-                """
-                SELECT mollie_customer_id, donor_name, donor_email
-                FROM `tabDonor` WHERE name = %s FOR UPDATE
-                """,
-                donor_name,
-                as_dict=True,
-            )
-
-            if not locked_row:
-                frappe.db.commit()
-                raise ValueError(f"Donor {donor_name} not found")
-
-            donor_data = locked_row[0]
-            existing_customer_id = donor_data.get("mollie_customer_id")
-
-            # Check if customer already exists (may have been created by concurrent request)
-            if existing_customer_id:
-                frappe.db.commit()  # Release lock
-                return existing_customer_id
-
-            # Create new customer while holding the lock
-            customer = self.client.create_customer(
-                name=donor_data.get("donor_name") or "",
-                email=donor_data.get("donor_email"),
-                metadata={"donor_id": donor_name},
-            )
-
-            # Update donor record while holding lock
-            frappe.db.set_value("Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False)
-            frappe.db.commit()  # Commit and release lock
-
-            return customer.id
-
-        except Exception as e:
-            frappe.db.rollback()
-            raise
-
-    def _has_valid_mandate(self, member) -> bool:
-        """Check if member has a valid SEPA mandate."""
-        # This would integrate with existing SEPA mandate validation
-        return bool(member.get("sepa_mandate_reference"))
-
-    def _get_webhook_url(self) -> str:
-        """Get webhook URL for subscription notifications."""
-        mollie_settings = frappe.get_single("Mollie Settings")
-        return (
-            mollie_settings.webhook_url
-            or f"{frappe.utils.get_url()}/api/method/verenigingen.verenigingen_payments.mollie.api.webhooks.handle_subscription_webhook"
-        )
-
-    def _update_member_subscription_info(self, member, subscription: Subscription):
-        """Update member record with subscription information.
-
-        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
-        """
-        member.mollie_subscription_id = subscription.id
-        member.subscription_status = subscription.status
-        member.next_payment_date = subscription.next_payment_date
-        member.save(ignore_permissions=True)
-
-    def _update_donor_subscription_info(self, donor, subscription: Subscription):
-        """Update donor record with subscription information.
-
-        Security: ignore_permissions acceptable - called from authenticated webhook or role-restricted sync API.
-        """
-        donor.mollie_subscription_id = subscription.id
-        donor.subscription_status = subscription.status
-        donor.next_payment_date = subscription.next_payment_date
-        donor.save(ignore_permissions=True)
 
     def _update_member_subscription_canceled(self, member_id: str, subscription_id: str, reason: str):
         """Update member record when subscription is canceled.

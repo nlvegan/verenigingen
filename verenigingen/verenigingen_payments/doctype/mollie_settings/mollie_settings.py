@@ -466,67 +466,6 @@ class MollieSettings(Document):
             frappe.log_error(f"Failed to create Mollie customer: {str(e)}", "Mollie Customer Creation")
             return {"success": False, "customer_id": None, "message": f"Customer creation failed: {str(e)}"}
 
-    def create_subscription(self, customer_data, subscription_data):
-        """
-        Create a Mollie subscription for recurring payments
-
-        Args:
-            customer_data (dict): Customer information for Mollie
-            subscription_data (dict): Subscription details
-
-        Returns:
-            dict: Mollie subscription response
-
-        Raises:
-            frappe.ValidationError: If subscription creation fails
-        """
-        if not self.enable_subscriptions:
-            frappe.throw(_("Subscriptions are not enabled for this Mollie gateway"))
-
-        try:
-            client = self.get_mollie_client()
-
-            # Create customer first (required for subscriptions)
-            customer = client.customers.create(customer_data)
-
-            # For donations, we don't need mandates - Mollie will handle payment method selection
-            # Mandates are only required for direct debit, but subscriptions can use other methods
-            mandate = None
-
-            # Only create mandate if IBAN is provided (for direct debit)
-            if subscription_data.get("consumerAccount"):
-                mandate_data = {
-                    "method": "directdebit",
-                    "consumerName": customer_data.get("name", ""),
-                    "consumerAccount": subscription_data.get("consumerAccount"),
-                    "signatureDate": frappe.utils.today(),
-                    "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
-                }
-                mandate = customer.mandates.create(data=mandate_data)
-
-            # Remove consumerAccount from subscription_data (only needed for mandate)
-            subscription_data_clean = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
-
-            # Create subscription - Mollie will prompt for payment method during first payment
-            subscription = customer.subscriptions.create(data=subscription_data_clean)
-
-            result = {
-                "customer_id": customer.id,
-                "subscription_id": subscription.id,
-                "status": subscription.status,
-                "next_payment_date": subscription.next_payment_date,
-            }
-
-            # Only include mandate_id if mandate was created
-            if mandate:
-                result["mandate_id"] = mandate.id
-
-            return result
-
-        except Exception as e:
-            frappe.log_error(f"Error creating Mollie subscription: {str(e)}", "Mollie Subscription Error")
-            frappe.throw(_("Failed to create subscription: {0}").format(str(e)))
-
     def get_subscription(self, customer_id, subscription_id):
         """
         Get subscription details from Mollie
@@ -541,7 +480,7 @@ class MollieSettings(Document):
         try:
             client = self.get_mollie_client()
             customer = client.customers.get(customer_id)
-            subscription = customer.subscriptions.get(subscription_id)
+            subscription = customer.subscriptions.get(subscription_id)  # ast-skip: Mollie API object
 
             return {
                 "id": subscription.id,
@@ -556,31 +495,6 @@ class MollieSettings(Document):
         except Exception as e:
             frappe.log_error(f"Error fetching Mollie subscription: {str(e)}", "Mollie Subscription Fetch")
             return None
-
-    def cancel_subscription(self, customer_id, subscription_id):
-        """
-        Cancel a Mollie subscription
-
-        Args:
-            customer_id (str): Mollie customer ID
-            subscription_id (str): Mollie subscription ID
-
-        Returns:
-            bool: Success status
-        """
-        try:
-            client = self.get_mollie_client()
-            customer = client.customers.get(customer_id)
-            customer.subscriptions.delete(subscription_id)
-
-            frappe.logger().info(
-                f"Cancelled Mollie subscription {subscription_id} for customer {customer_id}"
-            )
-            return True
-
-        except Exception as e:
-            frappe.log_error(f"Error cancelling Mollie subscription: {str(e)}", "Mollie Subscription Cancel")
-            return False
 
     def update_webhook_urls(self):
         """Update webhook URL fields using MollieClient as single source of truth"""

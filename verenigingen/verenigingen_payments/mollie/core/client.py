@@ -260,6 +260,29 @@ class MollieClient:
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
 
+    def create_mandate(self, customer_id: str, mandate_data: Dict[str, Any]) -> Any:
+        """
+        Create a payment mandate (e.g. SEPA direct debit) for a customer.
+
+        Args:
+            customer_id: The Mollie customer ID
+            mandate_data: Mandate creation data
+
+        Returns:
+            Created Mollie mandate object
+
+        Raises:
+            MolliePaymentError: When the mandate cannot be created
+        """
+        try:
+            client = self._get_mollie_client()
+            customer = client.customers.get(customer_id)
+            return customer.mandates.create(data=mandate_data)
+        except Exception as e:
+            error_msg = f"Failed to create mandate for customer {customer_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client")
+            raise MolliePaymentError(error_msg, original_error=e)
+
     def list_customer_payments(self, customer_id: str, limit: int = 50) -> Any:
         """
         List payments for a customer.
