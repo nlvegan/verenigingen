@@ -5,7 +5,6 @@ Handles synchronization of Mollie subscriptions when membership amendments are a
 Implements event-driven architecture for loose coupling between amendment system and Mollie.
 """
 
-from decimal import Decimal
 from typing import Dict, Optional, Tuple
 
 import frappe
@@ -13,6 +12,7 @@ from frappe import _
 
 from ..core.client import MollieClient
 from ..exceptions import MollieIntegrationError
+from ..utils.common_helpers import format_mollie_amount
 from .subscription_service import SubscriptionService
 
 # Billing interval mapping to Mollie format
@@ -130,23 +130,13 @@ class MollieSubscriptionSyncService:
                     f"✨ Creating new subscription for member {member.name} with amount {new_amount}, interval {new_interval}"
                 )
 
-                from ..core.mollie_models import Money
-
-                money = Money(amount=Decimal(str(new_amount)), currency="EUR")
-
-                new_subscription = self.client.create_subscription(
-                    customer_id=member.mollie_customer_id,
-                    amount=money,
+                new_subscription = self._create_replacement_subscription(
+                    member=member,
+                    amount=new_amount,
                     interval=new_interval,
-                    description=f"Membership dues - {member.first_name} {member.last_name}",
-                    webhook_url=self._get_webhook_url(),
                     start_date=old_subscription.get("next_payment_date"),  # Preserve billing cycle
-                    metadata={
-                        "member_id": member.name,
-                        "subscription_type": "membership_dues",
-                        "amendment_id": amendment_doc.name,
-                        "previous_subscription_id": old_subscription_id,
-                    },
+                    amendment_name=amendment_doc.name,
+                    previous_subscription_id=old_subscription_id,
                 )
 
                 frappe.logger().info(
@@ -329,6 +319,54 @@ class MollieSubscriptionSyncService:
                 "message": f"Unexpected error: {str(e)}",
                 "requires_admin_review": True,
             }
+
+    def _create_replacement_subscription(
+        self,
+        member,
+        amount,
+        interval: str,
+        start_date,
+        amendment_name: str,
+        previous_subscription_id: str,
+    ):
+        """
+        Create the replacement Mollie subscription for an applied amendment.
+
+        Builds the payload in the shape ``MollieClient.create_subscription``
+        expects - a ``(customer_id, subscription_data)`` call where
+        ``subscription_data`` is a dict. ``start_date``, when given, preserves
+        the member's existing billing cycle.
+
+        Args:
+            member: Member document (provides customer id, name, full name)
+            amount: Subscription amount in EUR
+            interval: Mollie interval string (e.g. "1 month", "3 months")
+            start_date: Optional ISO date for the first charge (billing cycle)
+            amendment_name: Contribution Amendment Request name (metadata)
+            previous_subscription_id: The subscription being replaced (metadata)
+
+        Returns:
+            The created Mollie subscription object
+
+        Raises:
+            MolliePaymentError: When the subscription cannot be created
+        """
+        subscription_data = {
+            "amount": format_mollie_amount(amount, "EUR"),
+            "interval": interval,
+            "description": f"Membership dues - {member.first_name} {member.last_name}",
+            "webhookUrl": self._get_webhook_url(),
+            "metadata": {
+                "member_id": member.name,
+                "subscription_type": "membership_dues",
+                "amendment_id": amendment_name,
+                "previous_subscription_id": previous_subscription_id,
+            },
+        }
+        if start_date:
+            subscription_data["startDate"] = start_date
+
+        return self.client.create_subscription(member.mollie_customer_id, subscription_data)
 
     def _get_subscription_parameters(
         self, amendment_doc: "frappe.model.document.Document", membership: "frappe.model.document.Document"
