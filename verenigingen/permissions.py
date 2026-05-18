@@ -1478,9 +1478,6 @@ def assign_chapter_board_role(user_email):
         # Get user's member record
         user_member = get_member_name_for_user(user_email)
         if not user_member:
-            user_member = get_member_name_for_user(user_email)
-
-        if not user_member:
             frappe.logger().debug(f"No member record found for user {user_email}")
             return False
 
@@ -1572,21 +1569,8 @@ def update_all_chapter_board_roles():
                 success_count += 1
 
         # Also check for users who should have the role removed
-        users_with_role = frappe.db.sql(
-            """
-            SELECT parent as user_email
-            FROM `tabHas Role`
-            WHERE role = 'Chapter Board Member'
-        """,
-            as_dict=True,
-        )
-
-        for user_role in users_with_role:
-            user_email = user_role.user_email
+        for user_email in _users_with_chapter_board_role():
             user_member = get_member_name_for_user(user_email)
-            if not user_member:
-                user_member = get_member_name_for_user(user_email)
-
             if user_member:
                 board_positions = get_user_chapter_board_positions(user_member)
                 if not board_positions:
@@ -1599,6 +1583,16 @@ def update_all_chapter_board_roles():
     except Exception as e:
         frappe.log_error(f"Error updating all chapter board roles: {str(e)}")
         return 0
+
+
+def _users_with_chapter_board_role():
+    """Return user emails that currently hold the Chapter Board Member role."""
+    rows = frappe.db.sql(
+        "SELECT parent as user_email FROM `tabHas Role` WHERE role = %s",
+        Roles.CHAPTER_BOARD_MEMBER,
+        as_dict=True,
+    )
+    return [r.user_email for r in rows]
 
 
 def get_volunteer_permission_query(user):
