@@ -218,28 +218,6 @@ const API_SCHEMAS = {
     	}
     },
 
-	'verenigingen.verenigingen_payments.integration.mollie_connector.test_mollie_connection':
-    {
-    	args: {
-    		type: 'object',
-    		properties: {
-    			settings_name: { type: 'string' }
-    		},
-    		additionalProperties: false
-    	},
-    	response: {
-    		type: 'object',
-    		properties: {
-    			success: { type: 'boolean' },
-    			status: { type: 'string' },
-    			message: { type: 'string' },
-    			api_key_valid: { type: 'boolean' },
-    			profile_id: { type: 'string' }
-    		},
-    		required: ['success', 'status']
-    	}
-    },
-
 	// Member Lifecycle APIs
 	'verenigingen.verenigingen.doctype.member.member.process_payment': {
 		args: {

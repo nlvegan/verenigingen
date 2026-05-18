@@ -3,19 +3,12 @@ Mollie Subscription Sync System
 Retrieves subscription data from Mollie API and updates Customer records
 """
 
-import json
-from typing import Dict, List, Optional
+from typing import Dict
 
 import frappe
-from frappe import _
-from frappe.utils import getdate, today
-
-try:
-    from verenigingen.verenigingen_payments.integration.mollie_connector import get_mollie_connector
-except ImportError:
-    get_mollie_connector = None
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
     MollieObjectType,
     get_payment_data_extractor,
@@ -38,9 +31,6 @@ def sync_mollie_subscriptions(dry_run=True) -> Dict:
     if isinstance(dry_run, str):
         dry_run = dry_run.lower() in ("true", "1", "yes", "on")
 
-    if not get_mollie_connector:
-        return {"success": False, "error": "Mollie connector not available"}
-
     sync_results = {
         "success": True,
         "dry_run": dry_run,
@@ -57,8 +47,8 @@ def sync_mollie_subscriptions(dry_run=True) -> Dict:
         print("🚀 Starting Mollie subscription sync")
         print(f"   Mode: {'DRY RUN' if dry_run else 'LIVE EXECUTION'}")
 
-        # Get Mollie connector
-        connector = get_mollie_connector()
+        # Get the Mollie API client
+        mollie_client = MollieClient()
 
         # Find all customers with existing Mollie customer IDs
         customers_with_mollie_ids = frappe.get_all(
@@ -75,7 +65,7 @@ def sync_mollie_subscriptions(dry_run=True) -> Dict:
 
         for customer_data in customers_with_mollie_ids:
             try:
-                result = sync_customer_subscriptions(connector, customer_data, dry_run)
+                result = sync_customer_subscriptions(mollie_client, customer_data, dry_run)
 
                 if result["subscriptions_found"] > 0:
                     sync_results["subscriptions_found"] += result["subscriptions_found"]
@@ -133,12 +123,12 @@ def sync_mollie_subscriptions(dry_run=True) -> Dict:
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
-def sync_customer_subscriptions(connector, customer_data: Dict, dry_run: bool = True) -> Dict:
+def sync_customer_subscriptions(mollie_client, customer_data: Dict, dry_run: bool = True) -> Dict:
     """
     Sync subscriptions for a specific customer
 
     Args:
-        connector: Mollie connector instance
+        mollie_client: MollieClient instance
         customer_data: Customer record data
         dry_run: If True, only simulate changes
 
@@ -154,8 +144,10 @@ def sync_customer_subscriptions(connector, customer_data: Dict, dry_run: bool = 
 
     try:
         # Get all subscriptions for this customer from Mollie
-        # Note: The connector doesn't have a direct method for this, so we'll use the client directly
-        customer_subscriptions = connector.client.customers.get(mollie_customer_id).subscriptions.list()
+        # MollieClient has no customer-subscriptions method; use the raw SDK client directly
+        customer_subscriptions = mollie_client.sdk_client.customers.get(
+            mollie_customer_id
+        ).subscriptions.list()
 
         active_subscription = None
         latest_subscription = None
@@ -246,11 +238,8 @@ def sync_single_customer_subscription(customer_name: str, dry_run: bool = True) 
     Returns:
         Dict with sync results
     """
-    if not get_mollie_connector:
-        return {"success": False, "error": "Mollie connector not available"}
-
     try:
-        connector = get_mollie_connector()
+        mollie_client = MollieClient()
 
         customer_data = frappe.get_value(
             "Customer",
@@ -262,7 +251,7 @@ def sync_single_customer_subscription(customer_name: str, dry_run: bool = True) 
         if not customer_data or not customer_data.get("custom_mollie_customer_id"):
             return {"success": False, "error": "Customer not found or no Mollie Customer ID"}
 
-        result = sync_customer_subscriptions(connector, customer_data, dry_run)
+        result = sync_customer_subscriptions(mollie_client, customer_data, dry_run)
         result["success"] = True
         result["customer"] = customer_name
 
@@ -285,11 +274,8 @@ def get_mollie_subscription_details(customer_name: str) -> Dict:
     Returns:
         Dict with subscription details
     """
-    if not get_mollie_connector:
-        return {"success": False, "error": "Mollie connector not available"}
-
     try:
-        connector = get_mollie_connector()
+        mollie_client = MollieClient()
 
         customer_data = frappe.get_value(
             "Customer",
@@ -304,7 +290,9 @@ def get_mollie_subscription_details(customer_name: str) -> Dict:
         mollie_customer_id = customer_data["custom_mollie_customer_id"]
 
         # Get all subscriptions for this customer
-        customer_subscriptions = connector.client.customers.get(mollie_customer_id).subscriptions.list()
+        customer_subscriptions = mollie_client.sdk_client.customers.get(
+            mollie_customer_id
+        ).subscriptions.list()
 
         # Create extractor once for entire loop (performance optimization)
         extractor = get_payment_data_extractor()

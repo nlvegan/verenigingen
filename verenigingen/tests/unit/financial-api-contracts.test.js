@@ -291,43 +291,6 @@ describe('Financial API Contract Tests', () => {
 				expect(result.valid).toBe(true);
 			});
 		});
-
-		describe('test_mollie_connection', () => {
-			const apiName
-        = 'verenigingen.verenigingen_payments.integration.mollie_connector.test_mollie_connection';
-
-			test('validates connection test response success', () => {
-				const successResponse = {
-					success: true,
-					status: 'connected',
-					message: 'Successfully connected to Mollie API',
-					api_key_valid: true,
-					profile_id: 'pfl_QkEhN94Ba'
-				};
-
-				const result = tester.validateAPICall(
-					apiName,
-					successResponse,
-					'response'
-				);
-				expect(result.valid).toBe(true);
-			});
-
-			test('validates connection test response failure', () => {
-				const failureResponse = {
-					success: false,
-					status: 'failed',
-					message: 'Invalid API key provided'
-				};
-
-				const result = tester.validateAPICall(
-					apiName,
-					failureResponse,
-					'response'
-				);
-				expect(result.valid).toBe(true);
-			});
-		});
 	});
 
 	describe('Member Lifecycle APIs', () => {
