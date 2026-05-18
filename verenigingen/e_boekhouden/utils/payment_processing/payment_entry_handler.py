@@ -579,13 +579,13 @@ class PaymentEntryHandler:
         self, ledger_id: int, payment_type: str, description: str = None
     ) -> Optional[str]:
         """
-        Determine bank account from ledger mapping.
+        Determine the bank account for a payment from its ledger mapping.
 
-        Priority:
-        1. Consolidated bank account resolution (ledger mapping + payment config + patterns)
-        2. Configurable account mapper pattern matching (handler-specific fallback)
-
-        Raises ValidationError if no bank account can be determined.
+        A ledger ID is required. Resolution is driven by the ledger mapping,
+        with payment config and description patterns acting only as tiebreakers
+        within that lookup. There is no description-only or default fallback:
+        a missing ledger ID raises ValidationError rather than risk posting a
+        payment against the wrong bank account.
         """
         if not ledger_id:
             raise frappe.ValidationError(
