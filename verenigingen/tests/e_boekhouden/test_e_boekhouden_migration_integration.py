@@ -780,21 +780,27 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         finally:
             self.handler._get_or_create_party = original_method
             
-    def test_bank_account_determination_priority(self):
-        """Test bank account determination follows correct priority order"""  
-        # Test 1: Direct ledger mapping (highest priority)
+    def test_bank_account_determination_requires_ledger_mapping(self):
+        """Bank account determination requires an explicit ledger mapping.
+
+        Since commit db93684c ("remove default bank account fallback in
+        PaymentEntryHandler"), _determine_bank_account no longer guesses a
+        bank account from the description or falls back to a default — a
+        missing ledger ID is a hard ValidationError, so an e-Boekhouden
+        payment can never be silently posted against the wrong bank account.
+        """
+        # A mapped ledger ID resolves to its bank account.
         bank_account = self.handler._determine_bank_account(1001, "Receive", "Test payment")
         self.assertEqual(bank_account, self.triodos_account)
-        
-        # Test 2: Pattern matching
-        bank_account = self.handler._determine_bank_account(None, "Receive", "Triodos payment via online banking")
-        # Should find triodos account via pattern
-        self.assertIsNotNone(bank_account)
-        
-        # Test 3: Default fallback
-        bank_account = self.handler._determine_bank_account(None, "Receive", "Unknown payment method")
-        # Should return some bank account as default
-        self.assertIsNotNone(bank_account)
+
+        # Without a ledger ID, determination fails loudly — no description
+        # pattern-match and no default fallback.
+        with self.assertRaises(frappe.ValidationError):
+            self.handler._determine_bank_account(
+                None, "Receive", "Triodos payment via online banking"
+            )
+        with self.assertRaises(frappe.ValidationError):
+            self.handler._determine_bank_account(None, "Receive", "Unknown payment method")
         
     def test_api_row_ledger_data_priority(self):
         """Test that API row ledger data has priority over fallbacks"""

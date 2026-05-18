@@ -112,6 +112,7 @@ class EBoekhoudenMigration(Document):
             self.failed_records = 0
 
             migration_log = []
+            failed_phases = []  # phase names whose result reported failure
             self.failed_record_details = []  # Track details of failed records
 
             # Phase 1: Chart of Accounts
@@ -124,7 +125,9 @@ class EBoekhoudenMigration(Document):
                 # Use getattr to avoid field/method name conflict
                 migrate_method = getattr(self.__class__, "migrate_chart_of_accounts")
                 result = migrate_method(self, settings)
-                migration_log.append(f"Chart of Accounts: {result}")
+                migration_log.append(f"Chart of Accounts: {result['message']}")
+                if _migration_phase_failed(result):
+                    failed_phases.append("Chart of Accounts")
 
             # Phase 2: Cost Centers
             if getattr(self, "migrate_cost_centers", 0):
@@ -132,7 +135,9 @@ class EBoekhoudenMigration(Document):
                 frappe.db.commit()
 
                 result = self.do_migrate_cost_centers(settings)
-                migration_log.append(f"Cost Centers: {result}")
+                migration_log.append(f"Cost Centers: {result['message']}")
+                if _migration_phase_failed(result):
+                    failed_phases.append("Cost Centers")
 
             # Phase 3: Transactions
             if getattr(self, "migrate_transactions", 0):
@@ -142,7 +147,9 @@ class EBoekhoudenMigration(Document):
                 # Use getattr to avoid field/method name conflict
                 migrate_method = getattr(self.__class__, "migrate_transactions_data")
                 result = migrate_method(self, settings)
-                migration_log.append(f"Transactions: {result}")
+                migration_log.append(f"Transactions: {result['message']}")
+                if _migration_phase_failed(result):
+                    failed_phases.append("Transactions")
 
             # Phase 4: Stock Transactions
             if getattr(self, "migrate_stock_transactions", 0):
@@ -154,13 +161,18 @@ class EBoekhoudenMigration(Document):
                 # Use getattr to avoid field/method name conflict
                 migrate_method = getattr(self.__class__, "migrate_stock_transactions_data")
                 result = migrate_method(self, settings)
-                migration_log.append(f"Stock Transactions: {result}")
+                migration_log.append(f"Stock Transactions: {result['message']}")
+                if _migration_phase_failed(result):
+                    failed_phases.append("Stock Transactions")
 
-            # Completion
+            # Completion. Phase methods return {"success", "message"} and catch
+            # their own exceptions, so a failed phase does not raise — reflect
+            # any phase failure in migration_status rather than always "Completed".
+            status, operation = _resolve_migration_status(failed_phases)
             self.db_set(
                 {
-                    "migration_status": "Completed",
-                    "current_operation": "Migration completed successfully",
+                    "migration_status": status,
+                    "current_operation": operation,
                     "progress_percentage": 100,
                     "end_time": frappe.utils.now_datetime(),
                     "migration_summary": "\n".join(migration_log),
@@ -325,7 +337,10 @@ class EBoekhoudenMigration(Document):
 
                 clear_result = self.do_clear_existing_accounts(settings)
                 if not clear_result["success"]:
-                    return f"Failed to clear existing accounts: {clear_result['error']}"
+                    return {
+                        "success": False,
+                        "message": f"Failed to clear existing accounts: {clear_result['error']}",
+                    }
                 else:
                     frappe.logger().info(f"Cleared accounts: {clear_result['message']}")
 
@@ -349,7 +364,10 @@ class EBoekhoudenMigration(Document):
             result = api.get_chart_of_accounts()
 
             if not result["success"]:
-                return f"Failed to fetch Chart of Accounts: {result['error']}"
+                return {
+                    "success": False,
+                    "message": f"Failed to fetch Chart of Accounts: {result['error']}",
+                }
 
             # Parse JSON response
             import json
@@ -362,7 +380,7 @@ class EBoekhoudenMigration(Document):
                 if getattr(self, "clear_existing_accounts", 0):
                     clear_result = self.do_clear_existing_accounts(settings)
                     dry_run_msg += f"\n{clear_result['message']}"
-                return dry_run_msg
+                return {"success": True, "message": dry_run_msg}
 
             # Analyze account hierarchy to determine which should be groups
             from verenigingen.e_boekhouden.utils.eboekhouden_account_group_fix import (
@@ -449,10 +467,14 @@ class EBoekhoudenMigration(Document):
                 frappe.logger().warning(f"Could not organize balance sheet accounts: {str(e)}")
                 # Don't fail the migration for this - continue
 
-            return f"Created {created_count} accounts, skipped {skipped_count} ({len(accounts_data)} total)"
+            return {
+                "success": True,
+                "message": f"Created {created_count} accounts, skipped {skipped_count} "
+                f"({len(accounts_data)} total)",
+            }
 
         except Exception as e:
-            return f"Error migrating Chart of Accounts: {str(e)}"
+            return {"success": False, "message": f"Error migrating Chart of Accounts: {str(e)}"}
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
@@ -662,9 +684,9 @@ class EBoekhoudenMigration(Document):
                     for error in result["errors"][:5]:  # Log first 5 errors
                         self.log_error(f"Cost center error: {error}")
 
-                return result["message"]
+                return {"success": True, "message": result["message"]}
             else:
-                return f"Error: {result.get('error', 'Unknown error')}"
+                return {"success": False, "message": f"Error: {result.get('error', 'Unknown error')}"}
 
             # Old implementation below for reference
             # from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
@@ -688,7 +710,7 @@ class EBoekhoudenMigration(Document):
             # created_count = 0
             # skipped_count = 0
         except Exception as e:
-            return f"Error migrating Cost Centers: {str(e)}"
+            return {"success": False, "message": f"Error migrating Cost Centers: {str(e)}"}
 
     def migrate_transactions_data(self, settings):
         """Migrate Transactions from e-Boekhouden using REST API
@@ -757,14 +779,17 @@ class EBoekhoudenMigration(Document):
                     self.failed_records += len(failed)
                     self.total_records += total
 
-                    return f"Successfully imported {imported} transactions from {total} mutations"
+                    return {
+                        "success": True,
+                        "message": f"Successfully imported {imported} transactions from {total} mutations",
+                    }
                 else:
                     # Fallback for other result formats
-                    return "Transaction import completed successfully"
+                    return {"success": True, "message": "Transaction import completed successfully"}
             else:
-                return f"Error: {result.get('error', 'Unknown error')}"
+                return {"success": False, "message": f"Error: {result.get('error', 'Unknown error')}"}
         except Exception as e:
-            return f"Error migrating Transactions: {str(e)}"
+            return {"success": False, "message": f"Error migrating Transactions: {str(e)}"}
 
     def migrate_stock_transactions_data(self, settings):
         """Migrate Stock Transactions from e-Boekhouden"""
@@ -776,21 +801,18 @@ class EBoekhoudenMigration(Document):
             date_from = self.date_from if self.date_from else None
             date_to = self.date_to if self.date_to else None
 
-            # Run migration - returns a message or result dict
+            # migrate_stock_transactions_safe always returns a structured
+            # {"success", "message", ...} result — honour its success flag.
             result = migrate_stock_transactions_safe(self, date_from, date_to)
 
-            # If result is a dict, extract the message
-            if isinstance(result, dict):
-                message = result.get("message", "Stock migration completed")
-                # Update counters if available
-                if "skipped" in result:
-                    self.total_records += result["skipped"]
-                if "processed" in result:
-                    self.imported_records += result["processed"]
-                return message
-            else:
-                # Result is already a message string
-                return result
+            if "skipped" in result:
+                self.total_records += result["skipped"]
+            if "processed" in result:
+                self.imported_records += result["processed"]
+            return {
+                "success": bool(result.get("success", False)),
+                "message": result.get("message", "Stock migration completed"),
+            }
 
         except Exception as e:
             # Log full error without truncation
@@ -798,7 +820,10 @@ class EBoekhoudenMigration(Document):
                 title="Stock Transaction Migration Error",
                 message=f"Error migrating stock transactions:\n{str(e)}\n\n{frappe.get_traceback()}",
             )
-            return f"Error migrating Stock Transactions: {str(e)[:100]}..."  # Truncate for display
+            return {
+                "success": False,
+                "message": f"Error migrating Stock Transactions: {str(e)[:100]}...",
+            }
 
     def _get_error_logger(self):
         """Get or create MigrationErrorLogger instance."""
@@ -1113,6 +1138,33 @@ class EBoekhoudenMigration(Document):
         """
         service = self._get_data_quality_service()
         return service.check_data_quality()
+
+
+def _migration_phase_failed(result) -> bool:
+    """Return True if a migration phase result reports failure.
+
+    Each phase method (migrate_chart_of_accounts, do_migrate_cost_centers,
+    migrate_transactions_data, migrate_stock_transactions_data) returns
+    ``{"success": bool, "message": str}``. They catch their own exceptions and
+    never raise, so start_migration must inspect the result to know whether a
+    phase failed. A result that is not a well-formed dict is treated as a
+    failure — fail loud rather than silently record a broken phase as
+    "Completed".
+    """
+    if not isinstance(result, dict):
+        return True
+    return result.get("success") is not True
+
+
+def _resolve_migration_status(failed_phases):
+    """Return the (migration_status, current_operation) for a finished migration.
+
+    `failed_phases` is the list of phase names whose result reported failure.
+    The run is "Failed" if any phase failed, "Completed" otherwise.
+    """
+    if failed_phases:
+        return "Failed", "Migration finished with errors in: " + ", ".join(failed_phases)
+    return "Completed", "Migration completed successfully"
 
 
 @frappe.whitelist()
