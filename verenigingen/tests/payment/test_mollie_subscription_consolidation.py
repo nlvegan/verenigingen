@@ -51,9 +51,13 @@ class _Recorder:
 
 
 class _FakeMandate:
-    def __init__(self, mandate_id="mdt_FAKE", status="valid"):
+    def __init__(self, mandate_id="mdt_FAKE", status="valid", method="directdebit",
+                 consumer_account=None):
         self.id = mandate_id
         self.status = status
+        self.method = method
+        # Mollie returns directdebit mandate bank details under `details`.
+        self.details = {"consumerAccount": consumer_account} if consumer_account else {}
 
 
 class _FakeSubscription:
@@ -73,9 +77,11 @@ class _FakeSubscription:
 
 
 class _FakeMandates:
-    def __init__(self, recorder, raises=False):
+    def __init__(self, recorder, raises=False, existing=None, list_raises=False):
         self._recorder = recorder
         self._raises = raises
+        self._existing = existing or []
+        self._list_raises = list_raises
 
     def create(self, data=None):
         if self._raises:
@@ -84,7 +90,9 @@ class _FakeMandates:
         return _FakeMandate()
 
     def list(self):
-        return []
+        if self._list_raises:
+            raise RuntimeError("simulated Mollie mandate list failure")
+        return list(self._existing)
 
 
 class _FakeSubscriptions:
@@ -105,26 +113,37 @@ class _FakeSubscriptions:
 
 
 class _FakeCustomer:
-    def __init__(self, recorder, customer_id, sub_status, mandate_raises):
+    def __init__(self, recorder, customer_id, sub_status, mandate_raises,
+                 existing_mandates, mandate_list_raises):
         self.id = customer_id
-        self.mandates = _FakeMandates(recorder, raises=mandate_raises)
+        self.mandates = _FakeMandates(
+            recorder, raises=mandate_raises, existing=existing_mandates,
+            list_raises=mandate_list_raises,
+        )
         self.subscriptions = _FakeSubscriptions(recorder, sub_status)
 
 
 class _FakeCustomers:
-    def __init__(self, recorder, sub_status, mandate_raises, stale_customer_id):
+    def __init__(self, recorder, sub_status, mandate_raises, stale_customer_id,
+                 existing_mandates, mandate_list_raises):
         self._recorder = recorder
         self._sub_status = sub_status
         self._mandate_raises = mandate_raises
         self._stale_customer_id = stale_customer_id
+        self._existing_mandates = existing_mandates
+        self._mandate_list_raises = mandate_list_raises
         self._counter = 0
+
+    def _build(self, customer_id):
+        return _FakeCustomer(
+            self._recorder, customer_id, self._sub_status, self._mandate_raises,
+            self._existing_mandates, self._mandate_list_raises,
+        )
 
     def create(self, data=None):
         self._recorder.customers_created.append(data)
         self._counter += 1
-        return _FakeCustomer(
-            self._recorder, f"cst_FAKE{self._counter}", self._sub_status, self._mandate_raises
-        )
+        return self._build(f"cst_FAKE{self._counter}")
 
     def get(self, customer_id):
         self._recorder.customers_fetched.append(customer_id)
@@ -132,16 +151,18 @@ class _FakeCustomers:
         # customers (and every other id) resolve normally.
         if self._stale_customer_id and customer_id == self._stale_customer_id:
             raise RuntimeError("simulated stale/unknown Mollie customer")
-        return _FakeCustomer(self._recorder, customer_id, self._sub_status, self._mandate_raises)
+        return self._build(customer_id)
 
 
 class FakeSDKClient:
     """Stand-in for ``mollie.api.client.Client``."""
 
-    def __init__(self, sub_status="active", mandate_raises=False, stale_customer_id=None):
+    def __init__(self, sub_status="active", mandate_raises=False, stale_customer_id=None,
+                 existing_mandates=None, mandate_list_raises=False):
         self.recorder = _Recorder()
         self.customers = _FakeCustomers(
-            self.recorder, sub_status, mandate_raises, stale_customer_id
+            self.recorder, sub_status, mandate_raises, stale_customer_id,
+            existing_mandates, mandate_list_raises,
         )
 
 
@@ -228,6 +249,21 @@ class TestMollieClient(EnhancedTestCase):
         with self.assertRaises(MolliePaymentError):
             client.cancel_subscription("cst_123", "sub_123")
 
+    def test_list_mandates_wraps_sdk_customer_mandates_list(self):
+        sdk = FakeSDKClient(existing_mandates=[_FakeMandate(mandate_id="mdt_X")])
+        client = _make_mollie_client(sdk)
+
+        mandates = client.list_mandates("cst_123")
+
+        self.assertEqual([m.id for m in mandates], ["mdt_X"])
+        self.assertEqual(sdk.recorder.customers_fetched, ["cst_123"])
+
+    def test_list_mandates_wraps_sdk_errors_in_mollie_payment_error(self):
+        client = _make_mollie_client(RaisingSDKClient())
+
+        with self.assertRaises(MolliePaymentError):
+            client.list_mandates("cst_123")
+
 
 class TestCompletePaymentServiceSubscription(EnhancedTestCase):
     """Phase 1, step 2 - CompletePaymentService.create_customer_subscription."""
@@ -303,6 +339,125 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         # subscription create payload (Mollie's API rejects it there).
         self.assertEqual(len(sdk.recorder.subscriptions_created), 1)
         self.assertNotIn("consumerAccount", sdk.recorder.subscriptions_created[0])
+
+    def test_create_subscription_reuses_existing_mandate_for_same_iban(self):
+        """A customer that already has a valid SEPA mandate for the same IBAN
+        gets no second mandate provisioned - the subscription reuses it."""
+        iban = "NL39RABO0300065264"
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(status="valid", method="directdebit", consumer_account=iban)
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        result = service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(result["status"], "success")
+        # No duplicate mandate - the existing valid one is reused.
+        self.assertEqual(sdk.recorder.mandates_created, [])
+        self.assertEqual(len(sdk.recorder.subscriptions_created), 1)
+
+    def test_create_subscription_reuses_existing_mandate_ignoring_iban_spacing(self):
+        """IBAN comparison ignores spacing/case, so a spaced IBAN still
+        matches an existing mandate stored without spaces."""
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(
+                    status="valid", method="directdebit",
+                    consumer_account="NL39RABO0300065264",
+                )
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": "nl39 rabo 0300 0652 64",
+            },
+        )
+
+        self.assertEqual(sdk.recorder.mandates_created, [])
+
+    def test_create_subscription_provisions_mandate_when_iban_differs(self):
+        """An existing mandate for a *different* IBAN does not block
+        provisioning - the member may have changed banks."""
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(
+                    status="valid", method="directdebit",
+                    consumer_account="NL11INGB0001111111",
+                )
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": "NL39RABO0300065264",
+            },
+        )
+
+        self.assertEqual(len(sdk.recorder.mandates_created), 1)
+
+    def test_create_subscription_provisions_mandate_when_existing_is_invalid(self):
+        """An existing mandate that is not valid/pending (e.g. invalid) does
+        not count - a fresh mandate is provisioned."""
+        iban = "NL39RABO0300065264"
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(status="invalid", method="directdebit", consumer_account=iban)
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(len(sdk.recorder.mandates_created), 1)
+
+    def test_create_subscription_provisions_mandate_when_mandate_listing_fails(self):
+        """If the mandate lookup itself errors, provisioning falls back to
+        creating a mandate (fail open) so the subscription still succeeds."""
+        iban = "NL39RABO0300065264"
+        sdk = FakeSDKClient(mandate_list_raises=True)
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        result = service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(len(sdk.recorder.mandates_created), 1)
 
     def test_create_customer_subscription_propagates_mandate_failure(self):
         """If mandate provisioning fails, the original mandate error must
