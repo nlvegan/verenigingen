@@ -13,6 +13,8 @@ from typing import Dict, Optional, Tuple
 import frappe
 from frappe.utils import cint
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class WebhookRateLimitExceeded(frappe.ValidationError):
     """Raised when webhook rate limit is exceeded"""
@@ -276,9 +278,15 @@ def reset_rate_limiter():
         _webhook_rate_limiter = None
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_webhook_rate_limit_stats():
-    """API endpoint to get rate limiting statistics"""
+    """API endpoint to get rate limiting statistics.
+
+    allow_guest was removed: the endpoint requires System Settings read,
+    so a guest was always rejected anyway, and a guest-accessible endpoint
+    contradicts the security decorator.
+    """
     # Only allow this for system managers
     if not frappe.has_permission("System Settings", "read"):
         frappe.throw("Insufficient permissions to view rate limit statistics")

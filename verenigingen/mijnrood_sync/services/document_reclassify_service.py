@@ -14,6 +14,8 @@ import logging
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 logger = logging.getLogger("verenigingen.mijnrood_sync.document_reclassify")
 
 MAX_BATCH = 500
@@ -79,6 +81,7 @@ def _resolve_mapped_folder(folder_id, mapping_by_id, folder_tree):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def reclassify_documents(names, dry_run: bool = True) -> dict:
     """Re-apply MijnRood folder mapping + extracted date to existing docs.
 

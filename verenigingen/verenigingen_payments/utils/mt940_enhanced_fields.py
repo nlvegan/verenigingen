@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def get_enhanced_mt940_custom_fields():
     """
@@ -97,6 +99,7 @@ def get_enhanced_mt940_custom_fields():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_enhanced_mt940_fields():
     """
     Create custom fields for enhanced MT940 data storage.
@@ -127,6 +130,7 @@ def create_enhanced_mt940_fields():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def remove_enhanced_mt940_fields():
     """
     Remove custom fields for enhanced MT940 data.
@@ -188,6 +192,7 @@ def populate_enhanced_mt940_fields(bank_transaction_doc, enhanced_data):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_field_creation_status():
     """
     Check if enhanced MT940 fields have been created.
