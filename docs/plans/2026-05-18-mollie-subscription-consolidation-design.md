@@ -1,7 +1,7 @@
 # Consolidate Mollie subscription create/cancel logic
 
 **Date:** 2026-05-18
-**Status:** Design — phased implementation
+**Status:** Phases 1 & 2 complete and merged; Phase 3 pending.
 **Context:** Audit T4.4 follow-up. Retiring `MollieConnector` (PR #44) unblocked this.
 
 ## 1. Problem
@@ -94,7 +94,10 @@ subscription") and removes the only behavioural reason the legacy path exists.
 
 Each phase is its own double-reviewed PR.
 
-### Phase 1 — collapse the two bottom-level implementations
+### Phase 1 — collapse the two bottom-level implementations ✅ DONE
+
+**Merged:** PR #45. A follow-up bug-fix (the amendment-sync `create_subscription`
+call, found while planning Phase 2) shipped separately as PR #46.
 
 Branch: `refactor/mollie-subscription-consolidation-phase1` (this doc lives
 there). TDD each step — payment code.
@@ -146,7 +149,9 @@ Precise task list:
    cancel.
 - Net: one SDK path (`MollieClient`).
 
-### Phase 2 — standardise the mid-level contract
+### Phase 2 — standardise the mid-level contract ✅ DONE
+
+**Merged:** PR #47 (all 7 tasks, two double-review rounds).
 
 Branch: `refactor/mollie-subscription-consolidation-phase2`. TDD each step —
 payment code.
@@ -235,9 +240,14 @@ payment code.
   `duplicate_subscriptions`) its caller `amendment_events` relies on. These
   are kept *in addition to* the standard keys, not replaced.
 
-### Phase 3 — fold in the debug-service paths
+### Phase 3 — fold in the debug-service paths ⏳ PENDING
 - Route `MollieDebugService.create_subscription` / `admin_cancel_subscription`
   through the standardised services so the admin tooling cannot drift.
+- `MollieGateway`-adjacent caller cleanup: `create_member_subscription` in
+  `payment_gateways.py` still calls `MollieDebugService.create_subscription`
+  directly and does its own `db_set`s — once the debug service routes through
+  `CompletePaymentService`, those `db_set`s become redundant (the service owns
+  the owner update) and should be removed, mirroring Phase 2 task 6.
 
 ## 5. Risks & test strategy
 
