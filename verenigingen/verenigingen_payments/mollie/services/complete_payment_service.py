@@ -125,7 +125,7 @@ class CompletePaymentService:
                 "locale": form_data.get("locale", "nl_NL"),
             }
 
-            customer_result = self._create_or_get_customer(customer_data)
+            customer_result = self._resolve_customer_by_email(customer_data)
 
             if not customer_result.get("customer_id"):
                 raise MolliePaymentError(
@@ -205,81 +205,13 @@ class CompletePaymentService:
             # Validate input data
             self._validate_subscription_data(customer_data, subscription_data)
 
-            # Create or get customer
-            customer_result = self._create_or_get_customer(customer_data)
-
-            if not customer_result.get("customer_id"):
-                raise MolliePaymentError(
-                    f"Failed to create customer for subscription: {customer_result.get('error')}"
-                )
-
-            customer_id = customer_result["customer_id"]
-
-            # Opt-in mandate provisioning: when an IBAN is supplied via
-            # `consumerAccount`, provision a SEPA direct-debit mandate before
-            # creating the subscription. This replaces the legacy
-            # MollieSettings.create_subscription path (which always did this)
-            # and keeps mandate provisioning an explicit, requested step
-            # rather than a hidden side effect of "create subscription".
-            consumer_account = subscription_data.get("consumerAccount")
-            if consumer_account:
-                mandate_data = {
-                    "method": "directdebit",
-                    "consumerName": customer_data.get("name", ""),
-                    "consumerAccount": consumer_account,
-                    "signatureDate": frappe.utils.today(),
-                    "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
-                }
-                self.client.create_mandate(customer_id, mandate_data)
-
-            # consumerAccount is mandate-only input; Mollie's subscription API
-            # does not accept it, so strip it before creating the subscription
-            # (always - including the falsy "no IBAN" case).
-            if "consumerAccount" in subscription_data:
-                subscription_data = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
-
-            # Create subscription. Without a mandate (no consumerAccount and
-            # none established via a sequenceType="first" payment) Mollie
-            # rejects this with "No suitable mandates found".
-            try:
-                mollie_subscription = self.client.create_subscription(customer_id, subscription_data)
-            except Exception as e:
-                if "No suitable mandates found" in str(e):
-                    raise MolliePaymentError(
-                        "Cannot create subscription: No mandate exists for customer. "
-                        "For recurring donations, use create_recurring_donation_payment() "
-                        "to establish mandate first with sequenceType='first' payment.",
-                        original_error=e,
-                    )
-                raise
-
-            frappe.logger().info(f"✅ Subscription created: {mollie_subscription.id}")
-
-            # The service owns the owning-DocType update: write the new
-            # subscription back onto the Member/Donor so callers do not have
-            # to do their own db_sets.
             owner_doctype = customer_data.get("owner_doctype")
             owner_name = customer_data.get("owner_name")
             if owner_doctype and owner_name:
-                self._update_owner_record(
-                    owner_doctype,
-                    owner_name,
-                    {
-                        "mollie_customer_id": customer_id,
-                        "mollie_subscription_id": mollie_subscription.id,
-                        "subscription_status": mollie_subscription.status,
-                        "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
-                    },
+                return self._create_owner_subscription(
+                    owner_doctype, owner_name, customer_data, subscription_data
                 )
-
-            return {
-                "status": "success",
-                "customer_id": customer_result["customer_id"],
-                "subscription_id": mollie_subscription.id,
-                "subscription_status": mollie_subscription.status,
-                "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
-                "message": "Subscription created successfully",
-            }
+            return self._create_unowned_subscription(customer_data, subscription_data)
 
         except (MolliePaymentError, MollieValidationError):
             # Already a specific, well-typed Mollie error (mandate provisioning,
@@ -292,6 +224,192 @@ class CompletePaymentService:
             error_msg = f"Failed to create subscription: {e}"
             frappe.log_error(error_msg, "Subscription Creation Error")
             raise MolliePaymentError(error_msg, original_error=e)
+
+    def _create_owner_subscription(
+        self,
+        owner_doctype: str,
+        owner_name: str,
+        customer_data: Dict[str, Any],
+        subscription_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Create a subscription owned by a Member/Donor, holding a FOR UPDATE
+        lock on the owner row for the whole operation.
+
+        The lock blocks a concurrent create for the same owner: the second
+        request waits, then sees the subscription the first one wrote and
+        returns it instead of provisioning a duplicate at Mollie. An owner
+        that already has a live subscription is likewise returned as-is.
+        """
+        if owner_doctype not in ("Member", "Donor"):
+            raise MollieValidationError(f"Unsupported subscription owner doctype: {owner_doctype}")
+
+        # begin()/commit() bracket the row lock; every exit path commits or
+        # rolls back so the lock is always released.
+        frappe.db.begin()
+        try:
+            owner = DocType(owner_doctype)
+            locked_row = (
+                frappe.qb.from_(owner)
+                .select(owner.mollie_customer_id, owner.mollie_subscription_id)
+                .where(owner.name == owner_name)
+                .for_update()
+                .run(as_dict=True)
+            )
+            if not locked_row:
+                frappe.db.commit()
+                raise MollieValidationError(f"{owner_doctype} {owner_name} not found")
+
+            stored_customer_id = locked_row[0].get("mollie_customer_id")
+            stored_subscription_id = locked_row[0].get("mollie_subscription_id")
+
+            # Idempotent: an owner that already has a live subscription gets
+            # that subscription back - no duplicate is provisioned.
+            if stored_subscription_id:
+                existing = self._get_active_subscription(stored_customer_id, stored_subscription_id)
+                if existing is not None:
+                    frappe.db.commit()
+                    frappe.logger().info(
+                        f"{owner_doctype} {owner_name} already has subscription {existing.id}"
+                    )
+                    return self._subscription_result(
+                        stored_customer_id, existing, message="Subscription already exists"
+                    )
+
+            customer_id = self._resolve_customer_id_locked(stored_customer_id, customer_data)
+            mollie_subscription = self._provision_and_create_subscription(
+                customer_id, customer_data, subscription_data
+            )
+
+            # The service owns the owning-DocType update.
+            self._update_owner_record(
+                owner_doctype,
+                owner_name,
+                {
+                    "mollie_customer_id": customer_id,
+                    "mollie_subscription_id": mollie_subscription.id,
+                    "subscription_status": mollie_subscription.status,
+                    "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
+                },
+            )
+            frappe.db.commit()
+            frappe.logger().info(f"✅ Subscription created: {mollie_subscription.id}")
+            return self._subscription_result(customer_id, mollie_subscription)
+
+        except (MolliePaymentError, MollieValidationError):
+            frappe.db.rollback()
+            raise
+        except Exception as e:
+            frappe.db.rollback()
+            error_msg = f"Failed to create subscription: {e}"
+            frappe.log_error(error_msg, "Subscription Creation Error")
+            raise MolliePaymentError(error_msg, original_error=e)
+
+    def _create_unowned_subscription(
+        self, customer_data: Dict[str, Any], subscription_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create a subscription with no explicit owner record (donation flow).
+
+        The Mollie customer is resolved by Donor email; nothing is written
+        back to a Frappe record here.
+        """
+        customer_result = self._resolve_customer_by_email(customer_data)
+        if not customer_result.get("customer_id"):
+            raise MolliePaymentError(
+                f"Failed to create customer for subscription: {customer_result.get('error')}"
+            )
+        customer_id = customer_result["customer_id"]
+        mollie_subscription = self._provision_and_create_subscription(
+            customer_id, customer_data, subscription_data
+        )
+        frappe.logger().info(f"✅ Subscription created: {mollie_subscription.id}")
+        return self._subscription_result(customer_id, mollie_subscription)
+
+    def _provision_and_create_subscription(
+        self, customer_id: str, customer_data: Dict[str, Any], subscription_data: Dict[str, Any]
+    ) -> Any:
+        """
+        Provision a SEPA mandate from an IBAN (when `consumerAccount` is given)
+        and create the Mollie subscription.
+
+        `consumerAccount` is mandate-only input - Mollie's subscription API
+        does not accept it - so it is always stripped before the create.
+        """
+        consumer_account = subscription_data.get("consumerAccount")
+        if consumer_account:
+            self.client.create_mandate(
+                customer_id,
+                {
+                    "method": "directdebit",
+                    "consumerName": customer_data.get("name", ""),
+                    "consumerAccount": consumer_account,
+                    "signatureDate": frappe.utils.today(),
+                    "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
+                },
+            )
+        if "consumerAccount" in subscription_data:
+            subscription_data = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
+
+        # Without a mandate (no consumerAccount and none established via a
+        # sequenceType="first" payment) Mollie rejects the create.
+        try:
+            return self.client.create_subscription(customer_id, subscription_data)
+        except Exception as e:
+            if "No suitable mandates found" in str(e):
+                raise MolliePaymentError(
+                    "Cannot create subscription: No mandate exists for customer. "
+                    "For recurring donations, use create_recurring_donation_payment() "
+                    "to establish mandate first with sequenceType='first' payment.",
+                    original_error=e,
+                )
+            raise
+
+    def _resolve_customer_id_locked(
+        self, stored_customer_id: Optional[str], customer_data: Dict[str, Any]
+    ) -> str:
+        """
+        Resolve the Mollie customer id while the owner row is already locked:
+        reuse the stored id if it still resolves at Mollie, otherwise create a
+        fresh customer. No transaction control - the caller owns the lock.
+        """
+        if stored_customer_id:
+            try:
+                return self.client.get_customer(stored_customer_id).id
+            except Exception as e:
+                frappe.logger().warning(f"Stored Mollie customer {stored_customer_id} not retrievable: {e}")
+                # Stale id - fall through and create a fresh customer.
+        return self.client.create_customer(self._mollie_customer_payload(customer_data)).id
+
+    def _get_active_subscription(self, customer_id: Optional[str], subscription_id: str) -> Optional[Any]:
+        """
+        Return the Mollie subscription if it still exists and is active or
+        pending; otherwise None (so the caller provisions a fresh one).
+        """
+        try:
+            subscription = self.client.get_subscription(customer_id, subscription_id)
+        except Exception as e:
+            frappe.logger().warning(f"Stored subscription {subscription_id} not retrievable: {e}")
+            return None
+        if getattr(subscription, "status", None) in ("active", "pending"):
+            return subscription
+        return None
+
+    def _subscription_result(
+        self,
+        customer_id: Optional[str],
+        mollie_subscription: Any,
+        message: str = "Subscription created successfully",
+    ) -> Dict[str, Any]:
+        """Build the standard create-subscription result dict."""
+        return {
+            "status": "success",
+            "customer_id": customer_id,
+            "subscription_id": mollie_subscription.id,
+            "subscription_status": mollie_subscription.status,
+            "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
+            "message": message,
+        }
 
     def process_webhook(self, payment_id: str, payment_data: Optional[Any] = None) -> Dict[str, Any]:
         """
@@ -482,77 +600,6 @@ class CompletePaymentService:
             payment_data["sequenceType"] = form_data["sequenceType"]
 
         return payment_data
-
-    def _create_or_get_customer(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Resolve the Mollie customer for a subscription.
-
-        When `customer_data` names an owning record (`owner_doctype` +
-        `owner_name`) the customer is resolved against that record - a
-        membership subscription against the Member, a donation against the
-        Donor - so a member's subscription never binds to a Donor's Mollie
-        customer just because they happen to share an email address. Without
-        an explicit owner, falls back to Donor-by-email resolution.
-        """
-        owner_doctype = customer_data.get("owner_doctype")
-        owner_name = customer_data.get("owner_name")
-        if owner_doctype and owner_name:
-            return self._resolve_customer_for_owner(owner_doctype, owner_name, customer_data)
-        return self._resolve_customer_by_email(customer_data)
-
-    def _resolve_customer_for_owner(
-        self, owner_doctype: str, owner_name: str, customer_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Reuse or create the Mollie customer recorded on a specific Member or
-        Donor, locking that row (SELECT ... FOR UPDATE) so concurrent requests
-        for the same owner cannot create duplicate Mollie customers.
-        """
-        if owner_doctype not in ("Member", "Donor"):
-            raise MollieValidationError(f"Unsupported subscription owner doctype: {owner_doctype}")
-
-        # begin()/commit() bracket the row lock: commit() persists the customer
-        # id and releases the lock; every exit path must commit() or rollback().
-        frappe.db.begin()
-        try:
-            owner = DocType(owner_doctype)
-            locked_row = (
-                frappe.qb.from_(owner)
-                .select(owner.mollie_customer_id)
-                .where(owner.name == owner_name)
-                .for_update()
-                .run(as_dict=True)
-            )
-
-            if not locked_row:
-                frappe.db.commit()
-                return create_error_response(f"{owner_doctype} {owner_name} not found")
-
-            existing_customer_id = locked_row[0].get("mollie_customer_id")
-            if existing_customer_id:
-                try:
-                    customer = self.client.get_customer(existing_customer_id)
-                    frappe.db.commit()  # Release lock
-                    return {"status": "found", "customer_id": customer.id}
-                except Exception as e:
-                    frappe.logger().warning(
-                        f"Existing customer ID {existing_customer_id} not found in Mollie: {e}"
-                    )
-                    # Stale id - fall through and create a fresh customer.
-
-            customer = self.client.create_customer(self._mollie_customer_payload(customer_data))
-            frappe.db.set_value(
-                owner_doctype, owner_name, "mollie_customer_id", customer.id, update_modified=False
-            )
-            frappe.db.commit()  # Commit and release lock
-            frappe.logger().info(f"Saved Mollie customer {customer.id} to {owner_doctype} {owner_name}")
-            return {"status": "created", "customer_id": customer.id}
-
-        except Exception as e:
-            frappe.db.rollback()
-            error_msg = f"Failed to create or get Mollie customer: {e}"
-            frappe.log_error(error_msg, "Mollie Customer Error")
-            return create_error_response(error_msg)
 
     def _resolve_customer_by_email(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
         """

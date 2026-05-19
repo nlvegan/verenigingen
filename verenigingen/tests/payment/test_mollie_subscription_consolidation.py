@@ -85,6 +85,9 @@ class _FakeSubscriptions:
         self._recorder.subscriptions_created.append(data)
         return _FakeSubscription(status=self._sub_status)
 
+    def get(self, subscription_id):
+        return _FakeSubscription(subscription_id=subscription_id, status=self._sub_status)
+
     def delete(self, subscription_id):
         self._recorder.subscriptions_deleted.append(subscription_id)
         return _FakeSubscription(subscription_id=subscription_id, status="canceled")
@@ -629,3 +632,42 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
             frappe.db.get_value("Member", member.name, "subscription_status"), "canceled"
         )
         self.assertTrue(frappe.db.get_value("Member", member.name, "subscription_cancelled_date"))
+
+    def test_create_customer_subscription_is_idempotent_when_owner_has_subscription(self):
+        """If the owning record already has an active subscription, create
+        returns it rather than provisioning a duplicate at Mollie."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Idem",
+            last_name=f"Potent{token}",
+            email=f"idem-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"mollie_customer_id": "cst_EXISTING", "mollie_subscription_id": "sub_EXISTING"},
+            update_modified=False,
+        )
+
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            result = service.create_customer_subscription(
+                {
+                    "name": "Idem Potent",
+                    "email": member.email,
+                    "owner_doctype": "Member",
+                    "owner_name": member.name,
+                },
+                {
+                    "amount": {"value": "15.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": "Membership dues",
+                },
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["subscription_id"], "sub_EXISTING")
+        # No duplicate subscription was provisioned at Mollie.
+        self.assertEqual(sdk.recorder.subscriptions_created, [])
