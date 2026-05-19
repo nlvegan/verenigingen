@@ -566,6 +566,102 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
 
         self.assertEqual(sdk.recorder.mandates_created, [])
 
+    def test_create_subscription_pins_reused_valid_mandate_id(self):
+        """When an existing valid mandate is reused, its id is pinned on the
+        subscription via mandateId - Mollie does not auto-select."""
+        iban = "NL39RABO0300065264"
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(mandate_id="mdt_EXISTING", status="valid",
+                             method="directdebit", consumer_account=iban)
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(sdk.recorder.mandates_created, [])
+        self.assertEqual(sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_EXISTING")
+
+    def test_create_subscription_pins_freshly_created_mandate_id(self):
+        """When a mandate is provisioned, that new mandate's id is pinned on
+        the subscription rather than left to Mollie's auto-select."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": "NL39RABO0300065264",
+            },
+        )
+
+        self.assertEqual(len(sdk.recorder.mandates_created), 1)
+        self.assertEqual(sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_FAKE")
+
+    def test_create_subscription_pins_new_mandate_not_old_after_bank_change(self):
+        """A member who changed banks holds a valid mandate for the *old*
+        IBAN. The subscription must pin the freshly-provisioned mandate for
+        the new IBAN, never auto-select onto the old account."""
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(mandate_id="mdt_OLD", status="valid",
+                             method="directdebit", consumer_account="NL11INGB0001111111")
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": "NL39RABO0300065264",
+            },
+        )
+
+        self.assertEqual(len(sdk.recorder.mandates_created), 1)
+        pinned = sdk.recorder.subscriptions_created[0]["mandateId"]
+        self.assertEqual(pinned, "mdt_FAKE")
+        self.assertNotEqual(pinned, "mdt_OLD")
+
+    def test_create_subscription_does_not_pin_a_pending_mandate(self):
+        """A pending mandate blocks duplicate provisioning but is not
+        billable, so it is not pinned - Mollie selects it once it is valid."""
+        iban = "NL39RABO0300065264"
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(mandate_id="mdt_PENDING", status="pending",
+                             method="directdebit", consumer_account=iban)
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(sdk.recorder.mandates_created, [])
+        self.assertNotIn("mandateId", sdk.recorder.subscriptions_created[0])
+
     def test_create_customer_subscription_propagates_mandate_failure(self):
         """If mandate provisioning fails, the original mandate error must
         surface (not be relabelled "Failed to create subscription"), and the

@@ -358,23 +358,47 @@ class CompletePaymentService:
         cancellation reuses the existing mandate instead of stacking a
         duplicate one at Mollie.
 
+        The mandate is then pinned on the subscription via `mandateId`, so
+        Mollie does not auto-select a different mandate the customer may
+        still hold (e.g. an older one for a previous bank account).
+
         `consumerAccount` is mandate-only input - Mollie's subscription API
         does not accept it - so it is always stripped before the create.
         """
         consumer_account = subscription_data.get("consumerAccount")
-        if consumer_account and not self._has_usable_directdebit_mandate(customer_id, consumer_account):
-            self.client.create_mandate(
-                customer_id,
-                {
-                    "method": "directdebit",
-                    "consumerName": customer_data.get("name", ""),
-                    "consumerAccount": consumer_account,
-                    "signatureDate": frappe.utils.today(),
-                    "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
-                },
-            )
+        mandate_id = None
+        if consumer_account:
+            existing_mandate = self._find_usable_directdebit_mandate(customer_id, consumer_account)
+            if existing_mandate is None:
+                # No usable mandate for this IBAN - provision one. A mandate
+                # created via the Mandates API with directdebit details is
+                # valid immediately, so its id is safe to pin below.
+                created = self.client.create_mandate(
+                    customer_id,
+                    {
+                        "method": "directdebit",
+                        "consumerName": customer_data.get("name", ""),
+                        "consumerAccount": consumer_account,
+                        "signatureDate": frappe.utils.today(),
+                        "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
+                    },
+                )
+                mandate_id = getattr(created, "id", None)
+            elif getattr(existing_mandate, "status", None) == "valid":
+                # Reuse the existing valid mandate, pinned explicitly below.
+                mandate_id = getattr(existing_mandate, "id", None)
+            # else: a pending (not-yet-billable) mandate exists - reuse it by
+            # not provisioning a duplicate, but leave mandateId unset so
+            # Mollie selects it once it becomes valid.
+
         if "consumerAccount" in subscription_data:
             subscription_data = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
+
+        # Pin the mandate so Mollie cannot auto-select a different one (an
+        # older mandate for a previous IBAN would otherwise bill the wrong
+        # account). A caller-supplied mandateId is left untouched.
+        if mandate_id and not subscription_data.get("mandateId"):
+            subscription_data = {**subscription_data, "mandateId": mandate_id}
 
         # Without a mandate (no consumerAccount and none established via a
         # sequenceType="first" payment) Mollie rejects the create.
@@ -390,18 +414,18 @@ class CompletePaymentService:
                 )
             raise
 
-    def _has_usable_directdebit_mandate(self, customer_id: str, iban: str) -> bool:
+    def _find_usable_directdebit_mandate(self, customer_id: str, iban: str) -> Optional[Any]:
         """
-        True when the customer already holds a SEPA directdebit mandate for
-        this IBAN that is `valid`, or `pending` (still being established) -
-        in which case a fresh mandate need not be provisioned. A `pending`
-        mandate is not billable yet, but provisioning a second one would
-        only stack a duplicate rather than help; it is treated as usable.
+        Return the customer's SEPA directdebit mandate for this IBAN, or None.
+
+        A `valid` mandate is preferred and returned as soon as one is found.
+        A `pending` mandate (still being established) is returned only if no
+        valid one exists: it still blocks provisioning a duplicate, but it is
+        not yet billable so the caller does not pin it.
 
         IBAN comparison ignores spacing and case. Fails open: if the mandate
-        list cannot be retrieved, returns False so the caller still
-        provisions a mandate rather than risking a subscription create with
-        no mandate at all.
+        list cannot be retrieved, returns None so the caller still provisions
+        a mandate rather than risking a subscription create with no mandate.
         """
         target = iban.replace(" ", "").upper()
         try:
@@ -410,21 +434,26 @@ class CompletePaymentService:
             frappe.logger().warning(
                 f"Could not list mandates for customer {customer_id}; " f"provisioning a mandate anyway: {e}"
             )
-            return False
+            return None
 
+        pending_match = None
         for mandate in mandates:
             if getattr(mandate, "method", None) != "directdebit":
                 continue
-            if getattr(mandate, "status", None) not in ("valid", "pending"):
+            status = getattr(mandate, "status", None)
+            if status not in ("valid", "pending"):
                 continue
             details = getattr(mandate, "details", None) or {}
             if isinstance(details, dict):
                 existing = details.get("consumerAccount")
             else:
                 existing = getattr(details, "consumerAccount", None)
-            if existing and existing.replace(" ", "").upper() == target:
-                return True
-        return False
+            if not existing or existing.replace(" ", "").upper() != target:
+                continue
+            if status == "valid":
+                return mandate
+            pending_match = pending_match or mandate
+        return pending_match
 
     def _resolve_customer_id_locked(
         self, stored_customer_id: Optional[str], customer_data: Dict[str, Any]
