@@ -353,11 +353,16 @@ class CompletePaymentService:
         Provision a SEPA mandate from an IBAN (when `consumerAccount` is given)
         and create the Mollie subscription.
 
+        A mandate is only provisioned when the customer does not already have
+        a usable directdebit mandate for that IBAN - so a re-subscribe after a
+        cancellation reuses the existing mandate instead of stacking a
+        duplicate one at Mollie.
+
         `consumerAccount` is mandate-only input - Mollie's subscription API
         does not accept it - so it is always stripped before the create.
         """
         consumer_account = subscription_data.get("consumerAccount")
-        if consumer_account:
+        if consumer_account and not self._has_usable_directdebit_mandate(customer_id, consumer_account):
             self.client.create_mandate(
                 customer_id,
                 {
@@ -384,6 +389,42 @@ class CompletePaymentService:
                     original_error=e,
                 )
             raise
+
+    def _has_usable_directdebit_mandate(self, customer_id: str, iban: str) -> bool:
+        """
+        True when the customer already holds a SEPA directdebit mandate for
+        this IBAN that is `valid`, or `pending` (still being established) -
+        in which case a fresh mandate need not be provisioned. A `pending`
+        mandate is not billable yet, but provisioning a second one would
+        only stack a duplicate rather than help; it is treated as usable.
+
+        IBAN comparison ignores spacing and case. Fails open: if the mandate
+        list cannot be retrieved, returns False so the caller still
+        provisions a mandate rather than risking a subscription create with
+        no mandate at all.
+        """
+        target = iban.replace(" ", "").upper()
+        try:
+            mandates = self.client.list_mandates(customer_id)
+        except Exception as e:
+            frappe.logger().warning(
+                f"Could not list mandates for customer {customer_id}; " f"provisioning a mandate anyway: {e}"
+            )
+            return False
+
+        for mandate in mandates:
+            if getattr(mandate, "method", None) != "directdebit":
+                continue
+            if getattr(mandate, "status", None) not in ("valid", "pending"):
+                continue
+            details = getattr(mandate, "details", None) or {}
+            if isinstance(details, dict):
+                existing = details.get("consumerAccount")
+            else:
+                existing = getattr(details, "consumerAccount", None)
+            if existing and existing.replace(" ", "").upper() == target:
+                return True
+        return False
 
     def _resolve_customer_id_locked(
         self, stored_customer_id: Optional[str], customer_data: Dict[str, Any]
