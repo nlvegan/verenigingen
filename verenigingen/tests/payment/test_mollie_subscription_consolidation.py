@@ -453,3 +453,29 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
         self.assertEqual(
             frappe.db.get_value("Member", member.name, "subscription_status"), "active"
         )
+
+
+class TestMollieSubscriptionContract(EnhancedTestCase):
+    """Phase 2 - standardised mid-level create/cancel contract."""
+
+    def test_create_customer_subscription_rejected_when_subscriptions_disabled(self):
+        """The enable_subscriptions gate is enforced inside the service, so no
+        caller wired straight to CompletePaymentService can bypass it."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        with patch("frappe.db.get_single_value", return_value=0):
+            with self.assertRaises(MolliePaymentError) as ctx:
+                service.create_customer_subscription(
+                    {"name": "Jane Doe", "email": _unique_email()},
+                    {
+                        "amount": {"value": "15.00", "currency": "EUR"},
+                        "interval": "1 month",
+                        "description": "Membership dues",
+                    },
+                )
+
+        self.assertIn("not enabled", str(ctx.exception))
+        # The gate fires before any Mollie call.
+        self.assertEqual(sdk.recorder.subscriptions_created, [])
+        self.assertEqual(sdk.recorder.customers_created, [])

@@ -195,6 +195,12 @@ class CompletePaymentService:
         try:
             frappe.logger().info(f"🔄 Creating customer subscription for {customer_data.get('email')}")
 
+            # Subscriptions must be enabled in Mollie Settings. Enforced here -
+            # inside the standardised create contract - so that no caller wired
+            # straight to this service can bypass the gate.
+            if not frappe.db.get_single_value("Mollie Settings", "enable_subscriptions"):
+                raise MollieValidationError("Subscriptions are not enabled in Mollie Settings")
+
             # Validate input data
             self._validate_subscription_data(customer_data, subscription_data)
 
