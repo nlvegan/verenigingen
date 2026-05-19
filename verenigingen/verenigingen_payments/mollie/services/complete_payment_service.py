@@ -255,6 +255,23 @@ class CompletePaymentService:
 
             frappe.logger().info(f"✅ Subscription created: {mollie_subscription.id}")
 
+            # The service owns the owning-DocType update: write the new
+            # subscription back onto the Member/Donor so callers do not have
+            # to do their own db_sets.
+            owner_doctype = customer_data.get("owner_doctype")
+            owner_name = customer_data.get("owner_name")
+            if owner_doctype and owner_name:
+                self._update_owner_record(
+                    owner_doctype,
+                    owner_name,
+                    {
+                        "mollie_customer_id": customer_id,
+                        "mollie_subscription_id": mollie_subscription.id,
+                        "subscription_status": mollie_subscription.status,
+                        "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
+                    },
+                )
+
             return {
                 "status": "success",
                 "customer_id": customer_result["customer_id"],
@@ -307,8 +324,8 @@ class CompletePaymentService:
             # Cancel in Mollie
             cancelled_subscription = self.client.cancel_subscription(customer_id, subscription_id)
 
-            # Update related documents
-            self._update_subscription_status(subscription_id, "cancelled", reason)
+            # Flip the owning Member/Donor onto the cancelled status.
+            self._update_subscription_status(subscription_id, "canceled", reason)
 
             frappe.logger().info(f"✅ Subscription cancelled: {subscription_id}")
 
@@ -626,10 +643,45 @@ class CompletePaymentService:
             )
 
     def _update_subscription_status(self, subscription_id: str, status: str, reason: str = "") -> None:
-        """Update subscription status in related documents."""
-        # TODO: Implement updating Member, Donor, or other relevant documents
-        # that track subscription status
-        frappe.logger().info(f"Subscription {subscription_id} status updated to {status}: {reason}")
+        """
+        Flip the owning Member/Donor's subscription status after a cancel.
+
+        The owner is located by `mollie_subscription_id`; Member is checked
+        before Donor.
+        """
+        for owner_doctype in ("Member", "Donor"):
+            owner_name = frappe.db.get_value(
+                owner_doctype, {"mollie_subscription_id": subscription_id}, "name"
+            )
+            if owner_name:
+                self._update_owner_record(
+                    owner_doctype,
+                    owner_name,
+                    {
+                        "subscription_status": status,
+                        "subscription_cancelled_date": frappe.utils.today(),
+                    },
+                )
+                frappe.logger().info(
+                    f"{owner_doctype} {owner_name}: subscription {subscription_id} -> {status} ({reason})"
+                )
+                return
+
+        frappe.logger().info(
+            f"No owning record found for subscription {subscription_id}; status update skipped"
+        )
+
+    def _update_owner_record(self, owner_doctype: str, owner_name: str, values: Dict[str, Any]) -> None:
+        """
+        Write subscription fields onto a Member/Donor record.
+
+        Any field the DocType does not define is skipped - Donor, unlike
+        Member, has no subscription_status / next_payment_date fields.
+        """
+        meta = frappe.get_meta(owner_doctype)
+        payload = {key: value for key, value in values.items() if meta.has_field(key)}
+        if payload:
+            frappe.db.set_value(owner_doctype, owner_name, payload, update_modified=False)
 
     def get_client_info(self) -> Dict[str, Any]:
         """Get information about the Mollie client configuration."""

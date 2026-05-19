@@ -14,7 +14,6 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
     CompletePaymentService,
 )
@@ -579,17 +578,12 @@ class MollieGateway(PaymentGateway):
                 mollie_subscription_data["startDate"] = subscription_data["start_date"]
 
             # Create subscription via the consolidated Mollie service layer.
+            # The service owns the Member update (mollie_customer_id,
+            # mollie_subscription_id, subscription_status, next_payment_date)
+            # via the owner_doctype/owner_name passed in customer_data.
             result = CompletePaymentService().create_customer_subscription(
                 customer_data, mollie_subscription_data
             )
-
-            # CompletePaymentService returns the Mollie subscription status
-            # under `subscription_status`; its `status` key is the literal
-            # "success", so the member field maps from `subscription_status`.
-            member.db_set("mollie_customer_id", result["customer_id"])
-            member.db_set("mollie_subscription_id", result["subscription_id"])
-            member.db_set("subscription_status", result["subscription_status"])
-            member.db_set("next_payment_date", result.get("next_payment_date"))
 
             frappe.logger().info(
                 f"Created Mollie subscription {result['subscription_id']} for member {member.name}"
@@ -662,14 +656,10 @@ class MollieGateway(PaymentGateway):
             if not (customer_id and subscription_id):
                 return create_error_response(_("No active subscription found for this member"))
 
-            # Cancel via the consolidated Mollie client. It raises on failure,
+            # Cancel via the consolidated service. It performs the Mollie
+            # cancel and owns the Member status update; it raises on failure,
             # so the surrounding except block is the error path.
-            MollieClient().cancel_subscription(customer_id, subscription_id)
-
-            # Update member subscription status. "canceled" (US spelling) is
-            # the only valid Member.subscription_status Select option.
-            member.db_set("subscription_status", "canceled")
-            member.db_set("subscription_cancelled_date", frappe.utils.today())
+            CompletePaymentService().cancel_subscription(customer_id, subscription_id)
 
             return create_success_response(_("Subscription cancelled successfully"))
 

@@ -519,3 +519,70 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         # The Mollie customer id is stored on the Member, not the Donor.
         self.assertTrue(frappe.db.get_value("Member", member.name, "mollie_customer_id"))
         self.assertFalse(frappe.db.get_value("Donor", donor.name, "mollie_customer_id"))
+
+    def test_create_customer_subscription_updates_owning_member(self):
+        """On a successful create the service writes the subscription back
+        onto the owning Member - callers no longer do their own db_sets."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Update",
+            last_name=f"Owner{token}",
+            email=f"update-owner-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            result = service.create_customer_subscription(
+                {
+                    "name": "Update Owner",
+                    "email": member.email,
+                    "owner_doctype": "Member",
+                    "owner_name": member.name,
+                },
+                {
+                    "amount": {"value": "15.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": "Membership dues",
+                },
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE"
+        )
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
+        )
+
+    def test_cancel_subscription_updates_owning_member(self):
+        """cancel_subscription finds the owning Member by mollie_subscription_id
+        and flips subscription_status to the valid 'canceled' value."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Cancel",
+            last_name=f"Owner{token}",
+            email=f"cancel-owner-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {
+                "mollie_customer_id": "cst_C",
+                "mollie_subscription_id": "sub_C",
+                "subscription_status": "active",
+            },
+            update_modified=False,
+        )
+
+        result = service.cancel_subscription("cst_C", "sub_C")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "subscription_status"), "canceled"
+        )
+        self.assertTrue(frappe.db.get_value("Member", member.name, "subscription_cancelled_date"))
