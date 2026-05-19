@@ -283,15 +283,19 @@ class MollieClient:
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
 
-    def list_mandates(self, customer_id: str) -> Any:
+    def list_mandates(self, customer_id: str) -> list:
         """
-        List the payment mandates for a customer.
+        List all payment mandates for a customer, across every page.
+
+        Mollie's SDK returns a ``PaginationList`` whose iterator only yields
+        the first page (50 results). Callers need the complete set, so this
+        walks ``get_next()`` and returns a flat list.
 
         Args:
             customer_id: The Mollie customer ID
 
         Returns:
-            Iterable of Mollie mandate objects
+            List of Mollie mandate objects
 
         Raises:
             MolliePaymentError: When the mandates cannot be listed
@@ -299,7 +303,12 @@ class MollieClient:
         try:
             client = self._get_mollie_client()
             customer = client.customers.get(customer_id)
-            return customer.mandates.list()
+            mandates = []
+            page = customer.mandates.list()
+            while page is not None:
+                mandates.extend(page)
+                page = page.get_next()
+            return mandates
         except Exception as e:
             error_msg = f"Failed to list mandates for customer {customer_id}: {e}"
             frappe.log_error(error_msg, "Mollie Client")
@@ -564,8 +573,9 @@ class MollieClient:
                     }
                 )
 
-            # Get mandates
-            mandates = customer_obj.mandates.list()
+            # Get mandates via list_mandates so every page is included
+            # (the raw PaginationList iterator only yields the first).
+            mandates = self.list_mandates(customer_id)
             for mandate in mandates:
                 result["mandates"].append(
                     {

@@ -60,6 +60,32 @@ class _FakeMandate:
         self.details = {"consumerAccount": consumer_account} if consumer_account else {}
 
 
+# Mollie paginates list endpoints at 50/page; a small page size here keeps
+# the pagination tests legible (3 mandates already span two pages).
+_FAKE_MANDATE_PAGE_SIZE = 2
+
+
+class _FakePaginationList:
+    """Stand-in for Mollie's ``PaginationList``: iterating yields only the
+    *current* page, and ``get_next()`` returns the following page (or None).
+
+    This deliberately mirrors the real SDK's non-auto-paginating behaviour so
+    ``MollieClient.list_mandates`` is exercised against it - a plain list
+    would silently hide the need to walk pages.
+    """
+
+    def __init__(self, items, page_size=_FAKE_MANDATE_PAGE_SIZE):
+        self._items = list(items)
+        self._page_size = page_size
+
+    def __iter__(self):
+        return iter(self._items[: self._page_size])
+
+    def get_next(self):
+        rest = self._items[self._page_size:]
+        return _FakePaginationList(rest, self._page_size) if rest else None
+
+
 class _FakeSubscription:
     def __init__(self, subscription_id="sub_FAKE", status="active",
                  next_payment_date="2026-06-01"):
@@ -92,7 +118,9 @@ class _FakeMandates:
     def list(self):
         if self._list_raises:
             raise RuntimeError("simulated Mollie mandate list failure")
-        return list(self._existing)
+        # Return a paginating list, as the real SDK does, so list_mandates
+        # has to walk pages rather than trust the first one.
+        return _FakePaginationList(self._existing)
 
 
 class _FakeSubscriptions:
@@ -135,6 +163,11 @@ class _FakeCustomers:
         self._counter = 0
 
     def _build(self, customer_id):
+        # Caveat: every customer this fake builds - including freshly
+        # created()d ones - carries the same existing_mandates. A real new
+        # Mollie customer has none. Tests here only ever resolve one
+        # customer, so this is harmless; a future multi-customer test must
+        # not rely on a created customer starting mandate-free.
         return _FakeCustomer(
             self._recorder, customer_id, self._sub_status, self._mandate_raises,
             self._existing_mandates, self._mandate_list_raises,
@@ -458,6 +491,80 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(len(sdk.recorder.mandates_created), 1)
+
+    def test_create_subscription_reuses_pending_mandate(self):
+        """A directdebit mandate still being established (status 'pending')
+        counts as usable - provisioning a second one would duplicate it."""
+        iban = "NL39RABO0300065264"
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(status="pending", method="directdebit", consumer_account=iban)
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(sdk.recorder.mandates_created, [])
+
+    def test_create_subscription_provisions_when_only_creditcard_mandate(self):
+        """A non-directdebit mandate (e.g. creditcard) for the IBAN does not
+        count - a SEPA directdebit mandate is still provisioned."""
+        iban = "NL39RABO0300065264"
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(status="valid", method="creditcard", consumer_account=iban)
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(len(sdk.recorder.mandates_created), 1)
+
+    def test_create_subscription_finds_matching_mandate_on_a_later_page(self):
+        """Mollie paginates the mandate list; the match must be found even
+        when it sits beyond the first page."""
+        iban = "NL39RABO0300065264"
+        # Page size is 2, so a valid match in position 3 is on page 2.
+        sdk = FakeSDKClient(
+            existing_mandates=[
+                _FakeMandate(mandate_id="mdt_1", status="invalid", method="directdebit"),
+                _FakeMandate(mandate_id="mdt_2", status="valid", method="directdebit",
+                             consumer_account="NL11INGB0001111111"),
+                _FakeMandate(mandate_id="mdt_3", status="valid", method="directdebit",
+                             consumer_account=iban),
+            ]
+        )
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        service.create_customer_subscription(
+            {"name": "Jane Doe", "email": _unique_email()},
+            {
+                "amount": {"value": "15.00", "currency": "EUR"},
+                "interval": "1 month",
+                "description": "Membership dues",
+                "consumerAccount": iban,
+            },
+        )
+
+        self.assertEqual(sdk.recorder.mandates_created, [])
 
     def test_create_customer_subscription_propagates_mandate_failure(self):
         """If mandate provisioning fails, the original mandate error must

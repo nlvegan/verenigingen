@@ -393,8 +393,10 @@ class CompletePaymentService:
     def _has_usable_directdebit_mandate(self, customer_id: str, iban: str) -> bool:
         """
         True when the customer already holds a SEPA directdebit mandate for
-        this IBAN that Mollie can still bill against (status `valid` or
-        `pending`) - in which case a fresh mandate need not be provisioned.
+        this IBAN that is `valid`, or `pending` (still being established) -
+        in which case a fresh mandate need not be provisioned. A `pending`
+        mandate is not billable yet, but provisioning a second one would
+        only stack a duplicate rather than help; it is treated as usable.
 
         IBAN comparison ignores spacing and case. Fails open: if the mandate
         list cannot be retrieved, returns False so the caller still
