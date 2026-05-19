@@ -504,6 +504,38 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
             frappe.db.get_value("Member", member.name, "subscription_status"), "active"
         )
 
+    def test_create_member_subscription_routes_through_gateway(self):
+        """Phase 3 - the create_member_subscription endpoint delegates to
+        MollieGateway, so CompletePaymentService owns the Member update:
+        subscription_status lands on the Member, which the old
+        MollieDebugService path never set. payment_method is not part of the
+        contract the service owns, so the endpoint still sets it itself."""
+        member = self._make_member()
+        frappe.db.set_value(
+            "Member", member.name, "mollie_customer_id", "cst_MEMBER", update_modified=False
+        )
+        sdk = FakeSDKClient()
+
+        with _patch_sdk(sdk):
+            from verenigingen.verenigingen_payments.utils.payment_gateways import (
+                create_member_subscription,
+            )
+
+            result = create_member_subscription(member.name, 15.0, interval="1 month")
+
+        self.assertEqual(result["status"], "success")
+        # The service owns the Member update - subscription_status is set.
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
+        )
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE"
+        )
+        # payment_method is still set by create_member_subscription itself.
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "payment_method"), "Mollie"
+        )
+
 
 class TestMollieSubscriptionContract(EnhancedTestCase):
     """Phase 2 - standardised mid-level create/cancel contract."""
