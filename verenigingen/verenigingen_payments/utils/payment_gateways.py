@@ -1990,8 +1990,10 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
     try:
         member = frappe.get_doc("Member", member_id)
 
-        # Check if member already has an active subscription
-        if member.mollie_subscription_id and member.subscription_status == "Active":
+        # Check if member already has an active subscription. The
+        # subscription_status Select field stores lowercase values
+        # ("active"/"pending"/...), so the comparison must be lowercase too.
+        if member.mollie_subscription_id and member.subscription_status == "active":
             return {
                 "status": "error",
                 "message": _(
@@ -2007,25 +2009,39 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
                 "message": _("No Mollie customer ID found. Please set up payment details first."),
             }
 
-        # Use existing MollieDebugService for subscription creation
-        # This handles mandate auto-selection and all the edge cases
-        from verenigingen.services.mollie_debug_service import MollieDebugService
+        # Validate the interval against what the gateway actually supports.
+        # The gateway maps unknown intervals to "1 month", which would
+        # silently bill a member monthly when they asked for quarterly or
+        # annual - so reject unsupported values explicitly instead.
+        supported_intervals = ("1 month", "3 months", "6 months", "1 year")
+        if interval not in supported_intervals:
+            return {
+                "status": "error",
+                "message": _("Unsupported subscription interval: {0}. Use one of: {1}.").format(
+                    interval, ", ".join(supported_intervals)
+                ),
+            }
 
-        debug_service = MollieDebugService()
-
-        # Create subscription using the existing service method
-        result = debug_service.create_subscription(
-            customer_id=member.mollie_customer_id,
-            amount=float(amount),
-            interval=interval,
-            description=description or f"Membership dues for {member.first_name} {member.last_name}",
-            mandate_id=None,  # Let Mollie auto-select active mandate
-            start_date=start_date,
+        # Create the subscription via the consolidated Mollie gateway, which
+        # routes through CompletePaymentService with owner_doctype/owner_name -
+        # so the service owns the Member update (mollie_customer_id,
+        # mollie_subscription_id, subscription_status, next_payment_date).
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+        result = gateway.create_subscription(
+            member,
+            {
+                "amount": float(amount),
+                "interval": interval,
+                "description": description or f"Membership dues for {member.first_name} {member.last_name}",
+                "start_date": start_date,
+            },
         )
 
-        # If successful, update member record
-        if result.get("status") == "success" and result.get("subscription_id"):
-            member.db_set("mollie_subscription_id", result["subscription_id"])
+        # payment_method is not part of the subscription contract the service
+        # owns, so it is still set here. db_set writes straight to the DB,
+        # which is correct even though `member` is stale after the service's
+        # set_value writes.
+        if result.get("status") == "success":
             member.db_set("payment_method", "Mollie")
 
         return result

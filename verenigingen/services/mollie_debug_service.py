@@ -293,10 +293,11 @@ class MollieDebugService(StatelessService):
             raise ValueError(_("Cancellation reason is required"))
 
         try:
-            # Use direct Mollie API call to avoid retry/circuit breaker issues
-            client = self.mollie_client.sdk_client
-            customer_obj = client.customers.get(customer_id)
-            cancelled_subscription = customer_obj.subscriptions.delete(subscription_id)
+            # Route through the standardised MollieClient wrapper rather than
+            # the raw SDK, so this admin path cannot drift from the contract.
+            # cancel_subscription raises MolliePaymentError on failure; the
+            # except block below inspects its message for "already cancelled".
+            self.mollie_client.cancel_subscription(customer_id, subscription_id)
 
             # Structured audit trail logging
             self.audit_trail.log_event(
@@ -1604,9 +1605,6 @@ class MollieDebugService(StatelessService):
             raise ValueError(_("Invalid interval - must be one of: {0}").format(", ".join(valid_intervals)))
 
         try:
-            # Get the raw Mollie client
-            client = self.mollie_client.sdk_client
-
             # Build subscription data
             # Note: webhookUrl intentionally omitted to use Mollie dashboard webhook settings
             # This ensures webhooks go to the correct environment (production/test)
@@ -1646,9 +1644,9 @@ class MollieDebugService(StatelessService):
                             f"(interval: {interval}, configured months: {mollie_settings.quarterly_yearly_payment_months})"
                         )
 
-            # Create subscription
-            customer = client.customers.get(customer_id)
-            subscription = customer.subscriptions.create(subscription_data)
+            # Create the subscription through the standardised MollieClient
+            # wrapper rather than reaching the raw SDK directly.
+            subscription = self.mollie_client.create_subscription(customer_id, subscription_data)
 
             # Structured audit trail logging
             self.audit_trail.log_event(
@@ -1835,8 +1833,6 @@ class MollieDebugService(StatelessService):
         }
 
         try:
-            client = self.mollie_client.sdk_client
-
             subscription_data = {
                 "amount": format_mollie_amount(amount_float),
                 "interval": mollie_interval,
@@ -1859,8 +1855,9 @@ class MollieDebugService(StatelessService):
             if resolved_start:
                 subscription_data["startDate"] = resolved_start
 
-            customer = client.customers.get(customer_id)
-            subscription = customer.subscriptions.create(subscription_data)
+            # Create the subscription through the standardised MollieClient
+            # wrapper rather than reaching the raw SDK directly.
+            subscription = self.mollie_client.create_subscription(customer_id, subscription_data)
 
             result["status"] = "success"
             result["subscription_id"] = subscription.id
