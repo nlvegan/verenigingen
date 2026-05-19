@@ -536,6 +536,48 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
             frappe.db.get_value("Member", member.name, "payment_method"), "Mollie"
         )
 
+    def test_create_member_subscription_blocks_existing_active_subscription(self):
+        """The early guard must fire for a member who already has a live
+        subscription. subscription_status is stored lowercase, so the guard
+        compares against 'active'."""
+        member = self._make_member()
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {
+                "mollie_customer_id": "cst_MEMBER",
+                "mollie_subscription_id": "sub_EXISTING",
+                "subscription_status": "active",
+            },
+            update_modified=False,
+        )
+
+        from verenigingen.verenigingen_payments.utils.payment_gateways import (
+            create_member_subscription,
+        )
+
+        result = create_member_subscription(member.name, 15.0, interval="1 month")
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["existing_subscription_id"], "sub_EXISTING")
+
+    def test_create_member_subscription_rejects_unsupported_interval(self):
+        """An interval the gateway does not support is rejected outright,
+        rather than being silently coerced to monthly billing."""
+        member = self._make_member()
+        frappe.db.set_value(
+            "Member", member.name, "mollie_customer_id", "cst_MEMBER", update_modified=False
+        )
+
+        from verenigingen.verenigingen_payments.utils.payment_gateways import (
+            create_member_subscription,
+        )
+
+        result = create_member_subscription(member.name, 15.0, interval="12 months")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Unsupported", result["message"])
+
 
 class TestMollieSubscriptionContract(EnhancedTestCase):
     """Phase 2 - standardised mid-level create/cancel contract."""

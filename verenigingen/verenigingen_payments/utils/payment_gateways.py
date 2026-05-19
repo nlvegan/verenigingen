@@ -1990,8 +1990,10 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
     try:
         member = frappe.get_doc("Member", member_id)
 
-        # Check if member already has an active subscription
-        if member.mollie_subscription_id and member.subscription_status == "Active":
+        # Check if member already has an active subscription. The
+        # subscription_status Select field stores lowercase values
+        # ("active"/"pending"/...), so the comparison must be lowercase too.
+        if member.mollie_subscription_id and member.subscription_status == "active":
             return {
                 "status": "error",
                 "message": _(
@@ -2005,6 +2007,19 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
             return {
                 "status": "error",
                 "message": _("No Mollie customer ID found. Please set up payment details first."),
+            }
+
+        # Validate the interval against what the gateway actually supports.
+        # The gateway maps unknown intervals to "1 month", which would
+        # silently bill a member monthly when they asked for quarterly or
+        # annual - so reject unsupported values explicitly instead.
+        supported_intervals = ("1 month", "3 months", "6 months", "1 year")
+        if interval not in supported_intervals:
+            return {
+                "status": "error",
+                "message": _("Unsupported subscription interval: {0}. Use one of: {1}.").format(
+                    interval, ", ".join(supported_intervals)
+                ),
             }
 
         # Create the subscription via the consolidated Mollie gateway, which
