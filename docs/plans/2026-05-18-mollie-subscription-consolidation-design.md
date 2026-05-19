@@ -1,7 +1,7 @@
 # Consolidate Mollie subscription create/cancel logic
 
 **Date:** 2026-05-18
-**Status:** Phases 1 & 2 complete and merged; Phase 3 pending.
+**Status:** Phases 1 & 2 complete and merged; Phase 3 in progress.
 **Context:** Audit T4.4 follow-up. Retiring `MollieConnector` (PR #44) unblocked this.
 
 ## 1. Problem
@@ -240,14 +240,101 @@ payment code.
   `duplicate_subscriptions`) its caller `amendment_events` relies on. These
   are kept *in addition to* the standard keys, not replaced.
 
-### Phase 3 — fold in the debug-service paths ⏳ PENDING
-- Route `MollieDebugService.create_subscription` / `admin_cancel_subscription`
-  through the standardised services so the admin tooling cannot drift.
-- `MollieGateway`-adjacent caller cleanup: `create_member_subscription` in
-  `payment_gateways.py` still calls `MollieDebugService.create_subscription`
-  directly and does its own `db_set`s — once the debug service routes through
-  `CompletePaymentService`, those `db_set`s become redundant (the service owns
-  the owner update) and should be removed, mirroring Phase 2 task 6.
+### Phase 3 — fold in the debug-service paths ⏳ IN PROGRESS
+
+Branch: `refactor/mollie-subscription-consolidation-phase3`. TDD each step —
+payment code.
+
+#### 3.0 Findings from the Phase 3 investigation
+
+- **`MollieDebugService` works at a different abstraction level.** Its
+  `create_subscription`, `create_scheduled_subscription` and
+  `admin_cancel_subscription` are admin debug tooling: every caller (the
+  `mollie_payments_debug`, `mollie_bulk_payment_creation` and
+  `mollie_subscription_recreation` template pages, plus `mollie_payment.py`)
+  passes a **raw Mollie `customer_id`** — often with an explicit `mandate_id` —
+  and consumes the debug-flavoured result dict (`create_success_response` /
+  `create_error_response`). That does **not** fit
+  `CompletePaymentService.create_customer_subscription`, whose contract
+  resolves or creates the Mollie customer from `customer_data["email"]` and
+  has no path for "use this exact existing customer id". `admin_cancel_subscription`
+  also deliberately tolerates an already-cancelled subscription
+  (`status: "warning"`), whereas `CompletePaymentService.cancel_subscription`
+  raises on any failure.
+- **Decision (confirmed with the maintainer):** the debug service routes
+  through **`MollieClient`** — the single standardised bottom-level SDK
+  wrapper — not through `CompletePaymentService`. This removes the real drift
+  (the debug methods currently reach past even `MollieClient` to
+  `self.mollie_client.sdk_client`) without forcing an ill-fitting owner/email
+  create contract onto raw-customer-id admin tooling. The debug result shape
+  and the "already cancelled" tolerance are preserved. `MollieClient`'s
+  subscription methods carry no retry/circuit-breaker decorators, so this
+  changes no runtime behaviour beyond the call path.
+- **`create_member_subscription`** (the whitelisted endpoint in
+  `payment_gateways.py`) has **no JS/HTML caller** — only a
+  `critical_operation_rule.json` fixture entry references it — so its return
+  shape is not consumed by the frontend. It routes through
+  `MollieGateway.create_subscription`, which already goes through
+  `CompletePaymentService` with `owner_doctype`/`owner_name`.
+
+#### 3.1 Task list
+
+1. **`MollieDebugService.create_subscription`** — replace the raw-SDK create
+   (`self.mollie_client.sdk_client` → `customers.get` → `subscriptions.create`)
+   with `self.mollie_client.create_subscription(customer_id, subscription_data)`.
+   `MollieClient.create_subscription` raises `MolliePaymentError` on failure;
+   the method's existing `except Exception` block already sanitises and returns
+   an error response. Result shape unchanged. TDD: the create delegates to
+   `MollieClient` and returns the success shape; a failure returns the
+   sanitised error shape.
+2. **`MollieDebugService.create_scheduled_subscription`** — same replacement.
+   Not named in the original Phase 3 bullet, but it carries the identical
+   raw-SDK create drift; consolidating its sibling while leaving it raw would
+   re-introduce exactly the drift this phase removes.
+3. **`MollieDebugService.admin_cancel_subscription`** — replace the raw-SDK
+   `customers.get(...).subscriptions.delete(...)` with
+   `self.mollie_client.cancel_subscription(customer_id, subscription_id)`.
+   Preserve the "already cancelled → `status: "warning"`" branch:
+   `MollieClient.cancel_subscription` wraps the SDK error as
+   `MolliePaymentError("Failed to cancel subscription <id>: <e>")`, so the
+   original phrases ("not found", "already cancelled", …) remain in the
+   message and the existing `phrase in error_message.lower()` check still
+   matches. TDD: the success path, and an "already cancelled" path that still
+   returns `warning`.
+4. **`payment_gateways.py` `create_member_subscription`** — route through
+   `MollieGateway.create_subscription(member, subscription_data)` instead of
+   `MollieDebugService.create_subscription`. The gateway already routes through
+   `CompletePaymentService` with `owner_doctype`/`owner_name`, so the service
+   owns the Member update.
+   - **Remove** the redundant `member.db_set("mollie_subscription_id", …)` —
+     `CompletePaymentService._update_owner_record` writes it.
+   - **Keep** `member.db_set("payment_method", "Mollie")` — it is *not*
+     redundant: the contract writes `mollie_customer_id`,
+     `mollie_subscription_id`, `subscription_status` and `next_payment_date`,
+     but not `payment_method`. (The original handoff said "remove them";
+     investigation shows only one of the two is redundant.) The `member`
+     object is stale after the service's `frappe.db.set_value` writes, but
+     `db_set` writes straight to the DB so the `payment_method` write is
+     still correct.
+   - Keep the existing early-return guards (already-active subscription,
+     missing `mollie_customer_id`).
+   - **Known behaviour change:** the gateway path passes
+     `consumerAccount = member.iban`, so `CompletePaymentService` *provisions
+     a fresh SEPA mandate from the IBAN* before creating the subscription,
+     whereas the old debug path passed `mandate_id=None` and let Mollie
+     auto-select an existing mandate. This aligns `create_member_subscription`
+     with the Phase-1-blessed `MollieGateway.create_subscription` contract
+     used by the rest of the app. Flagged for review.
+
+#### 3.2 Out of scope
+
+- `MollieDebugService`'s other raw-SDK uses — `update_subscription_webhook`,
+  the bulk "cancel all subscriptions + revoke mandate" helper, and the
+  payment / mandate / customer debug methods. Phase 3 touches only the
+  subscription create/cancel paths named in §4.
+- **Tests:** extend `tests/payment/test_mollie_subscription_consolidation.py`
+  with a `MollieDebugService` test class reusing `FakeSDKClient` / `_patch_sdk`,
+  and a `create_member_subscription` test. TDD each task.
 
 ## 5. Risks & test strategy
 
