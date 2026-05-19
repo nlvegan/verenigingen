@@ -1,9 +1,10 @@
 """
-Tests for the Mollie subscription create/cancel consolidation (Phases 1 and 2).
+Tests for the Mollie subscription create/cancel consolidation (Phases 1-3).
 
 Phase 1 collapses the two bottom-level subscription implementations onto a
 single SDK path (``MollieClient``); Phase 2 standardises the mid-level
-create/cancel contract. See
+create/cancel contract; Phase 3 routes the ``MollieDebugService`` admin
+tooling through ``MollieClient`` so it can no longer reach the raw SDK. See
 ``docs/plans/2026-05-18-mollie-subscription-consolidation-design.md``.
 
 The Mollie SDK is the external boundary; it is replaced here by ``FakeSDKClient``
@@ -64,6 +65,11 @@ class _FakeSubscription:
         self.canceled_at = None
         self.cancelled_at = None
         self.metadata = {}
+        # The MollieDebugService success responses read these fields directly
+        # (not via getattr), so the fake must carry them.
+        self.amount = {"value": "15.00", "currency": "EUR"}
+        self.interval = "1 month"
+        self.description = "Fake subscription"
 
 
 class _FakeMandates:
@@ -152,6 +158,31 @@ class RaisingSDKClient:
 
     def __init__(self):
         self.customers = _RaisingCustomers()
+
+
+class _AlreadyCancelledSubscriptions:
+    def delete(self, subscription_id):
+        # Mimics Mollie rejecting a delete for a subscription that is already
+        # gone - the message carries a phrase MollieDebugService treats as a
+        # tolerable "already cancelled" outcome.
+        raise RuntimeError("Subscription not found or has been cancelled")
+
+
+class _AlreadyCancelledCustomer:
+    def __init__(self):
+        self.subscriptions = _AlreadyCancelledSubscriptions()
+
+
+class _AlreadyCancelledCustomers:
+    def get(self, customer_id):
+        return _AlreadyCancelledCustomer()
+
+
+class AlreadyCancelledSDKClient:
+    """Fake SDK whose subscription delete fails as 'already cancelled'."""
+
+    def __init__(self):
+        self.customers = _AlreadyCancelledCustomers()
 
 
 def _make_mollie_client(sdk):
@@ -776,3 +807,133 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         new_customer_id = frappe.db.get_value("Member", member.name, "mollie_customer_id")
         self.assertTrue(new_customer_id)
         self.assertNotEqual(new_customer_id, "cst_STALE")
+
+
+class _DelegationSpy:
+    """Wrap a class method so its calls are recorded while the real method
+    still runs. Used to assert MollieDebugService delegates to MollieClient
+    rather than reaching the raw SDK directly.
+
+    Mock justified: this is a spy, not a stub - the real wrapped method runs,
+    the Mollie SDK stays the only faked boundary. It only records that the
+    standardised MollieClient layer was the path taken, which is precisely
+    the Phase 3 contract under test.
+    """
+
+    def __init__(self, cls, method_name):
+        self._real = getattr(cls, method_name)
+        self.calls = []
+
+        def wrapper(inner_self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return self._real(inner_self, *args, **kwargs)
+
+        self._patch = patch.object(cls, method_name, wrapper)
+
+    def __enter__(self):
+        self._patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._patch.stop()
+        return False
+
+
+class TestMollieDebugServiceSubscription(EnhancedTestCase):
+    """Phase 3 - MollieDebugService subscription create/cancel route through
+    MollieClient instead of the raw SDK."""
+
+    def test_create_subscription_delegates_to_mollie_client(self):
+        sdk = FakeSDKClient()
+
+        with _patch_sdk(sdk), _DelegationSpy(MollieClient, "create_subscription") as spy:
+            from verenigingen.services.mollie_debug_service import MollieDebugService
+
+            service = MollieDebugService()
+            result = service.create_subscription(
+                customer_id="cst_DEBUG",
+                amount=15.0,
+                interval="1 month",
+                description="Debug subscription",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["subscription_id"], "sub_FAKE")
+        # The create went through MollieClient, not the raw sdk_client.
+        self.assertEqual(len(spy.calls), 1)
+        self.assertEqual(spy.calls[0][0][0], "cst_DEBUG")
+        # And the SDK still received exactly one subscription create.
+        self.assertEqual(len(sdk.recorder.subscriptions_created), 1)
+
+    def test_create_subscription_failure_returns_sanitised_error(self):
+        """An SDK failure surfaces as the debug error shape, not an exception."""
+        with _patch_sdk(RaisingSDKClient()):
+            from verenigingen.services.mollie_debug_service import MollieDebugService
+
+            service = MollieDebugService()
+            result = service.create_subscription(
+                customer_id="cst_DEBUG",
+                amount=15.0,
+                interval="1 month",
+                description="Debug subscription",
+            )
+
+        self.assertEqual(result["status"], "error")
+
+    def test_create_scheduled_subscription_delegates_to_mollie_client(self):
+        sdk = FakeSDKClient()
+
+        with _patch_sdk(sdk), _DelegationSpy(MollieClient, "create_subscription") as spy:
+            from verenigingen.services.mollie_debug_service import MollieDebugService
+
+            service = MollieDebugService()
+            result = service.create_scheduled_subscription(
+                customer_id="cst_DEBUG",
+                amount=15.0,
+                interval_count=1,
+                interval_unit="months",
+                description="Debug scheduled subscription",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["subscription_id"], "sub_FAKE")
+        self.assertEqual(len(spy.calls), 1)
+        self.assertEqual(spy.calls[0][0][0], "cst_DEBUG")
+        self.assertEqual(len(sdk.recorder.subscriptions_created), 1)
+
+    def test_admin_cancel_subscription_delegates_to_mollie_client(self):
+        sdk = FakeSDKClient()
+
+        with _patch_sdk(sdk), _DelegationSpy(MollieClient, "cancel_subscription") as spy:
+            from verenigingen.services.mollie_debug_service import MollieDebugService
+
+            service = MollieDebugService()
+            result = service.admin_cancel_subscription(
+                customer_id="cst_DEBUG",
+                subscription_id="sub_LIVE",
+                reason="Test cancellation",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(len(spy.calls), 1)
+        self.assertEqual(spy.calls[0][0], ("cst_DEBUG", "sub_LIVE"))
+        self.assertEqual(sdk.recorder.subscriptions_deleted, ["sub_LIVE"])
+
+    def test_admin_cancel_already_cancelled_returns_warning(self):
+        """An already-cancelled subscription is tolerated (status 'warning'),
+        even though MollieClient.cancel_subscription raises - the wrapped
+        MolliePaymentError keeps the SDK's 'not found' phrasing."""
+        with _patch_sdk(AlreadyCancelledSDKClient()), _DelegationSpy(
+            MollieClient, "cancel_subscription"
+        ) as spy:
+            from verenigingen.services.mollie_debug_service import MollieDebugService
+
+            service = MollieDebugService()
+            result = service.admin_cancel_subscription(
+                customer_id="cst_DEBUG",
+                subscription_id="sub_GONE",
+                reason="Test cancellation",
+            )
+
+        self.assertEqual(result["status"], "warning")
+        self.assertEqual(len(spy.calls), 1)
