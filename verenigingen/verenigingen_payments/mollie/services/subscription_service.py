@@ -11,7 +11,6 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from ..core.client import MollieClient
-from ..core.mollie_models import Subscription
 from ..exceptions import MollieIntegrationError
 from ..utils.amount_helpers import extract_amount_currency, extract_amount_float
 from ..utils.validators import PaymentDataValidator
@@ -65,7 +64,7 @@ class SubscriptionService:
             "metadata": subscription.metadata,
         }
 
-    def cancel_subscription(self, customer_id: str, subscription_id: str, reason: str = "") -> Subscription:
+    def cancel_subscription(self, customer_id: str, subscription_id: str, reason: str = "") -> Dict[str, Any]:
         """
         Cancel a subscription.
 
@@ -75,7 +74,7 @@ class SubscriptionService:
             reason: Optional cancellation reason
 
         Returns:
-            Canceled subscription object
+            Standard cancel result dict: {status, subscription_id, message}
         """
         subscription = self.client.cancel_subscription(customer_id, subscription_id)
 
@@ -92,7 +91,11 @@ class SubscriptionService:
             if donor_id:
                 self._update_donor_subscription_canceled(donor_id, subscription_id, reason)
 
-        return subscription
+        return {
+            "status": "success",
+            "subscription_id": subscription_id,
+            "message": "Subscription cancelled successfully",
+        }
 
     def process_subscription_payment(self, payment_id: str) -> Dict[str, Any]:
         """

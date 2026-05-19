@@ -147,29 +147,93 @@ Precise task list:
 - Net: one SDK path (`MollieClient`).
 
 ### Phase 2 — standardise the mid-level contract
-- Make row locking mandatory on every create path (port the
-  `SELECT … FOR UPDATE` pattern into `CompletePaymentService` and the sync
-  service create path).
-- Single mandate-validation helper used by all create paths.
-- Service layer always updates the owning Member/Donor record on create and
-  cancel (eliminate the "caller is responsible" gaps).
-- One result dataclass / shape for create and for cancel.
-- **`enable_subscriptions` gate lives only at the caller.** After Phase 1
-  the gate survives because `MollieGateway.create_subscription` checks
-  `settings.enable_subscriptions` itself, but `CompletePaymentService.`
-  `create_customer_subscription` — the consolidation target — has no such
-  check. Any caller wired straight to the service (e.g. the Phase 3 debug
-  service) would bypass the gate. Phase 2 should move the check into the
-  standardised create contract. (Found during Phase 1 review.)
-- **Customer resolution is Donor-only today.** `CompletePaymentService.`
-  `_create_or_get_customer` resolves the Mollie customer by looking up a
-  `Donor` on `donor_email`. After Phase 1, `MollieGateway` (membership dues)
-  routes through this method, so a member whose email matches a `Donor` row
-  binds the membership subscription to that Donor's Mollie customer and
-  writes `mollie_customer_id` back onto the Donor. The legacy path always
-  created a fresh Mollie customer. Phase 2 must make customer resolution
-  owner-aware (Member vs Donor) so each owning DocType resolves against its
-  own record. (Found during Phase 1 review; deferred here by decision.)
+
+Branch: `refactor/mollie-subscription-consolidation-phase2`. TDD each step —
+payment code.
+
+#### 2.0 Findings from the Phase 2 investigation
+
+- **The sync-service create path is broken.**
+  `MollieSubscriptionSyncService.sync_subscription_for_amendment` calls
+  `self.client.create_subscription(customer_id=…, amount=Money(…),
+  interval=…, description=…, webhook_url=…, start_date=…, metadata=…)` —
+  keyword arguments that do not match `MollieClient.create_subscription(
+  customer_id, subscription_data: dict)`. Every call raises `TypeError`.
+  This is the same bug class as the dead `SubscriptionService.create_*`
+  methods retired in Phase 1 — but this one is **live**: applying a
+  `Contribution Amendment Request` enqueues
+  `sync_mollie_subscription_on_amendment_applied`, which calls it. So a
+  member changing their contribution amount currently fails the Mollie
+  sync. Phase 2 must fix this as part of standardising the create path.
+- **Divergences across the create/cancel paths (post-Phase-1):**
+  - *Row locking* — `CompletePaymentService._create_or_get_customer` locks
+    the `Donor` row for *customer* creation, but no path locks the
+    Member/Donor for *subscription* creation (duplicate-subscription race).
+    The sync service takes no lock at all.
+  - *Mandate handling* — `CompletePaymentService` provisions a mandate from
+    an IBAN; the sync service validates an *existing* mandate via the SDK;
+    no shared helper.
+  - *DocType updates* — `CompletePaymentService.create_customer_subscription`
+    does NOT update Member/Donor (its caller `MollieGateway` does the
+    `db_set`s); `cancel_subscription` calls `_update_subscription_status`,
+    which is a TODO no-op; the sync service updates `mollie_subscription_id`
+    itself.
+  - *Return shapes* — `CompletePaymentService` returns dicts;
+    `SubscriptionService.cancel_subscription` returns a `Subscription` SDK
+    object; the sync service returns ad-hoc dicts with bespoke keys
+    (`reason`, `requires_admin_review`, `rollback_successful`, …).
+  - *`enable_subscriptions` gate* — enforced only in `MollieGateway`.
+
+#### 2.1 Task list
+
+1. **Fix the sync-service create call.** Rebuild
+   `sync_subscription_for_amendment` to call
+   `MollieClient.create_subscription(customer_id, subscription_data)` with a
+   correctly-shaped dict (`amount` as `{"value","currency"}`, `interval`,
+   `description`, `webhookUrl`, `startDate`, `metadata`). TDD: a test that
+   currently `TypeError`s, then green.
+2. **Standard result shape.** One documented dict shape for create and one
+   for cancel — a plain `dict` (not a dataclass) so existing
+   `result["status"]` caller access keeps working:
+   - create: `{status, customer_id, subscription_id, subscription_status,
+     next_payment_date, message}` (`status` ∈ `success`/`error`).
+   - cancel: `{status, subscription_id, message}`.
+   Every create/cancel path returns this; `SubscriptionService.`
+   `cancel_subscription` stops returning a raw `Subscription` object.
+3. **`enable_subscriptions` gate in the contract.** Move the check into
+   `CompletePaymentService.create_customer_subscription` (and the sync
+   path) so it cannot be bypassed; keep `MollieGateway`'s early check or
+   let it delegate — no double error.
+4. **Single mandate helper.** One helper used by every create path: provision
+   from IBAN when given, otherwise validate an existing mandate.
+5. **Mandatory row locking on subscription create.** Port the
+   `SELECT … FOR UPDATE` pattern onto the owning Member/Donor row for the
+   subscription-create paths, not just customer creation.
+   - **Idempotency (intentional contract decision).** While the owner row is
+     locked, if the owner already has a *live* (`active`/`pending`) Mollie
+     subscription, the create returns that subscription instead of
+     provisioning a second one — mirroring how customer resolution returns an
+     existing customer. The `active`/`pending` gate means a re-subscribe after
+     a cancellation still creates a fresh subscription. A caller that
+     deliberately wants a *second concurrent* live subscription for one owner
+     (e.g. a future amendment "create new before cancelling old" flow) must
+     not route through this path. Confirmed during the Phase 2 review.
+6. **Service owns the DocType update.** `CompletePaymentService` updates the
+   owning Member/Donor on create and cancel; remove the duplicated `db_set`s
+   from `MollieGateway`. Implement the `_update_subscription_status` no-op.
+7. **Owner-aware customer resolution.** `_create_or_get_customer` must
+   resolve against the owning DocType (Member vs Donor), not always `Donor`,
+   so a member's subscription never binds to a Donor's Mollie customer.
+
+#### 2.2 Open design decisions (confirm before implementing)
+
+- **Result shape** — plain dict (above) vs a dataclass. Dict chosen here to
+  avoid breaking `result["…"]` access in `unified_payment_api`,
+  `MollieGateway` callers, and `amendment_events`. Confirm.
+- **Sync-service return** — `sync_subscription_for_amendment` carries
+  operational keys (`requires_admin_review`, `critical_failure`,
+  `duplicate_subscriptions`) its caller `amendment_events` relies on. These
+  are kept *in addition to* the standard keys, not replaced.
 
 ### Phase 3 — fold in the debug-service paths
 - Route `MollieDebugService.create_subscription` / `admin_cancel_subscription`

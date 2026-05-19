@@ -14,14 +14,12 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
     CompletePaymentService,
 )
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     convert_frequency_to_mollie_interval,
     create_error_response,
-    create_success_response,
     format_mollie_amount,
     format_mollie_amount_string,
     get_member_by_customer_id,
@@ -514,6 +512,11 @@ class MollieGateway(PaymentGateway):
         """
         Create Mollie subscription for recurring membership dues
 
+        CompletePaymentService owns the Member update (mollie_customer_id,
+        mollie_subscription_id, subscription_status, next_payment_date) and
+        writes it via frappe.db.set_value - so the passed-in `member` document
+        object is stale after this call; reload() it if you need the new values.
+
         Args:
             member: Member document
             subscription_data (dict): Subscription configuration
@@ -528,10 +531,14 @@ class MollieGateway(PaymentGateway):
                     "message": _("Subscriptions are not enabled for this Mollie gateway"),
                 }
 
-            # Prepare customer data
+            # Prepare customer data. owner_doctype/owner_name make the service
+            # resolve the Mollie customer against this Member - not against a
+            # Donor that happens to share the email address.
             customer_data = {
                 "name": f"{member.first_name} {member.last_name}".strip(),
                 "email": member.email,
+                "owner_doctype": "Member",
+                "owner_name": member.name,
                 "metadata": {
                     "member_id": member.name,
                     "member_number": getattr(member, "member_id", ""),
@@ -575,17 +582,12 @@ class MollieGateway(PaymentGateway):
                 mollie_subscription_data["startDate"] = subscription_data["start_date"]
 
             # Create subscription via the consolidated Mollie service layer.
+            # The service owns the Member update (mollie_customer_id,
+            # mollie_subscription_id, subscription_status, next_payment_date)
+            # via the owner_doctype/owner_name passed in customer_data.
             result = CompletePaymentService().create_customer_subscription(
                 customer_data, mollie_subscription_data
             )
-
-            # CompletePaymentService returns the Mollie subscription status
-            # under `subscription_status`; its `status` key is the literal
-            # "success", so the member field maps from `subscription_status`.
-            member.db_set("mollie_customer_id", result["customer_id"])
-            member.db_set("mollie_subscription_id", result["subscription_id"])
-            member.db_set("subscription_status", result["subscription_status"])
-            member.db_set("next_payment_date", result.get("next_payment_date"))
 
             frappe.logger().info(
                 f"Created Mollie subscription {result['subscription_id']} for member {member.name}"
@@ -645,6 +647,10 @@ class MollieGateway(PaymentGateway):
         """
         Cancel Mollie subscription for member
 
+        CompletePaymentService owns the Member status update, so the passed-in
+        `member` document object is stale after this call; reload() it if you
+        need the new values.
+
         Args:
             member: Member document with subscription details
 
@@ -658,16 +664,15 @@ class MollieGateway(PaymentGateway):
             if not (customer_id and subscription_id):
                 return create_error_response(_("No active subscription found for this member"))
 
-            # Cancel via the consolidated Mollie client. It raises on failure,
-            # so the surrounding except block is the error path.
-            MollieClient().cancel_subscription(customer_id, subscription_id)
-
-            # Update member subscription status. "canceled" (US spelling) is
-            # the only valid Member.subscription_status Select option.
-            member.db_set("subscription_status", "canceled")
-            member.db_set("subscription_cancelled_date", frappe.utils.today())
-
-            return create_success_response(_("Subscription cancelled successfully"))
+            # Cancel via the consolidated service. It performs the Mollie
+            # cancel and owns the Member status update; it raises on failure,
+            # so the surrounding except block is the error path. The owner is
+            # passed explicitly so the service updates this Member directly
+            # rather than reverse-resolving by the non-unique subscription id.
+            # Its return value is the standard cancel result shape.
+            return CompletePaymentService().cancel_subscription(
+                customer_id, subscription_id, owner_doctype="Member", owner_name=member.name
+            )
 
         except Exception as e:
             log_mollie_error("Subscription Cancellation", e, {"member": member.name})
@@ -1084,10 +1089,9 @@ def _activate_subscription_after_first_payment(gateway, member_name, member_cust
                 f"Successfully activated subscription {result['subscription_id']} for member {member_name}"
             )
 
-            # Update member with subscription details
-            member.db_set("mollie_subscription_id", result["subscription_id"])
-            member.db_set("subscription_status", "Active")
-            member.db_set("next_payment_date", subscription_data["startDate"])
+            # The subscription fields (mollie_subscription_id, subscription_status,
+            # next_payment_date) are written onto the member by
+            # CompletePaymentService - the gateway no longer does its own db_sets.
 
             return {
                 "status": "success",
