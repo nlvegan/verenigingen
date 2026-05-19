@@ -479,3 +479,43 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         # The gate fires before any Mollie call.
         self.assertEqual(sdk.recorder.subscriptions_created, [])
         self.assertEqual(sdk.recorder.customers_created, [])
+
+    def test_customer_resolution_is_owner_aware_for_member(self):
+        """A membership subscription resolves the Mollie customer against the
+        Member record. Even when a Donor shares the email address, the Donor's
+        mollie_customer_id is left untouched."""
+        sdk = FakeSDKClient()
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Owner",
+            last_name=f"Aware{token}",
+            email=f"owner-aware-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        donor = self.create_test_donor()
+        frappe.db.set_value("Donor", donor.name, "donor_email", member.email, update_modified=False)
+
+        # The owner-row lock uses frappe.db.begin/commit; neutralise the
+        # transaction plumbing so the locking logic runs inside the test's
+        # transaction (the pattern used by test_termination_execution_service).
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            result = service.create_customer_subscription(
+                {
+                    "name": "Owner Aware",
+                    "email": member.email,
+                    "owner_doctype": "Member",
+                    "owner_name": member.name,
+                },
+                {
+                    "amount": {"value": "15.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": "Membership dues",
+                },
+            )
+
+        self.assertEqual(result["status"], "success")
+        # The Mollie customer id is stored on the Member, not the Donor.
+        self.assertTrue(frappe.db.get_value("Member", member.name, "mollie_customer_id"))
+        self.assertFalse(frappe.db.get_value("Donor", donor.name, "mollie_customer_id"))

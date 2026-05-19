@@ -528,10 +528,14 @@ class MollieGateway(PaymentGateway):
                     "message": _("Subscriptions are not enabled for this Mollie gateway"),
                 }
 
-            # Prepare customer data
+            # Prepare customer data. owner_doctype/owner_name make the service
+            # resolve the Mollie customer against this Member - not against a
+            # Donor that happens to share the email address.
             customer_data = {
                 "name": f"{member.first_name} {member.last_name}".strip(),
                 "email": member.email,
+                "owner_doctype": "Member",
+                "owner_name": member.name,
                 "metadata": {
                     "member_id": member.name,
                     "member_number": getattr(member, "member_id", ""),

@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
 
 import frappe
+from frappe.query_builder import DocType
 
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
@@ -456,51 +457,99 @@ class CompletePaymentService:
 
     def _create_or_get_customer(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create a new customer or get existing one with race condition protection.
+        Resolve the Mollie customer for a subscription.
 
-        Uses SELECT FOR UPDATE to prevent duplicate customer creation when
-        concurrent requests arrive for the same donor.
+        When `customer_data` names an owning record (`owner_doctype` +
+        `owner_name`) the customer is resolved against that record - a
+        membership subscription against the Member, a donation against the
+        Donor - so a member's subscription never binds to a Donor's Mollie
+        customer just because they happen to share an email address. Without
+        an explicit owner, falls back to Donor-by-email resolution.
+        """
+        owner_doctype = customer_data.get("owner_doctype")
+        owner_name = customer_data.get("owner_name")
+        if owner_doctype and owner_name:
+            return self._resolve_customer_for_owner(owner_doctype, owner_name, customer_data)
+        return self._resolve_customer_by_email(customer_data)
+
+    def _resolve_customer_for_owner(
+        self, owner_doctype: str, owner_name: str, customer_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Reuse or create the Mollie customer recorded on a specific Member or
+        Donor, locking that row (SELECT ... FOR UPDATE) so concurrent requests
+        for the same owner cannot create duplicate Mollie customers.
+        """
+        if owner_doctype not in ("Member", "Donor"):
+            raise MollieValidationError(f"Unsupported subscription owner doctype: {owner_doctype}")
+
+        # begin()/commit() bracket the row lock: commit() persists the customer
+        # id and releases the lock; every exit path must commit() or rollback().
+        frappe.db.begin()
+        try:
+            owner = DocType(owner_doctype)
+            locked_row = (
+                frappe.qb.from_(owner)
+                .select(owner.mollie_customer_id)
+                .where(owner.name == owner_name)
+                .for_update()
+                .run(as_dict=True)
+            )
+
+            if not locked_row:
+                frappe.db.commit()
+                return create_error_response(f"{owner_doctype} {owner_name} not found")
+
+            existing_customer_id = locked_row[0].get("mollie_customer_id")
+            if existing_customer_id:
+                try:
+                    customer = self.client.get_customer(existing_customer_id)
+                    frappe.db.commit()  # Release lock
+                    return {"status": "found", "customer_id": customer.id}
+                except Exception as e:
+                    frappe.logger().warning(
+                        f"Existing customer ID {existing_customer_id} not found in Mollie: {e}"
+                    )
+                    # Stale id - fall through and create a fresh customer.
+
+            customer = self.client.create_customer(self._mollie_customer_payload(customer_data))
+            frappe.db.set_value(
+                owner_doctype, owner_name, "mollie_customer_id", customer.id, update_modified=False
+            )
+            frappe.db.commit()  # Commit and release lock
+            frappe.logger().info(f"Saved Mollie customer {customer.id} to {owner_doctype} {owner_name}")
+            return {"status": "created", "customer_id": customer.id}
+
+        except Exception as e:
+            frappe.db.rollback()
+            error_msg = f"Failed to create or get Mollie customer: {e}"
+            frappe.log_error(error_msg, "Mollie Customer Error")
+            return create_error_response(error_msg)
+
+    def _resolve_customer_by_email(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve the Mollie customer by Donor email - the fallback for donation
+        flows that do not name an explicit owner record.
+
+        Uses SELECT ... FOR UPDATE on the Donor row so concurrent requests for
+        the same donor cannot create duplicate Mollie customers.
         """
         email = customer_data["email"]
 
-        # First check without lock for quick path (most common case)
+        # Quick path: no Donor with this email -> no race, create without a lock.
         existing_donors = frappe.get_all(
             "Donor", filters={"donor_email": email}, fields=["name", "mollie_customer_id"]
         )
-
         if not existing_donors:
-            # No donor exists, create customer without lock (no race condition risk)
-            # This is safe because we can't have a race condition for a non-existent donor
             return self._create_mollie_customer_only(customer_data)
 
         donor_name = existing_donors[0]["name"]
 
-        # ===== ROW LOCKING FOR RACE CONDITION PREVENTION =====
-        #
-        # PROBLEM: Without locking, two concurrent requests for the same donor could both:
-        #   1. Check mollie_customer_id (both see None)
-        #   2. Create new Mollie customers (duplicate!)
-        #   3. Save their customer ID (one gets overwritten)
-        #
-        # SOLUTION: Use SELECT ... FOR UPDATE to acquire an exclusive row lock
-        #   - First request acquires lock, second request WAITS
-        #   - After first request commits, second request sees the updated value
-        #   - No duplicate Mollie customers created
-        #
-        # TRANSACTION SEMANTICS:
-        #   - begin() starts transaction and creates savepoint
-        #   - commit() persists changes AND releases the row lock
-        #   - rollback() undoes changes AND releases the row lock
-        #   - ALL exit paths must either commit() or rollback() to release the lock
-        #
+        # begin()/commit() bracket the row lock: commit()/rollback() release it.
         frappe.db.begin()
         try:
-            # Acquire row lock - other requests will wait here
             locked_row = frappe.db.sql(
-                """
-                SELECT mollie_customer_id FROM `tabDonor`
-                WHERE name = %s FOR UPDATE
-                """,
+                "SELECT mollie_customer_id FROM `tabDonor` WHERE name = %s FOR UPDATE",
                 donor_name,
                 as_dict=True,
             )
@@ -510,8 +559,6 @@ class CompletePaymentService:
                 return self._create_mollie_customer_only(customer_data)
 
             existing_customer_id = locked_row[0].get("mollie_customer_id")
-
-            # Check if customer already exists (may have been created by concurrent request)
             if existing_customer_id:
                 try:
                     customer = self.client.get_customer(existing_customer_id)
@@ -524,23 +571,12 @@ class CompletePaymentService:
                     frappe.logger().warning(
                         f"Existing customer ID {existing_customer_id} not found in Mollie: {e}"
                     )
-                    # Continue to create new customer (stale ID case)
+                    # Stale id - fall through and create a fresh customer.
 
-            # Create new customer in Mollie while holding the lock
-            mollie_customer_data = {"name": customer_data.get("name", ""), "email": email}
-            if customer_data.get("locale"):
-                mollie_customer_data["locale"] = customer_data["locale"]
-            if customer_data.get("metadata"):
-                mollie_customer_data["metadata"] = customer_data["metadata"]
-
-            customer = self.client.create_customer(mollie_customer_data)
-            frappe.logger().info(f"Created new Mollie customer {customer.id}")
-
-            # Update donor with new customer ID (still holding lock)
+            customer = self.client.create_customer(self._mollie_customer_payload(customer_data))
             frappe.db.set_value("Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False)
             frappe.db.commit()  # Commit and release lock
             frappe.logger().info(f"Saved customer ID {customer.id} to donor {donor_name}")
-
             return {"status": "created", "customer_id": customer.id}
 
         except Exception as e:
@@ -550,25 +586,27 @@ class CompletePaymentService:
             return create_error_response(error_msg)
 
     def _create_mollie_customer_only(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create Mollie customer without updating any Frappe document."""
+        """Create a Mollie customer without recording it on any Frappe document."""
         try:
-            mollie_customer_data = {
-                "name": customer_data.get("name", ""),
-                "email": customer_data["email"],
-            }
-            if customer_data.get("locale"):
-                mollie_customer_data["locale"] = customer_data["locale"]
-            if customer_data.get("metadata"):
-                mollie_customer_data["metadata"] = customer_data["metadata"]
-
-            customer = self.client.create_customer(mollie_customer_data)
-            frappe.logger().info(f"Created new Mollie customer {customer.id} (no donor)")
+            customer = self.client.create_customer(self._mollie_customer_payload(customer_data))
+            frappe.logger().info(f"Created new Mollie customer {customer.id} (no owner record)")
             return {"status": "created", "customer_id": customer.id}
-
         except Exception as e:
             error_msg = f"Failed to create Mollie customer: {e}"
             frappe.log_error(error_msg, "Mollie Customer Error")
             return create_error_response(error_msg)
+
+    def _mollie_customer_payload(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build the customer dict passed to the Mollie SDK (name/email/locale/metadata)."""
+        payload = {
+            "name": customer_data.get("name", ""),
+            "email": customer_data["email"],
+        }
+        if customer_data.get("locale"):
+            payload["locale"] = customer_data["locale"]
+        if customer_data.get("metadata"):
+            payload["metadata"] = customer_data["metadata"]
+        return payload
 
     def _update_donation_with_payment(self, donation_doc: Any, mollie_payment: Any) -> None:
         """Update donation document with Mollie payment details."""
