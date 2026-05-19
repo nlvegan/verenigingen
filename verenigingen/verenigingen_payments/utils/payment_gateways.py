@@ -20,7 +20,6 @@ from verenigingen.verenigingen_payments.mollie.services.complete_payment_service
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     convert_frequency_to_mollie_interval,
     create_error_response,
-    create_success_response,
     format_mollie_amount,
     format_mollie_amount_string,
     get_member_by_customer_id,
@@ -670,11 +669,10 @@ class MollieGateway(PaymentGateway):
             # so the surrounding except block is the error path. The owner is
             # passed explicitly so the service updates this Member directly
             # rather than reverse-resolving by the non-unique subscription id.
-            CompletePaymentService().cancel_subscription(
+            # Its return value is the standard cancel result shape.
+            return CompletePaymentService().cancel_subscription(
                 customer_id, subscription_id, owner_doctype="Member", owner_name=member.name
             )
-
-            return create_success_response(_("Subscription cancelled successfully"))
 
         except Exception as e:
             log_mollie_error("Subscription Cancellation", e, {"member": member.name})

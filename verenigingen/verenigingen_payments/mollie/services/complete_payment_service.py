@@ -451,17 +451,17 @@ class CompletePaymentService:
             frappe.logger().info(f"❌ Cancelling subscription {subscription_id}")
 
             # Cancel in Mollie
-            cancelled_subscription = self.client.cancel_subscription(customer_id, subscription_id)
+            self.client.cancel_subscription(customer_id, subscription_id)
 
             # Flip the owning Member/Donor onto the cancelled status.
             self._update_subscription_status(subscription_id, "canceled", reason, owner_doctype, owner_name)
 
             frappe.logger().info(f"✅ Subscription cancelled: {subscription_id}")
 
+            # Standard cancel result shape.
             return {
                 "status": "success",
                 "subscription_id": subscription_id,
-                "cancelled_at": getattr(cancelled_subscription, "cancelled_at", None),
                 "message": "Subscription cancelled successfully",
             }
 

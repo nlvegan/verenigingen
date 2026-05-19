@@ -23,6 +23,9 @@ from verenigingen.verenigingen_payments.mollie.exceptions import (
 from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
     CompletePaymentService,
 )
+from verenigingen.verenigingen_payments.mollie.services.subscription_service import (
+    SubscriptionService,
+)
 
 # ---------------------------------------------------------------------------
 # Fake Mollie SDK client
@@ -59,6 +62,7 @@ class _FakeSubscription:
         self.next_payment_date = next_payment_date
         self.canceled_at = None
         self.cancelled_at = None
+        self.metadata = {}
 
 
 class _FakeMandates:
@@ -410,6 +414,7 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
             result = gateway.cancel_subscription(member)
 
         self.assertEqual(result["status"], "success")
+        self.assertEqual(result["subscription_id"], "sub_LIVE")
         self.assertEqual(sdk.recorder.subscriptions_deleted, ["sub_LIVE"])
         self.assertEqual(
             frappe.db.get_value("Member", member.name, "subscription_status"), "canceled"
@@ -628,10 +633,26 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         result = service.cancel_subscription("cst_C", "sub_C")
 
         self.assertEqual(result["status"], "success")
+        # Standard cancel result shape - exactly these keys.
+        self.assertEqual(set(result), {"status", "subscription_id", "message"})
+        self.assertEqual(result["subscription_id"], "sub_C")
         self.assertEqual(
             frappe.db.get_value("Member", member.name, "subscription_status"), "canceled"
         )
         self.assertTrue(frappe.db.get_value("Member", member.name, "subscription_cancelled_date"))
+
+    def test_subscription_service_cancel_returns_standard_dict(self):
+        """SubscriptionService.cancel_subscription returns the standard cancel
+        result dict, not a raw Mollie subscription object."""
+        sdk = FakeSDKClient()
+        service = SubscriptionService(client=_make_mollie_client(sdk))
+
+        result = service.cancel_subscription("cst_S", "sub_S")
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(set(result), {"status", "subscription_id", "message"})
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["subscription_id"], "sub_S")
 
     def test_create_customer_subscription_is_idempotent_when_owner_has_subscription(self):
         """If the owning record already has an active subscription, create
