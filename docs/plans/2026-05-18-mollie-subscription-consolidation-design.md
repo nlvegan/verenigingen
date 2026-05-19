@@ -209,6 +209,15 @@ payment code.
 5. **Mandatory row locking on subscription create.** Port the
    `SELECT … FOR UPDATE` pattern onto the owning Member/Donor row for the
    subscription-create paths, not just customer creation.
+   - **Idempotency (intentional contract decision).** While the owner row is
+     locked, if the owner already has a *live* (`active`/`pending`) Mollie
+     subscription, the create returns that subscription instead of
+     provisioning a second one — mirroring how customer resolution returns an
+     existing customer. The `active`/`pending` gate means a re-subscribe after
+     a cancellation still creates a fresh subscription. A caller that
+     deliberately wants a *second concurrent* live subscription for one owner
+     (e.g. a future amendment "create new before cancelling old" flow) must
+     not route through this path. Confirmed during the Phase 2 review.
 6. **Service owns the DocType update.** `CompletePaymentService` updates the
    owning Member/Donor on create and cancel; remove the duplicated `db_set`s
    from `MollieGateway`. Implement the `_update_subscription_status` no-op.

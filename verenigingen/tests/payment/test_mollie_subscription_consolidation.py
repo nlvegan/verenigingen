@@ -1,8 +1,9 @@
 """
-Tests for the Mollie subscription create/cancel consolidation (Phase 1).
+Tests for the Mollie subscription create/cancel consolidation (Phases 1 and 2).
 
 Phase 1 collapses the two bottom-level subscription implementations onto a
-single SDK path (``MollieClient``). See
+single SDK path (``MollieClient``); Phase 2 standardises the mid-level
+create/cancel contract. See
 ``docs/plans/2026-05-18-mollie-subscription-consolidation-design.md``.
 
 The Mollie SDK is the external boundary; it is replaced here by ``FakeSDKClient``
@@ -105,10 +106,11 @@ class _FakeCustomer:
 
 
 class _FakeCustomers:
-    def __init__(self, recorder, sub_status, mandate_raises):
+    def __init__(self, recorder, sub_status, mandate_raises, stale_customer_id):
         self._recorder = recorder
         self._sub_status = sub_status
         self._mandate_raises = mandate_raises
+        self._stale_customer_id = stale_customer_id
         self._counter = 0
 
     def create(self, data=None):
@@ -120,15 +122,21 @@ class _FakeCustomers:
 
     def get(self, customer_id):
         self._recorder.customers_fetched.append(customer_id)
+        # Only the designated "stale" id fails to resolve; freshly-created
+        # customers (and every other id) resolve normally.
+        if self._stale_customer_id and customer_id == self._stale_customer_id:
+            raise RuntimeError("simulated stale/unknown Mollie customer")
         return _FakeCustomer(self._recorder, customer_id, self._sub_status, self._mandate_raises)
 
 
 class FakeSDKClient:
     """Stand-in for ``mollie.api.client.Client``."""
 
-    def __init__(self, sub_status="active", mandate_raises=False):
+    def __init__(self, sub_status="active", mandate_raises=False, stale_customer_id=None):
         self.recorder = _Recorder()
-        self.customers = _FakeCustomers(self.recorder, sub_status, mandate_raises)
+        self.customers = _FakeCustomers(
+            self.recorder, sub_status, mandate_raises, stale_customer_id
+        )
 
 
 class _RaisingCustomers:
@@ -692,3 +700,79 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         self.assertEqual(result["subscription_id"], "sub_EXISTING")
         # No duplicate subscription was provisioned at Mollie.
         self.assertEqual(sdk.recorder.subscriptions_created, [])
+
+    def test_create_subscription_recreates_when_stored_subscription_inactive(self):
+        """An owner whose stored subscription is no longer live (e.g. cancelled)
+        does not get the stale subscription back - a fresh one is provisioned."""
+        sdk = FakeSDKClient(sub_status="canceled")
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Stale",
+            last_name=f"Sub{token}",
+            email=f"stale-sub-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"mollie_customer_id": "cst_OLD", "mollie_subscription_id": "sub_OLD"},
+            update_modified=False,
+        )
+
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            result = service.create_customer_subscription(
+                {
+                    "name": "Stale Sub",
+                    "email": member.email,
+                    "owner_doctype": "Member",
+                    "owner_name": member.name,
+                },
+                {
+                    "amount": {"value": "15.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": "Membership dues",
+                },
+            )
+
+        self.assertEqual(result["status"], "success")
+        # The cancelled stored subscription is not reused - a fresh one is made.
+        self.assertEqual(len(sdk.recorder.subscriptions_created), 1)
+        self.assertNotEqual(result["subscription_id"], "sub_OLD")
+
+    def test_create_subscription_replaces_stale_customer_id(self):
+        """When the owner's stored Mollie customer id no longer resolves, a
+        fresh customer is created and recorded on the owner."""
+        sdk = FakeSDKClient(stale_customer_id="cst_STALE")
+        service = CompletePaymentService(client=_make_mollie_client(sdk))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Stale",
+            last_name=f"Cust{token}",
+            email=f"stale-cust-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        frappe.db.set_value(
+            "Member", member.name, "mollie_customer_id", "cst_STALE", update_modified=False
+        )
+
+        with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
+            result = service.create_customer_subscription(
+                {
+                    "name": "Stale Cust",
+                    "email": member.email,
+                    "owner_doctype": "Member",
+                    "owner_name": member.name,
+                },
+                {
+                    "amount": {"value": "15.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": "Membership dues",
+                },
+            )
+
+        self.assertEqual(result["status"], "success")
+        # A new customer replaced the stale id on the Member.
+        new_customer_id = frappe.db.get_value("Member", member.name, "mollie_customer_id")
+        self.assertTrue(new_customer_id)
+        self.assertNotEqual(new_customer_id, "cst_STALE")

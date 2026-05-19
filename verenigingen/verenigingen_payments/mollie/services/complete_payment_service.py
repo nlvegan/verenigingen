@@ -244,8 +244,16 @@ class CompletePaymentService:
         if owner_doctype not in ("Member", "Donor"):
             raise MollieValidationError(f"Unsupported subscription owner doctype: {owner_doctype}")
 
+        # Existence is checked before begin() so a "not found" raises cleanly
+        # without a transaction having to be opened and torn down.
+        if not frappe.db.exists(owner_doctype, owner_name):
+            raise MollieValidationError(f"{owner_doctype} {owner_name} not found")
+
         # begin()/commit() bracket the row lock; every exit path commits or
-        # rolls back so the lock is always released.
+        # rolls back so the lock is always released. The lock is held across
+        # the Mollie API calls below - that is intentional: it only ever
+        # blocks a concurrent create for the *same* owner, which is exactly
+        # the duplicate this prevents.
         frappe.db.begin()
         try:
             owner = DocType(owner_doctype)
@@ -257,15 +265,17 @@ class CompletePaymentService:
                 .run(as_dict=True)
             )
             if not locked_row:
-                frappe.db.commit()
+                # Raced with a delete between the exists-check and the lock.
                 raise MollieValidationError(f"{owner_doctype} {owner_name} not found")
 
             stored_customer_id = locked_row[0].get("mollie_customer_id")
             stored_subscription_id = locked_row[0].get("mollie_subscription_id")
 
-            # Idempotent: an owner that already has a live subscription gets
-            # that subscription back - no duplicate is provisioned.
-            if stored_subscription_id:
+            # Idempotent: an owner that already has a live (active/pending)
+            # subscription gets that subscription back - no duplicate is
+            # provisioned. Both ids must be present: a subscription id is only
+            # usable together with its customer id.
+            if stored_subscription_id and stored_customer_id:
                 existing = self._get_active_subscription(stored_customer_id, stored_subscription_id)
                 if existing is not None:
                     frappe.db.commit()
@@ -275,6 +285,16 @@ class CompletePaymentService:
                     return self._subscription_result(
                         stored_customer_id, existing, message="Subscription already exists"
                     )
+            elif stored_subscription_id:
+                # Subscription id without a customer id - the stored
+                # subscription cannot be looked up. Surface it and provision
+                # a fresh one rather than billing against an unknown customer.
+                frappe.log_error(
+                    f"{owner_doctype} {owner_name} has mollie_subscription_id "
+                    f"{stored_subscription_id} but no mollie_customer_id; "
+                    f"provisioning a fresh subscription.",
+                    "Mollie Subscription Create",
+                )
 
             customer_id = self._resolve_customer_id_locked(stored_customer_id, customer_data)
             mollie_subscription = self._provision_and_create_subscription(
