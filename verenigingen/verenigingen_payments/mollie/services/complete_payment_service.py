@@ -281,10 +281,12 @@ class CompletePaymentService:
                 "message": "Subscription created successfully",
             }
 
-        except MolliePaymentError:
-            # Already a specific Mollie error (e.g. mandate provisioning or the
-            # subscription create itself) - propagate it without relabelling it
-            # as a generic "Failed to create subscription".
+        except (MolliePaymentError, MollieValidationError):
+            # Already a specific, well-typed Mollie error (mandate provisioning,
+            # the subscription create itself, the enable_subscriptions gate, or
+            # input validation) - propagate it with its own type and message so
+            # callers like unified_payment_api can distinguish a validation
+            # failure from a payment failure. Do not relabel or re-log it.
             raise
         except Exception as e:
             error_msg = f"Failed to create subscription: {e}"
@@ -305,7 +307,12 @@ class CompletePaymentService:
         return self.webhook_service.process_webhook(payment_id, payment_data)
 
     def cancel_subscription(
-        self, customer_id: str, subscription_id: str, reason: str = "Customer request"
+        self,
+        customer_id: str,
+        subscription_id: str,
+        reason: str = "Customer request",
+        owner_doctype: Optional[str] = None,
+        owner_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Cancel a subscription.
@@ -314,6 +321,10 @@ class CompletePaymentService:
             customer_id: Mollie customer ID
             subscription_id: Subscription to cancel
             reason: Cancellation reason
+            owner_doctype: Owning DocType ("Member"/"Donor"). When given with
+                owner_name, the owning record is updated directly instead of
+                being reverse-resolved from the (non-unique) subscription id.
+            owner_name: Owning record name
 
         Returns:
             Dict with cancellation results
@@ -325,7 +336,7 @@ class CompletePaymentService:
             cancelled_subscription = self.client.cancel_subscription(customer_id, subscription_id)
 
             # Flip the owning Member/Donor onto the cancelled status.
-            self._update_subscription_status(subscription_id, "canceled", reason)
+            self._update_subscription_status(subscription_id, "canceled", reason, owner_doctype, owner_name)
 
             frappe.logger().info(f"✅ Subscription cancelled: {subscription_id}")
 
@@ -565,10 +576,13 @@ class CompletePaymentService:
         # begin()/commit() bracket the row lock: commit()/rollback() release it.
         frappe.db.begin()
         try:
-            locked_row = frappe.db.sql(
-                "SELECT mollie_customer_id FROM `tabDonor` WHERE name = %s FOR UPDATE",
-                donor_name,
-                as_dict=True,
+            donor = DocType("Donor")
+            locked_row = (
+                frappe.qb.from_(donor)
+                .select(donor.mollie_customer_id)
+                .where(donor.name == donor_name)
+                .for_update()
+                .run(as_dict=True)
             )
 
             if not locked_row:
@@ -642,33 +656,53 @@ class CompletePaymentService:
                 f"Payment amount {payment_amount} differs from donation amount {donation_doc.amount}"
             )
 
-    def _update_subscription_status(self, subscription_id: str, status: str, reason: str = "") -> None:
+    def _update_subscription_status(
+        self,
+        subscription_id: str,
+        status: str,
+        reason: str = "",
+        owner_doctype: Optional[str] = None,
+        owner_name: Optional[str] = None,
+    ) -> None:
         """
         Flip the owning Member/Donor's subscription status after a cancel.
 
-        The owner is located by `mollie_subscription_id`; Member is checked
-        before Donor.
+        When the owner is known (the caller had the record in hand) it is used
+        directly. Otherwise the owner is reverse-resolved by
+        `mollie_subscription_id` - Member before Donor - which is best-effort:
+        `mollie_subscription_id` carries no uniqueness constraint, so a missing
+        match is logged as an error rather than passing silently.
         """
-        for owner_doctype in ("Member", "Donor"):
-            owner_name = frappe.db.get_value(
-                owner_doctype, {"mollie_subscription_id": subscription_id}, "name"
+        cancel_values = {
+            "subscription_status": status,
+            "subscription_cancelled_date": frappe.utils.today(),
+        }
+
+        if owner_doctype and owner_name:
+            self._update_owner_record(owner_doctype, owner_name, cancel_values)
+            frappe.logger().info(
+                f"{owner_doctype} {owner_name}: subscription {subscription_id} -> {status} ({reason})"
             )
-            if owner_name:
-                self._update_owner_record(
-                    owner_doctype,
-                    owner_name,
-                    {
-                        "subscription_status": status,
-                        "subscription_cancelled_date": frappe.utils.today(),
-                    },
-                )
+            return
+
+        for candidate_doctype in ("Member", "Donor"):
+            candidate_name = frappe.db.get_value(
+                candidate_doctype, {"mollie_subscription_id": subscription_id}, "name"
+            )
+            if candidate_name:
+                self._update_owner_record(candidate_doctype, candidate_name, cancel_values)
                 frappe.logger().info(
-                    f"{owner_doctype} {owner_name}: subscription {subscription_id} -> {status} ({reason})"
+                    f"{candidate_doctype} {candidate_name}: subscription "
+                    f"{subscription_id} -> {status} ({reason})"
                 )
                 return
 
-        frappe.logger().info(
-            f"No owning record found for subscription {subscription_id}; status update skipped"
+        # The Mollie-side cancel succeeded but no local record was updated -
+        # surface it so the inconsistency can be reconciled.
+        frappe.log_error(
+            f"Cancelled Mollie subscription {subscription_id} but found no owning "
+            f"Member/Donor to update (reason: {reason})",
+            "Mollie Subscription Cancel",
         )
 
     def _update_owner_record(self, owner_doctype: str, owner_name: str, values: Dict[str, Any]) -> None:

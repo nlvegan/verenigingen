@@ -16,7 +16,10 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
-from verenigingen.verenigingen_payments.mollie.exceptions import MolliePaymentError
+from verenigingen.verenigingen_payments.mollie.exceptions import (
+    MolliePaymentError,
+    MollieValidationError,
+)
 from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
     CompletePaymentService,
 )
@@ -464,8 +467,11 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         sdk = FakeSDKClient()
         service = CompletePaymentService(client=_make_mollie_client(sdk))
 
+        # The gate raises MollieValidationError - and it must propagate as that
+        # type (not be re-wrapped as MolliePaymentError), so the API layer can
+        # surface the real "not enabled" message.
         with patch("frappe.db.get_single_value", return_value=0):
-            with self.assertRaises(MolliePaymentError) as ctx:
+            with self.assertRaises(MollieValidationError) as ctx:
                 service.create_customer_subscription(
                     {"name": "Jane Doe", "email": _unique_email()},
                     {
@@ -554,6 +560,43 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         )
         self.assertEqual(
             frappe.db.get_value("Member", member.name, "subscription_status"), "active"
+        )
+        self.assertEqual(
+            str(frappe.db.get_value("Member", member.name, "next_payment_date")), "2026-06-01"
+        )
+
+    def test_update_owner_record_skips_fields_a_doctype_lacks(self):
+        """_update_owner_record writes every applicable field to a Member but
+        silently skips status fields on a Donor (which does not define them)."""
+        service = CompletePaymentService(client=_make_mollie_client(FakeSDKClient()))
+        token = frappe.generate_hash(length=8)
+        member = self.create_test_member(
+            first_name="Record",
+            last_name=f"Owner{token}",
+            email=f"record-owner-{token}@example.com",
+            birth_date="1990-01-01",
+        )
+        donor = self.create_test_donor()
+        values = {
+            "mollie_subscription_id": "sub_REC",
+            "subscription_status": "active",
+            "next_payment_date": "2026-07-01",
+        }
+
+        service._update_owner_record("Member", member.name, values)
+        service._update_owner_record("Donor", donor.name, values)
+
+        # Member defines all three fields.
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_REC"
+        )
+        self.assertEqual(
+            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
+        )
+        # Donor defines mollie_subscription_id but not the status fields - the
+        # absent fields are skipped without error.
+        self.assertEqual(
+            frappe.db.get_value("Donor", donor.name, "mollie_subscription_id"), "sub_REC"
         )
 
     def test_cancel_subscription_updates_owning_member(self):

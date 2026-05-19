@@ -513,6 +513,11 @@ class MollieGateway(PaymentGateway):
         """
         Create Mollie subscription for recurring membership dues
 
+        CompletePaymentService owns the Member update (mollie_customer_id,
+        mollie_subscription_id, subscription_status, next_payment_date) and
+        writes it via frappe.db.set_value - so the passed-in `member` document
+        object is stale after this call; reload() it if you need the new values.
+
         Args:
             member: Member document
             subscription_data (dict): Subscription configuration
@@ -643,6 +648,10 @@ class MollieGateway(PaymentGateway):
         """
         Cancel Mollie subscription for member
 
+        CompletePaymentService owns the Member status update, so the passed-in
+        `member` document object is stale after this call; reload() it if you
+        need the new values.
+
         Args:
             member: Member document with subscription details
 
@@ -658,8 +667,12 @@ class MollieGateway(PaymentGateway):
 
             # Cancel via the consolidated service. It performs the Mollie
             # cancel and owns the Member status update; it raises on failure,
-            # so the surrounding except block is the error path.
-            CompletePaymentService().cancel_subscription(customer_id, subscription_id)
+            # so the surrounding except block is the error path. The owner is
+            # passed explicitly so the service updates this Member directly
+            # rather than reverse-resolving by the non-unique subscription id.
+            CompletePaymentService().cancel_subscription(
+                customer_id, subscription_id, owner_doctype="Member", owner_name=member.name
+            )
 
             return create_success_response(_("Subscription cancelled successfully"))
 
@@ -1078,10 +1091,9 @@ def _activate_subscription_after_first_payment(gateway, member_name, member_cust
                 f"Successfully activated subscription {result['subscription_id']} for member {member_name}"
             )
 
-            # Update member with subscription details
-            member.db_set("mollie_subscription_id", result["subscription_id"])
-            member.db_set("subscription_status", "Active")
-            member.db_set("next_payment_date", subscription_data["startDate"])
+            # The subscription fields (mollie_subscription_id, subscription_status,
+            # next_payment_date) are written onto the member by
+            # CompletePaymentService - the gateway no longer does its own db_sets.
 
             return {
                 "status": "success",
