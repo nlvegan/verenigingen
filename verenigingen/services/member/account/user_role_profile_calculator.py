@@ -967,11 +967,25 @@ def auto_sync_on_role_change(user: str):
 
     This is a fire-and-forget function that logs errors but doesn't throw.
     """
+    # DIAG: temporary stderr surfacing for v15 debug. Remove once v15 Phase 3
+    # behaviour is understood.
+    import sys
+
     try:
+        print(f"DIAG[auto_sync]: calling sync_user_role_profile for {user}", file=sys.stderr, flush=True)
         result = sync_user_role_profile(user, dry_run=False)
+        print(f"DIAG[auto_sync]: result={result!r}", file=sys.stderr, flush=True)
         if not result.get("success"):
             frappe.logger().warning(f"Auto-sync failed for {user}: {result.get('error')}")
+        return result
     except Exception as e:
+        import traceback
+
+        print(
+            f"DIAG[auto_sync]: EXCEPTION {type(e).__name__}: {e}\n{traceback.format_exc()}",
+            file=sys.stderr,
+            flush=True,
+        )
         frappe.logger().error(f"Error in auto-sync for {user}: {str(e)}")
 
 
