@@ -36,6 +36,9 @@ from verenigingen.utils.account_creation_manager import (
     get_failed_requests,
     retry_failed_request
 )
+from verenigingen.services.member.account.user_role_profile_calculator import (
+    get_user_role_profiles,
+)
 from verenigingen.tests.fixtures.enhanced_test_factory import (
     EnhancedTestCase,
     BusinessRuleError
@@ -498,16 +501,20 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
         # Verify role profile or role assignment
         request.reload()
         user_doc = frappe.get_doc("User", request.created_user)
-        # Check either role_profile_name is set OR the role was assigned directly
+        # Check either a role profile is set OR the role was assigned directly.
+        # get_user_role_profiles reads the v16 role_profiles child table when
+        # present, falling back to the legacy v15 role_profile_name field, so
+        # this works across both Frappe versions.
         user_roles = [r.role for r in user_doc.roles]
+        user_profiles = get_user_role_profiles(request.created_user)
         role_assigned = (
-            user_doc.role_profile_name == "Verenigingen Member"
+            "Verenigingen Member" in user_profiles
             or "Verenigingen Member" in user_roles
         )
         self.assertTrue(
             role_assigned,
             f"User should have role_profile 'Verenigingen Member' or role 'Verenigingen Member'. "
-            f"Got role_profile_name={user_doc.role_profile_name}, roles={user_roles}"
+            f"Got profiles={user_profiles}, roles={user_roles}"
         )
         
     def test_existing_user_handling(self):
@@ -1163,25 +1170,6 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
         self.assertTrue(retry_result.get("success"))
 
 
-def _get_user_role_profiles(user_name: str) -> list[str]:
-    """Return all role profile names attached to a user.
-
-    Version-agnostic: in Frappe v15 the User has a single ``role_profile_name``
-    (a Link); in v16 the field is deprecated and User has a ``role_profiles``
-    child table that can hold multiple. This returns the union as a list so
-    callers can do ``assertIn("...", profiles)`` without branching on version.
-    """
-    meta = frappe.get_meta("User")
-    if meta.has_field("role_profiles"):
-        return frappe.get_all(
-            "User Role Profile",
-            filters={"parent": user_name, "parenttype": "User"},
-            pluck="role_profile",
-        )
-    single = frappe.db.get_value("User", user_name, "role_profile_name")
-    return [single] if single else []
-
-
 class TestACRRoleProfileSync(EnhancedTestCase):
     """Regression tests for ACR Phase 3 role profile recalculation.
 
@@ -1252,7 +1240,7 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         created_user = request.created_user
         self.assertTrue(created_user, "ACR should have created a user")
 
-        profiles = _get_user_role_profiles(created_user)
+        profiles = get_user_role_profiles(created_user)
         self.assertIn(
             "Verenigingen Chapter Board Member",
             profiles,
@@ -1281,7 +1269,7 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         created_user = request.created_user
         self.assertTrue(created_user, "ACR should have created a user")
 
-        profiles = _get_user_role_profiles(created_user)
+        profiles = get_user_role_profiles(created_user)
         self.assertIn(
             "Verenigingen Member",
             profiles,

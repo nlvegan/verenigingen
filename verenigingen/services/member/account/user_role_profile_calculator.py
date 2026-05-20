@@ -51,6 +51,14 @@ PRIORITY_TEAM_LEADER = 50  # Default team leader profile
 PRIORITY_VOLUNTEER = 30  # Active volunteer
 PRIORITY_MEMBER = 10  # Default member
 
+# Placeholder values for stub Employee records (see _ensure_employee_for_profile).
+# Used only as a fallback when the linked Member has no real gender / birth_date.
+# "Prefer not to say" is a Frappe-seeded gender on every install; the 1990 date
+# is the same default account_creation_manager uses for its Phase 1 Employee
+# insert. Keep them aligned so behaviour is identical across both code paths.
+_STUB_EMPLOYEE_GENDER = "Prefer not to say"
+_STUB_EMPLOYEE_DOB = "1990-01-01"
+
 
 def _get_cached_chapter_profile_config(chapter_name: str) -> dict:
     """
@@ -615,8 +623,13 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
     if frappe.db.exists("Employee", {"user_id": user}):
         return
 
-    # Get member info for the Employee record
-    member = frappe.db.get_value("Member", {"user": user}, ["first_name", "last_name"], as_dict=True)
+    # Get member info for the Employee record. Pull birth_date and gender too:
+    # ERPNext's Employee.update_user() hook propagates emp.gender / emp.date_of_birth
+    # back onto the linked User, so if the Member has real values we MUST pass
+    # them through - otherwise the stub overwrites them with placeholders.
+    member = frappe.db.get_value(
+        "Member", {"user": user}, ["first_name", "last_name", "birth_date", "gender"], as_dict=True
+    )
     if not member:
         frappe.logger().warning("Cannot create Employee for %s: no linked Member record", user)
         return
@@ -639,14 +652,20 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
         emp.user_id = user
         emp.status = "Active"
         emp.date_of_joining = frappe.utils.today()
-        # gender and date_of_birth are ERPNext-mandatory on Employee. This is
-        # a stub record whose only job is to satisfy validate_employee_role
-        # (so the `Employee` role on the role profile isn't stripped), so we
-        # supply placeholder values matching what account_creation_manager
-        # uses for the same purpose. Without these the insert silently fails
-        # and the board member loses their Employee-bearing role profile.
-        emp.gender = "Other"
-        emp.date_of_birth = "1990-01-01"
+        # gender and date_of_birth are ERPNext-mandatory on Employee, AND
+        # Employee.update_user() propagates them onto the linked User, so
+        # we prefer the Member's real values and only fall back to placeholders
+        # if missing. Placeholders match account_creation_manager.py's Phase 1
+        # path - "Prefer not to say" is a Frappe-seeded gender on every install.
+        emp.gender = member.get("gender") or _STUB_EMPLOYEE_GENDER
+        emp.date_of_birth = member.get("birth_date") or _STUB_EMPLOYEE_DOB
+        # ERPNext's Employee.on_update auto-creates a User Permission record
+        # restricting the user to their own Employee record when this is 1
+        # (the default). For role-profile stubs we don't want that - the
+        # Phase 1 Employee insert in account_creation_manager sets this to 0
+        # for the same reason. See comment there for the deeper rationale
+        # (Verenigingen Staff/Admin lack User Permission create perm anyway).
+        emp.create_user_permission = 0
         # Security: System-initiated Employee creation for role profile compatibility
         emp.insert(ignore_permissions=True)
         frappe.logger().info(
@@ -715,6 +734,24 @@ def _has_multi_profile_support() -> bool:
     """
     meta = frappe.get_meta("User")
     return meta.has_field("role_profiles")
+
+
+def get_user_role_profiles(user_name: str) -> list[str]:
+    """Return all role profile names attached to a user, version-agnostic.
+
+    In Frappe v15 the User has a single ``role_profile_name`` Link field.
+    In v16 the field is deprecated; profiles live in a ``role_profiles``
+    child table and can accumulate. Reading either directly forces every
+    caller to branch on the Frappe version - this helper hides that.
+    """
+    if _has_multi_profile_support():
+        return frappe.get_all(
+            "User Role Profile",
+            filters={"parent": user_name, "parenttype": "User"},
+            pluck="role_profile",
+        )
+    single = frappe.db.get_value("User", user_name, "role_profile_name")
+    return [single] if single else []
 
 
 def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
@@ -821,7 +858,16 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
         }
 
     except Exception as e:
+        # Surface as Error Log too: the warning-only path lost us a
+        # TimestampMismatchError regression for weeks (issue surfaced 2026-04-19
+        # when the customer_group bug stopped masking it). Callers
+        # (auto_sync_on_role_change, ACR's _sync_role_profile) also swallow,
+        # so this is the last reachable point before silent absorption.
         frappe.logger().error(f"Error syncing role profile for {user}: {str(e)}")
+        frappe.log_error(
+            message=f"Error syncing role profile for {user}: {e}",
+            title="Role Profile Sync Failed",
+        )
         return {"success": False, "error": str(e), "user": user}
 
 

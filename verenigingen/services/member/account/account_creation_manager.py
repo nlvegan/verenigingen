@@ -420,15 +420,12 @@ class AccountCreationManager:
             )
         except Exception as e:
             # Non-fatal — user still has the basic profile from Phase 1.
-            # Also surface as an Error Log entry: the warning-only path lost
-            # us a TimestampMismatchError regression for weeks (issue surfaced
-            # 2026-04-19 when Customer Group bug stopped masking it).
+            # The Error Log entry is written by sync_user_role_profile itself
+            # (where the exception is actually absorbed) rather than here;
+            # auto_sync_on_role_change also swallows, so this except block is
+            # only reached for import errors or arguments-level failures.
             frappe.logger().warning(
                 f"[ACR PIPELINE] ⚠️ Role profile sync failed for {self.created_user}: {e}"
-            )
-            frappe.log_error(
-                message=f"Phase 3 role profile sync failed for {self.created_user}: {e}",
-                title="ACR Pipeline: Phase 3 Role Profile Sync Failed",
             )
 
     def validate_processing_permissions(self):
