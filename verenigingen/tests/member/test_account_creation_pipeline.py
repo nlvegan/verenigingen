@@ -1163,6 +1163,25 @@ class TestAccountCreationManagerIntegration(EnhancedTestCase):
         self.assertTrue(retry_result.get("success"))
 
 
+def _get_user_role_profiles(user_name: str) -> list[str]:
+    """Return all role profile names attached to a user.
+
+    Version-agnostic: in Frappe v15 the User has a single ``role_profile_name``
+    (a Link); in v16 the field is deprecated and User has a ``role_profiles``
+    child table that can hold multiple. This returns the union as a list so
+    callers can do ``assertIn("...", profiles)`` without branching on version.
+    """
+    meta = frappe.get_meta("User")
+    if meta.has_field("role_profiles"):
+        return frappe.get_all(
+            "User Role Profile",
+            filters={"parent": user_name, "parenttype": "User"},
+            pluck="role_profile",
+        )
+    single = frappe.db.get_value("User", user_name, "role_profile_name")
+    return [single] if single else []
+
+
 class TestACRRoleProfileSync(EnhancedTestCase):
     """Regression tests for ACR Phase 3 role profile recalculation.
 
@@ -1233,12 +1252,12 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         created_user = request.created_user
         self.assertTrue(created_user, "ACR should have created a user")
 
-        actual_profile = frappe.db.get_value("User", created_user, "role_profile_name")
-        self.assertEqual(
-            actual_profile,
+        profiles = _get_user_role_profiles(created_user)
+        self.assertIn(
             "Verenigingen Chapter Board Member",
+            profiles,
             f"Board member should get 'Verenigingen Chapter Board Member' profile, "
-            f"got '{actual_profile}'. Phase 3 sync may not be running.",
+            f"got {profiles}. Phase 3 sync may not be running.",
         )
 
     def test_acr_keeps_member_profile_when_no_positions(self):
@@ -1262,11 +1281,11 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         created_user = request.created_user
         self.assertTrue(created_user, "ACR should have created a user")
 
-        actual_profile = frappe.db.get_value("User", created_user, "role_profile_name")
-        self.assertEqual(
-            actual_profile,
+        profiles = _get_user_role_profiles(created_user)
+        self.assertIn(
             "Verenigingen Member",
-            f"Plain member should keep 'Verenigingen Member' profile, got '{actual_profile}'",
+            profiles,
+            f"Plain member should have 'Verenigingen Member' profile, got {profiles}",
         )
 
 

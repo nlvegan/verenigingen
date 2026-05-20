@@ -639,6 +639,14 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
         emp.user_id = user
         emp.status = "Active"
         emp.date_of_joining = frappe.utils.today()
+        # gender and date_of_birth are ERPNext-mandatory on Employee. This is
+        # a stub record whose only job is to satisfy validate_employee_role
+        # (so the `Employee` role on the role profile isn't stripped), so we
+        # supply placeholder values matching what account_creation_manager
+        # uses for the same purpose. Without these the insert silently fails
+        # and the board member loses their Employee-bearing role profile.
+        emp.gender = "Other"
+        emp.date_of_birth = "1990-01-01"
         # Security: System-initiated Employee creation for role profile compatibility
         emp.insert(ignore_permissions=True)
         frappe.logger().info(
@@ -651,7 +659,14 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
         # Concurrent sync created the Employee between our check and insert
         frappe.logger().debug("Employee for %s already exists (concurrent creation)", user)
     except Exception as e:
+        # Surfaces as an error log entry, not just a logger line: when this
+        # stub insert fails, the board member loses their Employee-bearing
+        # role profile silently (the role-strip is then no longer prevented).
         frappe.logger().error("Failed to create Employee for %s: %s", user, str(e))
+        frappe.log_error(
+            message=f"Failed to create Employee stub for user {user} (profile {role_profile_name!r}): {e}",
+            title="Role Profile Sync: Employee Stub Failed",
+        )
 
 
 def calculate_all_user_role_profiles(user: str) -> list[tuple[int, str]]:
@@ -757,6 +772,12 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
             # ERPNext's validate_employee_role() hook strips Employee/ESS roles
             if role_changed:
                 _ensure_employee_for_profile(user, new_profile)
+                # Inserting Employee triggers ERPNext hooks that modify the
+                # User doc (notably adding the Employee role). Without a
+                # reload, the next save raises TimestampMismatchError ("has
+                # been modified after you have opened it") and silently fails
+                # the entire profile sync.
+                user_doc.reload()
 
             # Apply the changes
             if role_changed:
