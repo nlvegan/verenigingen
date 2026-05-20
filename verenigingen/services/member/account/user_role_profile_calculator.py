@@ -791,13 +791,24 @@ def sync_user_role_profile(user: str, dry_run: bool = False) -> dict:
                 "old_profile": old_profile,
             }
 
-        # Get corresponding module profile
+        # Get corresponding module profile. Skip if the linked Module Profile
+        # record doesn't exist on this site - the role profile is the primary
+        # mapping, module profile is a refinement. Failing the whole sync over
+        # a missing module profile (which can happen on fresh CI sites that
+        # haven't seeded the records) silently leaves the user on the wrong
+        # role profile - exactly the v15 CI failure mode this PR chased.
         new_module_profile = ROLE_MODULE_MAPPING.get(new_profile)
+        if new_module_profile and not frappe.db.exists("Module Profile", new_module_profile):
+            frappe.logger().warning(
+                f"Module Profile {new_module_profile!r} not found - "
+                f"skipping module_profile update for {user}; role_profile_name still applied."
+            )
+            new_module_profile = None
         old_module_profile = user_doc.module_profile
 
         # Check if change needed
         role_changed = old_profile != new_profile
-        module_changed = old_module_profile != new_module_profile
+        module_changed = new_module_profile is not None and old_module_profile != new_module_profile
         changed = role_changed or module_changed
 
         if changed and not dry_run:
@@ -967,25 +978,12 @@ def auto_sync_on_role_change(user: str):
 
     This is a fire-and-forget function that logs errors but doesn't throw.
     """
-    # DIAG: temporary stderr surfacing for v15 debug. Remove once v15 Phase 3
-    # behaviour is understood.
-    import sys
-
     try:
-        print(f"DIAG[auto_sync]: calling sync_user_role_profile for {user}", file=sys.stderr, flush=True)
         result = sync_user_role_profile(user, dry_run=False)
-        print(f"DIAG[auto_sync]: result={result!r}", file=sys.stderr, flush=True)
         if not result.get("success"):
             frappe.logger().warning(f"Auto-sync failed for {user}: {result.get('error')}")
         return result
     except Exception as e:
-        import traceback
-
-        print(
-            f"DIAG[auto_sync]: EXCEPTION {type(e).__name__}: {e}\n{traceback.format_exc()}",
-            file=sys.stderr,
-            flush=True,
-        )
         frappe.logger().error(f"Error in auto-sync for {user}: {str(e)}")
 
 

@@ -1240,49 +1240,6 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         created_user = request.created_user
         self.assertTrue(created_user, "ACR should have created a user")
 
-        # DIAG: surface v15-specific Phase 3 state for CI debugging. Remove
-        # once the v15 path is understood.
-        import sys
-        from verenigingen.services.member.account.user_role_profile_calculator import (
-            calculate_user_role_profile,
-            _has_multi_profile_support,
-        )
-        emp_exists = frappe.db.exists("Employee", {"user_id": created_user})
-        emp_roles = []
-        if emp_exists:
-            emp = frappe.get_doc("Employee", emp_exists)
-            emp_roles = [emp.gender, str(emp.date_of_birth), emp.create_user_permission]
-        user_doc_diag = frappe.get_doc("User", created_user)
-        user_roles_diag = [r.role for r in user_doc_diag.roles]
-        calc = calculate_user_role_profile(created_user)
-        recent_errors = frappe.get_all(
-            "Error Log",
-            filters={
-                "creation": [">", frappe.utils.add_to_date(frappe.utils.now(), minutes=-5)],
-            },
-            fields=["method", "error"],
-            limit=20,
-            order_by="creation desc",
-        )
-        relevant_errors = [
-            e for e in recent_errors
-            if "Role Profile" in (e.get("method") or "")
-            or "Employee" in (e.get("method") or "")
-            or created_user in (e.get("error") or "")
-        ]
-        print(
-            f"DIAG[v15-debug]: multi_profile_support={_has_multi_profile_support()} "
-            f"role_profile_name={user_doc_diag.role_profile_name!r} "
-            f"profiles_via_helper={get_user_role_profiles(created_user)} "
-            f"user_roles={user_roles_diag} "
-            f"calculated={calc!r} "
-            f"employee_exists={emp_exists!r} "
-            f"employee_fields={emp_roles} "
-            f"relevant_error_logs={relevant_errors[:3]}",
-            file=sys.stderr,
-            flush=True,
-        )
-
         profiles = get_user_role_profiles(created_user)
         self.assertIn(
             "Verenigingen Chapter Board Member",

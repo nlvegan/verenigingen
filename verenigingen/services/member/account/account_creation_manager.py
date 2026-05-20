@@ -412,19 +412,9 @@ class AccountCreationManager:
             return
 
         try:
-            # DIAG: temporary stderr surfacing for v15 debug. Remove once v15
-            # Phase 3 behaviour is understood.
-            import sys
-
             from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-            print(f"DIAG[ACR-Phase3]: starting sync for {self.created_user}", file=sys.stderr, flush=True)
             result = auto_sync_on_role_change(self.created_user)
-            print(
-                f"DIAG[ACR-Phase3]: completed for {self.created_user}, result={result!r}",
-                file=sys.stderr,
-                flush=True,
-            )
             frappe.logger().info(
                 f"[ACR PIPELINE] ✓ Role profile sync completed for {self.created_user}: {result}"
             )
