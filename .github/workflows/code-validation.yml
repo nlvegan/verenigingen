@@ -120,11 +120,15 @@ jobs:
             body: body
           });
 
-  # The former `integration-test` job was deleted in 2026-05.
+  # The former `integration-test` job was deleted in PR #53.
   # It invoked scripts/testing/runners/validation_test_runner.py, which was
   # removed on 2026-03-03 by the test-suite Phase 1 dead-code sweep (commit
-  # a60d1870). The script had been a no-op even when green: with the
-  # configured --fast --no-frappe-tests flags it only iterated a single
-  # nonexistent file and returned success without running any checks. The
-  # real validation gate is the `validation` job above; integration testing
-  # happens in `_base-server-tests.yml`.
+  # a60d1870). Pre-deletion, that wrapper duplicated the field / template /
+  # child-table validators the sibling `validation` job above already runs
+  # directly; its custom-test-scripts stage iterated a nonexistent smoke
+  # file and returned True. So no coverage is lost by removing the wrapper -
+  # `validation` above remains the real gate.
+  #
+  # Real bench-driven integration testing lives in `_base-server-tests.yml`
+  # under a separate job named `integration-tests` (plural) - not to be
+  # confused with this deleted job.
