@@ -384,12 +384,25 @@ class CompletePaymentService:
                     },
                 )
                 mandate_id = getattr(created, "id", None)
-            elif getattr(existing_mandate, "status", None) == "valid":
-                # Reuse the existing valid mandate, pinned explicitly below.
+                if mandate_id is None:
+                    # Mollie returning a mandate object without an id should
+                    # not happen, but if it does the subscription would fall
+                    # through to no-pin and re-introduce the auto-select
+                    # risk. Surface it loudly rather than silently degrade.
+                    frappe.logger().warning(
+                        f"Mollie created a mandate for customer {customer_id} "
+                        f"without an id; subscription will be created without "
+                        f"mandateId and risks auto-selecting a stale mandate."
+                    )
+            else:
+                # Reuse the existing mandate. Both `valid` and `pending` are
+                # pinned: pinning `pending` does not bill yet, but it prevents
+                # Mollie from auto-selecting an older valid mandate that may
+                # exist for a previous IBAN (the bank-change wrong-account
+                # risk). Mollie either accepts the pending mandate and waits
+                # for it to become valid, or rejects the create with a clear
+                # error - both beat silent wrong-account billing.
                 mandate_id = getattr(existing_mandate, "id", None)
-            # else: a pending (not-yet-billable) mandate exists - reuse it by
-            # not provisioning a duplicate, but leave mandateId unset so
-            # Mollie selects it once it becomes valid.
 
         if "consumerAccount" in subscription_data:
             subscription_data = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
@@ -420,8 +433,9 @@ class CompletePaymentService:
 
         A `valid` mandate is preferred and returned as soon as one is found.
         A `pending` mandate (still being established) is returned only if no
-        valid one exists: it still blocks provisioning a duplicate, but it is
-        not yet billable so the caller does not pin it.
+        valid one exists. Both block provisioning a duplicate AND are pinned
+        by the caller - pinning a pending mandate prevents Mollie from
+        falling back to a stale valid mandate for a different IBAN.
 
         IBAN comparison ignores spacing and case. Fails open: if the mandate
         list cannot be retrieved, returns None so the caller still provisions
