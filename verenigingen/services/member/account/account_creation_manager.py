@@ -419,7 +419,11 @@ class AccountCreationManager:
                 f"[ACR PIPELINE] ✓ Role profile sync completed for {self.created_user}: {result}"
             )
         except Exception as e:
-            # Non-fatal — user still has the basic profile from Phase 1
+            # Non-fatal — user still has the basic profile from Phase 1.
+            # The Error Log entry is written by sync_user_role_profile itself
+            # (where the exception is actually absorbed) rather than here;
+            # auto_sync_on_role_change also swallows, so this except block is
+            # only reached for import errors or arguments-level failures.
             frappe.logger().warning(
                 f"[ACR PIPELINE] ⚠️ Role profile sync failed for {self.created_user}: {e}"
             )

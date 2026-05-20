@@ -36,6 +36,9 @@ from verenigingen.utils.account_creation_manager import (
     get_failed_requests,
     retry_failed_request
 )
+from verenigingen.services.member.account.user_role_profile_calculator import (
+    get_user_role_profiles,
+)
 from verenigingen.tests.fixtures.enhanced_test_factory import (
     EnhancedTestCase,
     BusinessRuleError
@@ -498,16 +501,20 @@ class TestAccountCreationManagerFunctionality(EnhancedTestCase):
         # Verify role profile or role assignment
         request.reload()
         user_doc = frappe.get_doc("User", request.created_user)
-        # Check either role_profile_name is set OR the role was assigned directly
+        # Check either a role profile is set OR the role was assigned directly.
+        # get_user_role_profiles reads the v16 role_profiles child table when
+        # present, falling back to the legacy v15 role_profile_name field, so
+        # this works across both Frappe versions.
         user_roles = [r.role for r in user_doc.roles]
+        user_profiles = get_user_role_profiles(request.created_user)
         role_assigned = (
-            user_doc.role_profile_name == "Verenigingen Member"
+            "Verenigingen Member" in user_profiles
             or "Verenigingen Member" in user_roles
         )
         self.assertTrue(
             role_assigned,
             f"User should have role_profile 'Verenigingen Member' or role 'Verenigingen Member'. "
-            f"Got role_profile_name={user_doc.role_profile_name}, roles={user_roles}"
+            f"Got profiles={user_profiles}, roles={user_roles}"
         )
         
     def test_existing_user_handling(self):
@@ -1233,12 +1240,12 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         created_user = request.created_user
         self.assertTrue(created_user, "ACR should have created a user")
 
-        actual_profile = frappe.db.get_value("User", created_user, "role_profile_name")
-        self.assertEqual(
-            actual_profile,
+        profiles = get_user_role_profiles(created_user)
+        self.assertIn(
             "Verenigingen Chapter Board Member",
+            profiles,
             f"Board member should get 'Verenigingen Chapter Board Member' profile, "
-            f"got '{actual_profile}'. Phase 3 sync may not be running.",
+            f"got {profiles}. Phase 3 sync may not be running.",
         )
 
     def test_acr_keeps_member_profile_when_no_positions(self):
@@ -1262,11 +1269,11 @@ class TestACRRoleProfileSync(EnhancedTestCase):
         created_user = request.created_user
         self.assertTrue(created_user, "ACR should have created a user")
 
-        actual_profile = frappe.db.get_value("User", created_user, "role_profile_name")
-        self.assertEqual(
-            actual_profile,
+        profiles = get_user_role_profiles(created_user)
+        self.assertIn(
             "Verenigingen Member",
-            f"Plain member should keep 'Verenigingen Member' profile, got '{actual_profile}'",
+            profiles,
+            f"Plain member should have 'Verenigingen Member' profile, got {profiles}",
         )
 
 
