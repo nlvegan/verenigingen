@@ -14,6 +14,8 @@ import logging
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 logger = logging.getLogger("verenigingen.mijnrood_sync.document_reclassify")
 
 MAX_BATCH = 500
@@ -79,8 +81,13 @@ def _resolve_mapped_folder(folder_id, mapping_by_id, folder_tree):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reclassify_documents(names, dry_run: bool = True) -> dict:
     """Re-apply MijnRood folder mapping + extracted date to existing docs.
+
+    Uses critical_api (POST-only, IP-restricted, tighter rate limit) because
+    it bulk-writes folder and date fields on up to MAX_BATCH documents per
+    call. frappe.only_for(ADMIN_ROLES) below remains as defense-in-depth.
 
     Args:
         names: List of Organization Document names (or JSON-encoded string).

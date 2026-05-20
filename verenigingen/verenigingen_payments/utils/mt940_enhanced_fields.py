@@ -11,6 +11,12 @@ import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+)
+
 
 def get_enhanced_mt940_custom_fields():
     """
@@ -97,11 +103,15 @@ def get_enhanced_mt940_custom_fields():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_enhanced_mt940_fields():
     """
     Create custom fields for enhanced MT940 data storage.
 
     This function can be called to add the custom fields to Bank Transaction doctype.
+
+    Uses critical_api (POST-only, IP-restricted, tighter rate limit) because it
+    mutates the Bank Transaction DocType schema in production.
     """
     try:
         custom_fields = get_enhanced_mt940_custom_fields()
@@ -127,11 +137,15 @@ def create_enhanced_mt940_fields():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def remove_enhanced_mt940_fields():
     """
     Remove custom fields for enhanced MT940 data.
 
     This function can be used to clean up the custom fields if needed.
+
+    Uses critical_api (POST-only, IP-restricted, tighter rate limit) because it
+    deletes custom fields from the Bank Transaction DocType schema.
     """
     try:
         custom_fields = get_enhanced_mt940_custom_fields()
@@ -188,6 +202,7 @@ def populate_enhanced_mt940_fields(bank_transaction_doc, enhanced_data):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_field_creation_status():
     """
     Check if enhanced MT940 fields have been created.
