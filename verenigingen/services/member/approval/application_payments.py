@@ -131,6 +131,30 @@ def create_membership_invoice_with_amount(member, membership, amount):
     return invoice
 
 
+def _resolve_non_group_customer_group():
+    """Return a non-group Customer Group name for a new Customer record.
+
+    ERPNext's ``validate_customer_group`` rejects any Customer Group with
+    ``is_group=1`` (e.g. the root ``All Customer Groups``). The Selling
+    Settings default is often a group node in fresh installs and in test
+    environments - ERPNext's ``set_defaults_for_tests`` sets it to the root
+    explicitly - so this helper must check ``is_group`` before passing the
+    Settings value through and fall back to a leaf otherwise.
+    """
+    selling_default = frappe.db.get_single_value("Selling Settings", "customer_group")
+    if selling_default and not frappe.db.get_value("Customer Group", selling_default, "is_group"):
+        return selling_default
+
+    # Prefer "Individual" if it exists as a leaf; otherwise any leaf group.
+    leaf = frappe.db.get_value(
+        "Customer Group", {"name": "Individual", "is_group": 0}, "name"
+    ) or frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
+    if leaf:
+        return leaf
+
+    frappe.throw(_("No non-group Customer Group is available. Configure one in Selling Settings."))
+
+
 def create_customer_for_member(member):
     """Create customer record for member with proper Contact integration"""
     # Check if customer already exists for this member
@@ -160,8 +184,7 @@ def create_customer_for_member(member):
                 "doctype": "Customer",
                 "customer_name": member.full_name,
                 "customer_type": "Individual",
-                "customer_group": frappe.db.get_single_value("Selling Settings", "customer_group")
-                or "Individual",
+                "customer_group": _resolve_non_group_customer_group(),
                 "territory": frappe.db.get_single_value("Selling Settings", "territory") or "All Territories",
                 "member": member.name,  # Direct link to member record
             }
@@ -177,8 +200,12 @@ def create_customer_for_member(member):
         customer.db_set("customer_primary_contact", contact.name, update_modified=False)
     except Exception as e:
         frappe.db.rollback(save_point=savepoint_name)
+        # frappe.log_error signature is (message, title, ...): a swapped order
+        # truncates the long detail string into the 140-char `title` field,
+        # raising CharacterLengthExceededError that masks the real exception.
         frappe.log_error(
-            f"Failed to create Customer for Member {member.name}: {str(e)}", "Customer Creation Error"
+            message=f"Failed to create Customer for Member {member.name}: {str(e)}",
+            title="Customer Creation Error",
         )
         raise
 
