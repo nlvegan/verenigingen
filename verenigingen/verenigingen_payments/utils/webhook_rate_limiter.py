@@ -11,6 +11,7 @@ from collections import defaultdict, deque
 from typing import Dict, Optional, Tuple
 
 import frappe
+from frappe import _
 from frappe.utils import cint
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -289,7 +290,7 @@ def get_webhook_rate_limit_stats():
     """
     # Only allow this for system managers
     if not frappe.has_permission("System Settings", "read"):
-        frappe.throw("Insufficient permissions to view rate limit statistics")
+        frappe.throw(_("Insufficient permissions to view rate limit statistics"))
 
     limiter = get_webhook_rate_limiter()
     return limiter.get_stats()
