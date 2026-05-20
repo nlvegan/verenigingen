@@ -120,27 +120,11 @@ jobs:
             body: body
           });
 
-  integration-test:
-    runs-on: ubuntu-latest
-    needs: validation
-    if: success()
-    timeout-minutes: 15
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Run Integration Tests with Validation
-      run: |
-        python scripts/testing/runners/validation_test_runner.py --fast --no-frappe-tests
-
-    - name: Test Summary
-      if: always()
-      run: |
-        echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
-        echo "Ran fast integration tests including code validation" >> $GITHUB_STEP_SUMMARY
+  # The former `integration-test` job was deleted in 2026-05.
+  # It invoked scripts/testing/runners/validation_test_runner.py, which was
+  # removed on 2026-03-03 by the test-suite Phase 1 dead-code sweep (commit
+  # a60d1870). The script had been a no-op even when green: with the
+  # configured --fast --no-frappe-tests flags it only iterated a single
+  # nonexistent file and returned success without running any checks. The
+  # real validation gate is the `validation` job above; integration testing
+  # happens in `_base-server-tests.yml`.
