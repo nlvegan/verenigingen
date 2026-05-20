@@ -21,6 +21,7 @@ import frappe
 from frappe.utils import getdate
 
 from verenigingen.services.billing.invoice_matcher import InvoiceMatchResult, find_matching_invoice
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 
 
 def is_payment_successful(payment) -> bool:
@@ -1039,9 +1040,7 @@ class MolliePaymentOrchestrator:
             customer = frappe.new_doc("Customer")
             customer.customer_name = orphan_customer_name
             customer.customer_type = "Individual"
-            customer.customer_group = (
-                frappe.db.get_single_value("Selling Settings", "customer_group") or "All Customer Groups"
-            )
+            customer.customer_group = resolve_non_group_customer_group()
             customer.territory = (
                 frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
             )
@@ -1380,9 +1379,7 @@ class MolliePaymentOrchestrator:
             customer = frappe.new_doc("Customer")
             customer.customer_name = f"{customer_name} (Orphaned)"
             customer.customer_type = "Individual"
-            customer.customer_group = (
-                frappe.db.get_single_value("Selling Settings", "customer_group") or "All Customer Groups"
-            )
+            customer.customer_group = resolve_non_group_customer_group()
             customer.territory = (
                 frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
             )

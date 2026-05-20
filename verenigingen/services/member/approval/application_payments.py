@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import add_days, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -135,41 +136,11 @@ def create_membership_invoice_with_amount(member, membership, amount):
     return invoice
 
 
-def _resolve_non_group_customer_group():
-    """Return a non-group, non-disabled Customer Group name for a new Customer.
-
-    ERPNext's ``validate_customer_group`` rejects any Customer Group with
-    ``is_group=1`` (e.g. the root ``All Customer Groups``). The Selling
-    Settings default is often a group node in fresh installs and in test
-    environments - ERPNext's ``set_defaults_for_tests`` sets it to the root
-    explicitly - so this helper must check ``is_group`` before passing the
-    Settings value through and fall back to a leaf otherwise.
-
-    The Settings default is also accepted only when the group still exists:
-    ``get_value`` returns ``None`` for a deleted name, and ``not None`` is
-    truthy, so a stale name would otherwise pass the guard and the caller
-    would crash downstream on a Link validation error.
-    """
-    selling_default = frappe.db.get_single_value("Selling Settings", "customer_group")
-    if selling_default:
-        is_group = frappe.db.get_value("Customer Group", selling_default, "is_group")
-        if is_group == 0:
-            return selling_default
-
-    # Prefer "Individual" if it exists as a leaf; otherwise any leaf group.
-    # order_by name keeps the choice deterministic across sites.
-    # (Customer Group has no `disabled` field, only `is_group`.)
-    leaf = frappe.db.get_value(
-        "Customer Group", {"name": "Individual", "is_group": 0}, "name"
-    ) or frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name asc")
-    if leaf:
-        return leaf
-
-    frappe.throw(
-        _(
-            "No non-group Customer Group is available. Create a leaf (is_group=0) Customer Group, or set Selling Settings.customer_group to one."
-        )
-    )
+# Note: the Customer Group resolution helper used to live here as a private
+# function. It was promoted to verenigingen.services.customer_group_resolver
+# in commit (this one) so the same helper is shared with donor, donation,
+# Mollie orphan-customer, and e-Boekhouden Customer creation paths - all of
+# which had the same group-node bug before. Import and call directly.
 
 
 def create_customer_for_member(member):
@@ -201,7 +172,7 @@ def create_customer_for_member(member):
                 "doctype": "Customer",
                 "customer_name": member.full_name,
                 "customer_type": "Individual",
-                "customer_group": _resolve_non_group_customer_group(),
+                "customer_group": resolve_non_group_customer_group(),
                 "territory": frappe.db.get_single_value("Selling Settings", "territory") or "All Territories",
                 "member": member.name,  # Direct link to member record
             }

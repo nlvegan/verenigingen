@@ -274,8 +274,8 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
         (is_group=0), the helper returns it verbatim. Uses a real DB
         round-trip - only the Setting value is swapped for the duration of
         the test, then restored."""
-        from verenigingen.services.member.approval.application_payments import (
-            _resolve_non_group_customer_group,
+        from verenigingen.services.customer_group_resolver import (
+            resolve_non_group_customer_group,
         )
 
         # Find a real leaf to use; skip if none exists on this site.
@@ -288,7 +288,7 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
         original = frappe.db.get_single_value("Selling Settings", "customer_group")
         try:
             frappe.db.set_single_value("Selling Settings", "customer_group", leaf)
-            self.assertEqual(_resolve_non_group_customer_group(), leaf)
+            self.assertEqual(resolve_non_group_customer_group(), leaf)
         finally:
             frappe.db.set_single_value("Selling Settings", "customer_group", original)
 
@@ -296,8 +296,8 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
         """When Selling Settings points to a Customer Group that no longer
         exists, the helper falls back to a leaf rather than passing the stale
         name through (which would crash downstream on a Link validation)."""
-        from verenigingen.services.member.approval.application_payments import (
-            _resolve_non_group_customer_group,
+        from verenigingen.services.customer_group_resolver import (
+            resolve_non_group_customer_group,
         )
 
         original = frappe.db.get_single_value("Selling Settings", "customer_group")
@@ -305,7 +305,7 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
             frappe.db.set_single_value(
                 "Selling Settings", "customer_group", "NonexistentCustomerGroupXyz"
             )
-            resolved = _resolve_non_group_customer_group()
+            resolved = resolve_non_group_customer_group()
             self.assertNotEqual(resolved, "NonexistentCustomerGroupXyz")
             is_group = frappe.db.get_value("Customer Group", resolved, "is_group")
             self.assertEqual(is_group, 0)

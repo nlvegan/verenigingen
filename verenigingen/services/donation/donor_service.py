@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, validate_email_address
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
@@ -293,9 +294,7 @@ class DonationDonorService(StatelessService):
         customer = frappe.new_doc("Customer")
         customer.customer_name = donor.donor_name
         customer.customer_type = "Individual"
-        customer.customer_group = (
-            frappe.db.get_single_value("Selling Settings", "customer_group") or "Individual"
-        )
+        customer.customer_group = resolve_non_group_customer_group()
         customer.territory = frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
 
         # Link to donor
