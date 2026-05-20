@@ -269,6 +269,49 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
         if result:
             self._created_customers.append(result)
 
+    def test_resolve_non_group_customer_group_accepts_settings_when_leaf(self):
+        """When Selling Settings.customer_group is a leaf Customer Group
+        (is_group=0), the helper returns it verbatim. Uses a real DB
+        round-trip - only the Setting value is swapped for the duration of
+        the test, then restored."""
+        from verenigingen.services.member.approval.application_payments import (
+            _resolve_non_group_customer_group,
+        )
+
+        # Find a real leaf to use; skip if none exists on this site.
+        leaf = frappe.db.get_value(
+            "Customer Group", {"is_group": 0}, "name", order_by="name asc"
+        )
+        if not leaf:
+            self.skipTest("No leaf Customer Group exists on this site.")
+
+        original = frappe.db.get_single_value("Selling Settings", "customer_group")
+        try:
+            frappe.db.set_single_value("Selling Settings", "customer_group", leaf)
+            self.assertEqual(_resolve_non_group_customer_group(), leaf)
+        finally:
+            frappe.db.set_single_value("Selling Settings", "customer_group", original)
+
+    def test_resolve_non_group_customer_group_falls_back_when_settings_is_stale(self):
+        """When Selling Settings points to a Customer Group that no longer
+        exists, the helper falls back to a leaf rather than passing the stale
+        name through (which would crash downstream on a Link validation)."""
+        from verenigingen.services.member.approval.application_payments import (
+            _resolve_non_group_customer_group,
+        )
+
+        original = frappe.db.get_single_value("Selling Settings", "customer_group")
+        try:
+            frappe.db.set_single_value(
+                "Selling Settings", "customer_group", "NonexistentCustomerGroupXyz"
+            )
+            resolved = _resolve_non_group_customer_group()
+            self.assertNotEqual(resolved, "NonexistentCustomerGroupXyz")
+            is_group = frappe.db.get_value("Customer Group", resolved, "is_group")
+            self.assertEqual(is_group, 0)
+        finally:
+            frappe.db.set_single_value("Selling Settings", "customer_group", original)
+
     def test_customer_group_fallback_resolves_to_leaf_not_group_node(self):
         """The Selling Settings.customer_group default may legitimately point
         to a group node (e.g. ERPNext's `set_defaults_for_tests` sets it to

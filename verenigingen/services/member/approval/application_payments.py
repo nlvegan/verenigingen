@@ -108,7 +108,10 @@ def create_membership_invoice_with_amount(member, membership, amount):
             handler = DutchTaxExemptionHandler()
             handler.apply_exemption_to_invoice(invoice, "EXEMPT_MEMBERSHIP")
         except Exception as e:
-            frappe.log_error(f"Error applying tax exemption: {str(e)}", "Tax Exemption Error")
+            frappe.log_error(
+                message=f"Error applying tax exemption: {str(e)}",
+                title="Tax Exemption Error",
+            )
 
     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
     result = secure_document_operation(
@@ -120,7 +123,8 @@ def create_membership_invoice_with_amount(member, membership, amount):
 
     if not result.success:
         frappe.log_error(
-            f"Failed to create membership invoice: {'; '.join(result.errors)}", "Membership Invoice Security"
+            message=f"Failed to create membership invoice: {'; '.join(result.errors)}",
+            title="Membership Invoice Security",
         )
         frappe.throw(_("Failed to create membership invoice. Please contact support."))
 
@@ -132,7 +136,7 @@ def create_membership_invoice_with_amount(member, membership, amount):
 
 
 def _resolve_non_group_customer_group():
-    """Return a non-group Customer Group name for a new Customer record.
+    """Return a non-group, non-disabled Customer Group name for a new Customer.
 
     ERPNext's ``validate_customer_group`` rejects any Customer Group with
     ``is_group=1`` (e.g. the root ``All Customer Groups``). The Selling
@@ -140,19 +144,32 @@ def _resolve_non_group_customer_group():
     environments - ERPNext's ``set_defaults_for_tests`` sets it to the root
     explicitly - so this helper must check ``is_group`` before passing the
     Settings value through and fall back to a leaf otherwise.
+
+    The Settings default is also accepted only when the group still exists:
+    ``get_value`` returns ``None`` for a deleted name, and ``not None`` is
+    truthy, so a stale name would otherwise pass the guard and the caller
+    would crash downstream on a Link validation error.
     """
     selling_default = frappe.db.get_single_value("Selling Settings", "customer_group")
-    if selling_default and not frappe.db.get_value("Customer Group", selling_default, "is_group"):
-        return selling_default
+    if selling_default:
+        is_group = frappe.db.get_value("Customer Group", selling_default, "is_group")
+        if is_group == 0:
+            return selling_default
 
     # Prefer "Individual" if it exists as a leaf; otherwise any leaf group.
+    # order_by name keeps the choice deterministic across sites.
+    # (Customer Group has no `disabled` field, only `is_group`.)
     leaf = frappe.db.get_value(
         "Customer Group", {"name": "Individual", "is_group": 0}, "name"
-    ) or frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
+    ) or frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name asc")
     if leaf:
         return leaf
 
-    frappe.throw(_("No non-group Customer Group is available. Configure one in Selling Settings."))
+    frappe.throw(
+        _(
+            "No non-group Customer Group is available. Create a leaf (is_group=0) Customer Group, or set Selling Settings.customer_group to one."
+        )
+    )
 
 
 def create_customer_for_member(member):
@@ -200,9 +217,11 @@ def create_customer_for_member(member):
         customer.db_set("customer_primary_contact", contact.name, update_modified=False)
     except Exception as e:
         frappe.db.rollback(save_point=savepoint_name)
-        # frappe.log_error signature is (message, title, ...): a swapped order
-        # truncates the long detail string into the 140-char `title` field,
-        # raising CharacterLengthExceededError that masks the real exception.
+        # frappe.log_error signature is (title, message, ...). A positional
+        # call with the long detail string first stores it as `title` (the
+        # 140-char `method` field in Error Log) - the framework either
+        # self-truncates and loses context or raises CharacterLengthExceeded
+        # depending on version. Keyword args sidestep the ordering hazard.
         frappe.log_error(
             message=f"Failed to create Customer for Member {member.name}: {str(e)}",
             title="Customer Creation Error",
@@ -275,7 +294,8 @@ def process_application_payment(member_name, payment_method, payment_reference=N
 
     if not result.success:
         frappe.log_error(
-            f"Failed to create payment entry: {'; '.join(result.errors)}", "Payment Entry Security"
+            message=f"Failed to create payment entry: {'; '.join(result.errors)}",
+            title="Payment Entry Security",
         )
         frappe.throw(_("Failed to process payment. Please contact support."))
 
@@ -498,7 +518,7 @@ def create_contact_for_customer(customer, member):
 
     except Exception as e:
         frappe.log_error(
-            f"Error creating Contact for Customer {customer.name} (Member: {member.name}): {str(e)}",
-            "Customer Contact Creation Error",
+            message=f"Error creating Contact for Customer {customer.name} (Member: {member.name}): {str(e)}",
+            title="Customer Contact Creation Error",
         )
         return None
