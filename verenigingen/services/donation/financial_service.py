@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.services.infrastructure.base_service import StatelessService
 
 
@@ -327,9 +328,7 @@ class DonationFinancialService(StatelessService):
         customer.customer_name = donor.donor_name
         customer.customer_type = "Individual"
         customer.territory = self._get_default_territory()
-        customer.customer_group = (
-            frappe.db.get_single_value("Selling Settings", "customer_group") or "Individual"
-        )
+        customer.customer_group = resolve_non_group_customer_group()
 
         # Link back to donor
         if hasattr(customer, "donor_reference"):

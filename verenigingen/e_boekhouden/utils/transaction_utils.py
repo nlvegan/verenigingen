@@ -10,6 +10,7 @@ import json
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -39,19 +40,11 @@ def create_customer_impl(migration_doc, customer_data):
         customer = frappe.new_doc("Customer")
         customer.customer_name = customer_name
         customer.customer_type = "Company" if company_name else "Individual"
-        # Get customer group from explicit configuration
-        default_customer_group = frappe.db.get_single_value("Selling Settings", "customer_group")
-        if default_customer_group:
-            customer.customer_group = default_customer_group
-        else:
-            # Check if "All Customer Groups" exists
-            if frappe.db.exists("Customer Group", "All Customer Groups"):
-                customer.customer_group = "All Customer Groups"
-            else:
-                frappe.throw(
-                    "No default customer group configured in Selling Settings and 'All Customer Groups' does not exist. "
-                    "Please configure default customer group in Selling Settings before running eBoekhouden migration."
-                )
+        # Resolve a leaf Customer Group (the previous logic would happily
+        # fall back to "All Customer Groups", a group node that ERPNext's
+        # validate_customer_group rejects with "Cannot select a Group type
+        # Customer Group" - same bug as the membership flow had pre-PR #54).
+        customer.customer_group = resolve_non_group_customer_group()
         customer.territory = migration_doc.get_proper_territory_for_customer(customer_data)
         customer.company = migration_doc.company
 

@@ -30,6 +30,7 @@ import frappe
 from frappe.utils import add_days, now, today
 
 from verenigingen.e_boekhouden.utils.security_helper import migration_context, validate_and_insert
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.deprecation import deprecated
 
 
@@ -438,14 +439,13 @@ class EBoekhoudenPartyManager:
         return default_customer
 
     def _get_default_customer_group(self) -> str:
-        """Get default customer group."""
-        # First try to get a reasonable default customer group
-        default_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
-        if default_group:
-            return default_group
-
-        # "All Customer Groups" is ERPNext's default root group, this is safe
-        return "All Customer Groups"
+        """Get default customer group. Delegates to the shared resolver so
+        we never return "All Customer Groups" (a group node, which ERPNext's
+        strict-validation branch rejects). The previous comment claiming
+        that fallback was "safe" was wrong - it was the exact bug PR #54
+        fixed in the membership-approval path.
+        """
+        return resolve_non_group_customer_group()
 
     def _get_default_territory(self) -> str:
         """Get default territory using consistent error handling."""

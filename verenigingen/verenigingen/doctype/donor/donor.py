@@ -10,6 +10,7 @@ from frappe.model.document import Document
 from frappe.utils import cstr, validate_email_address
 from frappe.utils.password import decrypt, encrypt
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -779,22 +780,30 @@ class Donor(Document):
 
     def _get_donor_customer_group(self):
         """Get donor customer group from configuration with auto-repair"""
-        # Check Verenigingen Settings for donor customer group configuration
+        # Check Verenigingen Settings for donor customer group configuration.
+        # Accept only when the configured group exists AND is a leaf - same
+        # is_group guard the shared resolver applies to the Selling Settings
+        # default. A group-node value here would fail Customer.insert with
+        # the strict-validation rejection.
         try:
             settings = frappe.get_single("Verenigingen Settings")
             if hasattr(settings, "donor_customer_group") and settings.donor_customer_group:
-                if frappe.db.exists("Customer Group", settings.donor_customer_group):
+                is_group = frappe.db.get_value("Customer Group", settings.donor_customer_group, "is_group")
+                if is_group == 0:
                     return settings.donor_customer_group
-                else:
-                    if frappe.flags.get("in_test"):
-                        print(
-                            f"⚠️ Configured donor customer group '{settings.donor_customer_group}' does not exist"
-                        )
-                    frappe.log_error(
-                        f"Configured donor customer group '{settings.donor_customer_group}' does not exist, "
-                        f"falling back to auto-creation",
-                        "Donor Customer Group Configuration Error",
+                if frappe.flags.get("in_test"):
+                    print(
+                        f"⚠️ Configured donor customer group '{settings.donor_customer_group}' "
+                        f"is missing or a group node (is_group={is_group}); falling back."
                     )
+                frappe.log_error(
+                    message=(
+                        f"Configured donor customer group "
+                        f"'{settings.donor_customer_group}' is missing or a group "
+                        f"node (is_group={is_group}); falling back to auto-creation."
+                    ),
+                    title="Donor Customer Group Configuration Error",
+                )
         except Exception:
             pass
 
@@ -816,27 +825,13 @@ class Donor(Document):
                 "Customer Group Auto-Creation Error",
             )
 
-        # Get selling settings default as secondary fallback
-        default_group = frappe.db.get_single_value("Selling Settings", "customer_group")
-        if default_group and frappe.db.exists("Customer Group", default_group):
-            if frappe.flags.get("in_test"):
-                print(f"📋 Using Selling Settings default customer group: {default_group}")
-            return default_group
-
-        # Final fallback with validation
-        if frappe.db.exists("Customer Group", "All Customer Groups"):
-            if frappe.flags.get("in_test"):
-                print("📋 Using final fallback customer group: All Customer Groups")
-            return "All Customer Groups"
-
-        # This should rarely happen now due to auto-creation
-        frappe.throw(
-            "No suitable customer group found for donors. Please either:\n"
-            "1. Configure 'donor_customer_group' in Verenigingen Settings\n"
-            "2. Create a 'Donors' customer group manually\n"
-            "3. Configure default customer group in Selling Settings\n"
-            "4. Ensure 'All Customer Groups' exists"
-        )
+        # Shared resolver: returns Selling Settings default if it's a leaf,
+        # else "Individual" or any leaf, else throws. Previously this path
+        # would happily return "All Customer Groups" (a group node) which
+        # ERPNext's validate_customer_group rejects.
+        if frappe.flags.get("in_test"):
+            print("📋 Delegating to shared customer_group_resolver")
+        return resolve_non_group_customer_group()
 
     def ensure_donor_customer_group(self):
         """Ensure 'Donors' customer group exists - legacy method, calls _create_donor_customer_group"""

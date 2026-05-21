@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import frappe
 from frappe import _
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
@@ -701,13 +702,11 @@ def _create_customer_for_donor(donor_doc):
         settings = frappe.get_single("Verenigingen Settings")
         company = settings.company or frappe.defaults.get_global_default("company")
 
-        # Validate and get Customer Group with fallback
-        customer_group = "Individual"
-        if not frappe.db.exists("Customer Group", customer_group):
-            frappe.logger().warning("⚠️ Customer Group 'Individual' not found, using fallback")
-            # Get any non-group customer group as fallback
-            fallback_group = frappe.get_value("Customer Group", {"is_group": 0}, "name")
-            customer_group = fallback_group or "All Customer Groups"
+        # Resolve Customer Group via the shared helper. The previous code
+        # tried "Individual" then "any leaf" then "All Customer Groups" (the
+        # last branch is the group-node bug); the resolver does the safe
+        # version (Selling Settings → "Individual" leaf → any leaf → throw).
+        customer_group = resolve_non_group_customer_group()
 
         # Validate and get Territory with fallback
         territory = "Netherlands"

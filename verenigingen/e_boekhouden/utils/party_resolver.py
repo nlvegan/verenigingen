@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Tuple
 import frappe
 from frappe.utils import now
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+
 # Party type configuration - defines differences between Customer and Supplier
 PARTY_CONFIG = {
     "Customer": {
@@ -365,7 +367,15 @@ class EBoekhoudenPartyResolver:
         # Set party fields
         setattr(party, name_field, final_name)
         setattr(party, type_field, entity_type)
-        setattr(party, group_field, config["default_group"])
+        # PARTY_CONFIG.default_group is "All Customer Groups" / "All Supplier Groups"
+        # — both are group nodes that ERPNext's strict-validation branch rejects.
+        # For Customer we delegate to the shared resolver. (Supplier Group has
+        # the same bug class; a future cleanup PR can mirror this with a
+        # supplier_group resolver.)
+        if party_type == "Customer":
+            setattr(party, group_field, resolve_non_group_customer_group())
+        else:
+            setattr(party, group_field, config["default_group"])
 
         # Customer-specific: territory
         if config.get("territory_field"):
@@ -504,7 +514,11 @@ class EBoekhoudenPartyResolver:
         # Create new provisional party
         party = frappe.new_doc(doctype)
         setattr(party, name_field, provisional_name)
-        setattr(party, group_field, config["default_group"])
+        # Same group-node guard as the full-create path above.
+        if party_type == "Customer":
+            setattr(party, group_field, resolve_non_group_customer_group())
+        else:
+            setattr(party, group_field, config["default_group"])
 
         if config.get("territory_field"):
             setattr(party, config["territory_field"], config["default_territory"])
