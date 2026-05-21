@@ -61,8 +61,8 @@ def process_account_creation_request(request_name: str, at_time=None) -> Operati
     except Exception as e:
         frappe.logger().error(f"Account creation job failed for {request_name}: {str(e)}")
         frappe.log_error(
-            f"Account creation processing failed: {str(e)}\n{traceback.format_exc()}",
-            "Account Creation Request Processing Error",
+            title="Account Creation Request Processing Error",
+            message=f"Account creation processing failed: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to process account creation request. Please contact support."),
@@ -191,8 +191,8 @@ def queue_account_creation_for_member(
     except Exception as e:
         frappe.logger().error(f"Error queueing account creation for member {member_name}: {str(e)}")
         frappe.log_error(
-            f"Failed to queue account creation: {str(e)}\n{traceback.format_exc()}",
-            "Queue Member Account Creation Error",
+            title="Queue Member Account Creation Error",
+            message=f"Failed to queue account creation: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to queue account creation. Please contact support."),
@@ -321,8 +321,8 @@ def queue_account_creation_for_volunteer(
     except Exception as e:
         frappe.logger().error(f"Error queueing account creation for volunteer {volunteer_name}: {str(e)}")
         frappe.log_error(
-            f"Failed to queue volunteer account creation: {str(e)}\n{traceback.format_exc()}",
-            "Queue Volunteer Account Creation Error",
+            title="Queue Volunteer Account Creation Error",
+            message=f"Failed to queue volunteer account creation: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to queue account creation. Please contact support."),
@@ -564,8 +564,8 @@ def queue_bulk_account_creation_for_members(
     except Exception as e:
         frappe.logger().error(f"Error in bulk account creation queueing: {str(e)}")
         frappe.log_error(
-            f"Bulk account creation queueing failed: {str(e)}\n{traceback.format_exc()}",
-            "Bulk Account Creation Queue Error",
+            title="Bulk Account Creation Queue Error",
+            message=f"Bulk account creation queueing failed: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to queue bulk account creation. Please contact support."),
@@ -771,9 +771,11 @@ def process_bulk_account_creation_batch(
     # If there were failures, log them for administrative review
     if batch_results["failed"] > 0:
         frappe.log_error(
-            f"Batch {batch_id} had {batch_results['failed']} failures:\n"
-            + "\n".join(batch_results["errors"][:10]),  # Log first 10 errors
-            "Bulk Account Creation Batch Errors",
+            title="Bulk Account Creation Batch Errors",
+            message=(
+                f"Batch {batch_id} had {batch_results['failed']} failures:\n"
+                + "\n".join(batch_results["errors"][:10])  # Log first 10 errors
+            ),
         )
 
     # Chain-of-responsibility: Queue next batch if there are remaining batches
@@ -882,9 +884,11 @@ def process_bulk_account_creation_batch(
                 f"Chain broken - remaining batches will not be processed!"
             )
             frappe.log_error(
-                f"Batch chain broken at {batch_id}. Failed to queue {next_batch['batch_id']}: {str(e)}\n"
-                f"Remaining batches: {len(remaining_batches)}",
-                "Bulk Account Creation Chain Failure",
+                title="Bulk Account Creation Chain Failure",
+                message=(
+                    f"Batch chain broken at {batch_id}. Failed to queue {next_batch['batch_id']}: "
+                    f"{str(e)}\nRemaining batches: {len(remaining_batches)}"
+                ),
             )
             try:
                 tracker = frappe.get_doc("Bulk Operation Tracker", tracker_name)
@@ -952,8 +956,8 @@ def get_failed_requests() -> OperationResult[Dict[str, Any]]:
     except Exception as e:
         frappe.logger().error(f"Error retrieving failed requests: {str(e)}")
         frappe.log_error(
-            f"Failed to retrieve failed requests: {str(e)}\n{traceback.format_exc()}",
-            "Get Failed Requests Error",
+            title="Get Failed Requests Error",
+            message=f"Failed to retrieve failed requests: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to retrieve failed requests. Please contact support."),
@@ -999,7 +1003,8 @@ def retry_failed_request(request_name: str) -> OperationResult[Dict[str, Any]]:
     except Exception as e:
         frappe.logger().error(f"Error retrying request {request_name}: {str(e)}")
         frappe.log_error(
-            f"Failed to retry request: {str(e)}\n{traceback.format_exc()}", "Retry Failed Request Error"
+            title="Retry Failed Request Error",
+            message=f"Failed to retry request: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to retry account creation request. Please contact support."),
@@ -1103,8 +1108,8 @@ def upgrade_member_to_volunteer_user(member_name: str) -> OperationResult[Dict[s
     except Exception as e:
         frappe.logger().error(f"Failed to upgrade user for member {member_name}: {str(e)}")
         frappe.log_error(
-            f"User upgrade failed: {str(e)}\n{traceback.format_exc()}",
-            "Upgrade Member to Volunteer User Error",
+            title="Upgrade Member to Volunteer User Error",
+            message=f"User upgrade failed: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to upgrade user account. Please contact support."),
@@ -1204,8 +1209,8 @@ def retry_all_failed_requests(failure_type=None) -> OperationResult[Dict[str, An
     except Exception as e:
         frappe.logger().error(f"Error retrying all failed requests: {str(e)}")
         frappe.log_error(
-            f"Retry all failed requests error: {str(e)}\n{traceback.format_exc()}",
-            "Retry All Failed Requests Error",
+            title="Retry All Failed Requests Error",
+            message=f"Retry all failed requests error: {str(e)}\n{traceback.format_exc()}",
         )
         return OperationResult.fail(
             _("Unable to retry failed requests. Please contact support."),

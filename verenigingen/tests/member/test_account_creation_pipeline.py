@@ -812,6 +812,64 @@ class TestAccountCreationManagerErrorHandling(EnhancedTestCase):
             with self.subTest(error=str(error)):
                 self.assertFalse(manager.is_retryable_error(error))
 
+    def test_schedule_retry_logs_error_with_correct_title_field(self):
+        """frappe.log_error in schedule_retry() must store the short title in
+        the Error Log `method` field, not the long detail f-string.
+
+        Why this matters: Frappe.log_error signature is
+        log_error(title=None, message=None, ...) and `title` maps to the
+        Error Log `method` field (140-char Data). A positional call where
+        positional[0] is a long single-line detail string and positional[1]
+        is the short title stores them in the wrong fields — losing
+        observability and risking CharacterLengthExceededError.
+
+        schedule_retry()'s log_error call had positional args in the wrong
+        order before this PR; the auto-swap rescue in frappe/utils/error.py
+        only kicks in when positional[0] contains a newline, which the
+        retry-enqueue branch's string doesn't.
+        """
+        from unittest.mock import patch
+
+        member = self.create_test_member(
+            first_name=f"RetryErr{self.uid}",
+            last_name="LogTest",
+            email=f"retry.err.log.{self.uid}@test.invalid"
+        )
+        request = self.create_test_account_creation_request(
+            source_record=member.name, request_type="Member"
+        )
+
+        manager = AccountCreationManager(request.name)
+        manager.load_request()
+
+        # Capture Error Log rows created during the test
+        log_marker = f"retry-enqueue-test-{self.uid}"
+
+        # Force frappe.enqueue inside schedule_retry to fail so the
+        # log_error rescue branch executes. Mock justified: external
+        # service (Redis queue) — we're testing the rescue branch's
+        # logging behaviour, not enqueue itself.
+        with patch("frappe.enqueue", side_effect=RuntimeError(f"enqueue-failed-{log_marker}")):
+            manager.schedule_retry()
+
+        # The Error Log row's `method` field must hold the SHORT title
+        # ("Account Creation Retry Enqueue Failed"), not the long detail
+        # string. If positional args were swapped, the long
+        # "Failed to enqueue retry for ..." f-string would land in method.
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"method": "Account Creation Retry Enqueue Failed"},
+            fields=["name", "method", "error"],
+            order_by="creation desc",
+            limit=5,
+        )
+        self.assertTrue(
+            any(log_marker in (r.error or "") for r in rows),
+            "Expected an Error Log with method='Account Creation Retry "
+            f"Enqueue Failed' whose error contains {log_marker!r}. "
+            f"Found rows: {[(r.name, r.method[:80], (r.error or '')[:120]) for r in rows]}",
+        )
+
 
 class TestAccountCreationManagerBackgroundProcessing(EnhancedTestCase):
     """Background processing and Redis queue tests"""
@@ -1360,11 +1418,58 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
         request.reload()
         if not request.created_employee:
             self.skipTest("Employee not created - likely missing role in test environment")
-        
+
         # Verify employee has proper settings for Dutch association
         employee_doc = frappe.get_doc("Employee", request.created_employee)
         self.assertEqual(employee_doc.status, "Active")
         self.assertIsNotNone(employee_doc.company)  # Should have default company
+
+    def test_employee_creation_preserves_member_gender_and_birth_date(self):
+        """Phase 1 create_employee_record must read gender/birth_date from the
+        source Member, not hardcoded stubs.
+
+        ERPNext's Employee.update_user() (setup/doctype/employee/employee.py)
+        propagates emp.date_of_birth → user.birth_date and emp.gender →
+        user.gender on every Employee save. Hardcoded stubs in Phase 1
+        therefore silently overwrite real PII on the linked User.
+
+        Phase 3 (user_role_profile_calculator._ensure_employee_for_profile)
+        was fixed in PR #54 to preserve real values; Phase 1 still has the
+        bug — same fix needs to land here.
+        """
+        member_dob = add_days(getdate(), -365 * 35)  # 35 years old
+        member = self.create_test_member(
+            first_name=f"PII{self.uid}",
+            last_name="Preserved",
+            email=f"pii.preserved.{self.uid}@test.invalid",
+            gender="Female",
+            birth_date=member_dob,
+        )
+
+        volunteer = self.create_test_volunteer(
+            member_name=member.name,
+            volunteer_name=f"PII Preserved Volunteer {self.uid}",
+            email=f"pii.preserved.{self.uid}@test.invalid",
+        )
+
+        request = self.create_test_account_creation_request(
+            source_record=volunteer.name, request_type="Volunteer"
+        )
+
+        manager = AccountCreationManager(request.name)
+        manager.process_complete_pipeline()
+
+        request.reload()
+        if not request.created_employee:
+            self.skipTest("Employee not created - likely missing role in test environment")
+
+        employee_doc = frappe.get_doc("Employee", request.created_employee)
+        # Real Member PII must be on the Employee — not the "Prefer not to
+        # say" / "1990-01-01" stubs Phase 1 hardcoded before this fix.
+        self.assertEqual(employee_doc.gender, "Female",
+            "Employee.gender should match Member.gender, not the Phase 1 stub")
+        self.assertEqual(str(employee_doc.date_of_birth), str(getdate(member_dob)),
+            "Employee.date_of_birth should match Member.birth_date, not the Phase 1 stub")
 
 
 class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
