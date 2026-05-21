@@ -835,15 +835,20 @@ class AccountCreationManager:
         Phase 1 would silently overwrite real PII on the linked User.
 
         Resolution order:
-        - request_type == "Member" or "Both" → source_doc is the Member directly
-        - request_type == "Volunteer"        → source_doc.member points to it
-        - anything missing                   → fall back to module-level stubs
+        - request_type == "Member"    → source_doc is the Member directly
+        - request_type == "Volunteer" → source_doc.member points to it
+        - anything missing            → fall back to module-level stubs
+
+        Note: "Both" is a legacy enum value on Account Creation Request.
+        AccountCreationRequest.validate_source_record() rejects any ACR
+        whose request_type is not a real DocType name, so request_type
+        cannot actually equal "Both" at this point — no branch is needed.
 
         Mirrors Phase 3 _ensure_employee_for_profile in
-        user_role_profile_calculator (lines ~630/660).
+        user_role_profile_calculator.
         """
         member_name = None
-        if self.request.request_type in ("Member", "Both"):
+        if self.request.request_type == "Member":
             member_name = getattr(self.source_doc, "name", None)
         elif self.request.request_type == "Volunteer":
             member_name = getattr(self.source_doc, "member", None)
@@ -851,10 +856,26 @@ class AccountCreationManager:
         gender = None
         birth_date = None
         if member_name:
+            # db.get_value (not get_doc): the ACR pipeline runs as a privileged
+            # background worker (validate_processing_permissions enforces this
+            # upstream), so DocPerm enforcement adds nothing and a get_doc here
+            # would load the whole Member needlessly.
             pii = frappe.db.get_value("Member", member_name, ["gender", "birth_date"], as_dict=True)
             if pii:
                 gender = pii.get("gender")
                 birth_date = pii.get("birth_date")
+
+        if not gender or not birth_date:
+            # Operations signal: a stub landed in Employee/User. Members with
+            # missing demographics should be visible to administrators (data
+            # quality, GDPR/AVG record-of-processing visibility).
+            frappe.logger().warning(
+                "ACR Phase 1: Member %s has missing gender/birth_date — "
+                "writing stub Employee values (gender=%s birth_date=%s)",
+                member_name or "<unresolved>",
+                gender or _STUB_EMPLOYEE_GENDER,
+                birth_date or _STUB_EMPLOYEE_DOB,
+            )
 
         return (
             gender or _STUB_EMPLOYEE_GENDER,
@@ -1096,13 +1117,12 @@ class AccountCreationManager:
             )
         except Exception as e:
             # frappe.log_error signature is (title, message, ...) — `title`
-            # maps to Error Log.method (140-char Data). The detail string
-            # has no '\n', so Frappe's auto-swap rescue (utils/error.py:49)
-            # doesn't kick in; positional ordering would dump the long
-            # f-string into method and lose observability.
+            # maps to Error Log.method (140-char Data). Use explicit kw args
+            # so positional ordering can't dump the detail string into the
+            # title field (the bug PR #54 fixed elsewhere).
             frappe.log_error(
                 title="Account Creation Retry Enqueue Failed",
-                message=f"Failed to enqueue retry for {self.request_name}: {str(e)}",
+                message=f"Failed to enqueue retry for {self.request_name}: {str(e)}\n{traceback.format_exc()}",
             )
 
     def send_completion_notification(self):

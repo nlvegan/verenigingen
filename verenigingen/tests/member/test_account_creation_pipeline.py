@@ -1471,6 +1471,86 @@ class TestAccountCreationManagerDutchBusinessLogic(EnhancedTestCase):
         self.assertEqual(str(employee_doc.date_of_birth), str(getdate(member_dob)),
             "Employee.date_of_birth should match Member.birth_date, not the Phase 1 stub")
 
+    def test_employee_creation_falls_back_to_stub_when_member_has_no_gender(self):
+        """The stub fallback in _resolve_employee_pii_from_source must fire
+        when the Member has no gender on file.
+
+        Locks in the `gender or _STUB_EMPLOYEE_GENDER` branch — a future
+        edit that drops the `or`-fallback (e.g., switching to
+        `if member_name and pii: ...`) would silently break Employee
+        creation for any Member without demographics.
+        """
+        member = self.create_test_member(
+            first_name=f"NoGender{self.uid}",
+            last_name="Stubfall",
+            email=f"nogender.stubfall.{self.uid}@test.invalid",
+            birth_date=add_days(getdate(), -365 * 30),
+        )
+        # Clear the gender field (it's optional on Member, so the DB allows None).
+        frappe.db.set_value("Member", member.name, "gender", None)
+
+        volunteer = self.create_test_volunteer(
+            member_name=member.name,
+            volunteer_name=f"NoGender Stubfall {self.uid}",
+            email=f"nogender.stubfall.{self.uid}@test.invalid",
+        )
+
+        request = self.create_test_account_creation_request(
+            source_record=volunteer.name, request_type="Volunteer"
+        )
+
+        manager = AccountCreationManager(request.name)
+        manager.process_complete_pipeline()
+
+        request.reload()
+        if not request.created_employee:
+            self.skipTest("Employee not created - likely missing role in test environment")
+
+        employee_doc = frappe.get_doc("Employee", request.created_employee)
+        # Stub falls back when the Member has no gender — same value Phase 1
+        # used to hardcode unconditionally, but now reached only on missing data.
+        self.assertEqual(employee_doc.gender, "Prefer not to say",
+            "Employee.gender should fall back to the stub when Member.gender is None")
+
+    def test_employee_creation_member_path_uses_source_doc_pii(self):
+        """Phase 1 PII resolution must work for request_type='Member' too —
+        the source_doc IS the Member, no Volunteer→Member hop needed.
+
+        Exercises the `request_type == "Member"` branch of
+        _resolve_employee_pii_from_source. The previous test only covered
+        the Volunteer → source_doc.member → Member path.
+        """
+        member_dob = add_days(getdate(), -365 * 40)
+        member = self.create_test_member(
+            first_name=f"MemberPath{self.uid}",
+            last_name="Direct",
+            email=f"member.path.{self.uid}@test.invalid",
+            gender="Male",
+            birth_date=member_dob,
+        )
+
+        # CSV import flag forces Employee creation for a Member-type ACR
+        # (see requires_employee_creation: Member request needs the flag
+        # set or an Employee role; here the flag carries it.)
+        request = self.create_test_account_creation_request(
+            source_record=member.name,
+            request_type="Member",
+            create_employee_record=True,
+        )
+
+        manager = AccountCreationManager(request.name)
+        manager.process_complete_pipeline()
+
+        request.reload()
+        if not request.created_employee:
+            self.skipTest("Employee not created - likely missing role in test environment")
+
+        employee_doc = frappe.get_doc("Employee", request.created_employee)
+        self.assertEqual(employee_doc.gender, "Male",
+            "Employee.gender should match Member.gender on the request_type='Member' path")
+        self.assertEqual(str(employee_doc.date_of_birth), str(getdate(member_dob)),
+            "Employee.date_of_birth should match Member.birth_date on the request_type='Member' path")
+
 
 class TestAccountCreationManagerEnhancedFactory(EnhancedTestCase):
     """Tests for enhanced test factory integration"""

@@ -692,8 +692,8 @@ class MemberUserAccountService(StatelessService):
 
                     # Log error for audit trail before potentially breaking
                     frappe.log_error(
-                        f"Failed to create user account for member {member_name}: {error_msg}",
-                        "Bulk Account Creation Error",
+                        title="Bulk Account Creation Error",
+                        message=f"Failed to create user account for member {member_name}: {error_msg}",
                     )
 
                     if not continue_on_error:
@@ -706,8 +706,8 @@ class MemberUserAccountService(StatelessService):
 
                 # Log error for audit trail before potentially breaking
                 frappe.log_error(
-                    f"Error processing member {member_name} in bulk operation: {error_msg}",
-                    "Bulk Account Creation Error",
+                    title="Bulk Account Creation Error",
+                    message=f"Error processing member {member_name} in bulk operation: {error_msg}",
                 )
 
                 if not continue_on_error:
@@ -827,8 +827,8 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
             linked_user = frappe.db.get_value("Member", member.name, "user")
             if linked_user != member.email:
                 frappe.log_error(
-                    f"User linkage verification failed: expected {member.email}, got {linked_user}",
-                    "Account Linking Verification",
+                    title="Account Linking Verification",
+                    message=f"User linkage verification failed: expected {member.email}, got {linked_user}",
                 )
                 return OperationResult.fail(
                     _("Failed to link user account"),
@@ -905,7 +905,13 @@ def create_secure_user_account_for_member(member, activate_as_volunteer=False):
     except Exception as e:
         # Create shortened error message to avoid log title length issues
         error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
-        frappe.log_error(f"Account creation error for {member.name}: {error_msg}")
+        # Single-positional form: detail string becomes title (method field, 140-char Data).
+        # No `message` arg means auto-swap can never trigger (utils/error.py:48 `if message:`),
+        # so the long f-string would land in the wrong field. Use kw args explicitly.
+        frappe.log_error(
+            title="Account Creation Error",
+            message=f"Account creation error for {member.name}: {error_msg}",
+        )
         return OperationResult.fail(
             _("Account creation failed"),
             errors=[error_msg],

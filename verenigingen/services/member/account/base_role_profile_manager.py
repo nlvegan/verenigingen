@@ -105,8 +105,8 @@ class BaseRoleProfileManager(ABC):
             validation_error = validate_doctype_fields(self.config.doctype, entity_fields)
             if validation_error:
                 frappe.log_error(
-                    f"Configuration error for {self.config.entity_label}: {validation_error['error']}",
-                    "Role Profile Manager Configuration Error",
+                    title="Role Profile Manager Configuration Error",
+                    message=f"Configuration error for {self.config.entity_label}: {validation_error['error']}",
                 )
                 # Don't throw during initialization - just log
                 return
@@ -121,8 +121,8 @@ class BaseRoleProfileManager(ABC):
             validation_error = validate_doctype_fields(self.config.member_doctype, member_fields)
             if validation_error:
                 frappe.log_error(
-                    f"Configuration error for {self.config.member_doctype}: {validation_error['error']}",
-                    "Role Profile Manager Configuration Error",
+                    title="Role Profile Manager Configuration Error",
+                    message=f"Configuration error for {self.config.member_doctype}: {validation_error['error']}",
                 )
                 return
 
@@ -132,16 +132,16 @@ class BaseRoleProfileManager(ABC):
             validation_error = validate_doctype_fields(self.config.child_table_doctype, child_fields)
             if validation_error:
                 frappe.log_error(
-                    f"Configuration error for {self.config.child_table_doctype}: {validation_error['error']}",
-                    "Role Profile Manager Configuration Error",
+                    title="Role Profile Manager Configuration Error",
+                    message=f"Configuration error for {self.config.child_table_doctype}: {validation_error['error']}",
                 )
                 return
 
         except Exception as e:
             # Log but don't fail initialization
             frappe.log_error(
-                f"Error validating fields for {self.config.entity_label}: {str(e)}",
-                "Role Profile Manager Validation Error",
+                title="Role Profile Manager Validation Error",
+                message=f"Error validating fields for {self.config.entity_label}: {str(e)}",
             )
 
     def get_entity_role_profile_config(self, entity_name: str) -> Dict:
@@ -358,7 +358,10 @@ class BaseRoleProfileManager(ABC):
             if transaction_started:
                 frappe.db.rollback()
             error_msg = f"Error assigning role profile for {self.config.entity_type} {entity_name}: {str(e)}"
-            frappe.log_error(frappe.get_traceback(), f"{self.config.log_context} Assignment Error")
+            frappe.log_error(
+                title=f"{self.config.log_context} Assignment Error",
+                message=frappe.get_traceback(),
+            )
             return self._create_response(
                 success=False, error=error_msg, error_code=ERROR_CODES["SYSTEM_ERROR"]
             )
@@ -476,7 +479,10 @@ class BaseRoleProfileManager(ABC):
             if transaction_started:
                 frappe.db.rollback()
             error_msg = f"Error removing role profile for {self.config.entity_type} {entity_name}: {str(e)}"
-            frappe.log_error(frappe.get_traceback(), f"{self.config.log_context} Removal Error")
+            frappe.log_error(
+                title=f"{self.config.log_context} Removal Error",
+                message=frappe.get_traceback(),
+            )
             return self._create_response(
                 success=False, error=error_msg, error_code=ERROR_CODES["SYSTEM_ERROR"]
             )
