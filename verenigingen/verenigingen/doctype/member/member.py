@@ -383,37 +383,11 @@ class Member(
         """Get age group for privacy-friendly display - delegated to member_age_service"""
         return get_age_group(birth_date)
 
-    @frappe.whitelist()
-    @critical_api(operation_type=OperationType.ADMIN)
-    def approve_application(self) -> bool:
-        """Approve this application and assign member ID.
-
-        .. deprecated::
-            Not used in the production approval flow. The canonical approval path is
-            ``approve_membership_application()`` in ``api/membership_application_review.py``
-            which calls ``member.create_membership_on_approval()`` directly.
-            This method will be removed in a future version.
-        """
-        import warnings
-
-        warnings.warn(
-            "Member.approve_application() is deprecated. "
-            "Use api.membership_application_review.approve_membership_application() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        # Use lifecycle service for core approval logic
-        result = get_member_lifecycle_service().approve_application(self)
-
-        if not result.success:
-            # If there are errors, throw the first one
-            if result.errors:
-                frappe.throw(_(result.errors[0]))
-            else:
-                frappe.throw(_(result.error_message or "Application approval failed"))
-
-        # Create membership - this should trigger the dues schedule logic
-        return self.create_membership_on_approval()
+    # Member.approve_application removed in T4.1. It was a deprecated
+    # whitelisted wrapper around MemberLifecycleService.approve_application
+    # with no production callers. The canonical approval path lives at
+    # api.membership_application_review.approve_membership_application; it
+    # calls member.create_membership_on_approval() directly.
 
     def create_membership_on_approval(
         self,
@@ -444,22 +418,9 @@ class Member(
             approval_fields=approval_fields,
         )
 
-    @frappe.whitelist()
-    @critical_api(operation_type=OperationType.ADMIN)
-    def reject_application(self, reason: str) -> bool:
-        """Reject this application and clean up pending records"""
-        # Use lifecycle service for core rejection logic
-        result = get_member_lifecycle_service().reject_application(self, reason)
-
-        if not result.success:
-            # If there are errors, throw the first one
-            if result.errors:
-                frappe.throw(_(result.errors[0]))
-            else:
-                frappe.throw(_(result.error_message or "Application rejection failed"))
-
-        frappe.logger().info(f"Rejected application for {self.name}")
-        return True
+    # Member.reject_application removed in T4.1, same reasoning as
+    # approve_application. The canonical rejection path is
+    # api.membership_application_review.reject_membership_application.
 
     def validate(self) -> None:
         """Validate document data with optional performance optimizations.
