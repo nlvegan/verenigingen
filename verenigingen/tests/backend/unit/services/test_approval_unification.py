@@ -190,24 +190,41 @@ class TestApprovalOrchestrationUnified(FrappeTestCase):
         self.assertTrue(hasattr(member_cls, "create_membership_on_approval"))
         self.assertTrue(callable(getattr(member_cls, "create_membership_on_approval")))
 
-    def test_member_doctype_has_approve_application(self):
-        """Member DocType must still have approve_application (deprecated but not removed)."""
+    def test_member_doctype_no_longer_has_approve_application(self):
+        """Member DocType must NOT have approve_application after T4.1 retirement.
+
+        Previously the doctype carried a deprecated @frappe.whitelist'd
+        wrapper that delegated to MemberLifecycleService. Approvals go
+        through api.membership_application_review.approve_membership_application
+        only - the doctype method is gone.
+        """
         module = importlib.import_module(
             "verenigingen.verenigingen.doctype.member.member"
         )
         member_cls = getattr(module, "Member", None)
         self.assertIsNotNone(member_cls)
-        self.assertTrue(hasattr(member_cls, "approve_application"))
-
-    def test_lifecycle_service_approve_application_exists(self):
-        """MemberLifecycleService.approve_application must still exist (deprecated)."""
-        module = importlib.import_module(
-            "verenigingen.services.member.core.member_lifecycle_service"
+        self.assertFalse(
+            hasattr(member_cls, "approve_application"),
+            "Member.approve_application was retired in T4.1. Any caller "
+            "should use api.membership_application_review.approve_membership_application.",
         )
-        cls = getattr(module, "MemberLifecycleService", None)
-        self.assertIsNotNone(cls)
-        self.assertTrue(hasattr(cls, "approve_application"))
-        self.assertTrue(callable(getattr(cls, "approve_application")))
+        self.assertFalse(
+            hasattr(member_cls, "reject_application"),
+            "Member.reject_application was retired in T4.1.",
+        )
+
+    def test_lifecycle_service_module_removed(self):
+        """MemberLifecycleService module must no longer be importable.
+
+        T4.1 retired the second approval orchestrator entirely. The module
+        is deleted (not just the class); any caller is wrong and should
+        fail loudly on import rather than silently fall through to a
+        deprecation warning.
+        """
+        with self.assertRaises(ImportError):
+            importlib.import_module(
+                "verenigingen.services.member.core.member_lifecycle_service"
+            )
 
     # -------------------------------------------------------------------------
     # Tests verifying cross-module import relationships
