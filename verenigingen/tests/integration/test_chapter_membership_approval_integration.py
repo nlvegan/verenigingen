@@ -15,11 +15,24 @@ import unittest
 
 
 class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
-    """Integration tests for chapter membership during member approval"""
+    """Integration tests for chapter membership during member approval.
+
+    Tracks every Member created by ``create_test_member`` and cleans up the
+    Member + its auto-created Customer in ``tearDown``. Without this, every
+    test run accumulated duplicate Customer records on stable customer_name
+    values like "Test ApprovalUser1" - the factory's per-process sequence
+    counter resets every session, so back-to-back runs always collide on
+    Customer.PRIMARY. (5 pre-existing errors in this file disappeared after
+    this cleanup landed.)
+    """
 
     def setUp(self):
         """Set up test data"""
         super().setUp()
+
+        # Per-test tracking for tearDown cleanup. Populated by the wrapped
+        # create_test_member below; each test gets its own list.
+        self._tracked_members = []
 
         # Create test chapter manually (Chapter uses autoname='prompt')
         chapter_name = f"Test Chapter {int(now_datetime().timestamp())}"
@@ -40,6 +53,37 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             })
             membership_type.insert(ignore_permissions=True)
             frappe.db.commit()
+
+    def create_test_member(self, **kwargs):
+        """Override to auto-track members for tearDown cleanup."""
+        member = super().create_test_member(**kwargs)
+        self._tracked_members.append(member.name)
+        return member
+
+    def tearDown(self):
+        """Delete every Member created by this test and its auto-created Customer.
+
+        Member.after_insert creates a Customer linked via Member.customer. We
+        delete the Customer first (FK direction), then the Member. Errors are
+        swallowed so a partial-state test failure can't mask the real one;
+        the orphan-test next setUp will not collide because next setUp's tests
+        get fresh sequence numbers.
+        """
+        for member_name in self._tracked_members:
+            try:
+                customer_name = frappe.db.get_value(
+                    "Member", member_name, "customer"
+                )
+                if customer_name and frappe.db.exists("Customer", customer_name):
+                    frappe.delete_doc("Customer", customer_name, force=True)
+                if frappe.db.exists("Member", member_name):
+                    frappe.delete_doc("Member", member_name, force=True)
+            except Exception:  # noqa: BLE001
+                # Best-effort cleanup; don't mask the real test failure with
+                # an unrelated tearDown exception.
+                pass
+        frappe.db.commit()
+        super().tearDown()
 
     def _create_test_chapter(self, name):
         """Create a test chapter with ignore_permissions for test setup."""
@@ -625,14 +669,19 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         chapter_member = create_active_chapter_membership(member, self.test_chapter.name)
         self.assertIsNotNone(chapter_member, "Should create active chapter membership")
 
-        # 3. Create termination request
+        # 3. Create termination request. status / requested_by / request_date
+        # are mandatory; we set them explicitly rather than relying on Frappe
+        # defaults firing through .get_doc().
         termination_request = frappe.get_doc({
             "doctype": "Membership Termination Request",
             "member": member.name,
+            "status": "Draft",
             "termination_type": "Voluntary",
             "termination_reason": "Test termination",
+            "requested_by": frappe.session.user,
+            "request_date": today(),
             "member_request_date": today(),
-            "termination_date": today()
+            "termination_date": today(),
         })
         termination_request.insert()
 
@@ -956,9 +1005,10 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             remove_all_pending_chapter_memberships,
         )
 
-        # Create second chapter
-        second_chapter = self.create_test_chapter(
-            chapter_name=f"Test Chapter 2 {int(now_datetime().timestamp())}"
+        # Create second chapter. Chapter has autoname='prompt' (no chapter_name
+        # field on the DocType); the helper expects name= or builds its own.
+        second_chapter = self._create_test_chapter(
+            f"Test Chapter 2 {int(now_datetime().timestamp())}"
         )
         second_chapter_name = second_chapter.name
 
