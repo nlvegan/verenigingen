@@ -136,11 +136,9 @@ def create_membership_invoice_with_amount(member, membership, amount):
     return invoice
 
 
-# Note: the Customer Group resolution helper used to live here as a private
-# function. It was promoted to verenigingen.services.customer_group_resolver
-# in commit (this one) so the same helper is shared with donor, donation,
-# Mollie orphan-customer, and e-Boekhouden Customer creation paths - all of
-# which had the same group-node bug before. Import and call directly.
+# The Customer Group resolution helper lives in
+# verenigingen.services.customer_group_resolver - shared across the donor,
+# donation, Mollie orphan-customer, and eBoekhouden Customer-creation paths.
 
 
 def create_customer_for_member(member):

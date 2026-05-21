@@ -780,22 +780,30 @@ class Donor(Document):
 
     def _get_donor_customer_group(self):
         """Get donor customer group from configuration with auto-repair"""
-        # Check Verenigingen Settings for donor customer group configuration
+        # Check Verenigingen Settings for donor customer group configuration.
+        # Accept only when the configured group exists AND is a leaf - same
+        # is_group guard the shared resolver applies to the Selling Settings
+        # default. A group-node value here would fail Customer.insert with
+        # the strict-validation rejection.
         try:
             settings = frappe.get_single("Verenigingen Settings")
             if hasattr(settings, "donor_customer_group") and settings.donor_customer_group:
-                if frappe.db.exists("Customer Group", settings.donor_customer_group):
+                is_group = frappe.db.get_value("Customer Group", settings.donor_customer_group, "is_group")
+                if is_group == 0:
                     return settings.donor_customer_group
-                else:
-                    if frappe.flags.get("in_test"):
-                        print(
-                            f"⚠️ Configured donor customer group '{settings.donor_customer_group}' does not exist"
-                        )
-                    frappe.log_error(
-                        f"Configured donor customer group '{settings.donor_customer_group}' does not exist, "
-                        f"falling back to auto-creation",
-                        "Donor Customer Group Configuration Error",
+                if frappe.flags.get("in_test"):
+                    print(
+                        f"⚠️ Configured donor customer group '{settings.donor_customer_group}' "
+                        f"is missing or a group node (is_group={is_group}); falling back."
                     )
+                frappe.log_error(
+                    message=(
+                        f"Configured donor customer group "
+                        f"'{settings.donor_customer_group}' is missing or a group "
+                        f"node (is_group={is_group}); falling back to auto-creation."
+                    ),
+                    title="Donor Customer Group Configuration Error",
+                )
         except Exception:
             pass
 

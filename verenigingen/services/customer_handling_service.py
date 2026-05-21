@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.services.infrastructure.service_config import get_service_config
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
@@ -336,9 +337,7 @@ class CustomerHandlingService(StatefulService):
             customer = frappe.new_doc("Customer")
             customer.customer_name = donor_name
             customer.customer_type = self.config.get("default_customer_type", "Individual")
-            customer.customer_group = frappe.db.get_single_value(
-                "Selling Settings", "customer_group"
-            ) or self.config.get("default_customer_group", "Individual")
+            customer.customer_group = resolve_non_group_customer_group()
             customer.territory = frappe.db.get_single_value(
                 "Selling Settings", "territory"
             ) or self.config.get("default_territory", "All Territories")

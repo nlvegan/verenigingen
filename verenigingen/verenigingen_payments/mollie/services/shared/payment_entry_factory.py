@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -679,14 +680,12 @@ class PaymentEntryFactory:
                 # Get company
                 company = self._get_company()
 
-                # Customer group and territory setup
-                customer_group = "Individual"
+                # Customer group: use the shared resolver so we never pass a
+                # group node through to the Customer insert. The bad
+                # `or "All Customer Groups"` fallback used to land here when
+                # "Individual" was missing on a fresh site.
+                customer_group = resolve_non_group_customer_group()
                 territory = "Netherlands"
-
-                # Validate customer group exists
-                if not frappe.db.exists("Customer Group", customer_group):
-                    fallback_group = frappe.get_value("Customer Group", {"is_group": 0}, "name")
-                    customer_group = fallback_group or "All Customer Groups"
 
                 # Validate territory exists
                 if not frappe.db.exists("Territory", territory):
@@ -749,13 +748,9 @@ class PaymentEntryFactory:
             # Get company
             company = self._get_company()
 
-            # Customer group and territory setup
-            customer_group = "Individual"
+            # Customer group via shared resolver (see locked path above).
+            customer_group = resolve_non_group_customer_group()
             territory = "Netherlands"
-
-            if not frappe.db.exists("Customer Group", customer_group):
-                fallback_group = frappe.get_value("Customer Group", {"is_group": 0}, "name")
-                customer_group = fallback_group or "All Customer Groups"
 
             if not frappe.db.exists("Territory", territory):
                 fallback_territory = frappe.get_value("Territory", {"is_group": 0}, "name")
