@@ -233,26 +233,10 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         # Should return override fee
         self.assertEqual(display_fee, 75.00)
 
-    def test_reject_application_whitelist(self):
-        """Test reject_application method"""
-        test_data = self.builder.with_member(
-            status="Pending", application_status="Under Review", application_id=f"APP-{random_string(8)}"
-        ).build()
-
-        member = test_data["member"]
-
-        # Test via API call
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.reject_application",
-            doc=member.as_dict(),
-            rejection_reason="Incomplete documentation",
-        )
-
-        # Verify rejection
-        member.reload()
-        self.assertEqual(member.status, "Rejected")
-        self.assertEqual(member.application_status, "Rejected")
-        self.assertEqual(member.rejection_reason, "Incomplete documentation")
+    # test_reject_application_whitelist deleted in T4.1 - it exercised the
+    # deprecated Member.reject_application whitelisted doctype method,
+    # which has been retired in favour of
+    # api.membership_application_review.reject_membership_application.
 
     def test_update_membership_duration_whitelist(self):
         """Test update_membership_duration method"""

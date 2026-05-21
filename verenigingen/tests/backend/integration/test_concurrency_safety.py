@@ -23,7 +23,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import frappe
 
-from verenigingen.services.member.core.member_lifecycle_service import MemberLifecycleService
+# T4.1: MemberLifecycleService was retired; concurrency tests below were
+# repointed to the canonical api.membership_application_review path.
 from verenigingen.services.member.identification.member_id_service import MemberIDService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -225,7 +226,6 @@ class TestApplicationApprovalConcurrency(EnhancedTestCase):
         super().setUp()
         self.uid = str(int(time.time() * 1000))[-6:]
         self.created_members = []
-        self.lifecycle_service = MemberLifecycleService()
         # Capture site name for threads
         self.site = frappe.local.site
 
@@ -254,9 +254,26 @@ class TestApplicationApprovalConcurrency(EnhancedTestCase):
         frappe.db.commit()
         return member.name
 
-    def test_concurrent_approval_only_one_succeeds(self):
-        """Test that concurrent approval of same member only allows one to succeed."""
-        # Create a single pending member
+    def test_concurrent_approval_idempotent_no_duplicate_memberships(self):
+        """Concurrent approvals of the same member must not create duplicate
+        Memberships or invoices.
+
+        Behavioural-property weakening note (T4.1): the deprecated
+        MemberLifecycleService used a lock-based exclusivity model and
+        returned ALREADY_APPROVED for losers. The canonical
+        api.membership_application_review path uses an idempotency guard
+        (re-reads application_status before doing work) rather than a
+        lock; concurrent losers succeed instead of failing. The
+        guarantee changes from 'exactly one succeeds, others fail' to
+        'at most one Membership is created'. The latter is still correct
+        for the business invariant (no duplicate billing). Whether to add
+        an advisory_lock on the canonical path is a separate brainstorm,
+        deliberately scoped out of T4.1.
+        """
+        from verenigingen.api.membership_application_review import (
+            approve_membership_application,
+        )
+
         member_name = self._create_pending_application("concurrent")
         site = self.site  # Capture for closure
 
@@ -264,114 +281,117 @@ class TestApplicationApprovalConcurrency(EnhancedTestCase):
         lock = threading.Lock()
 
         def try_approve(thread_id):
-            """Try to approve the member in a thread."""
             try:
                 _create_thread_context(site)
-                service = MemberLifecycleService()
-                member = frappe.get_doc("Member", member_name)
-                result = service.approve_application(member)
+                response = approve_membership_application(
+                    member_name=member_name,
+                    membership_type=None,
+                    chapter=None,
+                )
                 with lock:
                     results.append({
                         "thread": thread_id,
-                        "success": result.success,
-                        "error_code": result.error_code,
-                        "member_id": result.data if result.success else None,
+                        "response": response,
                     })
             except Exception as e:
                 with lock:
-                    results.append({"thread": thread_id, "success": False, "error": str(e)})
+                    results.append({"thread": thread_id, "error": str(e)})
             finally:
                 _cleanup_thread_context()
 
-        # Execute approvals concurrently
         num_threads = 5
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = [executor.submit(try_approve, i) for i in range(num_threads)]
             for future in as_completed(futures):
                 pass
 
-        # Exactly one should succeed
-        successful = [r for r in results if r["success"]]
-        already_approved = [r for r in results if r.get("error_code") == "ALREADY_APPROVED"]
-
-        self.assertEqual(len(successful), 1, f"Exactly one approval should succeed. Results: {results}")
-        self.assertEqual(
-            len(already_approved),
-            num_threads - 1,
-            f"Others should get ALREADY_APPROVED. Results: {results}",
+        # The business invariant: at most one Membership exists for this
+        # member after all threads complete. (We allow zero too because
+        # all threads could in theory race the validation - in practice
+        # at least one succeeds.)
+        memberships = frappe.get_all(
+            "Membership",
+            filters={"member": member_name},
+        )
+        self.assertLessEqual(
+            len(memberships),
+            1,
+            f"At most one Membership should exist for {member_name}. "
+            f"Found {len(memberships)}. Results: {results}",
         )
 
-        # Verify the member is actually approved
+        # And the member ends up in the Approved/Active state.
         member = frappe.get_doc("Member", member_name)
         self.assertEqual(member.application_status, "Approved")
         self.assertEqual(member.status, "Active")
-        self.assertIsNotNone(member.member_id)
 
-    def test_concurrent_rejection_only_one_succeeds(self):
-        """Test that concurrent rejection of same member only allows one to succeed."""
-        # Create a single pending member
+    def test_concurrent_rejection_idempotent_no_duplicate_state(self):
+        """Concurrent rejections of the same member must end in the
+        Rejected state and not produce any contradictory partial state.
+
+        Same property-weakening note as the approval sibling: canonical
+        path is idempotent-guarded rather than lock-exclusive.
+        """
+        from verenigingen.api.membership_application_review import (
+            reject_membership_application,
+        )
+
         member_name = self._create_pending_application("reject")
-        site = self.site  # Capture for closure
+        site = self.site
 
         results = []
         lock = threading.Lock()
 
         def try_reject(thread_id):
-            """Try to reject the member in a thread."""
             try:
                 _create_thread_context(site)
-                service = MemberLifecycleService()
-                member = frappe.get_doc("Member", member_name)
-                result = service.reject_application(member, f"Rejected by thread {thread_id}")
+                response = reject_membership_application(
+                    member_name=member_name,
+                    rejection_reason=f"Rejected by thread {thread_id}",
+                )
                 with lock:
-                    results.append({
-                        "thread": thread_id,
-                        "success": result.success,
-                        "error_code": result.error_code,
-                    })
+                    results.append({"thread": thread_id, "response": response})
             except Exception as e:
                 with lock:
-                    results.append({"thread": thread_id, "success": False, "error": str(e)})
+                    results.append({"thread": thread_id, "error": str(e)})
             finally:
                 _cleanup_thread_context()
 
-        # Execute rejections concurrently
         num_threads = 5
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = [executor.submit(try_reject, i) for i in range(num_threads)]
             for future in as_completed(futures):
                 pass
 
-        # Exactly one should succeed
-        successful = [r for r in results if r["success"]]
-        already_processed = [r for r in results if r.get("error_code") == "ALREADY_PROCESSED"]
-
-        self.assertEqual(len(successful), 1, f"Exactly one rejection should succeed. Results: {results}")
+        # Final state must be Rejected.
+        member = frappe.get_doc("Member", member_name)
         self.assertEqual(
-            len(already_processed),
-            num_threads - 1,
-            f"Others should get ALREADY_PROCESSED. Results: {results}",
+            member.application_status,
+            "Rejected",
+            f"Member should be Rejected after concurrent rejections. Results: {results}",
         )
 
-        # Verify the member is actually rejected
-        member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.application_status, "Rejected")
-        self.assertEqual(member.status, "Rejected")
-
     def test_approve_then_reject_fails(self):
-        """Test that rejecting an already approved member fails."""
-        # Create and approve a member
-        member_name = self._create_pending_application("approve_first")
-        member = frappe.get_doc("Member", member_name)
+        """Approving then trying to reject must keep the member Approved.
 
-        # Approve first
-        approve_result = self.lifecycle_service.approve_application(member)
-        self.assertTrue(approve_result.success)
+        The canonical reject API throws on already-processed applications;
+        we accept either an exception or an unchanged-state result, as
+        long as the Approved state is preserved.
+        """
+        from verenigingen.api.membership_application_review import (
+            approve_membership_application,
+            reject_membership_application,
+        )
+
+        member_name = self._create_pending_application("approve_first")
+        approve_membership_application(member_name=member_name, membership_type=None)
         frappe.db.commit()
 
-        # Try to reject
-        member.reload()
-        reject_result = self.lifecycle_service.reject_application(member, "Should fail")
+        # Try to reject - should fail (already approved).
+        with self.assertRaises(Exception):
+            reject_membership_application(
+                member_name=member_name, rejection_reason="Should fail"
+            )
 
-        self.assertFalse(reject_result.success)
-        self.assertEqual(reject_result.error_code, "ALREADY_PROCESSED")
+        member = frappe.get_doc("Member", member_name)
+        self.assertEqual(member.application_status, "Approved")

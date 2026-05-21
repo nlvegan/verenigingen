@@ -11,7 +11,6 @@ Created: 2025-11-24
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from verenigingen.services.member.core.member_lifecycle_service import member_lifecycle_service
 from verenigingen.services.member.core.member_status_service import (
     set_member_application_status_defaults,
     sync_member_status_fields,
@@ -24,125 +23,12 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import unittest
 
 
-class TestMemberLifecycleServiceMigration(EnhancedTestCase):
-    """Test MemberLifecycleService OperationResult migration."""
-
-    def test_approve_application_success(self):
-        """Test successful application approval returns OperationResult."""
-        # Create application member
-        member = self.create_test_member(
-            first_name=f"Test{self.uid}",
-            last_name="Applicant",
-            email=f"test.applicant.{self.uid}@test.invalid",
-            status="Pending"
-        )
-
-        # Set as application member
-        member.application_id = "APP-001"
-        member.application_status = "Pending"
-        member.save()
-
-        # Approve application
-        result = member_lifecycle_service.approve_application(member)
-
-        # Verify OperationResult structure
-        self.assertTrue(result.success)
-        self.assertIsNotNone(result.data)  # Should return member_id
-        self.assertEqual(result.errors, [])
-        self.assertTrue(result.metadata.get("approved"))
-
-        # Verify member was updated
-        member.reload()
-        self.assertIsNotNone(member.member_id)
-
-    def test_approve_application_not_application_member(self):
-        """Test approve_application fails for non-application member."""
-        # Create regular member (not from application)
-        member = self.create_test_member(
-            first_name=f"Regular{self.uid}",
-            last_name="Member",
-            email=f"regular.{self.uid}@test.invalid",
-            status="Active"
-        )
-
-        # Try to approve
-        result = member_lifecycle_service.approve_application(member)
-
-        # Verify failure
-        self.assertFalse(result.success)
-        # When using .chain(), original error is in errors list, not error_message
-        self.assertGreater(len(result.errors), 0)
-        self.assertIn("not an application member", result.errors[0].lower())
-
-    def test_approve_application_already_approved(self):
-        """Test approve_application fails if already approved."""
-        # Create approved application member
-        member = self.create_test_member(
-            first_name=f"Approved{self.uid}",
-            last_name="Member",
-            email=f"approved.{self.uid}@test.invalid",
-            status="Active"
-        )
-        member.application_id = "APP-002"
-        member.application_status = "Approved"
-        member.save()
-
-        # Try to approve again
-        result = member_lifecycle_service.approve_application(member)
-
-        # Verify failure
-        self.assertFalse(result.success)
-        # When using .chain(), original error is in errors list, not error_message
-        self.assertGreater(len(result.errors), 0)
-        self.assertIn("already approved", result.errors[0].lower())
-
-    def test_reject_application_success(self):
-        """Test successful application rejection returns OperationResult."""
-        # Create application member
-        member = self.create_test_member(
-            first_name=f"Test{self.uid}",
-            last_name="Reject",
-            email=f"test.reject.{self.uid}@test.invalid",
-            status="Pending"
-        )
-        member.application_id = "APP-003"
-        member.application_status = "Pending"
-        member.save()
-
-        # Reject application
-        reason = "Does not meet requirements"
-        result = member_lifecycle_service.reject_application(member, reason)
-
-        # Verify OperationResult structure
-        self.assertTrue(result.success)
-        self.assertEqual(result.data, "Rejected")  # Should return status
-        self.assertTrue(result.metadata.get("rejected"))
-        self.assertIn("review_date", result.metadata)
-
-        # Verify member was updated
-        member.reload()
-        self.assertEqual(member.status, "Rejected")
-        # The rejection reason is stored in review_notes field (not rejection_reason which doesn't exist)
-        self.assertEqual(member.review_notes, reason)
-
-    def test_reject_application_not_application_member(self):
-        """Test reject_application fails for non-application member."""
-        # Create regular member
-        member = self.create_test_member(
-            first_name=f"Regular{self.uid}2",
-            last_name="Member",
-            email=f"regular2.{self.uid}@test.invalid",
-            status="Active"
-        )
-
-        # Try to reject
-        result = member_lifecycle_service.reject_application(member, "Test reason")
-
-        # Verify failure
-        self.assertFalse(result.success)
-        # When using .chain(), original error is in errors list, not error_message
-        self.assertGreater(len(result.errors), 0)
-        self.assertIn("not an application member", result.errors[0].lower())
+# TestMemberLifecycleServiceMigration deleted in T4.1 (commit on
+# refactor/t4.1-retire-lifecycle-approval-orchestrator). Those tests
+# exercised MemberLifecycleService.approve_application and
+# reject_application - the second approval orchestrator that has been
+# retired. The OperationResult contract itself is still exercised by the
+# surviving service-migration tests below.
 
 
 class TestMemberStatusServiceMigration(EnhancedTestCase):
@@ -284,27 +170,13 @@ class TestMemberIdServiceMigration(EnhancedTestCase):
 class TestOperationResultChainingInServices(EnhancedTestCase):
     """Test that .chain() helper works correctly in service layer."""
 
-    def test_chain_preserves_error_context_through_layers(self):
-        """Test that chaining preserves error context through multiple service layers."""
-        # Create member that will fail validation
-        member = self.create_test_member(
-            first_name=f"Chain{self.uid}",
-            last_name="Test",
-            email=f"chain.{self.uid}@test.invalid",
-            status="Active"
-        )
-        # Not an application member
+    # test_chain_preserves_error_context_through_layers deleted in T4.1.
+    # It exercised the lifecycle service's chained-error pattern at the
+    # approve_application boundary. The OperationResult chaining helper
+    # itself is still exercised by test_chain_maintains_metadata_through_
+    # propagation below (which uses OperationResult directly without going
+    # through the deleted service).
 
-        # Try to approve (should fail and chain error)
-        result = member_lifecycle_service.approve_application(member)
-
-        # Verify error chaining
-        self.assertFalse(result.success)
-        # Should have context message
-        self.assertIn("validation", result.error_message.lower())
-        # Should preserve original error
-        self.assertGreater(len(result.errors), 0)
-        self.assertIn("not an application member", result.errors[0].lower())
 
     def test_chain_maintains_metadata_through_propagation(self):
         """Test that chain() maintains metadata when propagating errors."""
@@ -342,8 +214,7 @@ def run_tests():
     # Create test suite
     suite = unittest.TestSuite()
 
-    # Add all test classes
-    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMemberLifecycleServiceMigration))
+    # Add all test classes (TestMemberLifecycleServiceMigration removed in T4.1).
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMemberStatusServiceMigration))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMemberIdServiceMigration))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestOperationResultChainingInServices))

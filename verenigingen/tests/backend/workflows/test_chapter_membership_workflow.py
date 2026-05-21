@@ -202,10 +202,17 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         chapter_member = create_pending_chapter_membership(member, self.test_chapter)
         self.assertIsNotNone(chapter_member, "Pending chapter member should be created")
 
-        # Mock the create_membership_on_approval method to avoid complex dependencies
-        with patch.object(member, "create_membership_on_approval", return_value=True):
-            # Test approval process
-            member.approve_application()
+        # Approve via the canonical API path (T4.1 retired
+        # Member.approve_application). The canonical path runs the full
+        # membership creation pipeline; no need to patch.
+        from verenigingen.api.membership_application_review import (
+            approve_membership_application,
+        )
+        approve_membership_application(
+            member_name=member.name,
+            membership_type=member.selected_membership_type,
+            chapter=None,
+        )
 
         # Verify member was approved
         member.reload()

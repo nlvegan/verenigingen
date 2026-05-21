@@ -6,11 +6,11 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster
-from verenigingen.api.membership_application import (
-    approve_membership_application,
-    reject_membership_application,
-    submit_application,
-)
+from verenigingen.api.membership_application import submit_application
+# T4.1: approve_membership_application and reject_membership_application
+# were removed from api.membership_application (deprecated shims) and now
+# live solely on api.membership_application_review. This file's tests
+# that exercised those shims are @unittest.skip-marked.
 from verenigingen.utils.application_payments import process_application_payment
 
 
