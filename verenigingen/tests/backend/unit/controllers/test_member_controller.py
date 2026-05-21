@@ -414,53 +414,13 @@ class TestMemberController(VereningingenUnitTestCase):
             other_names = [m.get("name") for m in others]
             self.assertIn(member1.name, other_names)
 
-    def test_approve_application_method(self):
-        """Test the approve_application method"""
-        # Create application member with application_id
-        test_data = self.builder.with_member(
-            first_name="Application",
-            last_name="Test",
-            status="Pending",
-            application_status="Under Review",
-            application_id=f"APP-{frappe.utils.random_string(8)}",
-            selected_membership_type="Annual",  # Add membership type for approval
-        ).build()
-
-        member = test_data["member"]
-
-        # Approve application
-        member.approve_application()
-
-        # Verify status changes
-        member.reload()
-        self.assertEqual(member.status, "Active")
-        self.assertEqual(member.application_status, "Approved")
-        self.assertIsNotNone(member.member_id)
-        self.assertIsNotNone(member.customer)
-        self.assertIsNotNone(member.user)
-
-    def test_reject_application_method(self):
-        """Test the reject_application method"""
-        # Create application member with application_id
-        test_data = self.builder.with_member(
-            first_name="Reject",
-            last_name="Test",
-            status="Pending",
-            application_status="Under Review",
-            application_id=f"APP-{frappe.utils.random_string(8)}",
-        ).build()
-
-        member = test_data["member"]
-
-        # Reject application
-        rejection_reason = "Incomplete documentation"
-        member.reject_application(rejection_reason)
-
-        # Verify status changes
-        member.reload()
-        self.assertEqual(member.status, "Rejected")
-        self.assertEqual(member.application_status, "Rejected")
-        self.assertEqual(member.rejection_reason, rejection_reason)
+    # test_approve_application_method and test_reject_application_method
+    # deleted in T4.1 - they exercised the deprecated Member.approve_application /
+    # Member.reject_application doctype methods which have been retired in
+    # favour of the canonical api.membership_application_review path. The
+    # canonical approve/reject flow is covered end-to-end by
+    # test_canonical_approval_chapter_activation.py and
+    # test_chapter_membership_approval_integration.py.
 
     def test_calculate_cumulative_membership_duration(self):
         """Test cumulative membership duration calculation"""

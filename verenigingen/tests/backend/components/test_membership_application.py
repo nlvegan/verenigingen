@@ -6,6 +6,12 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster
+# Note: approve_membership_application / reject_membership_application
+# imported here are the DEPRECATED shims in api.membership_application.
+# They emit DeprecationWarning and delegate to the canonical
+# api.membership_application_review functions. T4.1 kept the shims alive
+# (they correctly delegate) to avoid breaking the many call sites in this
+# test file; future cleanup is tracked as a follow-up.
 from verenigingen.api.membership_application import (
     approve_membership_application,
     reject_membership_application,

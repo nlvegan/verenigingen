@@ -89,6 +89,50 @@ def _sanitize_text_fields(text_fields):
     return sanitized
 
 
+def _activate_pending_chapter_memberships(member):
+    """Activate any Chapter Member rows that are 'Pending' for this member.
+
+    The membership application form creates Chapter Member rows in status
+    ``Pending`` at submit time (when the applicant picks a chapter). On
+    approval, those rows must be flipped to ``Active`` so the member's
+    chapter assignment is real. The deprecated ``MemberLifecycleService``
+    had this step in ``_perform_post_approval_setup``; it now lives here
+    so the canonical approval path is behaviourally complete.
+
+    Note on Chapter Member SQL: it is a child table on Chapter, so the
+    chapter name lives in ``parent`` (not in a ``chapter`` column).
+    Filtering by ``member`` + ``status='Pending'`` finds every pending row
+    for the member regardless of which chapter it belongs to - in practice
+    a member usually has at most one, but multi-chapter applications exist.
+
+    Errors are logged but do not fail the approval - the membership and
+    invoice have already been created at the call site, and a follow-up
+    chapter manual activation is recoverable.
+    """
+    try:
+        from verenigingen.utils.application_helpers import activate_pending_chapter_membership
+
+        pending = frappe.db.sql(
+            """
+            SELECT parent AS chapter
+            FROM `tabChapter Member`
+            WHERE member = %s AND status = 'Pending'
+            """,
+            (member.name,),
+            as_dict=True,
+        )
+        for row in pending:
+            try:
+                activate_pending_chapter_membership(member, row.chapter)
+            except Exception as e:  # noqa: BLE001
+                frappe.logger().warning(
+                    f"Failed to activate pending Chapter Member for member="
+                    f"{member.name} chapter={row.chapter}: {e}"
+                )
+    except Exception as e:  # noqa: BLE001
+        frappe.logger().warning(f"Pending chapter activation step failed for member={member.name}: {e}")
+
+
 def assign_member_to_chapter(member, chapter, notify=None):
     """
     Assign member to chapter using centralized ChapterMembershipManager.
@@ -488,6 +532,14 @@ def approve_membership_application(
 
     approval_fields = _prepare_approval_fields(member, membership_type, notes)
     membership = member.create_membership_on_approval(create_invoice=True, approval_fields=approval_fields)
+
+    # Activate any pre-existing pending Chapter Member rows. The application
+    # form creates a Chapter Member row in status "Pending" when the applicant
+    # chooses a chapter at submit time. The deprecated MemberLifecycleService
+    # had this step; the canonical path needs it too so members don't lose
+    # their chapter assignment on approval. T4.1 §2.3 - ported here before
+    # the lifecycle service is deleted.
+    _activate_pending_chapter_memberships(member)
 
     # Get invoice and membership type docs for downstream steps
     invoice = None

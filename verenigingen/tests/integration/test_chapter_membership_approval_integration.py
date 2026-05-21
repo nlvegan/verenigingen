@@ -327,18 +327,23 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         self.assertEqual(member.application_status, "Approved", "Member should be approved")
         self.assertEqual(member.status, "Active", "Member should be active")
 
-    def test_lifecycle_service_activates_chapter_membership(self):
+    def test_canonical_approval_activates_chapter_membership(self):
         """
-        Test that MemberLifecycleService.approve_application() correctly activates
+        Test that the canonical membership approval path correctly activates
         pending chapter memberships.
 
-        This specifically tests the SQL query in _perform_post_approval_setup()
-        that finds pending chapter memberships. The bug was using non-existent
-        'chapter' column instead of 'parent' (standard Frappe child table field).
+        Repointed from MemberLifecycleService to the canonical API in T4.1
+        step 4. The SQL query in _activate_pending_chapter_memberships
+        finds Chapter Member rows by member+status='Pending' (parent column
+        carries the chapter; Chapter Member is a child table). Earlier
+        versions of this code used a non-existent 'chapter' column and the
+        regression this test guards is that bug.
 
-        Regression test for: Chapter Member status staying "Pending" after approval
+        Regression test for: Chapter Member status staying "Pending" after approval.
         """
-        from verenigingen.services.member.core.member_lifecycle_service import MemberLifecycleService
+        from verenigingen.api.membership_application_review import (
+            approve_membership_application,
+        )
 
         # 1. Create pending member application
         member = self.create_test_member(
@@ -384,25 +389,20 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
             "Query should correctly return chapter name via 'parent as chapter'"
         )
 
-        # 5. Now approve via MemberLifecycleService (exercises the actual code path)
+        # 5. Now approve via the canonical API.
         member.reload()
-        lifecycle_service = MemberLifecycleService()
-        result = lifecycle_service.approve_application(member)
-
-        # 6. Verify approval succeeded
-        self.assertTrue(
-            result.success,
-            f"Approval should succeed. Errors: {result.errors if hasattr(result, 'errors') else 'N/A'}"
+        approve_membership_application(
+            member_name=member.name, membership_type="Standard Member", chapter=None
         )
 
-        # 7. Verify chapter membership status changed to Active
+        # 6. Verify chapter membership status changed to Active.
         chapter_doc.reload()
         active_members = [m for m in chapter_doc.members if m.member == member.name]
         self.assertEqual(len(active_members), 1, "Should still have 1 Chapter Member record")
         self.assertEqual(
             active_members[0].status, "Active",
-            "Chapter Member status should be 'Active' after approval via MemberLifecycleService. "
-            "If this is 'Pending', the SQL query fix in _perform_post_approval_setup() didn't work."
+            "Chapter Member status should be 'Active' after canonical approval. "
+            "If this is 'Pending', _activate_pending_chapter_memberships didn't fire."
         )
 
         # 8. Verify member is now approved
@@ -410,14 +410,18 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         self.assertEqual(member.application_status, "Approved", "Member should be approved")
         self.assertEqual(member.status, "Active", "Member should be active")
 
-    def test_lifecycle_service_handles_multiple_pending_chapters(self):
+    def test_canonical_approval_handles_multiple_pending_chapters(self):
         """
-        Test that approval activates ALL pending chapter memberships, not just one.
+        Test that the canonical approval path activates ALL pending chapter
+        memberships, not just one.
 
-        Verifies the loop in _perform_post_approval_setup() correctly processes
-        multiple pending chapter memberships for a single member.
+        Repointed to the canonical API in T4.1 step 4. Verifies the loop in
+        _activate_pending_chapter_memberships correctly processes multiple
+        pending Chapter Member rows for a single member.
         """
-        from verenigingen.services.member.core.member_lifecycle_service import MemberLifecycleService
+        from verenigingen.api.membership_application_review import (
+            approve_membership_application,
+        )
 
         # Create a second test chapter
         second_chapter = self._create_test_chapter(f"Test Chapter 2 {int(now_datetime().timestamp())}")
@@ -450,11 +454,11 @@ class TestChapterMembershipApprovalIntegration(EnhancedTestCase):
         )
         self.assertEqual(pending_count, 2, "Should have 2 pending chapter memberships")
 
-        # 4. Approve via lifecycle service
+        # 4. Approve via the canonical API.
         member.reload()
-        lifecycle_service = MemberLifecycleService()
-        result = lifecycle_service.approve_application(member)
-        self.assertTrue(result.success, f"Approval should succeed: {getattr(result, 'errors', [])}")
+        approve_membership_application(
+            member_name=member.name, membership_type="Standard Member", chapter=None
+        )
 
         # 5. Verify BOTH chapter memberships are now Active
         active_count = frappe.db.count(
