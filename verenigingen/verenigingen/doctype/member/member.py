@@ -43,8 +43,8 @@ from frappe.utils import date_diff, getdate, now, now_datetime, today
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.member.core.member_address_service import get_member_address_service
 from verenigingen.services.member.core.member_id_service import generate_application_id, generate_member_id
-from verenigingen.services.member.core.member_lifecycle_service import get_member_lifecycle_service
 from verenigingen.services.member.core.member_status_service import (
+    is_application_member,
     set_member_application_status_defaults,
     sync_member_status_fields,
     update_member_membership_status,
@@ -338,8 +338,12 @@ class Member(
             # Don't raise exception to prevent form loading issues
 
     def is_application_member(self) -> bool:
-        """Check if this member was created through the application process"""
-        return get_member_lifecycle_service().is_application_member(self)
+        """Check if this member was created through the application process.
+
+        Delegates to member_status_service.is_application_member - the
+        single source of truth after T4.1's MemberLifecycleService retirement.
+        """
+        return is_application_member(self)
 
     def should_have_member_id(self) -> bool:
         """Check if this member should have a member ID assigned"""

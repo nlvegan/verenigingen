@@ -1,11 +1,13 @@
 """
 Member Status Service - Centralized member status management.
 
-This service provides status management functionality that was previously
-in member.py. All methods delegate to the existing member_lifecycle_service
-for consistency. Extracted for better organization.
+This service owns member status reads/writes. Originally extracted from
+member.py; T4.1 absorbed is_application_member from the retired
+MemberLifecycleService here, making this the single source of truth for
+status-related queries.
 
 Functions:
+    - is_application_member(): Was the member created via the application flow?
     - set_member_application_status_defaults(): Set application status defaults
     - sync_member_status_fields(): Synchronize status fields
     - update_member_membership_status(): Update membership status based on active memberships
@@ -154,6 +156,16 @@ def update_member_membership_status(member_doc):
             raise_error=False,
         )
         return None
+
+
+def is_application_member(member_doc) -> bool:
+    """Check whether a member was created through the application process.
+
+    A member is an "application member" iff they carry an application_id.
+    Moved here from MemberLifecycleService in T4.1; the lifecycle service
+    has been retired and this is the only one of its methods that survived.
+    """
+    return bool(getattr(member_doc, "application_id", None))
 
 
 def get_member_status_color(status):
