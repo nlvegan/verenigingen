@@ -311,8 +311,8 @@ def get_board_member_profiles(user: str, member: str) -> list:
                 # Validate chapter exists
                 if not frappe.db.exists("Chapter", position.parent):
                     frappe.log_error(
-                        f"Chapter {position.parent} not found for board member {volunteer}",
-                        "Role Profile: Missing Chapter",
+                        title="Role Profile: Missing Chapter",
+                        message=f"Chapter {position.parent} not found for board member {volunteer}",
                     )
                     continue
 
@@ -328,8 +328,8 @@ def get_board_member_profiles(user: str, member: str) -> list:
                         # Validate role profile exists
                         if not frappe.db.exists("Role Profile", role_profile):
                             frappe.log_error(
-                                f"Role profile '{role_profile}' configured for {position.parent} role '{position.chapter_role}' does not exist",
-                                "Role Profile: Missing Profile",
+                                title="Role Profile: Missing Profile",
+                                message=f"Role profile '{role_profile}' configured for {position.parent} role '{position.chapter_role}' does not exist",
                             )
                             # Fall through to default profile
                         else:
@@ -343,8 +343,8 @@ def get_board_member_profiles(user: str, member: str) -> list:
                     # Validate default profile exists
                     if not frappe.db.exists("Role Profile", chapter_config["default_profile"]):
                         frappe.log_error(
-                            f"Default role profile '{chapter_config['default_profile']}' for {position.parent} does not exist",
-                            "Role Profile: Missing Profile",
+                            title="Role Profile: Missing Profile",
+                            message=f"Default role profile '{chapter_config['default_profile']}' for {position.parent} does not exist",
                         )
                         # Fall through to hardcoded default
                     else:
@@ -356,22 +356,22 @@ def get_board_member_profiles(user: str, member: str) -> list:
                     profiles.append((PRIORITY_BOARD_DEFAULT, PROFILE_BOARD_MEMBER))
                 else:
                     frappe.log_error(
-                        f"Hardcoded fallback profile '{PROFILE_BOARD_MEMBER}' does not exist - user {user} may lose board permissions",
-                        "Role Profile: Critical Configuration Error",
+                        title="Role Profile: Critical Configuration Error",
+                        message=f"Hardcoded fallback profile '{PROFILE_BOARD_MEMBER}' does not exist - user {user} may lose board permissions",
                     )
 
             except Exception as e:
                 frappe.log_error(
-                    f"Error processing board position {position.parent} for user {user}: {str(e)}\n{frappe.get_traceback()}",
-                    "Role Profile: Board Position Error",
+                    title="Role Profile: Board Position Error",
+                    message=f"Error processing board position {position.parent} for user {user}: {str(e)}\n{frappe.get_traceback()}",
                 )
                 # Continue processing other positions
                 continue
 
     except Exception as e:
         frappe.log_error(
-            f"Fatal error getting board profiles for user {user}: {str(e)}\n{frappe.get_traceback()}",
-            "Role Profile: Fatal Error",
+            title="Role Profile: Fatal Error",
+            message=f"Fatal error getting board profiles for user {user}: {str(e)}\n{frappe.get_traceback()}",
         )
 
     return profiles
@@ -400,8 +400,8 @@ def get_team_profiles(user: str, member: str) -> list:
                 # Validate profile exists
                 if not frappe.db.exists("Role Profile", team["default_role_profile"]):
                     frappe.log_error(
-                        f"Default role profile '{team['default_role_profile']}' for team {team['name']} does not exist",
-                        "Role Profile: Missing Profile",
+                        title="Role Profile: Missing Profile",
+                        message=f"Default role profile '{team['default_role_profile']}' for team {team['name']} does not exist",
                     )
                 else:
                     profiles.append((PRIORITY_TEAM_LEADER, team["default_role_profile"]))
@@ -411,8 +411,8 @@ def get_team_profiles(user: str, member: str) -> list:
                     profiles.append((PRIORITY_TEAM_LEADER, PROFILE_TEAM_LEADER))
                 else:
                     frappe.log_error(
-                        f"Hardcoded fallback profile '{PROFILE_TEAM_LEADER}' does not exist - user {user} may lose team leader permissions",
-                        "Role Profile: Critical Configuration Error",
+                        title="Role Profile: Critical Configuration Error",
+                        message=f"Hardcoded fallback profile '{PROFILE_TEAM_LEADER}' does not exist - user {user} may lose team leader permissions",
                     )
 
         # Check 2: Team memberships (may have role-specific profiles)
@@ -428,8 +428,8 @@ def get_team_profiles(user: str, member: str) -> list:
                     # Validate team exists
                     if not frappe.db.exists("Team", membership.parent):
                         frappe.log_error(
-                            f"Team {membership.parent} not found for team member {volunteer}",
-                            "Role Profile: Missing Team",
+                            title="Role Profile: Missing Team",
+                            message=f"Team {membership.parent} not found for team member {volunteer}",
                         )
                         continue
 
@@ -445,8 +445,8 @@ def get_team_profiles(user: str, member: str) -> list:
                             # Validate role profile exists
                             if not frappe.db.exists("Role Profile", role_profile):
                                 frappe.log_error(
-                                    f"Role profile '{role_profile}' configured for {membership.parent} role '{membership.team_role}' does not exist",
-                                    "Role Profile: Missing Profile",
+                                    title="Role Profile: Missing Profile",
+                                    message=f"Role profile '{role_profile}' configured for {membership.parent} role '{membership.team_role}' does not exist",
                                 )
                                 # Fall through to default
                             else:
@@ -474,22 +474,22 @@ def get_team_profiles(user: str, member: str) -> list:
                                 profiles.append((priority, team_config["default_profile"]))
                             else:
                                 frappe.log_error(
-                                    f"Default role profile '{team_config['default_profile']}' for team {membership.parent} does not exist",
-                                    "Role Profile: Missing Profile",
+                                    title="Role Profile: Missing Profile",
+                                    message=f"Default role profile '{team_config['default_profile']}' for team {membership.parent} does not exist",
                                 )
 
                 except Exception as e:
                     frappe.log_error(
-                        f"Error processing team membership {membership.parent} for user {user}: {str(e)}\n{frappe.get_traceback()}",
-                        "Role Profile: Team Membership Error",
+                        title="Role Profile: Team Membership Error",
+                        message=f"Error processing team membership {membership.parent} for user {user}: {str(e)}\n{frappe.get_traceback()}",
                     )
                     # Continue processing other memberships
                     continue
 
     except Exception as e:
         frappe.log_error(
-            f"Fatal error getting team profiles for user {user}: {str(e)}\n{frappe.get_traceback()}",
-            "Role Profile: Fatal Error",
+            title="Role Profile: Fatal Error",
+            message=f"Fatal error getting team profiles for user {user}: {str(e)}\n{frappe.get_traceback()}",
         )
 
     return profiles
@@ -963,7 +963,10 @@ def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
         return results
 
     except Exception as e:
-        frappe.log_error(f"Error in bulk recalculation: {str(e)}", "Role Profile Bulk Sync Error")
+        frappe.log_error(
+            title="Role Profile Bulk Sync Error",
+            message=f"Error in bulk recalculation: {str(e)}",
+        )
         return {"success": False, "error": str(e)}
 
 
@@ -1177,6 +1180,7 @@ def validate_role_profile_data_integrity():
 
     except Exception as e:
         frappe.log_error(
-            f"Error validating role profile data integrity: {str(e)}", "Role Profile Data Integrity Error"
+            title="Role Profile Data Integrity Error",
+            message=f"Error validating role profile data integrity: {str(e)}",
         )
         return {"success": False, "error": str(e)}

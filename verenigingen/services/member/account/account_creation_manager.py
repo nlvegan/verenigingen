@@ -43,6 +43,16 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_utils import get_full_last_name
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
 
+# Placeholder values for stub Employee records created when the source Member
+# has no gender/birth_date on file. ERPNext's Employee.update_user() hook
+# propagates emp.gender → user.gender and emp.date_of_birth → user.birth_date,
+# so we use the real Member values when available and only fall back here
+# when nothing is set. Phase 3 (user_role_profile_calculator) has identical
+# constants — see its _ensure_employee_for_profile() for the sibling path;
+# kept independent here to avoid cross-module private imports.
+_STUB_EMPLOYEE_GENDER = "Prefer not to say"
+_STUB_EMPLOYEE_DOB = "1990-01-01"
+
 
 class AccountCreationManager:
     """Secure account creation manager with proper permission validation"""
@@ -815,6 +825,63 @@ class AccountCreationManager:
             )
             raise frappe.ValidationError(f"Role assignment failed: {error_msg}")
 
+    def _resolve_employee_pii_from_source(self):
+        """Return (gender, date_of_birth) for Employee creation, preferring
+        real Member values over placeholder stubs.
+
+        Why: ERPNext's Employee.update_user() hook propagates emp.gender
+        onto user.gender and emp.date_of_birth onto user.birth_date on every
+        save. If we hardcoded stubs here, every account creation through
+        Phase 1 would silently overwrite real PII on the linked User.
+
+        Resolution order:
+        - request_type == "Member"    → source_doc is the Member directly
+        - request_type == "Volunteer" → source_doc.member points to it
+        - anything missing            → fall back to module-level stubs
+
+        Note: "Both" is a legacy enum value on Account Creation Request.
+        AccountCreationRequest.validate_source_record() rejects any ACR
+        whose request_type is not a real DocType name, so request_type
+        cannot actually equal "Both" at this point — no branch is needed.
+
+        Mirrors Phase 3 _ensure_employee_for_profile in
+        user_role_profile_calculator.
+        """
+        member_name = None
+        if self.request.request_type == "Member":
+            member_name = getattr(self.source_doc, "name", None)
+        elif self.request.request_type == "Volunteer":
+            member_name = getattr(self.source_doc, "member", None)
+
+        gender = None
+        birth_date = None
+        if member_name:
+            # db.get_value (not get_doc): the ACR pipeline runs as a privileged
+            # background worker (validate_processing_permissions enforces this
+            # upstream), so DocPerm enforcement adds nothing and a get_doc here
+            # would load the whole Member needlessly.
+            pii = frappe.db.get_value("Member", member_name, ["gender", "birth_date"], as_dict=True)
+            if pii:
+                gender = pii.get("gender")
+                birth_date = pii.get("birth_date")
+
+        if not gender or not birth_date:
+            # Operations signal: a stub landed in Employee/User. Members with
+            # missing demographics should be visible to administrators (data
+            # quality, GDPR/AVG record-of-processing visibility).
+            frappe.logger().warning(
+                "ACR Phase 1: Member %s has missing gender/birth_date — "
+                "writing stub Employee values (gender=%s birth_date=%s)",
+                member_name or "<unresolved>",
+                gender or _STUB_EMPLOYEE_GENDER,
+                birth_date or _STUB_EMPLOYEE_DOB,
+            )
+
+        return (
+            gender or _STUB_EMPLOYEE_GENDER,
+            birth_date or _STUB_EMPLOYEE_DOB,
+        )
+
     def create_employee_record(self):
         """Create employee record for expense functionality"""
         if not self.created_user:
@@ -854,6 +921,15 @@ class AccountCreationManager:
             first_name = name_parts[0] if name_parts else "Employee"
             last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
+            # gender / date_of_birth are ERPNext-mandatory on Employee, AND
+            # Employee.update_user() propagates them onto the linked User
+            # (setup/doctype/employee/employee.py update_user). Hardcoding
+            # stubs here would silently overwrite real PII on every User
+            # this pipeline touches. Read from the source Member and only
+            # fall back to stubs when the Member has no values. Mirrors
+            # Phase 3 _ensure_employee_for_profile in user_role_profile_calculator.
+            gender, date_of_birth = self._resolve_employee_pii_from_source()
+
             # Create employee document
             # create_user_permission=0: ERPNext's Employee.on_update auto-creates
             # User Permission records when this is 1, but Frappe's
@@ -869,8 +945,8 @@ class AccountCreationManager:
                     "last_name": last_name,
                     "company": default_company,
                     "status": "Active",
-                    "gender": "Prefer not to say",
-                    "date_of_birth": "1990-01-01",  # Default value
+                    "gender": gender,
+                    "date_of_birth": date_of_birth,
                     "date_of_joining": frappe.utils.today(),
                     "user_id": self.created_user,  # Link to user account
                     "create_user_permission": 0,
@@ -1040,9 +1116,13 @@ class AccountCreationManager:
                 f"Scheduled retry {new_retry_count} for {self.request_name} in {retry_delay_minutes} minutes"
             )
         except Exception as e:
+            # frappe.log_error signature is (title, message, ...) — `title`
+            # maps to Error Log.method (140-char Data). Use explicit kw args
+            # so positional ordering can't dump the detail string into the
+            # title field (the bug PR #54 fixed elsewhere).
             frappe.log_error(
-                f"Failed to enqueue retry for {self.request_name}: {str(e)}",
-                "Account Creation Retry Enqueue Failed",
+                title="Account Creation Retry Enqueue Failed",
+                message=f"Failed to enqueue retry for {self.request_name}: {str(e)}\n{traceback.format_exc()}",
             )
 
     def send_completion_notification(self):
