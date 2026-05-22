@@ -15,44 +15,27 @@ import random
 def generate_valid_bsn():
     """
     Generate a valid Dutch BSN (Burgerservicenummer) that passes eleven-proof validation.
-    
-    The eleven-proof validation algorithm:
-    1. Take the first 8 digits
-    2. Multiply by weights [9, 8, 7, 6, 5, 4, 3, 2]  
-    3. Sum the products
-    4. The 9th digit should make the sum divisible by 11
-    5. Special case: if 9th digit would be 10, check if sum+1 is divisible by 11
-    
+
+    Eleven-proof: ``9·d1 + 8·d2 + 7·d3 + 6·d4 + 5·d5 + 4·d6 + 3·d7 + 2·d8 + (-1)·d9``
+    must be divisible by 11. With ``partial`` = the weighted sum of the first
+    eight digits (weights ``[9,8,7,6,5,4,3,2]``), the total is ``partial - d9``,
+    so ``d9 == partial % 11`` makes it divisible by 11. When ``partial % 11``
+    is 10 there is no single digit that works — reroll the first eight.
+
     Returns:
         str: Valid BSN that passes eleven-proof validation
     """
+    weights = [9, 8, 7, 6, 5, 4, 3, 2]
     while True:
-        # Generate first 8 digits randomly
-        first_eight = [random.randint(1, 9) if i == 0 else random.randint(0, 9) for i in range(8)]
-        
-        # Calculate weighted sum
-        weights = [9, 8, 7, 6, 5, 4, 3, 2]
-        weighted_sum = sum(digit * weight for digit, weight in zip(first_eight, weights))
-        
-        # Calculate 9th digit that makes sum divisible by 11
-        remainder = weighted_sum % 11
-        ninth_digit = (11 - remainder) % 11
-        
-        # Special case: if ninth_digit is 10, try the alternative calculation
+        # First digit 1-9 (a BSN is conventionally non-zero-leading), rest 0-9.
+        first_eight = [random.randint(1, 9)] + [random.randint(0, 9) for _ in range(7)]
+        partial = sum(digit * weight for digit, weight in zip(first_eight, weights))
+
+        ninth_digit = partial % 11
         if ninth_digit == 10:
-            # Alternative: check if weighted_sum - 1 is divisible by 11
-            if (weighted_sum - 1) % 11 == 0:
-                ninth_digit = 1
-            else:
-                continue  # Generate new number
-        
-        # Construct final BSN
-        bsn_digits = first_eight + [ninth_digit]
-        bsn = ''.join(map(str, bsn_digits))
-        
-        # Verify our calculation
-        if validate_bsn(bsn):
-            return bsn
+            continue  # 10 is not a single digit — reroll
+
+        return "".join(map(str, first_eight + [ninth_digit]))
 
 
 def generate_valid_rsin():
