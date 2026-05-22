@@ -84,42 +84,11 @@ class TestDonation(EnhancedTestCase):
         # Test field reference is valid per testing standards
         self.assertEqual(donation.amount, 100)
 
-    def test_donation_agreement_linking(self):
-        """Test donation agreement linking with new schema"""
-        # Mock only external services
-        # Mock justified: External Service - email service, not business logic
-        with patch("frappe.sendmail"):
-            # Create donation agreement first
-            agreement = frappe.new_doc("Donation Agreement")
-            agreement.donor = self.test_donor.name
-            agreement.agreement_type = "Recurring"
-            agreement.status = "Active"
-            agreement.start_date = frappe.utils.today()
-            agreement.amount = 100
-            agreement.currency = "EUR"
-            agreement.recurring_frequency = "1 month"
-            agreement.donation_purpose = "General Fund"
-            agreement.insert()
-
-            # Create donation with agreement link
-            donation = frappe.new_doc("Donation")
-            donation.donor = self.test_donor.name
-            donation.amount = 100
-            donation.donation_date = frappe.utils.today()
-            donation.company = self.test_company
-            donation.mode_of_payment = "Test Payment"
-            donation.donation_agreement = agreement.name  # New linking field
-            donation.insert()
-
-        # Verify real database changes and relationships
-        self.assertEqual(donation.donation_agreement, agreement.name)
-        self.assertEqual(donation.donor, self.test_donor.name)
-
-        # Verify field references are valid (per testing standards)
-        donation.reload()
-        agreement.reload()
-        self.assertEqual(donation.donation_agreement, agreement.name)
-        self.assertEqual(agreement.donor, self.test_donor.name)
+    # test_donation_agreement_linking removed: it exercised the "Donation
+    # Agreement" DocType and the Donation.donation_agreement field, both of
+    # which were deleted. The replacement — Periodic Donation Agreement linked
+    # via Donation.periodic_donation_agreement — is covered by the periodic
+    # agreement tests below (see _create_periodic_agreement_donation).
 
     def _create_periodic_agreement_donation(self):
         """Create a draft Donation linked to a 5-year ANBI periodic agreement.

@@ -4,8 +4,7 @@ Tests the complete lifecycle of ANBI agreements vs pledges with clear distinctio
 """
 
 import frappe
-from frappe.utils import today, add_years, add_months
-from verenigingen.tests.fixtures.anbi_test_personas import ANBITestPersonas
+from frappe.utils import today, add_years
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import unittest
 
@@ -15,35 +14,83 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
     
     def setUp(self):
         """Set up test environment"""
-        # EnhancedTestCase handles permissions automatically
+        super().setUp()
         self.test_company = frappe.db.get_single_value("Verenigingen Settings", "company") or "Test Company"
-    
+        # Donation.mode_of_payment is a mandatory Link to Mode of Payment.
+        if not frappe.db.exists("Mode of Payment", "Test Payment"):
+            mode = frappe.new_doc("Mode of Payment")
+            mode.mode_of_payment = "Test Payment"
+            mode.insert()
+        # Clear residue from any prior errored run BEFORE the body runs — see
+        # _cleanup_test_data for why this can't wait for tearDown.
+        self._cleanup_test_data()
+
     def tearDown(self):
         """Clean up test data"""
-        # Clean up any test data created
-        test_prefixes = ["TEST-ANBI-", "TEST-PLEDGE-"]
-        for prefix in test_prefixes:
-            # Clean up agreements
-            agreements = frappe.get_all(
-                "Periodic Donation Agreement",
-                filters={"donor": ["like", f"%{prefix}%"]}
-            )
-            for agreement in agreements:
-                frappe.delete_doc("Periodic Donation Agreement", agreement.name, force=True)
-            
-            # Clean up donors
-            donors = frappe.get_all("Donor", filters={"donor_name": ["like", f"%{prefix}%"]})
-            for donor in donors:
-                frappe.delete_doc("Donor", donor.name, force=True)
-        
+        self._cleanup_test_data()
+        super().tearDown()
+
+    def _cleanup_test_data(self):
+        """Delete every Donor this file creates (donor_name prefixed 'TEST-')
+        and the agreements + donations linked to them.
+
+        Run from BOTH setUp and tearDown. A prior errored run can leave
+        *committed* orphan Periodic Donation Agreements behind: the agreement
+        controller's after_insert hook fires for an Active agreement, and the
+        old teardown (a) only swept the TEST-ANBI-/TEST-PLEDGE- prefixes,
+        missing TEST-UPGRADE-/TEST-DURATION-CHANGE-, and (b) filtered
+        agreements by ``donor like '%TEST-%'`` — but the agreement's ``donor``
+        field holds the Donor *name* (a ``DN-YY-#####`` series id), so that
+        filter never matched. Orphan ANBI agreements then trip the
+        "one active ANBI agreement per donor" validation on later runs.
+
+        Cleaning in setUp (not just tearDown) makes each test independent of
+        prior-run residue. The commit is required so the deletes persist past
+        this test's transaction rollback.
+        """
+        test_donors = frappe.get_all("Donor", filters={"donor_name": ["like", "TEST-%"]}, pluck="name")
+        if not test_donors:
+            return
+        # Delete children before parents: Donation + agreement link to Donor.
+        for doctype in ("Donation", "Periodic Donation Agreement"):
+            for name in frappe.get_all(doctype, filters={"donor": ["in", test_donors]}, pluck="name"):
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+        for donor in test_donors:
+            frappe.delete_doc("Donor", donor, force=True, ignore_permissions=True)
         frappe.db.commit()
     
+    @staticmethod
+    def _generate_valid_bsn():
+        """Return a 9-digit BSN that passes the Dutch eleven-proof check.
+
+        Donor.validate_tax_identifiers() rejects any BSN that fails the
+        eleven-proof (weights [9,8,7,6,5,4,3,2,-1], weighted sum divisible
+        by 11), and validate_donor_tax_identifier() requires Individual
+        donors to carry a BSN before an ANBI agreement can be created.
+        """
+        import random
+
+        weights = [9, 8, 7, 6, 5, 4, 3, 2]
+        while True:
+            digits = [random.randint(0, 9) for _ in range(8)]
+            partial = sum(d * w for d, w in zip(digits, weights))
+            # Last digit has weight -1: (partial - d9) % 11 == 0 → d9 ≡ partial (mod 11).
+            d9 = partial % 11
+            if d9 < 10:  # 10 is not a single digit — reroll
+                return "".join(str(d) for d in digits) + str(d9)
+
     def create_test_donor(self, name_prefix="TEST"):
-        """Create a test donor"""
+        """Create a test donor.
+
+        Individual donors need a valid BSN: the ANBI agreement validation
+        (anbi_validation_service.validate_donor_tax_identifier) rejects an
+        Individual donor without one.
+        """
         donor = frappe.new_doc("Donor")
         donor.donor_name = f"{name_prefix}-{frappe.utils.random_string(5)}"
         donor.donor_email = f"test-{frappe.utils.random_string(5)}@example.com"
         donor.donor_type = "Individual"
+        donor.bsn_citizen_service_number = self._generate_valid_bsn()
         donor.anbi_consent = 1
         donor.anbi_consent_date = today()
         donor.insert()
@@ -78,9 +125,9 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
         # Step 4: Create donations linked to agreement
         donation = frappe.new_doc("Donation")
         donation.donor = donor.name
-        donation.date = today()
+        donation.donation_date = today()
         donation.amount = 100
-        donation.payment_method = "Bank Transfer"
+        donation.mode_of_payment = "Test Payment"
         donation.periodic_donation_agreement = agreement.name
         donation.donation_type = "General"
         donation.company = self.test_company
@@ -102,10 +149,16 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
         donor = self.create_test_donor("TEST-PLEDGE")
         
         # Step 2: Create pledge (2 years)
+        # anbi_eligible defaults to 1 on the DocType; for a <5-year pledge the
+        # form JS (periodic_donation_agreement.js update_anbi_eligibility_message)
+        # sets it to 0 on the duration change. validate_dates() runs before
+        # update_anbi_eligibility() server-side, so a pledge created directly
+        # (no JS) must set anbi_eligible=0 itself or hit the 5-year ANBI check.
         pledge = frappe.new_doc("Periodic Donation Agreement")
         pledge.donor = donor.name
         pledge.start_date = today()
         pledge.agreement_duration_years = "2 Years (Pledge - No ANBI benefits)"
+        pledge.anbi_eligible = 0
         pledge.annual_amount = 600
         pledge.payment_frequency = "Quarterly"
         pledge.payment_method = "Bank Transfer"
@@ -123,9 +176,9 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
         # Step 4: Create donation linked to pledge
         donation = frappe.new_doc("Donation")
         donation.donor = donor.name
-        donation.date = today()
+        donation.donation_date = today()
         donation.amount = 150  # Quarterly payment
-        donation.payment_method = "Bank Transfer"
+        donation.mode_of_payment = "Test Payment"
         donation.periodic_donation_agreement = pledge.name
         donation.donation_type = "General"
         donation.company = self.test_company
@@ -145,6 +198,9 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
         pledge.donor = donor.name
         pledge.start_date = today()
         pledge.agreement_duration_years = "2 Years (Pledge - No ANBI benefits)"
+        # See test_pledge_lifecycle: <5-year pledges created without the form
+        # JS must set anbi_eligible=0 explicitly.
+        pledge.anbi_eligible = 0
         pledge.annual_amount = 1200
         pledge.payment_frequency = "Monthly"
         pledge.payment_method = "Bank Transfer"
@@ -196,6 +252,9 @@ class TestANBIClarityLifecycle(EnhancedTestCase):
         pledge.donor = pledge_donor.name
         pledge.start_date = today()
         pledge.agreement_duration_years = "2 Years (Pledge - No ANBI benefits)"
+        # See test_pledge_lifecycle: <5-year pledges created without the form
+        # JS must set anbi_eligible=0 explicitly.
+        pledge.anbi_eligible = 0
         pledge.annual_amount = 600
         pledge.payment_frequency = "Monthly"
         pledge.payment_method = "Bank Transfer"
