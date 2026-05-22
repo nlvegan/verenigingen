@@ -76,6 +76,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                     frappe.delete_doc("Chapter Role", role, force=True)
             except Exception as e:
                 print(f"Error deleting role {role}: {e}")
+        super().tearDown()
 
     def create_test_chapter_roles(self):
         """Create test chapter roles for use in board memberships"""

@@ -19,6 +19,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
     def tearDown(self):
         """Clean up test data"""
         frappe.db.rollback()
+        super().tearDown()
 
     def test_commitment_end_date_set_on_new_membership(self):
         """Test that commitment_end_date is automatically set to 1 year from start"""
@@ -172,6 +173,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
     def tearDown(self):
         """Clean up test data"""
         frappe.db.rollback()
+        super().tearDown()
 
     def test_voluntary_termination_blocked_before_commitment_end(self):
         """Test that voluntary terminations are blocked before commitment period ends"""

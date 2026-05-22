@@ -95,6 +95,7 @@ class TestPolicyExpenseIntegration(EnhancedTestCase):
     def tearDown(self):
         """Clean up after each test"""
         frappe.db.rollback()
+        super().tearDown()
 
     def test_is_policy_covered_expense_with_flag(self):
         """Test policy coverage detection using real category flag"""

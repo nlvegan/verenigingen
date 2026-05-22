@@ -56,6 +56,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
 
         except Exception as e:
             print(f"Cleanup error (non-critical): {str(e)}")
+        super().tearDown()
 
     def test_chapter_member_status_field_exists(self):
         """Test that the status field exists in Chapter Member doctype with correct options"""

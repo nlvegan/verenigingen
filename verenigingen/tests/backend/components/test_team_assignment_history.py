@@ -352,3 +352,4 @@ class TestTeamAssignmentHistory(EnhancedTestCase):
                 volunteer_doc.save()
         except Exception:
             pass
+        super().tearDown()

@@ -12,13 +12,10 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator, 
 
 
 class TestTeam(EnhancedTestCase):
-    def setUp(self):
-        """Set up test data for team testing"""
-        super().setUp()  # EnhancedTestCase handles permissions and cleanup
-
-    def tearDown(self):
-        """Clean up after team tests"""
-        super().tearDown()  # EnhancedTestCase handles cleanup via database rollback
+    # NOTE: this class previously defined setUp/tearDown twice; the first pair
+    # (an EnhancedTestCase-delegating setUp + tearDown) was dead code, shadowed
+    # by the second pair below. Removed — the effective setUp/tearDown are the
+    # ones further down.
 
     @classmethod
     def setUpClass(cls):
@@ -67,6 +64,7 @@ class TestTeam(EnhancedTestCase):
     def tearDown(self):
         # Clean up test data
         self.cleanup_test_data()
+        super().tearDown()
 
     def create_test_volunteers(self):
         """Create test members and volunteers for team"""

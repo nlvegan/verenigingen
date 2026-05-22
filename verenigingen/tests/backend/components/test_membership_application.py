@@ -2062,6 +2062,7 @@ class TestChapterSelection(EnhancedTestCase):
             frappe.delete_doc("Member", member.name, force=True)
 
         frappe.db.commit()
+        super().tearDown()
 
     def test_get_form_data_includes_chapters(self):
         """Test that get_form_data API includes published chapters"""
@@ -2605,6 +2606,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
             frappe.delete_doc("Member", member.name, force=True)
 
         frappe.db.commit()
+        super().tearDown()
 
     def test_database_schema_compatibility(self):
         """Test that the application system works with current database schema"""

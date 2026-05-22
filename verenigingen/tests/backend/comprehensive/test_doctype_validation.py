@@ -19,6 +19,7 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
     def tearDown(self):
         """Clean up after tests"""
         frappe.db.rollback()
+        super().tearDown()
 
     def test_volunteer_status_validation(self):
         """Test that volunteer status field accepts only valid values"""

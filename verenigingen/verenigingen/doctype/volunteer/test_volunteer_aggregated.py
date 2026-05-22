@@ -24,6 +24,7 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
                 frappe.delete_doc(doctype, name, force=True)
             except Exception as e:
                 print(f"Error deleting {doctype} {name}: {e}")
+        super().tearDown()
 
     def create_test_data(self):
         """Create test data for aggregated assignments testing"""

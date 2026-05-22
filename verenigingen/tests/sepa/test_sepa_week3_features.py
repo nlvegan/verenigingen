@@ -104,6 +104,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
     def tearDown(self):
         """Clean up test data"""
         self.cleanup_test_data()
+        super().tearDown()
 
     def cleanup_test_data(self):
         """Clean up test data from database"""

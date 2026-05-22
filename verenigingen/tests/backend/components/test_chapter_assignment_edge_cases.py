@@ -120,6 +120,7 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
             pass
 
         frappe.db.commit()
+        super().tearDown()
 
     def test_assign_member_to_same_chapter_twice(self):
         """Test assigning member to same chapter multiple times"""
