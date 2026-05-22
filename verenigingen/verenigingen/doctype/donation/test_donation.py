@@ -87,8 +87,9 @@ class TestDonation(EnhancedTestCase):
     # test_donation_agreement_linking removed: it exercised the "Donation
     # Agreement" DocType and the Donation.donation_agreement field, both of
     # which were deleted. The replacement — Periodic Donation Agreement linked
-    # via Donation.periodic_donation_agreement — is covered by the periodic
-    # agreement tests below (see _create_periodic_agreement_donation).
+    # via Donation.periodic_donation_agreement — is exercised implicitly by the
+    # periodic-agreement tests below (see _create_periodic_agreement_donation):
+    # their belastingdienst_reportable assertions depend on that link being set.
 
     def _create_periodic_agreement_donation(self):
         """Create a draft Donation linked to a 5-year ANBI periodic agreement.
