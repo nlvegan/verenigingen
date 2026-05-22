@@ -7,6 +7,43 @@ This module provides the before_tests hook that ensures ERPNext test fixtures
 import frappe
 
 
+def disable_workflow_action_emails():
+    """Neutralize synchronous workflow-action emails for the whole test run.
+
+    Frappe's ``process_workflow_actions()`` enqueues ``send_workflow_action_email``
+    with ``now=frappe.in_test``, so in test mode it runs SYNCHRONOUSLY inside
+    ``doc.insert()``/``doc.save()``. That email renders a PDF of the document
+    (BeautifulSoup + the pure-Python html5lib parser), which is pathologically
+    slow — tens of seconds per document.
+
+    The production ``Membership Application Workflow`` is active on the Member
+    doctype with email alerts enabled on every state, so every test that inserts
+    a Member paid this cost. Modules creating ~12 Members in setUp hung for
+    13+ minutes; the whole suite was slowed and made flaky by it.
+
+    We replace the email function with a no-op for the test process. The
+    ``Workflow Action`` DocType rows are still created — that happens *before*
+    the email call in ``process_workflow_actions`` — so workflow behaviour tests
+    remain valid. Only the email + PDF side effect is suppressed.
+
+    NOTE: this ``before_tests`` hook only runs for the ``integration`` test
+    category. ``EnhancedTestCase`` tests are categorized ``unspecified-category``
+    (because ``FrappeTestCase`` is not their *direct* base), so they never reach
+    this hook — for them the same patch is applied at import time of
+    ``verenigingen.tests.fixtures.enhanced_test_factory``. The patch is
+    idempotent, so applying it from both places is harmless.
+    """
+    try:
+        from frappe.workflow.doctype.workflow_action import workflow_action
+
+        def _noop_send_workflow_action_email(*args, **kwargs):
+            return None
+
+        workflow_action.send_workflow_action_email = _noop_send_workflow_action_email
+    except Exception as e:  # pragma: no cover - defensive: never block the test run
+        frappe.logger().warning(f"Could not disable workflow action emails for tests: {e}")
+
+
 def before_tests():
     """
     Hook called before running tests for this app.
@@ -14,12 +51,8 @@ def before_tests():
     Ensures ERPNext's test fixtures (Company, Item, etc.) are set up,
     since our app depends on ERPNext DocTypes.
     """
-    # First run our orphaned link cleanup
-    try:
-        from verenigingen.utils.cleanup_orphaned_links import cleanup
-        cleanup()
-    except Exception as e:
-        frappe.logger().warning(f"Orphaned link cleanup failed: {e}")
+    # Suppress slow synchronous workflow-action emails (see function docstring)
+    disable_workflow_action_emails()
 
     # Call ERPNext's before_tests to ensure basic setup
     try:

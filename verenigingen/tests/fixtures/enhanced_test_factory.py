@@ -263,6 +263,22 @@ def _mock_roles(roles: list):
 frappe.mock_roles = _mock_roles
 
 
+# Suppress slow synchronous workflow-action emails for every test that uses this
+# module. Frappe's process_workflow_actions() runs send_workflow_action_email
+# synchronously in test mode (now=frappe.in_test); that email renders a PDF via
+# the pure-Python html5lib parser, costing tens of seconds per Member insert and
+# hanging Member-heavy modules for 13+ minutes. The before_tests hook cannot
+# cover EnhancedTestCase tests (they are categorized "unspecified-category", so
+# the hook never fires for them), so the patch is applied here at import time —
+# every EnhancedTestCase test module imports this file. The patch is idempotent.
+try:
+    from verenigingen.tests.setup import disable_workflow_action_emails
+
+    disable_workflow_action_emails()
+except Exception:  # pragma: no cover - defensive: never block test collection
+    pass
+
+
 class BusinessRuleError(Exception):
     """Raised when business rule validation fails"""
     pass
