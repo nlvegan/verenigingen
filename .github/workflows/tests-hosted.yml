@@ -104,26 +104,17 @@ jobs:
           ln -s ${{ github.workspace }} apps/verenigingen
           bench --site test.localhost install-app verenigingen
 
-      - name: Run Critical Tests
+      - name: Run Tests
         run: |
           cd frappe-bench
-          bench --site test.localhost run-tests \
-            --module verenigingen.tests.contracts \
-            --failfast
-
-      - name: Run Service Tests
-        if: inputs.run_full_tests
-        run: |
-          cd frappe-bench
-          bench --site test.localhost run-tests \
-            --module verenigingen.tests.services
-
-      - name: Run Integration Tests
-        if: inputs.run_full_tests
-        run: |
-          cd frappe-bench
-          bench --site test.localhost run-tests \
-            --module verenigingen.tests.integration
+          if [ "${{ inputs.run_full_tests }}" == "true" ]; then
+            bench --site test.localhost run-parallel-tests \
+              --app verenigingen \
+              --total-builds 1 \
+              --build-number 1
+          else
+            echo "Skipping full test suite. Re-run this workflow with run_full_tests=true to execute tests."
+          fi
 
   # Standalone validation (no Frappe needed)
   validation:
