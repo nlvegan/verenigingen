@@ -12,6 +12,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class TestVolunteerAggregatedAssignments(EnhancedTestCase):
     def setUp(self):
         # Initialize the cleanup list
+        super().setUp()
         self._docs_to_delete = []
 
         # Create test data

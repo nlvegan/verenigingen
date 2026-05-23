@@ -335,6 +335,7 @@ class TestPolicyExpenseReporting(EnhancedTestCase):
     """Test policy expense reporting and analytics"""
 
     def setUp(self):
+        super().setUp()
         frappe.set_user("Administrator")
 
     def test_policy_expense_tracking_in_report(self):

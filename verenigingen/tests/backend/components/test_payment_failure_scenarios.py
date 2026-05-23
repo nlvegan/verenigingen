@@ -100,6 +100,7 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
 
     def setUp(self):
         """Set up each test"""
+        super().setUp()
         frappe.set_user("Administrator")
 
     # ===== MEMBERSHIP PAYMENT FAILURES =====

@@ -19,6 +19,7 @@ class TestRoleProfileIntegration(EnhancedTestCase):
 
     def setUp(self):
         """Setup test environment"""
+        super().setUp()
         self.framework = APISecurityFramework()
         self.test_user = "test@example.com"
 
@@ -169,6 +170,7 @@ class TestSelfServiceOperations(EnhancedTestCase):
 
     def setUp(self):
         """Setup test environment"""
+        super().setUp()
         self.framework = APISecurityFramework()
 
     def test_self_service_parameter_exists(self):

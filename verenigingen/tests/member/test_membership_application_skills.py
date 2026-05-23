@@ -24,6 +24,7 @@ class TestMembershipApplicationSkills(EnhancedTestCase):
 
     def setUp(self):
         """Set up test data"""
+        super().setUp()
         # Create test data first
         self.test_email = "test_skills_member@example.com"
         

@@ -15,6 +15,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
 
     def setUp(self):
         """Set up test environment"""
+        super().setUp()
         # EnhancedTestCase handles permissions automatically
         self.test_cleanup_records = []
 

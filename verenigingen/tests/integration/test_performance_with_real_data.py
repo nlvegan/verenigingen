@@ -26,6 +26,7 @@ class TestRealDataPerformance(EnhancedTestCase):
     
     def setUp(self):
         """Set up test with current user context"""
+        super().setUp()
         frappe.set_user("Administrator")
         self.start_time = None
         self.query_counts = []
@@ -335,6 +336,7 @@ class TestRealDataScenarios(EnhancedTestCase):
     
     def setUp(self):
         """Set up test with current user context"""
+        super().setUp()
         frappe.set_user("Administrator")
         self.start_time = None
         

@@ -83,6 +83,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
 
     def setUp(self):
         """Set up each test"""
+        super().setUp()
         # EnhancedTestCase handles permissions automatically
 
     def tearDown(self):

@@ -107,6 +107,7 @@ class TestActualPaymentMutations(EnhancedTestCase):
     
     def setUp(self):
         """Set up for each test."""
+        super().setUp()
         self.handler = PaymentEntryHandler(self.company)
         
     def tearDown(self):

@@ -33,6 +33,7 @@ class TestMollieEdgeCasesIntegration(EnhancedTestCase):
     
     def setUp(self):
         """Set up integration test environment"""
+        super().setUp()
         self.factory = MollieApiDataFactory(seed=100)
         
         # Set up dashboard with mocked components
@@ -448,6 +449,7 @@ class TestMollieApiParameterValidation(EnhancedTestCase):
     
     def setUp(self):
         """Set up parameter validation tests"""
+        super().setUp()
         self.factory = MollieApiDataFactory(seed=200)
     
     def test_api_parameter_sanitization(self):

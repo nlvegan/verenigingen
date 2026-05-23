@@ -15,6 +15,7 @@ class TestContributionSystem(EnhancedTestCase):
     
     def setUp(self):
         """Set up test data"""
+        super().setUp()
         self.membership_type = None
         self.template = None
         

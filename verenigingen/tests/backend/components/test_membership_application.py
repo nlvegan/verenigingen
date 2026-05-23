@@ -325,6 +325,7 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
     def setUp(self):
         """Set up for each test"""
+        super().setUp()
         self.test_email = f"load_test_{frappe.generate_hash(length=8)}@example.com"
         self.application_data = {
             "first_name": "Load",
@@ -2027,6 +2028,7 @@ class TestChapterSelection(EnhancedTestCase):
 
     def setUp(self):
         """Set up for each test"""
+        super().setUp()
         self.test_email = f"chapter_test_{frappe.generate_hash(length=8)}@example.com"
         self.base_application_data = {
             "first_name": "Chapter",
@@ -2562,6 +2564,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
 
     def setUp(self):
         """Set up for each test"""
+        super().setUp()
         self.test_email = f"edge_test_{frappe.generate_hash(length=8)}@example.com"
 
         # Ensure test membership type exists

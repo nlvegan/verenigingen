@@ -13,6 +13,7 @@ class TestSpecialCharactersValidation(EnhancedTestCase):
 
     def setUp(self):
         """Set up test environment"""
+        super().setUp()
 
     def test_validate_name_with_accented_characters(self):
         """Test name validation with accented characters"""

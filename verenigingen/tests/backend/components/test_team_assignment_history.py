@@ -10,6 +10,7 @@ class TestTeamAssignmentHistory(EnhancedTestCase):
 
     def setUp(self):
         """Set up test data"""
+        super().setUp()
         # Get or create a test volunteer
         volunteers = frappe.get_all("Volunteer", limit=1)
         if volunteers:

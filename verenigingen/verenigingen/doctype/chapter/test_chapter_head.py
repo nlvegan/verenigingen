@@ -10,6 +10,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class TestChapterHead(EnhancedTestCase):
     def setUp(self):
         # Generate a unique identifier using only alphanumeric characters
+        super().setUp()
         self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
         # Clean up any existing test data
