@@ -134,24 +134,6 @@ jobs:
             ${GITHUB_WORKSPACE}/logs/
           retention-days: 7
 
-  # Aggregate test results
-  test-results:
-    name: Test Results
-    needs: integration-tests
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Check Test Results
-        run: |
-          if [ "${{ needs.integration-tests.result }}" == "success" ]; then
-            echo "All tests passed!"
-            exit 0
-          else
-            echo "Some tests failed"
-            exit 1
-          fi
-
   # Coverage aggregation (optional)
   coverage:
     name: Aggregate Coverage

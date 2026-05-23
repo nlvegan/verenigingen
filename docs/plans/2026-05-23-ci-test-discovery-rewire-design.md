@@ -63,20 +63,23 @@ Non-goals:
 
 Resulting check matrix:
 ```
-pre-check
 Tests (1/4)
 Tests (2/4)
 Tests (3/4)
 Tests (4/4)
-Test Results       ← aggregator (always runs, fails if any shard failed)
+Test Summary       ← aggregator (always runs, fails if any shard failed)
 ```
 
 Other changes to `server-tests.yml`:
 - Drop the `test_category` `workflow_dispatch` input (no longer meaningful with collapsed matrix).
 - Keep the `enable_coverage` `workflow_dispatch` input (still useful for on-demand coverage runs).
-- Keep the `pre-check` job (cheap, useful safety net).
 - Simplify the `summary` job: single status check, drop the 9-row markdown table.
 - Top-of-file comment: explain the rewire and link to this design doc.
+
+**Deviations during implementation (2026-05-23):**
+- **Dropped the `pre-check` job entirely.** The original plan kept it as a "cheap, useful safety net" — but code review during implementation found it was scaffolding: `should_run=true` was unconditional, and the syntax-validation step used `|| true` so it could never fail the workflow. Removed in commit `e42cce87`.
+- **Removed the `test-results` aggregator from `_base-server-tests.yml`.** The reusable workflow originally had its own `test-results` job aggregating shard outcomes. After the rewire, `server-tests.yml`'s `Test Summary` job does the same work at the outer layer, producing two redundant FAILURE checks on the PR status rollup. Surfaced in double-review; removed so branch protection only has one aggregator to point at.
+- **Deleted `tests-hosted.yml.deprecated`.** A pre-existing `.deprecated` copy of the original `tests-hosted.yml` was sitting in `.github/workflows/` containing the exact `--module verenigingen.tests.{contracts,services,integration}` bug pattern. Footgun if anyone restored it. Removed in the same pass.
 
 ### `_base-server-tests.yml` — remove the footgun
 
