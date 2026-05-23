@@ -65,7 +65,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
 
         if hasattr(self, "chapter_head_volunteer") and self.chapter_head_volunteer:
             try:
-                frappe.delete_doc("Verenigingen Volunteer", self.chapter_head_volunteer.name, force=True)
+                frappe.delete_doc("Volunteer", self.chapter_head_volunteer.name, force=True)
             except Exception as e:
                 print(f"Error deleting chapter head volunteer {self.chapter_head_volunteer.name}: {e}")
 
@@ -225,12 +225,15 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
         # Get aggregated assignments - the proper way to check assignments
         assignments = volunteer.get_aggregated_assignments()
 
-        # Check if there's a board assignment for this chapter
+        # Check if there's a board assignment for this chapter.
+        # The assignment service reports source_doctype as the child-table
+        # DocType and exposes the human-readable parent type as
+        # source_doctype_display ("Chapter").
         has_board_assignment = False
         for assignment in assignments:
             if (
                 assignment.get("source_type") == "Board Position"
-                and assignment.get("source_doctype") == "Chapter"
+                and assignment.get("source_doctype_display") == "Chapter"
                 and assignment.get("source_name") == self.test_chapter.name
             ):
                 has_board_assignment = True
@@ -245,9 +248,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
             "board_members",
             {
                 "volunteer": self.test_volunteers[0],
-                "volunteer_name": frappe.get_value(
-                    "Verenigingen Volunteer", self.test_volunteers[0], "volunteer_name"
-                ),
+                "volunteer_name": frappe.get_value("Volunteer", self.test_volunteers[0], "volunteer_name"),
                 "email": frappe.get_value("Volunteer", self.test_volunteers[0], "email"),
                 "chapter_role": "Chair",  # Unique role
                 "from_date": today(),
@@ -264,7 +265,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                 {
                     "volunteer": self.test_volunteers[1],
                     "volunteer_name": frappe.get_value(
-                        "Verenigingen Volunteer", self.test_volunteers[1], "volunteer_name"
+                        "Volunteer", self.test_volunteers[1], "volunteer_name"
                     ),
                     "email": frappe.get_value("Volunteer", self.test_volunteers[1], "email"),
                     "chapter_role": "Chair",  # Same unique role
@@ -281,9 +282,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
             "board_members",
             {
                 "volunteer": self.test_volunteers[0],
-                "volunteer_name": frappe.get_value(
-                    "Verenigingen Volunteer", self.test_volunteers[0], "volunteer_name"
-                ),
+                "volunteer_name": frappe.get_value("Volunteer", self.test_volunteers[0], "volunteer_name"),
                 "email": frappe.get_value("Volunteer", self.test_volunteers[0], "email"),
                 "chapter_role": "New Role",  # Non-unique role
                 "from_date": today(),
@@ -300,7 +299,7 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
                 {
                     "volunteer": self.test_volunteers[1],
                     "volunteer_name": frappe.get_value(
-                        "Verenigingen Volunteer", self.test_volunteers[1], "volunteer_name"
+                        "Volunteer", self.test_volunteers[1], "volunteer_name"
                     ),
                     "email": frappe.get_value("Volunteer", self.test_volunteers[1], "email"),
                     "chapter_role": "New Role",  # Same non-unique role
