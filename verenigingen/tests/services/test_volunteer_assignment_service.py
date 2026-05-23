@@ -59,6 +59,7 @@ class TestVolunteerAssignmentService(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": f"Test Chapter Assignment {frappe.generate_hash(length=6)}",
                 "chapter_head": self.test_member.name,
+                "status": "Active",
             }
         )
         test_chapter.insert()
@@ -85,6 +86,7 @@ class TestVolunteerAssignmentService(EnhancedTestCase):
         self.assertEqual(len(assignments), 1)
         board_assignment = assignments[0]
         self.assertEqual(board_assignment["source_type"], "Board Position")
+        self.assertEqual(board_assignment["source_doctype"], "Chapter Board Member")
         self.assertEqual(board_assignment["role"], "Treasurer")
         self.assertTrue(board_assignment["is_active"])
         self.assertEqual(board_assignment["editable"], False)  # Board positions are not editable
