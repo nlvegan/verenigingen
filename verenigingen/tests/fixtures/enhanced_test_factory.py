@@ -275,8 +275,11 @@ try:
     from verenigingen.tests.setup import disable_workflow_action_emails
 
     disable_workflow_action_emails()
-except Exception:  # pragma: no cover - defensive: never block test collection
-    pass
+except Exception as e:  # pragma: no cover - defensive: never block test collection
+    # Log the failure so a future move/rename of disable_workflow_action_emails
+    # doesn't silently regress the hang. Mirrors the warning emitted by the
+    # before_tests caller.
+    frappe.logger().warning(f"disable_workflow_action_emails import failed: {e}")
 
 
 class BusinessRuleError(Exception):
