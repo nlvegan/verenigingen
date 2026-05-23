@@ -35,14 +35,6 @@ on:
         description: 'Enable coverage collection'
         type: boolean
         default: false
-      test-modules:
-        description: 'Specific test modules to run (comma-separated, empty for all)'
-        type: string
-        default: ''
-      test-pattern:
-        description: 'Test file pattern for pytest (e.g., test_account_creation*)'
-        type: string
-        default: ''
 
 jobs:
   # Generate test indices for parallel execution
@@ -112,8 +104,7 @@ jobs:
           erpnext-branch: ${{ inputs.erpnext-branch }}
           enable-coverage: ${{ inputs.enable-coverage }}
 
-      - name: Run Tests (Parallel - All)
-        if: ${{ inputs.test-modules == '' && inputs.test-pattern == '' }}
+      - name: Run Tests
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
           bench --site test_site run-parallel-tests \
@@ -121,53 +112,6 @@ jobs:
             --total-builds ${{ inputs.parallel-runs }} \
             --build-number ${{ matrix.index }} \
             ${{ inputs.enable-coverage && '--with-coverage' || '' }}
-
-      - name: Run Tests (Specific Modules)
-        if: ${{ inputs.test-modules != '' }}
-        run: |
-          source ${GITHUB_WORKSPACE}/env/bin/activate
-          exit_code=0
-          IFS=',' read -ra MODULES <<< "${{ inputs.test-modules }}"
-          for module in "${MODULES[@]}"; do
-            echo "========================================"
-            echo "Running tests for module: $module"
-            echo "========================================"
-            bench --site test_site run-tests \
-              --module "$module" \
-              ${{ inputs.enable-coverage && '--with-coverage' || '' }} || exit_code=$?
-          done
-          exit $exit_code
-
-      - name: Run Tests (File Pattern)
-        if: ${{ inputs.test-pattern != '' }}
-        run: |
-          source ${GITHUB_WORKSPACE}/env/bin/activate
-
-          echo "========================================"
-          echo "Running tests matching pattern: ${{ inputs.test-pattern }}"
-          echo "========================================"
-
-          # Use Frappe's test runner with specific test files
-          # Convert pattern to find matching test files
-          cd apps/${{ github.event.repository.name }}
-          exit_code=0
-
-          # Find test files matching the pattern and run each
-          for pattern in ${{ inputs.test-pattern }}; do
-            # Find files matching the pattern in tests directory
-            for test_file in $(find verenigingen/tests -name "${pattern}.py" -type f 2>/dev/null | head -20); do
-              echo "========================================"
-              echo "Running: $test_file"
-              echo "========================================"
-              cd ${GITHUB_WORKSPACE}
-              bench --site test_site run-tests \
-                --app ${{ github.event.repository.name }} \
-                --module "$(echo $test_file | sed 's/\//./g' | sed 's/\.py$//')" \
-                ${{ inputs.enable-coverage && '--with-coverage' || '' }} || exit_code=$?
-              cd apps/${{ github.event.repository.name }}
-            done
-          done
-          exit $exit_code
 
       - name: Upload Coverage
         if: ${{ inputs.enable-coverage }}
@@ -189,24 +133,6 @@ jobs:
             ${GITHUB_WORKSPACE}/bench_start.log
             ${GITHUB_WORKSPACE}/logs/
           retention-days: 7
-
-  # Aggregate test results
-  test-results:
-    name: Test Results
-    needs: integration-tests
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Check Test Results
-        run: |
-          if [ "${{ needs.integration-tests.result }}" == "success" ]; then
-            echo "All tests passed!"
-            exit 0
-          else
-            echo "Some tests failed"
-            exit 1
-          fi
 
   # Coverage aggregation (optional)
   coverage:
