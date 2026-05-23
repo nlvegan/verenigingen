@@ -111,7 +111,7 @@ class AssignmentQueryBuilder:
             """
             SELECT
                 'Board Position' as source_type,
-                'Verenigingen Chapter Board Member' as source_doctype,
+                'Chapter Board Member' as source_doctype,
                 cbm.parent as source_name,
                 'Chapter' as source_doctype_display,
                 c.name as source_name_display,
