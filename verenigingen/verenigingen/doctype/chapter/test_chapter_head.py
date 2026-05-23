@@ -101,6 +101,7 @@ class TestChapterHead(EnhancedTestCase):
 
     def tearDown(self):
         self.cleanup_test_data()
+        super().tearDown()
 
     def cleanup_test_data(self):
         # Delete any test roles

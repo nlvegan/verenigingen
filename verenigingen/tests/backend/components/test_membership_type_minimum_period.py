@@ -31,6 +31,7 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def tearDown(self):
         """Clean up after each test"""
         frappe.db.rollback()
+        super().tearDown()
 
     def test_field_exists(self):
         """Test that the enforce_minimum_period field exists in Membership Type"""

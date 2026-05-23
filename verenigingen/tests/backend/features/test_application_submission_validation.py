@@ -27,6 +27,7 @@ class TestApplicationSubmissionValidation(EnhancedTestCase):
             frappe.db.commit()
         except Exception:
             frappe.db.rollback()
+        super().tearDown()
 
     def add_cleanup_record(self, doctype, name):
         """Add record to cleanup list"""

@@ -22,7 +22,7 @@ class TestVolunteerInterestCategory(EnhancedTestCase):
         self.create_test_categories()
 
     def tearDown(self):
-        pass  # EnhancedTestCase handles cleanup automatically via database rollback
+        super().tearDown()  # per-method rollback / patch cleanup (EnhancedTestCase)
 
     def create_test_categories(self):
         """Create test category hierarchy"""

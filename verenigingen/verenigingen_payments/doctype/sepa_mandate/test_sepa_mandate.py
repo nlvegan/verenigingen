@@ -40,6 +40,7 @@ class TestSEPAMandate(EnhancedTestCase):
         except Exception as e:
             print(f"Error in tearDown: {str(e)}")
             frappe.db.rollback()
+        super().tearDown()
 
     def test_validate_dates_future_sign_date(self):
         """Test that validation fails when sign date is in the future"""

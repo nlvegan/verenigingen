@@ -92,6 +92,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
             "DELETE FROM `tabMembership Termination Request` WHERE member IN %s",
             ([self.member1.name, self.member2.name],),
         )
+        super().tearDown()
 
     # ===== TERMINATION REQUEST CREATION EDGE CASES =====
 

@@ -31,7 +31,7 @@ class TestChapterRole(EnhancedTestCase):
         self.test_role.insert()  # EnhancedTestCase handles permissions
 
     def tearDown(self):
-        pass  # EnhancedTestCase handles cleanup automatically via database rollback
+        super().tearDown()  # per-method rollback / patch cleanup (EnhancedTestCase)
 
     def test_chair_role_flag(self):
         """Test that a role can be marked as chair"""
