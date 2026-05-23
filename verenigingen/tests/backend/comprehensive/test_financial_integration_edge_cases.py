@@ -18,6 +18,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test data"""
+        super().setUpClass()
         cls.test_records = []
 
         # Create test chapter
@@ -75,6 +76,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
                 record.delete()
             except Exception:
                 pass
+        super().tearDownClass()
 
     def setUp(self):
         """Set up each test"""

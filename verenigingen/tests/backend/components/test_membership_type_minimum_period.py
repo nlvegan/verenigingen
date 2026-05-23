@@ -14,6 +14,7 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test data using Enhanced Test Factory"""
+        super().setUpClass()
         pass  # Enhanced Test Factory handles this automatically
 
     def setUp(self):
