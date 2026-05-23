@@ -1,11 +1,12 @@
 name: Server Tests (GitHub Hosted)
 
 # Runs the verenigingen test suite via bench run-parallel-tests, sharded
-# across 4 matrix jobs. See docs/plans/2026-05-23-ci-test-discovery-rewire-design.md
-# for the history (Issue #66 — the previous per-category matrix was
-# discovering 0 tests per job because each entry was a package path and
-# Frappe's run-tests --module uses unittest.TestLoader.loadTestsFromModule()
-# which does not recurse into subpackages).
+# across 4 matrix jobs. See Issue #66 and
+# docs/plans/2026-05-23-ci-test-discovery-rewire-design.md for the history
+# (the previous per-category matrix discovered 0 tests per job because
+# each entry was a package path and Frappe's run-tests --module uses
+# unittest.TestLoader.loadTestsFromModule() which does not recurse into
+# subpackages).
 
 on:
   push:
@@ -49,27 +50,8 @@ permissions:
   contents: read
 
 jobs:
-  pre-check:
-    name: Pre-flight Check
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check for Python changes
-        id: check
-        run: |
-          echo "should_run=true" >> $GITHUB_OUTPUT
-
-      - name: Python Syntax Validation
-        run: |
-          python -m py_compile $(find verenigingen -name "*.py" -type f 2>/dev/null | head -100) || true
-
   tests:
     name: Tests
-    needs: pre-check
-    if: needs.pre-check.outputs.should_run == 'true'
     uses: ./.github/workflows/_base-server-tests.yml
     with:
       python-version: '3.12'
@@ -93,10 +75,7 @@ jobs:
           if [ "$status" == "success" ]; then
             echo ":white_check_mark: All test shards passed." >> $GITHUB_STEP_SUMMARY
             exit 0
-          elif [ "$status" == "skipped" ]; then
-            echo ":fast_forward: Tests were skipped." >> $GITHUB_STEP_SUMMARY
-            exit 0
           else
-            echo ":x: One or more test shards failed. Check individual job logs above." >> $GITHUB_STEP_SUMMARY
+            echo ":x: Test run failed or was cancelled (result: $status). Check individual job logs above." >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
