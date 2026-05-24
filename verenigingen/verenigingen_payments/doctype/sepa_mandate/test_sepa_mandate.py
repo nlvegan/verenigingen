@@ -8,6 +8,7 @@ class TestSEPAMandate(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         # Set up any common test data
+        super().setUpClass()
         pass
 
     def setUp(self):

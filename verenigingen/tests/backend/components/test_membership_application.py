@@ -1963,6 +1963,7 @@ class TestChapterSelection(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test data for chapter tests"""
+        super().setUpClass()
         # Create test region if needed
         region_name = "Noord-Holland"
         if not frappe.db.exists("Region", region_name):

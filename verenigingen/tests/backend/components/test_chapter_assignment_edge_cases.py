@@ -26,6 +26,7 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test data"""
+        super().setUpClass()
         # Create test chapters
         test_chapters = [
             {

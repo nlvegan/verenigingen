@@ -97,6 +97,7 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
                 record.delete()
             except Exception:
                 pass
+        super().tearDownClass()
 
     def setUp(self):
         """Set up each test"""

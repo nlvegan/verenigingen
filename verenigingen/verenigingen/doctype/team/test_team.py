@@ -20,6 +20,7 @@ class TestTeam(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         # Tell Frappe not to make test records
+        super().setUpClass()
         frappe.flags.make_test_records = False
         # Clean up any leftover test data from previous failed runs
         cls.cleanup_test_data()
