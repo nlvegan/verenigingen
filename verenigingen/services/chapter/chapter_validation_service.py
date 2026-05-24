@@ -121,6 +121,13 @@ class ChapterValidationService(StatelessService):
             # Automatically fixes missing region and introduction fields
         """
         try:
+            # Auto-fix missing status. Chapter.status is reqd=1 with default
+            # 'Active' in the JSON, but Frappe applies field defaults at the
+            # form layer — not for frappe.get_doc({...}).insert(). Without this,
+            # raw-dict test fixtures fail with MandatoryError in setUpClass.
+            if not chapter_doc.status:
+                chapter_doc.status = "Active"
+
             # Auto-fix missing region
             if not chapter_doc.region:
                 if hasattr(chapter_doc, "name") and chapter_doc.name:
