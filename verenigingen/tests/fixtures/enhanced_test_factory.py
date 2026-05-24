@@ -1599,11 +1599,17 @@ class EnhancedTestCase(FrappeTestCase):
         try:
             # Rollback any uncommitted changes from this test method
             frappe.db.rollback()
-            # Note: Explicitly committed data (via frappe.db.commit() in production code)
-            # will NOT be rolled back - see account_creation_manager.py lines 1170, 1452
-            # Those require additional cleanup or commit-skipping during tests
         except Exception as e:
             frappe.logger().warning(f"Rollback failed in tearDown: {e}")
+
+        # DRAIN TRACKED DOCUMENTS: rollback above only undoes uncommitted writes;
+        # this step deletes records that survived because the test (or production
+        # code it called) issued frappe.db.commit(). See _drain_tracked_documents
+        # for the dedupe + priority-order semantics.
+        try:
+            self._drain_tracked_documents()
+        except Exception as e:
+            frappe.logger().warning(f"Tracked doc drain failed in tearDown: {e}")
 
         # SETTINGS RESTORATION: Restore Verenigingen Settings to original values
         # This undoes changes made by _ensure_verenigingen_settings() which commits
@@ -1614,6 +1620,57 @@ class EnhancedTestCase(FrappeTestCase):
             frappe.logger().warning(f"Settings restoration failed in tearDown: {e}")
 
         super().tearDown()
+
+    def _drain_tracked_documents(self):
+        """Delete factory-tracked documents that survived per-method rollback.
+
+        `frappe.db.rollback()` undoes uncommitted writes; this method handles
+        committed writes (e.g. `frappe.db.commit()` in production code called
+        by the test). Without this, committed test data accumulates across
+        runs and trips uniqueness constraints (Customer.PRIMARY etc.) on
+        subsequent runs.
+
+        Combines tracking from Enhanced (`factory.created_documents`, with
+        priority field) and Core (`factory.core.created_records`, no priority).
+        Members and similar are double-tracked; dedupe by (doctype, name).
+        Highest priority deletes first to match Enhanced's existing contract.
+        """
+        if not hasattr(self, 'factory'):
+            return
+
+        tracked = []
+        for d in getattr(self.factory, 'created_documents', []):
+            tracked.append((d['doctype'], d['name'], d.get('priority', 0)))
+        core = getattr(self.factory, 'core', None)
+        if core is not None:
+            for d in getattr(core, 'created_records', []):
+                tracked.append((d['doctype'], d['name'], 0))
+
+        seen = set()
+        unique = []
+        for t in tracked:
+            key = (t[0], t[1])
+            if key not in seen:
+                seen.add(key)
+                unique.append(t)
+
+        unique.sort(key=lambda x: -x[2])
+
+        for doctype, name, _prio in unique:
+            try:
+                if frappe.db.exists(doctype, name):
+                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception as e:
+                frappe.logger().debug(f"Drain delete failed {doctype}/{name}: {e}")
+
+        self.factory.created_documents = []
+        if core is not None:
+            core.created_records = []
+
+        try:
+            frappe.db.commit()
+        except Exception as e:
+            frappe.logger().warning(f"Drain commit failed: {e}")
 
     def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5, is_team_role=False, use_secure_operations=False):
         """Clean up document with retry logic for lock timeouts"""
