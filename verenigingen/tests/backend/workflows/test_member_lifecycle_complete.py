@@ -75,6 +75,7 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
         if not frappe.db.exists("Chapter", chapter_name):
             chapter = frappe.get_doc({
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": chapter_name,
                 "chapter_name": chapter_name,
                 "short_name": f"TLC{cls.test_id}",

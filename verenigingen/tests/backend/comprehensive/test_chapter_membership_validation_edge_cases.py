@@ -74,6 +74,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         cls.test_data["chapter_1"] = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": "EDGE-CHAPTER-1",
                 "chapter_name": "Edge Case Chapter 1",
                 "region": "Test Region 1"}
@@ -83,6 +84,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         cls.test_data["chapter_2"] = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": "EDGE-CHAPTER-2",
                 "chapter_name": "Edge Case Chapter 2",
                 "region": "Test Region 2"}
@@ -203,6 +205,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         test_chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": "EDGE-CHAPTER-DISABLED",
                 "chapter_name": "Edge Case Disabled Chapter",
                 "region": "Test Region Disabled"}

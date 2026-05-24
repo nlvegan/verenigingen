@@ -68,6 +68,7 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
         self.test_chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": chapter_name,  # Set explicit name to avoid auto-naming issues
                 "chapter_head": self.test_member.name,
                 "region": "Test Region",

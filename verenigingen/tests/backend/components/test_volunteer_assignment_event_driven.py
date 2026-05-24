@@ -75,6 +75,7 @@ class TestVolunteerAssignmentEventDriven(EnhancedTestCase):
         timestamp = str(int(time.time() * 1000))[-8:]  # Last 8 digits of timestamp
         self.test_chapter = frappe.get_doc({
             "doctype": "Chapter",
+            "status": "Active",
             "name": f"EventTestChapter{timestamp}",
             "chapter_head": self.test_members[0].name,
             "region": "EventTestRegion",

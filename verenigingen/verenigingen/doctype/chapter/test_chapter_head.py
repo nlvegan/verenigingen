@@ -91,6 +91,7 @@ class TestChapterHead(EnhancedTestCase):
         self.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": f"Test Chapter {self.unique_id}",
                 "region": "Test Region",
                 "introduction": "Test Chapter for Head Tests",

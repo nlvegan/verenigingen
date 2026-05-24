@@ -47,6 +47,7 @@ class TestVolunteerPortalEdgeCases(VereningingenTestCase):
                 chapter = frappe.get_doc(
                     {
                         "doctype": "Chapter",
+                        "status": "Active",
                         "chapter_name": chapter_name,
                         "city": "Edge City",
                         "enabled": enabled}
@@ -558,7 +559,7 @@ class TestVolunteerPortalEdgeCases(VereningingenTestCase):
         extra_chapter = "Extra Test Chapter"
         if not frappe.db.exists("Chapter", extra_chapter):
             chapter = frappe.get_doc(
-                {"doctype": "Chapter", "chapter_name": extra_chapter, "city": "Extra City", "enabled": 1}
+                {"doctype": "Chapter", "status": "Active", "chapter_name": extra_chapter, "city": "Extra City", "enabled": 1}
             )
             chapter.insert()
 
@@ -591,7 +592,7 @@ class TestVolunteerPortalEdgeCases(VereningingenTestCase):
         expired_chapter = "Expired Membership Chapter"
         if not frappe.db.exists("Chapter", expired_chapter):
             chapter = frappe.get_doc(
-                {"doctype": "Chapter", "chapter_name": expired_chapter, "city": "Expired City", "enabled": 1}
+                {"doctype": "Chapter", "status": "Active", "chapter_name": expired_chapter, "city": "Expired City", "enabled": 1}
             )
             chapter.insert()
 

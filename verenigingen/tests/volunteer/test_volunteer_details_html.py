@@ -42,6 +42,7 @@ class TestVolunteerDetailsHTML(EnhancedTestCase):
         if not frappe.db.exists("Chapter", "HTMLTestChapter"):
             frappe.get_doc({
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": "HTMLTestChapter",
                 "region": "HTMLTestRegion",
                 "introduction": "Test chapter for HTML generation",
@@ -166,6 +167,7 @@ class TestVolunteerDetailsHTML(EnhancedTestCase):
         if not frappe.db.exists("Chapter", "Test Chapter With Spaces"):
             frappe.get_doc({
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": "Test Chapter With Spaces",
                 "region": "HTMLTestRegion",
                 "introduction": "Test chapter for URL encoding",

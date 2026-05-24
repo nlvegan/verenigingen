@@ -117,6 +117,7 @@ class TestChapterBoardPermissionsProduction(EnhancedTestCase):
                 
             chapter = frappe.get_doc({
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": chapter_name,
                 "region": region_name,
                 "introduction": f"Test chapter {chapter_name} for permission testing",

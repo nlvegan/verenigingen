@@ -25,6 +25,7 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
         cls.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "name": "Payment Test Chapter",
                 "chapter_name": "Payment Test Chapter",
                 "short_name": "PTC",
