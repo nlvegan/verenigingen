@@ -205,6 +205,22 @@ def setup_security_headers():
     return security_recommendations
 
 
+def _system_settings_save_ready(system_settings):
+    """Return (ready, missing_fields) for Frappe's System Settings Single.
+
+    Frappe's System Settings has `language` and `time_zone` as `reqd=1`. On
+    fresh sites those fields may be NULL before the operator has completed
+    Frappe's Setup Wizard. Any `.save()` in that state cascades a
+    MandatoryError into every downstream consumer.
+
+    Centralised here so any verenigingen call site that wants to save
+    System Settings can short-circuit cleanly. See setup_password_policy
+    and the verenigingen_configure_security onboarding step.
+    """
+    missing = [f for f in ("language", "time_zone") if not getattr(system_settings, f, None)]
+    return (not missing, missing)
+
+
 def setup_password_policy():
     """
     Configure password policy settings for the verenigingen app.
@@ -216,25 +232,35 @@ def setup_password_policy():
     test setUp that triggers an after_migrate hook — symptom in CI:
     17+ direct test failures + many cascades (PR #79 shard 4 inventory).
 
+    The skip is recoverable: `bench migrate` re-fires `after_migrate`
+    hooks, so once the operator configures System Settings the next
+    migrate applies the policy. Operators who complete Setup Wizard via
+    the UI without re-running migrate will sit on Frappe's weaker
+    defaults; the WARNING message tells them what to do.
+
     Modifying Frappe's System Settings to populate language/time_zone
-    is out of scope for this app; the operator should configure them
-    via the Setup Wizard or Desk → System Settings.
+    is out of scope for this app; PR #81 demonstrated that defaulting
+    framework-required fields silently undoes intentional security
+    hardening (re-enabled Administrator fallback).
     """
     try:
         # Get or create System Settings
         system_settings = frappe.get_single("System Settings")
 
-        # Skip if System Settings is in a state where save would fail validation.
-        # Both fields are reqd=1 in Frappe's System Settings schema.
-        missing_required = [f for f in ("language", "time_zone") if not getattr(system_settings, f, None)]
-        if missing_required:
+        ready, missing = _system_settings_save_ready(system_settings)
+        if not ready:
             msg = (
                 f"Skipping password policy setup — System Settings missing required field(s): "
-                f"{', '.join(missing_required)}. Configure these via Frappe Setup Wizard or "
+                f"{', '.join(missing)}. Configure these via Frappe Setup Wizard or "
                 f"Desk → System Settings, then re-run `bench migrate` to apply password policy."
             )
             print(f"   ⚠️  {msg}")
             frappe.logger().warning(msg)
+            # Surface to Error Log too so silent skips are visible in audit / CI logs.
+            try:
+                frappe.log_error(message=msg, title="Password Policy Setup Skipped")
+            except Exception:
+                pass
             return False
 
         # Set recommended password policy (enhanced based on security review)

@@ -287,36 +287,89 @@ class TestSecurityConfiguration(VereningingenTestCase):
     def test_setup_password_policy_new(self, mock_get_single):
         """Test password policy setup with new settings"""
         mock_system_settings = MagicMock()
+        # Required by _system_settings_save_ready guard (added 2026-05-24 PR #82)
+        mock_system_settings.language = "en"
+        mock_system_settings.time_zone = "UTC"
         mock_system_settings.minimum_password_score = 0
         mock_system_settings.enable_password_policy = 0
         mock_system_settings.force_user_to_reset_password = 0
         mock_get_single.return_value = mock_system_settings
-        
+
         result = setup_password_policy()
-        
+
         self.assertTrue(result)
         mock_system_settings.save.assert_called_once()
-        
+
         # Verify values were set correctly
         self.assertEqual(mock_system_settings.minimum_password_score, 3)
         self.assertEqual(mock_system_settings.enable_password_policy, 1)
         self.assertEqual(mock_system_settings.force_user_to_reset_password, 90)
-    
+
     # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.get_single')
     def test_setup_password_policy_existing(self, mock_get_single):
         """Test password policy setup with existing correct settings"""
         mock_system_settings = MagicMock()
+        # Required by _system_settings_save_ready guard
+        mock_system_settings.language = "en"
+        mock_system_settings.time_zone = "UTC"
         mock_system_settings.minimum_password_score = 3
         mock_system_settings.enable_password_policy = 1
         mock_system_settings.force_user_to_reset_password = 90
         mock_get_single.return_value = mock_system_settings
-        
+
         result = setup_password_policy()
-        
+
         self.assertTrue(result)
         # Should not save if no changes needed
         mock_system_settings.save.assert_not_called()
+
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
+    @patch('frappe.get_single')
+    def test_setup_password_policy_skips_when_language_missing(self, mock_get_single):
+        """Skip path: System Settings without language must not attempt save."""
+        mock_system_settings = MagicMock()
+        mock_system_settings.language = None
+        mock_system_settings.time_zone = "UTC"
+        mock_get_single.return_value = mock_system_settings
+
+        result = setup_password_policy()
+
+        self.assertFalse(result)
+        mock_system_settings.save.assert_not_called()
+
+    # Mock justified: Infrastructure - external dependency, not the boundary under test
+    @patch('frappe.get_single')
+    def test_setup_password_policy_skips_when_time_zone_empty_string(self, mock_get_single):
+        """Skip path: empty-string time_zone also tripped reqd=1 in production."""
+        mock_system_settings = MagicMock()
+        mock_system_settings.language = "en"
+        mock_system_settings.time_zone = ""
+        mock_get_single.return_value = mock_system_settings
+
+        result = setup_password_policy()
+
+        self.assertFalse(result)
+        mock_system_settings.save.assert_not_called()
+
+    def test_system_settings_save_ready_helper(self):
+        """Unit test for the extracted readiness helper."""
+        from verenigingen.setup.security_setup import _system_settings_save_ready
+
+        complete = MagicMock(language="en", time_zone="UTC")
+        ready, missing = _system_settings_save_ready(complete)
+        self.assertTrue(ready)
+        self.assertEqual(missing, [])
+
+        no_lang = MagicMock(language="", time_zone="UTC")
+        ready, missing = _system_settings_save_ready(no_lang)
+        self.assertFalse(ready)
+        self.assertEqual(missing, ["language"])
+
+        neither = MagicMock(language=None, time_zone=None)
+        ready, missing = _system_settings_save_ready(neither)
+        self.assertFalse(ready)
+        self.assertEqual(missing, ["language", "time_zone"])
 
 
 class TestSecurityStatus(VereningingenTestCase):
