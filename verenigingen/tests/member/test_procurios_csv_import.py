@@ -1,11 +1,10 @@
 # Copyright (c) 2026, Verenigingen and contributors
 # For license information, please see license.txt
 
-import frappe
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestProcuriosDataValidator(IntegrationTestCase):
+class TestProcuriosDataValidator(FrappeTestCase):
     """Tests for ProcuriosDataValidator field mapping and validation."""
 
     def setUp(self):

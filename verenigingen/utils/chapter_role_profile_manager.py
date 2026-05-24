@@ -7,3 +7,4 @@ warnings.warn(
     stacklevel=2,
 )
 from verenigingen.services.chapter.chapter_role_profile_manager import *  # noqa: E402,F401,F403
+from verenigingen.services.chapter.chapter_role_profile_manager import _chapter_manager  # noqa: E402,F401
