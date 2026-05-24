@@ -28,6 +28,27 @@ def _as_session_user(email: str):
         frappe.session.user = original
 
 
+def _ensure_user(email: str, first_name: str, last_name: str, roles=("Verenigingen Member",)) -> None:
+    """Idempotently create a User. The portal endpoints under test gate on
+    `frappe.session.user` being a real authenticated User with appropriate
+    roles — without this, `validate_authentication` raises VPermissionError
+    before the test code is reached."""
+    if frappe.db.exists("User", email):
+        return
+    user = frappe.get_doc({
+        "doctype": "User",
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+        "enabled": 1,
+        "user_type": "System User",
+        "send_welcome_email": 0,
+    })
+    for role in roles:
+        user.append("roles", {"role": role})
+    user.insert(ignore_permissions=True)
+
+
 def _ensure_region(region_name: str, region_code: str) -> str:
     """Idempotently create a Region and return its actual .name (autoname scrubs)."""
     existing = frappe.db.get_value("Region", {"region_name": region_name}, "name")
@@ -57,6 +78,17 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
         # Clean up any existing test data first
         cls._cleanup_test_data()
+
+        # Create User records for edge emails. The portal endpoints under test
+        # gate on `frappe.session.user` being a real authenticated User with
+        # the Verenigingen Member role.
+        for email, first, last in [
+            ("edge1@example.com", "Edge", "Case One"),
+            ("edge2@example.com", "Edge", "Case Two"),
+            ("edge3@example.com", "Edge", "Case Three"),
+            ("empty@example.com", "Edge", "Case Empty"),
+        ]:
+            _ensure_user(email, first, last)
 
         # Create required Regions. autoname=field:region_name scrubs to dashes,
         # so capture the resolved .name to use in Chapter.region links below.
@@ -445,6 +477,12 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             ):
                 _safe(lambda n=member_name: frappe.delete_doc("Member", n, force=True, ignore_permissions=True))
                 _safe(lambda n=member_name: frappe.db.sql("DELETE FROM `tabMember` WHERE name = %s", (n,)))
+
+        # Users delete after Volunteer/Member to avoid permission/FK churn.
+        for email in edge_emails:
+            if frappe.db.exists("User", email):
+                _safe(lambda e=email: frappe.delete_doc("User", e, force=True, ignore_permissions=True))
+                _safe(lambda e=email: frappe.db.sql("DELETE FROM `tabUser` WHERE name = %s", (e,)))
 
         _safe(frappe.db.commit)
 
