@@ -115,7 +115,6 @@ class ChapterBoardTestFactory:
         
         chapter = frappe.get_doc({
             "doctype": "Chapter",
-            "status": "Active",
             "name": chapter_name,
             **defaults
         })

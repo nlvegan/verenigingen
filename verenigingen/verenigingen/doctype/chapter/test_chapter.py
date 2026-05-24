@@ -115,7 +115,6 @@ class TestChapter(EnhancedTestCase):
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "status": "Active",
                     "name": f"Invalid Chapter {unique_id}",
                     # Missing region
                     "introduction": "Test chapter",

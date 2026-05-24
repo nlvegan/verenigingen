@@ -81,7 +81,6 @@ class TestMembershipApplication(VereningingenTestCase):
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "status": "Active",
                     "name": "Test Chapter",
                     "region": "test-region",  # Use autonamed region
                     "postal_codes": "1000-1999",
@@ -2025,7 +2024,7 @@ class TestChapterSelection(EnhancedTestCase):
 
         for chapter_data in test_chapters:
             if not frappe.db.exists("Chapter", chapter_data["name"]):
-                chapter = frappe.get_doc({"doctype": "Chapter", "status": "Active", **chapter_data})
+                chapter = frappe.get_doc({"doctype": "Chapter", **chapter_data})
                 chapter.insert()
 
     def setUp(self):
@@ -2371,7 +2370,6 @@ class TestChapterSelection(EnhancedTestCase):
             additional_chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "status": "Active",
                     "name": additional_chapter_name,
                     "region": "Noord-Holland",  # Same as Amsterdam
                     "postal_codes": "1200-1299",
@@ -2488,7 +2486,6 @@ class TestChapterSelection(EnhancedTestCase):
                 chapter = frappe.get_doc(
                     {
                         "doctype": "Chapter",
-                        "status": "Active",
                         "name": chapter_name,
                         "region": "Noord-Holland",  # Use existing region
                         "postal_codes": f"{4000 + i * 100}-{4099 + i * 100}",
@@ -2534,7 +2531,6 @@ class TestChapterSelection(EnhancedTestCase):
             intl_chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "status": "Active",
                     "name": intl_chapter_name,
                     "region": "Noord-Holland",  # Use existing region
                     "postal_codes": "9000-9099",

@@ -58,7 +58,6 @@ class TestVolunteerAssignment(EnhancedTestCase):
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "status": "Active",
                 "name": chapter_name,
                 "chapter_head": self.test_member.name,
                 "region": test_region.name,
