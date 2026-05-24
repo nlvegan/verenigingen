@@ -3,11 +3,29 @@
 Edge case tests for chapter membership validation to prevent similar bugs
 """
 
+import contextlib
 import unittest
-from unittest.mock import patch
 
 import frappe
 from frappe.utils import today
+
+
+@contextlib.contextmanager
+def _as_session_user(email: str):
+    """Temporarily set frappe.session.user without going through User-validation.
+
+    Replaces broken `with patch("frappe.session.user", email):` idiom.
+    `mock.patch` resolves the dotted path at decoration time — `frappe.session`
+    is a Werkzeug LocalProxy whose `.user` lookup raises before the patch can
+    install. Direct assignment works because the proxy delegates __setattr__
+    to the underlying session dict.
+    """
+    original = frappe.session.user
+    try:
+        frappe.session.user = email
+        yield
+    finally:
+        frappe.session.user = original
 
 
 def _ensure_region(region_name: str, region_code: str) -> str:
@@ -153,7 +171,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         # Test get_user_volunteer_record first
-        with patch("frappe.session.user", "edge1@example.com"):
+        with _as_session_user("edge1@example.com"):
             volunteer_record = get_user_volunteer_record()
 
             self.assertIsNotNone(volunteer_record, "Should find volunteer record")
@@ -169,7 +187,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "category": self.category_name,
             "notes": "Testing valid membership"}
 
-        with patch("frappe.session.user", "edge1@example.com"):
+        with _as_session_user("edge1@example.com"):
             result = submit_expense(expense_data)
 
             self.assertTrue(
@@ -189,7 +207,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "category": self.category_name,
             "notes": "Testing invalid membership"}
 
-        with patch("frappe.session.user", "edge1@example.com"):
+        with _as_session_user("edge1@example.com"):
             result = submit_expense(expense_data)
 
             self.assertFalse(result.get("success"), "Should fail for invalid membership")
@@ -205,7 +223,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         # Test get_user_volunteer_record
-        with patch("frappe.session.user", "edge2@example.com"):
+        with _as_session_user("edge2@example.com"):
             volunteer_record = get_user_volunteer_record()
 
             self.assertIsNotNone(volunteer_record, "Should find volunteer record")
@@ -222,7 +240,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "category": self.category_name,
             "notes": "Testing volunteer without member link"}
 
-        with patch("frappe.session.user", "edge2@example.com"):
+        with _as_session_user("edge2@example.com"):
             result = submit_expense(expense_data)
 
             self.assertFalse(result.get("success"), "Should fail for volunteer without member link")
@@ -231,7 +249,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         """Test member without volunteer link trying to access system"""
         from verenigingen.utils.volunteer_expense_portal_utils import get_user_volunteer_record
 
-        with patch("frappe.session.user", "edge3@example.com"):
+        with _as_session_user("edge3@example.com"):
             volunteer_record = get_user_volunteer_record()
 
             self.assertIsNone(volunteer_record, "Should return None for member without volunteer link")
@@ -269,7 +287,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "category": self.category_name,
             "notes": "Testing disabled membership"}
 
-        with patch("frappe.session.user", "edge1@example.com"):
+        with _as_session_user("edge1@example.com"):
             submit_expense(expense_data)
 
             # Should fail because membership is disabled
@@ -301,7 +319,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "category": self.category_name,
             "notes": "Testing multiple memberships edge case"}
 
-        with patch("frappe.session.user", "edge1@example.com"):
+        with _as_session_user("edge1@example.com"):
             result = submit_expense(expense_data)
 
             self.assertTrue(result.get("success"), "Should succeed even with multiple membership entries")
@@ -319,7 +337,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "category": self.category_name,
             "notes": "Testing case sensitivity"}
 
-        with patch("frappe.session.user", "edge1@example.com"):
+        with _as_session_user("edge1@example.com"):
             result = submit_expense(expense_data)
 
             self.assertFalse(result.get("success"), "Should fail for incorrect case in chapter name")
@@ -337,7 +355,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "category": self.category_name,
             "notes": "Testing nonexistent chapter"}
 
-        with patch("frappe.session.user", "edge1@example.com"):
+        with _as_session_user("edge1@example.com"):
             result = submit_expense(expense_data)
 
             self.assertFalse(result.get("success"), "Should fail for nonexistent chapter")
@@ -359,7 +377,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         volunteer_empty.insert()
 
         try:
-            with patch("frappe.session.user", "empty@example.com"):
+            with _as_session_user("empty@example.com"):
                 volunteer_record = get_user_volunteer_record()
 
                 self.assertIsNotNone(volunteer_record, "Should find volunteer")
