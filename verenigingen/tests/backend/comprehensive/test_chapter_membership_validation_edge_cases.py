@@ -28,12 +28,21 @@ def _as_session_user(email: str):
         frappe.session.user = original
 
 
-def _ensure_user(email: str, first_name: str, last_name: str, roles=("Verenigingen Member",)) -> None:
-    """Idempotently create a User. The portal endpoints under test gate on
-    `frappe.session.user` being a real authenticated User with appropriate
-    roles — without this, `validate_authentication` raises VPermissionError
-    before the test code is reached."""
+def _ensure_user(email: str, first_name: str, last_name: str,
+                 role_profile: str = "Verenigingen Volunteer") -> None:
+    """Idempotently create a User with a role profile assignment.
+
+    The portal endpoints under test (e.g. `submit_expense`) require MEDIUM
+    security level. Per `verenigingen/utils/security/authorization_policy.py`,
+    only role *profiles* — not plain roles — grant access to a security level.
+    `Verenigingen Volunteer` profile grants MEDIUM (for self_service_only
+    operations) + LOW.
+    """
     if frappe.db.exists("User", email):
+        # Backfill role_profile_name if missing (older Users may have been
+        # created without it; the role profile gate fails silently otherwise).
+        if not frappe.db.get_value("User", email, "role_profile_name"):
+            frappe.db.set_value("User", email, "role_profile_name", role_profile)
         return
     user = frappe.get_doc({
         "doctype": "User",
@@ -43,9 +52,8 @@ def _ensure_user(email: str, first_name: str, last_name: str, roles=("Vereniging
         "enabled": 1,
         "user_type": "System User",
         "send_welcome_email": 0,
+        "role_profile_name": role_profile,
     })
-    for role in roles:
-        user.append("roles", {"role": role})
     user.insert(ignore_permissions=True)
 
 

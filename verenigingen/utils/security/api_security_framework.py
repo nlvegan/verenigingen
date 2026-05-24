@@ -1074,6 +1074,7 @@ def standard_api(
     *,
     operation_type: OperationType = OperationType.REPORTING,
     self_service_only: bool = False,
+    self_service_implicit_allowed: bool = False,
     max_request_size: int = None,
 ):
     """
@@ -1099,6 +1100,9 @@ def standard_api(
         @standard_api()                                  # Equivalent
         @standard_api(operation_type=OperationType.REPORTING)
         @standard_api(self_service_only=True)           # User can only see own data
+        @standard_api(self_service_only=True, self_service_implicit_allowed=True)
+                                                         # Portal endpoint that derives
+                                                         # member from session.user
         @standard_api(max_request_size=10*1024*1024)    # Custom payload limit
 
     Example:
@@ -1110,6 +1114,11 @@ def standard_api(
     Args:
         operation_type: Classification for rate limiting (default: REPORTING)
         self_service_only: If True, users can only access their own data
+        self_service_implicit_allowed: When `self_service_only=True`, allows
+            the endpoint to operate on session user's member without an
+            explicit `member` kwarg (defaults to False). Required for portal
+            endpoints like `submit_expense` that derive the member from
+            `frappe.session.user` rather than accepting a `member` argument.
         max_request_size: Override default 2MB limit
     """
     # Handle both @standard_api and @standard_api() usage patterns
@@ -1120,6 +1129,7 @@ def standard_api(
             operation_type=operation_type,
             audit_level="standard",
             self_service_only=self_service_only,
+            self_service_implicit_allowed=self_service_implicit_allowed,
             max_request_size=max_request_size,
         )
     elif callable(func_or_operation_type):
@@ -1129,6 +1139,7 @@ def standard_api(
             operation_type=operation_type,
             audit_level="standard",
             self_service_only=self_service_only,
+            self_service_implicit_allowed=self_service_implicit_allowed,
             max_request_size=max_request_size,
         )(func_or_operation_type)
     else:
@@ -1138,6 +1149,7 @@ def standard_api(
             operation_type=func_or_operation_type,
             audit_level="standard",
             self_service_only=self_service_only,
+            self_service_implicit_allowed=self_service_implicit_allowed,
             max_request_size=max_request_size,
         )
 
