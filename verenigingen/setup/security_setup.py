@@ -255,12 +255,14 @@ def setup_password_policy():
                 f"Desk → System Settings, then re-run `bench migrate` to apply password policy."
             )
             print(f"   ⚠️  {msg}")
-            frappe.logger().warning(msg)
+            security_logger.warning(msg)
             # Surface to Error Log too so silent skips are visible in audit / CI logs.
             try:
                 frappe.log_error(message=msg, title="Password Policy Setup Skipped")
-            except Exception:
-                pass
+            except Exception as log_exc:
+                # log_error itself can fail during early after_migrate if the
+                # Error Log schema isn't migrated yet. Don't lose the signal.
+                security_logger.warning(f"Password Policy Setup Skipped (Error Log unavailable: {log_exc})")
             return False
 
         # Set recommended password policy (enhanced based on security review)
