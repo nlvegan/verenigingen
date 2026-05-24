@@ -295,10 +295,14 @@ def get_user_volunteer_record_optimized(user_email: str) -> Optional[Dict[str, A
         Volunteer record with member information, or None if not found
     """
     try:
-        # Single query with JOIN to get all required data
+        # Single query with JOIN to get all required data. Note:
+        # `skills_and_qualifications` is a child Table field — it has no column
+        # on `tabVolunteer`, so it CANNOT appear in this SELECT. Including it
+        # raised OperationalError on every call, which the bare-except below
+        # silently swallowed → callers got None for every user.
         volunteer_data = frappe.db.sql(
             """
-            SELECT v.name, v.volunteer_name, v.member, v.skills_and_qualifications, v.commitment_level,
+            SELECT v.name, v.volunteer_name, v.member, v.commitment_level,
                    m.name as member_name, m.email, m.first_name, m.last_name
             FROM `tabVolunteer` v
             JOIN `tabMember` m ON v.member = m.name
