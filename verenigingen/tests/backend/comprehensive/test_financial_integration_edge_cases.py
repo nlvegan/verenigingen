@@ -78,6 +78,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
 
     def setUp(self):
         """Set up each test"""
+        super().setUp()
         # EnhancedTestCase handles permissions automatically
 
     # ===== MEMBERSHIP FEE EDGE CASES =====

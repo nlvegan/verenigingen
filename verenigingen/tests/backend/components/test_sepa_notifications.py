@@ -18,6 +18,7 @@ class TestSEPANotificationBusinessLogic(EnhancedTestCase):
 
     def setUp(self):
         """Set up for each test"""
+        super().setUp()
         self.notification_manager = SEPAMandateNotificationManager()
 
     def test_iban_masking(self):

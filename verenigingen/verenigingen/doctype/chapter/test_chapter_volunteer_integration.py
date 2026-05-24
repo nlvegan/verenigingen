@@ -13,6 +13,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class TestChapterVolunteerIntegration(EnhancedTestCase):
     def setUp(self):
         # Create a unique identifier for this test run
+        super().setUp()
         self.test_id = str(uuid.uuid4()).replace("-", "")[:12]
 
         # Test data

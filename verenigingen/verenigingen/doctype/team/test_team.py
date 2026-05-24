@@ -57,6 +57,7 @@ class TestTeam(EnhancedTestCase):
 
     def setUp(self):
         # Generate a unique ID for this test method
+        super().setUp()
         self.test_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
         # Create test data
         self.create_test_volunteers()

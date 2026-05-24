@@ -12,6 +12,7 @@ class TestSEPAMandate(EnhancedTestCase):
 
     def setUp(self):
         # Create a test member for use in tests
+        super().setUp()
         self.test_member = create_test_member()
         # Create a clean mandate for each test
         self.mandate = frappe.get_doc(

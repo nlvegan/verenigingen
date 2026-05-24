@@ -55,6 +55,7 @@ class TestEBoekhoudenIntegration(EnhancedTestCase):
             
     def setUp(self):
         """Set up test environment"""
+        super().setUp()
         self.mock_settings = {
             "username": "test_user",
             "security_code_1": "test_code_1",

@@ -14,6 +14,7 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
 
     def setUp(self):
         """Set up test environment"""
+        super().setUp()
         # EnhancedTestCase handles permissions automatically
 
     def tearDown(self):

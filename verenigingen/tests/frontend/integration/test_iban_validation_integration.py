@@ -17,6 +17,7 @@ class TestIBANValidationIntegration(EnhancedTestCase):
 
     def setUp(self):
         """Set up test data"""
+        super().setUp()
         frappe.set_user("Administrator")
 
     def test_iban_validation_comprehensive(self):

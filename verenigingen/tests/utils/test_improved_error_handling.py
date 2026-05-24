@@ -13,6 +13,7 @@ class TestImprovedErrorHandling(EnhancedTestCase):
     
     def setUp(self):
         """Set up test environment"""
+        super().setUp()
         self.results = {
             "total_tests": 0,
             "passed": 0,

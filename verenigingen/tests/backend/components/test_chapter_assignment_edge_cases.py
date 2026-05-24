@@ -67,6 +67,7 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
 
     def setUp(self):
         """Set up for each test"""
+        super().setUp()
         self.test_counter = getattr(self, "_test_counter", 0) + 1
         setattr(self, "_test_counter", self.test_counter)
 

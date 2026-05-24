@@ -53,6 +53,7 @@ class TestSecurityFrameworkCore(EnhancedTestCase):
     """Test core security framework functionality"""
 
     def setUp(self):
+        super().setUp()
         self.framework = get_security_framework()
         self.validator = get_enhanced_validator()
         self.classifier = get_api_classifier()
@@ -131,6 +132,7 @@ class TestSecurityValidation(EnhancedTestCase):
     """Test security validation functionality"""
 
     def setUp(self):
+        super().setUp()
         self.validator = get_enhanced_validator()
 
     def test_validation_schemas_registered(self):
@@ -274,6 +276,7 @@ class TestAPIClassifier(EnhancedTestCase):
     """Test API classification functionality"""
 
     def setUp(self):
+        super().setUp()
         self.classifier = get_api_classifier()
 
     def test_operation_type_classification(self):
@@ -325,6 +328,7 @@ class TestSecurityMonitoring(EnhancedTestCase):
     """Test security monitoring functionality"""
 
     def setUp(self):
+        super().setUp()
         self.monitor = get_security_monitor()
         self.tester = get_security_tester()
 
