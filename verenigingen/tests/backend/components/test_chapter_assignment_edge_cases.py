@@ -51,7 +51,7 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
 
         for chapter_data in test_chapters:
             if not frappe.db.exists("Chapter", chapter_data["name"]):
-                chapter = frappe.get_doc({"doctype": "Chapter", "status": "Active", **chapter_data})
+                chapter = frappe.get_doc({"doctype": "Chapter", **chapter_data})
                 chapter.insert()
 
         # Create test membership type
@@ -366,7 +366,6 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
             special_chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "status": "Active",
                     "name": special_chapter_name,
                     "region": "Special-Ñieuwe Test",
                     "postal_codes": "8000-8999",
@@ -458,7 +457,6 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
             perf_chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "status": "Active",
                     "name": perf_chapter_name,
                     "region": "Performance Test Region",
                     "postal_codes": "9000-9999",

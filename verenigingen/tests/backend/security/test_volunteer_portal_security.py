@@ -125,7 +125,6 @@ class TestVolunteerPortalSecurity(EnhancedTestCase):
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "status": "Active",
                     "chapter_name": unauthorized_chapter,
                     "city": "Unauthorized City",
                     "enabled": 1}

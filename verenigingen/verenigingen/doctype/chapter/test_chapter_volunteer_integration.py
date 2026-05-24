@@ -140,7 +140,6 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
         self.test_chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "status": "Active",
                 "name": test_chapter_name,
                 "chapter_head": self.chapter_head_member.name,
                 "region": "TestRegion",

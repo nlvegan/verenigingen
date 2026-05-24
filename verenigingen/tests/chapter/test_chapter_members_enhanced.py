@@ -69,7 +69,6 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         
         self.chapter = frappe.get_doc({
             "doctype": "Chapter",
-            "status": "Active",
             "name": chapter_name,
             "chapter_name": chapter_name,
             "short_name": "CMTC",
