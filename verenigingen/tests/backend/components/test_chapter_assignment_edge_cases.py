@@ -5,6 +5,23 @@ from verenigingen.api.member_management import add_member_to_chapter_roster, ass
 import unittest
 
 
+def _ensure_region(region_name: str, region_code: str) -> str:
+    """Idempotently create a Region and return its actual .name (autoname scrubs)."""
+    existing = frappe.db.get_value("Region", {"region_name": region_name}, "name")
+    if existing:
+        return existing
+    try:
+        doc = frappe.get_doc({
+            "doctype": "Region",
+            "region_name": region_name,
+            "region_code": region_code,
+        }).insert(ignore_permissions=True)
+        return doc.name
+    except frappe.DuplicateEntryError:
+        return frappe.db.get_value("Region", {"region_name": region_name}, "name") \
+            or region_name.lower().replace(" ", "-")
+
+
 def get_member_primary_chapter(member_name):
     """Helper function to get member's primary chapter from Chapter Member table"""
     try:
@@ -27,23 +44,37 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
     def setUpClass(cls):
         """Set up test data"""
         super().setUpClass()
+        # Create required Regions for chapters (incl. per-test fixtures below).
+        # Region.autoname is field:region_name with scrubbing — "Test Region Alpha"
+        # becomes "test-region-alpha". Capture the actual .name to use in Link fields.
+        cls.regions = {
+            r_name: _ensure_region(r_name, r_code)
+            for r_name, r_code in [
+                ("Test Region Alpha", "TRA"),
+                ("Test Region Beta", "TRB"),
+                ("Test Region Gamma", "TRG"),
+                ("Special-Nieuwe Test", "SNT"),
+                ("Performance Test Region", "PTR"),
+            ]
+        }
+
         # Create test chapters
         test_chapters = [
             {
                 "name": "Test Chapter Alpha",
-                "region": "Test Region Alpha",
+                "region": cls.regions["Test Region Alpha"],
                 "postal_codes": "1000-1999",
                 "published": 1,
                 "introduction": "Test chapter Alpha"},
             {
                 "name": "Test Chapter Beta",
-                "region": "Test Region Beta",
+                "region": cls.regions["Test Region Beta"],
                 "postal_codes": "2000-2999",
                 "published": 1,
                 "introduction": "Test chapter Beta"},
             {
                 "name": "Unpublished Test Chapter",
-                "region": "Test Region Gamma",
+                "region": cls.regions["Test Region Gamma"],
                 "postal_codes": "3000-3999",
                 "published": 0,  # Unpublished
                 "introduction": "Unpublished test chapter"},
@@ -367,7 +398,7 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
                 {
                     "doctype": "Chapter",
                     "name": special_chapter_name,
-                    "region": "Special-Ñieuwe Test",
+                    "region": self.regions["Special-Nieuwe Test"],
                     "postal_codes": "8000-8999",
                     "published": 1,
                     "introduction": "Special chapter with international characters"}
@@ -458,7 +489,7 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
                 {
                     "doctype": "Chapter",
                     "name": perf_chapter_name,
-                    "region": "Performance Test Region",
+                    "region": self.regions["Performance Test Region"],
                     "postal_codes": "9000-9999",
                     "published": 1,
                     "introduction": "Chapter for performance testing"}
