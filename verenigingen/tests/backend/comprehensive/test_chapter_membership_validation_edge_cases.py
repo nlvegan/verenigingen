@@ -10,6 +10,25 @@ import frappe
 from frappe.utils import today
 
 
+def _ensure_region(region_name: str, region_code: str) -> str:
+    """Idempotently create a Region and return its actual .name (autoname scrubs)."""
+    existing = frappe.db.get_value("Region", {"region_name": region_name}, "name")
+    if existing:
+        return existing
+    try:
+        doc = frappe.get_doc({
+            "doctype": "Region",
+            "region_name": region_name,
+            "region_code": region_code,
+        }).insert(ignore_permissions=True)
+        return doc.name
+    except frappe.DuplicateEntryError:
+        # Pre-existing Region row with the same scrubbed name but mismatched
+        # region_name field (e.g., NULL). Return the scrubbed name directly.
+        return frappe.db.get_value("Region", {"region_name": region_name}, "name") \
+            or region_name.lower().replace(" ", "-")
+
+
 class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
     """Test edge cases in chapter membership validation"""
 
@@ -20,6 +39,16 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
         # Clean up any existing test data first
         cls._cleanup_test_data()
+
+        # Create required Regions. autoname=field:region_name scrubs to dashes,
+        # so capture the resolved .name to use in Chapter.region links below.
+        cls.regions = {}
+        for region_name, region_code in [
+            ("Test Region 1", "TR1"),
+            ("Test Region 2", "TR2"),
+            ("Test Region Disabled", "TRD"),
+        ]:
+            cls.regions[region_name] = _ensure_region(region_name, region_code)
 
         # Create multiple test scenarios
         cls.test_data = {}
@@ -76,7 +105,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "name": "EDGE-CHAPTER-1",
                 "chapter_name": "Edge Case Chapter 1",
-                "region": "Test Region 1"}
+                "region": cls.regions["Test Region 1"]}
         )
         cls.test_data["chapter_1"].insert()
 
@@ -85,7 +114,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "name": "EDGE-CHAPTER-2",
                 "chapter_name": "Edge Case Chapter 2",
-                "region": "Test Region 2"}
+                "region": cls.regions["Test Region 2"]}
         )
         cls.test_data["chapter_2"].insert()
 
@@ -205,7 +234,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "name": "EDGE-CHAPTER-DISABLED",
                 "chapter_name": "Edge Case Disabled Chapter",
-                "region": "Test Region Disabled"}
+                "region": self.regions["Test Region Disabled"]}
         )
         test_chapter.insert()
 

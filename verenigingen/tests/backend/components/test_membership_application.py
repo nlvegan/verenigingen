@@ -20,6 +20,23 @@ from verenigingen.api.membership_application import (
 from verenigingen.utils.application_payments import process_application_payment
 
 
+def _ensure_region(region_name: str, region_code: str) -> str:
+    """Idempotently create a Region and return its actual .name (autoname scrubs)."""
+    existing = frappe.db.get_value("Region", {"region_name": region_name}, "name")
+    if existing:
+        return existing
+    try:
+        doc = frappe.get_doc({
+            "doctype": "Region",
+            "region_name": region_name,
+            "region_code": region_code,
+        }).insert(ignore_permissions=True)
+        return doc.name
+    except frappe.DuplicateEntryError:
+        return frappe.db.get_value("Region", {"region_name": region_name}, "name") \
+            or region_name.lower().replace(" ", "-")
+
+
 def get_member_primary_chapter(member_name):
     """Helper function to get member's primary chapter from Chapter Member table"""
     try:
@@ -1964,22 +1981,17 @@ class TestChapterSelection(EnhancedTestCase):
     def setUpClass(cls):
         """Set up test data for chapter tests"""
         super().setUpClass()
-        # Create test region if needed
-        region_name = "Noord-Holland"
-        if not frappe.db.exists("Region", region_name):
-            try:
-                region = frappe.get_doc({
-                    "doctype": "Region",
-                    "name": region_name,
-                    "region_name": region_name,
-                    "region_code": "NH",
-                    "country": "Netherlands",
-                    "is_active": 1
-                })
-                region.insert()
-            except Exception:
-                # If region creation fails, use None for region
-                region_name = None
+        # Create required Regions. autoname=field:region_name scrubs to dashes,
+        # so capture the resolved .name to use in Chapter.region links below.
+        cls.regions = {}
+        for r_name, r_code in [
+            ("Noord-Holland", "NH"),
+            ("Utrecht", "UT"),
+            ("Zuid-Holland", "ZH"),
+            ("Limburg", "LI"),
+        ]:
+            cls.regions[r_name] = _ensure_region(r_name, r_code)
+        region_name = cls.regions["Noord-Holland"]
 
         # Create test membership type
         if not frappe.db.exists("Membership Type", "Test Membership"):
@@ -2004,19 +2016,19 @@ class TestChapterSelection(EnhancedTestCase):
                 "introduction": "Test chapter for Amsterdam region"},
             {
                 "name": "Test Chapter Utrecht",
-                "region": "Utrecht",
+                "region": cls.regions["Utrecht"],
                 "postal_codes": "3500-3599",
                 "published": 1,
                 "introduction": "Test chapter for Utrecht region"},
             {
                 "name": "Test Chapter Rotterdam",
-                "region": "Zuid-Holland",
+                "region": cls.regions["Zuid-Holland"],
                 "postal_codes": "3000-3099",
                 "published": 1,
                 "introduction": "Test chapter for Rotterdam region"},
             {
                 "name": "Unpublished Chapter",
-                "region": "Limburg",
+                "region": cls.regions["Limburg"],
                 "postal_codes": "6000-6199",
                 "published": 0,  # Not published
                 "introduction": "Test unpublished chapter"},
