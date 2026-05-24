@@ -53,24 +53,27 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         # Create multiple test scenarios
         cls.test_data = {}
 
-        # Scenario 1: Volunteer with member link
+        # Scenario 1: Volunteer with member link.
+        # Member.autoname is `format:Assoc-Member-{YYYY}-{MM}-{####}` so an
+        # explicit "name" is ignored — we capture the resolved .name after
+        # insert and use it everywhere downstream.
         cls.test_data["member_1"] = frappe.get_doc(
             {
                 "doctype": "Member",
-                "name": "EDGE-MEMBER-1",
                 "first_name": "Edge",
                 "last_name": "Case One",
                 "email": "edge1@example.com",
                 "join_date": today()}
         )
         cls.test_data["member_1"].insert()
+        cls.member_1_name = cls.test_data["member_1"].name
 
         cls.test_data["volunteer_1"] = frappe.get_doc(
             {
                 "doctype": "Volunteer",
                 "volunteer_name": "Edge Case Volunteer 1",
                 "email": "edge1@example.com",
-                "member": "EDGE-MEMBER-1",
+                "member": cls.member_1_name,
                 "status": "Active",
                 "start_date": today()}
         )
@@ -91,13 +94,13 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         cls.test_data["member_3"] = frappe.get_doc(
             {
                 "doctype": "Member",
-                "name": "EDGE-MEMBER-3",
                 "first_name": "Edge",
                 "last_name": "Case Three",
                 "email": "edge3@example.com",
                 "join_date": today()}
         )
         cls.test_data["member_3"].insert()
+        cls.member_3_name = cls.test_data["member_3"].name
 
         # Create test chapters with required region field
         cls.test_data["chapter_1"] = frappe.get_doc(
@@ -120,17 +123,26 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
         # Create chapter membership for scenario 1
         cls.test_data["chapter_1"].append(
-            "members", {"member": "EDGE-MEMBER-1", "member_name": "Edge Case Volunteer 1", "enabled": 1}
+            "members", {"member": cls.member_1_name, "member_name": "Edge Case Volunteer 1", "enabled": 1}
         )
         cls.test_data["chapter_1"].save()
 
-        # Create expense category
-        if not frappe.db.exists("Expense Category", "EDGE-CATEGORY"):
+        # Create expense category. Expense Category.autoname is
+        # field:category_name, so the resolved .name is "Edge Case Category".
+        # expense_account is a mandatory Link to Account.
+        cls.category_name = "Edge Case Category"
+        if not frappe.db.exists("Expense Category", cls.category_name):
+            default_company = frappe.db.get_single_value("Global Defaults", "default_company")
+            expense_account = frappe.db.get_value(
+                "Account",
+                {"company": default_company, "is_group": 0, "account_type": "Expense Account"},
+                "name",
+            )
             cls.test_data["category"] = frappe.get_doc(
                 {
                     "doctype": "Expense Category",
-                    "name": "EDGE-CATEGORY",
-                    "category_name": "Edge Case Category",
+                    "category_name": cls.category_name,
+                    "expense_account": expense_account,
                     "is_active": 1}
             )
             cls.test_data["category"].insert()
@@ -145,7 +157,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             volunteer_record = get_user_volunteer_record()
 
             self.assertIsNotNone(volunteer_record, "Should find volunteer record")
-            self.assertEqual(volunteer_record.member, "EDGE-MEMBER-1", "Should have correct member link")
+            self.assertEqual(volunteer_record.member, self.member_1_name, "Should have correct member link")
 
         # Test expense submission
         expense_data = {
@@ -154,7 +166,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-1",
-            "category": "EDGE-CATEGORY",
+            "category": self.category_name,
             "notes": "Testing valid membership"}
 
         with patch("frappe.session.user", "edge1@example.com"):
@@ -174,7 +186,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-2",  # Volunteer not member of this chapter
-            "category": "EDGE-CATEGORY",
+            "category": self.category_name,
             "notes": "Testing invalid membership"}
 
         with patch("frappe.session.user", "edge1@example.com"):
@@ -207,7 +219,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-1",
-            "category": "EDGE-CATEGORY",
+            "category": self.category_name,
             "notes": "Testing volunteer without member link"}
 
         with patch("frappe.session.user", "edge2@example.com"):
@@ -241,7 +253,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
         test_chapter.append(
             "members",
             {
-                "member": "EDGE-MEMBER-1",
+                "member": self.member_1_name,
                 "member_name": "Edge Case Volunteer 1",
                 "enabled": 0,  # Disabled membership
             },
@@ -254,7 +266,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-DISABLED",
-            "category": "EDGE-CATEGORY",
+            "category": self.category_name,
             "notes": "Testing disabled membership"}
 
         with patch("frappe.session.user", "edge1@example.com"):
@@ -266,7 +278,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "Chapter Member",
                 {
                     "parent": "EDGE-CHAPTER-DISABLED",
-                    "member": "EDGE-MEMBER-1",
+                    "member": self.member_1_name,
                     "enabled": 1,  # Only enabled memberships
                 },
             )
@@ -286,7 +298,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-1",
-            "category": "EDGE-CATEGORY",
+            "category": self.category_name,
             "notes": "Testing multiple memberships edge case"}
 
         with patch("frappe.session.user", "edge1@example.com"):
@@ -304,7 +316,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": "edge-chapter-1",  # Wrong case
-            "category": "EDGE-CATEGORY",
+            "category": self.category_name,
             "notes": "Testing case sensitivity"}
 
         with patch("frappe.session.user", "edge1@example.com"):
@@ -322,7 +334,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": "NONEXISTENT-CHAPTER",
-            "category": "EDGE-CATEGORY",
+            "category": self.category_name,
             "notes": "Testing nonexistent chapter"}
 
         with patch("frappe.session.user", "edge1@example.com"):
@@ -359,29 +371,64 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
 
     @classmethod
     def _cleanup_test_data(cls):
-        """Clean up test data"""
-        try:
-            # Clean up in reverse dependency order
-            frappe.db.delete(
-                "Expense Claim", {"employee": ["Edge Case Volunteer 1", "Edge Case Volunteer 2"]}
-            )
-            frappe.db.delete(
-                "Volunteer Expense", {"volunteer": ["Edge Case Volunteer 1", "Edge Case Volunteer 2"]}
-            )
+        """Clean up test data. Each delete is independently try/excepted so a
+        single failure doesn't abort the rest — otherwise leftovers from one
+        run cause unique-key conflicts on the next run."""
+        def _safe(fn):
+            try:
+                fn()
+            except Exception:
+                pass
 
-            for doc_type, names in [
-                ("Chapter", ["EDGE-CHAPTER-1", "EDGE-CHAPTER-2", "EDGE-CHAPTER-DISABLED"]),
-                ("Expense Category", ["EDGE-CATEGORY"]),
-                ("Verenigingen Volunteer", ["Edge Case Volunteer 1", "Edge Case Volunteer 2", "Edge Case Empty Member"]),
-                ("Member", ["EDGE-MEMBER-1", "EDGE-MEMBER-3"]),
-            ]:
-                for name in names:
+        # Clean up in reverse dependency order
+        _safe(lambda: frappe.db.delete(
+            "Expense Claim", {"employee": ["Edge Case Volunteer 1", "Edge Case Volunteer 2"]}
+        ))
+        _safe(lambda: frappe.db.delete(
+            "Volunteer Expense", {"volunteer": ["Edge Case Volunteer 1", "Edge Case Volunteer 2"]}
+        ))
+
+        for doc_type, names in [
+            ("Chapter", ["EDGE-CHAPTER-1", "EDGE-CHAPTER-2", "EDGE-CHAPTER-DISABLED"]),
+            # Expense Category.autoname is field:category_name, so the resolved
+            # name is "Edge Case Category" not the explicit "EDGE-CATEGORY".
+            ("Expense Category", ["Edge Case Category"]),
+        ]:
+            for name in names:
+                if frappe.db.exists(doc_type, name):
+                    # Chapter has dependent rows (Chapter Member child table,
+                    # Department, etc.); regular delete may fail. Try the ORM
+                    # path first, then raw SQL fallback on parent + child tables.
+                    _safe(lambda dt=doc_type, n=name: frappe.delete_doc(dt, n, force=True, ignore_permissions=True))
                     if frappe.db.exists(doc_type, name):
-                        frappe.delete_doc(doc_type, name, )
+                        _safe(lambda dt=doc_type, n=name: frappe.db.sql(
+                            "DELETE FROM `tabChapter Member` WHERE parent = %s", (n,)
+                        ) if dt == "Chapter" else None)
+                        _safe(lambda dt=doc_type, n=name: frappe.db.sql(
+                            f"DELETE FROM `tab{dt}` WHERE name = %s", (n,)
+                        ))
 
-            frappe.db.commit()
-        except Exception:
-            pass  # Ignore cleanup errors during setup
+        # Volunteer and Member autoname is format-based — we can't predict
+        # names, so find by email. Volunteer must be deleted before Member
+        # (Volunteer.member is a Link to Member). frappe.delete_doc may itself
+        # fail on lingering FK refs in test DBs, so fall back to raw SQL — the
+        # unique-email constraint will block re-insertion otherwise.
+        edge_emails = ("edge1@example.com", "edge2@example.com",
+                       "edge3@example.com", "empty@example.com")
+        for email in edge_emails:
+            for vol_name in frappe.db.sql_list(
+                "SELECT name FROM `tabVolunteer` WHERE email = %s", (email,)
+            ):
+                _safe(lambda n=vol_name: frappe.delete_doc("Volunteer", n, force=True, ignore_permissions=True))
+                _safe(lambda n=vol_name: frappe.db.sql("DELETE FROM `tabVolunteer` WHERE name = %s", (n,)))
+        for email in edge_emails:
+            for member_name in frappe.db.sql_list(
+                "SELECT name FROM `tabMember` WHERE email = %s", (email,)
+            ):
+                _safe(lambda n=member_name: frappe.delete_doc("Member", n, force=True, ignore_permissions=True))
+                _safe(lambda n=member_name: frappe.db.sql("DELETE FROM `tabMember` WHERE name = %s", (n,)))
+
+        _safe(frappe.db.commit)
 
     @classmethod
     def tearDownClass(cls):
