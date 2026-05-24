@@ -69,6 +69,7 @@ class TestVolunteerAssignmentHistoryBugFixes(EnhancedTestCase):
         timestamp = str(int(time.time() * 1000))[-8:]  # Last 8 digits of timestamp
         self.test_chapter = frappe.get_doc({
             "doctype": "Chapter",
+            "status": "Active",
             "name": f"TestChapter{timestamp}",
             "chapter_head": self.test_member.name,
             "region": "TestRegion",

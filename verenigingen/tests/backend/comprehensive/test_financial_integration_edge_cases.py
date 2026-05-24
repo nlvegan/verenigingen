@@ -25,6 +25,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         cls.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "chapter_name": "Financial Test Chapter",
                 "short_name": "FTC",
                 "country": "Netherlands"}

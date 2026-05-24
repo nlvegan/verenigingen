@@ -25,6 +25,7 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
                 chapter = frappe.get_doc(
                     {
                         "doctype": "Chapter",
+                        "status": "Active",
                         "name": chapter_name,
                         "region": "Test Region",
                         "published": 1,

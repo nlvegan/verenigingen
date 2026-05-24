@@ -24,6 +24,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         cls.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
+                "status": "Active",
                 "chapter_name": "Termination Test Chapter",
                 "short_name": "TTC",
                 "country": "Netherlands"}

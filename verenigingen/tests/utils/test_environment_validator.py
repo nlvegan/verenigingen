@@ -337,6 +337,7 @@ class TestEnvironmentValidator:
                 test_chapter = frappe.get_doc(
                     {
                         "doctype": "Chapter",
+                        "status": "Active",
                         "chapter_name": "Test Environment Validation Chapter",
                         "short_name": "TEVC",
                         "country": "Netherlands"}

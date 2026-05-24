@@ -468,6 +468,28 @@ class TestChapterValidationService(EnhancedTestCase):
         # Region should not be changed if already set
         self.assertEqual(chapter_doc.region, original_region)
 
+    def test_auto_fix_status_defaults_to_active(self):
+        """auto_fix_required_fields sets status to 'Active' when missing.
+
+        Chapter.status is reqd=1 with default 'Active' in chapter.json, but
+        Frappe applies field defaults at the form layer — not for
+        frappe.get_doc({...}).insert(). The auto-fix bridges that gap so
+        raw-dict inserts don't fail with MandatoryError(status).
+        """
+        svc = self._get_service()
+        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
+        chapter_doc.status = None
+        svc.auto_fix_required_fields(chapter_doc)
+        self.assertEqual(chapter_doc.status, "Active")
+
+    def test_auto_fix_status_preserves_existing_value(self):
+        """auto_fix_required_fields does not overwrite an existing status."""
+        svc = self._get_service()
+        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
+        chapter_doc.status = "Inactive"
+        svc.auto_fix_required_fields(chapter_doc)
+        self.assertEqual(chapter_doc.status, "Inactive")
+
 
 # ---------------------------------------------------------------------------
 # 10. DepartmentSyncService

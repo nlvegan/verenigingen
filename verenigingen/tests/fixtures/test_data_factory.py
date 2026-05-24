@@ -281,7 +281,7 @@ class CoreTestDataFactory:
         if validate_fields:
             self._validate_fields("Chapter", defaults)
 
-        chapter = frappe.get_doc({"doctype": "Chapter", **defaults})
+        chapter = frappe.get_doc({"doctype": "Chapter", "status": "Active", **defaults})
         chapter.name = chapter_name
         chapter.insert(ignore_permissions=True)
         self.track_doc("Chapter", chapter.name)

@@ -463,6 +463,7 @@ class TestChapterEdgeCases(EnhancedTestCase):
                 # Manual creation needed for testing validation failures
                 test_data = {
                     "doctype": "Chapter",
+                    "status": "Active",
                     "name": f"Invalid {description} {self.test_id}",
                     "region": "Test Region",
                     field: value}
