@@ -1,6 +1,6 @@
 # Test framework fix — drain `track_document` in tearDown
 
-**Status:** VERIFIED — hypothesis confirmed via DB query (see Verification below); awaiting user approval to implement
+**Status:** IMPLEMENTED — PR #79; revised post double-review (skeptical + senior reviewers, see Revision Log)
 **Date:** 2026-05-24
 **Related memory:** `test-suite-crisis-2026-05-22`, codebase-health-audit-2026-05-17 (Tier 5)
 **Related PRs:** #57 (chapter membership tearDown), #60 (ANBI clarity teardown), #62/#69/#70 (super() sweep)
@@ -150,14 +150,30 @@ def _drain_tracked_documents(self):
 
 ### What this does NOT fix
 
-- Tests that bypass the factory (`frappe.new_doc("Customer")` directly in
-  `test_eligibility_checker.py:39` etc.). Those records aren't tracked, so
-  they'll still leak. A documented convention + a separate spot-check pass can
-  pick them up.
-- Records created by production code as a side effect of factory calls
-  (e.g. Membership Dues Schedule auto-created by Membership.on_submit). These
-  aren't tracked either. If they emerge as a problem, broaden tracking or
-  pattern-match in `_cleanup_stale_test_data`.
+- **`VereningingenTestCase` hierarchy** (127 files at
+  `verenigingen/tests/utils/base.py:44` and its descendants). Only
+  `EnhancedTestCase` (339 files) gets the drain. The two hierarchies are
+  parallel; closing the gap on the other one is a separate follow-up.
+- **Tests that bypass the factory** (`frappe.new_doc("Customer")` directly,
+  e.g. `test_eligibility_checker.py:39`). Those records aren't tracked, so
+  they still leak. `test_eligibility_checker.py` alone has 27 commit calls
+  and is already broken at HEAD (the test creates the auto-Customer twice
+  via the factory and then manually). A grep audit for
+  `frappe.new_doc("Customer"|"Member"|"Sales Invoice")` in test files is
+  warranted as a follow-up.
+- **Submitted documents** (`docstatus=1`). `delete_doc(force=True)` does
+  NOT bypass the submitted-doc check at
+  `frappe/model/delete_doc.py:287-297`. Tracked Sales Invoices, Payment
+  Entries, and submitted Memberships will fail to delete and surface as a
+  `WARNING`-level log line (see drain logging behaviour). Membership
+  happens to survive because Member's `on_trash` cascade cancels +
+  deletes it (`services/member/lifecycle/member_cleanup_service.py:172-174`).
+  Standalone submitted docs need either a cascade path or explicit
+  `cancel()` in the test code.
+- **Side-effect records from production code** not visible to the factory
+  (e.g. Membership Dues Schedule auto-created in `Membership.on_submit`).
+  If they emerge as a problem, extend factory tracking or pattern-match
+  in `_cleanup_stale_test_data`.
 
 ## Risks
 
@@ -200,3 +216,80 @@ def _drain_tracked_documents(self):
   pre-fix runs and from tests that bypass the factory.
 - `super()` sweep on `FrappeTestCase` + `VereningingenTestCase` subclasses.
   Separate work.
+
+## Revision Log
+
+### 2026-05-24 — Post-review revisions (PR #79 follow-up commit)
+
+Two reviewers (skeptical-code-reviewer + code-quality-reviewer) ran in
+parallel. None found critical bugs. The following material findings were
+addressed before merge:
+
+1. **Master-data deletion risk (critical-near-miss, skeptical S3).**
+   `_ensure_master_data()` fallback paths tracked `Company`, `Fiscal Year`,
+   `"All Departments"` (the ERPNext root), and `"Netherlands"` Territory
+   at priority=1. If any fallback fired, the drain would delete these
+   shared roots, corrupting subsequent tests and any production data
+   linked to them. **Fix:** stopped tracking those four in the fallback
+   paths (root-cause fix). Also added defensive contract in the drain:
+   records with `priority < 0` are skipped. Anyone adding new
+   session-scoped infrastructure should use negative priority.
+
+2. **Dedupe priority bug (correctness, senior M6).** Previous dedupe kept
+   the FIRST-SEEN priority for a (doctype, name) pair. For docs tracked
+   by both Enhanced (priority=5) and Core (priority=0), this could
+   discard the higher priority and reverse the documented delete order.
+   **Fix:** dedupe now keeps the HIGHEST priority across sources. New
+   regression test `test_dedupe_keeps_highest_priority_across_sources`.
+
+3. **Rollback-failure + drain commit interaction (correctness, skeptical
+   S1).** If the tearDown rollback raised and was swallowed by the outer
+   try/except, the drain's final commit would persist whatever
+   uncommitted test state remained. **Fix:** drain now issues a
+   defensive `frappe.db.rollback()` before any DELETE. If THAT rollback
+   raises, drain skips both deletes and commit, logs WARNING, clears
+   tracking lists.
+
+4. **Silent failure logging (visibility, both reviewers).** Per-doc
+   delete failures logged at `debug` were invisible in CI logs. **Fix:**
+   `frappe.DoesNotExistError` (cascaded-from-parent) stays silent;
+   anything else logs WARNING with doctype/name; aggregate
+   end-of-drain WARNING fires if any delete failed.
+
+5. **Empty-drain optimization (perf, senior M4).** Drain paid the cost
+   of building tracked, iterating, and committing even when nothing was
+   tracked. **Fix:** early return after dedupe if `unique` is empty.
+   Saves a MariaDB round-trip per read-only test method.
+
+6. **Idempotency test gap (test quality, skeptical S10 / senior L8).**
+   Previous test only checked that lists were empty after two drains;
+   didn't verify the first call actually deleted anything. A no-op
+   implementation would have passed. **Fix:** test now asserts records
+   gone after first drain, plus state remains clean after second.
+
+7. **Documentation accuracy (senior M5, skeptical S4).** Design doc's
+   "defence-in-depth" framing was incorrect: `_cleanup_stale_test_data`
+   doesn't run on `veg11.veganisme.org` (site not in approved list).
+   Doc also incorrectly claimed coverage of `VereningingenTestCase`
+   hierarchy. **Fix:** scope narrowed in "What this does NOT fix";
+   `VereningingenTestCase` sweep added to "Out of scope" follow-ups.
+
+### Pushback / non-issues
+
+- **Senior I1 (scalability test AttributeError).** Reviewer flagged
+  `test_payment_history_scalability.py:81` calling `self.factory.cleanup()`.
+  Verified: that test overrides `self.factory` to `PaymentHistoryTestFactory`
+  (line 61) which has its own `cleanup()` method. The drain uses
+  `getattr(self.factory, 'created_documents', [])` so it cleanly no-ops
+  on factories that don't expose that attribute. Not a bug.
+
+- **Submitted-doc *automatic* cancel (skeptical S2).** Reviewer
+  suggested the drain could `cancel()` docstatus=1 docs before delete.
+  Deferred: this would silently mask test bugs (tests submitting docs
+  without explicit cleanup are wrong). Instead, the drain now logs at
+  WARNING so leakage is visible. Tests creating submittable docs must
+  cascade cleanly or explicitly cancel.
+
+- **Test file location at top-level `tests/` (senior L7).** Intentional:
+  the file is about the test framework itself, alongside the existing
+  `test_framework_enhanced.py` shim. Not a domain test.
