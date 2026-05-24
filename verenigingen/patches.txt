@@ -49,3 +49,4 @@ verenigingen.patches.v2_1.rename_email_configuration_doctype
 verenigingen.patches.v2_2.remove_all_chapter_user_permissions
 verenigingen.patches.v2_2.clean_overloaded_upload_date
 verenigingen.patches.v2_2.backfill_belastingdienst_reportable
+verenigingen.patches.v2_2.backfill_verenigingen_settings_creation_user
