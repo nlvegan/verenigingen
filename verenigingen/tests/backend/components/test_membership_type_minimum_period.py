@@ -11,12 +11,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     """Test cases for the per-membership-type enforce_minimum_period setting"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data using Enhanced Test Factory"""
-        super().setUpClass()
-        pass  # Enhanced Test Factory handles this automatically
-
     def setUp(self):
         """Set up before each test using Enhanced Test Factory"""
         super().setUp()

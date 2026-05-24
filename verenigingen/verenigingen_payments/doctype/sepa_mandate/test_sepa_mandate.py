@@ -5,12 +5,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestSEPAMandate(EnhancedTestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Set up any common test data
-        super().setUpClass()
-        pass
-
     def setUp(self):
         # Create a test member for use in tests
         super().setUp()
