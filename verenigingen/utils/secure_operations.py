@@ -301,6 +301,21 @@ class SecureOperationResult:
         self.document = None  # Add document reference
         self.duration = 0.0
 
+    @property
+    def doc(self):
+        """Loud-fail guard against the colloquial typo.
+
+        The canonical attribute is `.document`. Several callers historically
+        wrote `.doc`, which silently raised AttributeError that broad
+        except-blocks swallowed (notably in web_form/donation_form and the
+        Mollie chargeback webhook handler). Surfaces the typo at the call
+        site so future regressions can't hide.
+        """
+        raise AttributeError(
+            "SecureOperationResult has no attribute 'doc' — use '.document'. "
+            "See verenigingen/utils/secure_operations.py:291."
+        )
+
     def add_error(self, message: str):
         self.errors.append(message)
         self.success = False

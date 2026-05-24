@@ -268,7 +268,7 @@ def process_application_payment(member_name, payment_method, payment_reference=N
         )
         frappe.throw(_("Failed to process payment. Please contact support."))
 
-    payment_entry = result.doc
+    payment_entry = result.document
     payment_entry.submit()
 
     # Update member payment status

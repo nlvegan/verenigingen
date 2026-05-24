@@ -144,7 +144,7 @@ def get_or_create_donor(data):
         frappe.log_error(f"Failed to create donor from donation form: {'; '.join(result.errors)}")
         frappe.throw(_("Unable to process donation. Please try again or contact support."))
 
-    donor = result.doc
+    donor = result.document
 
     return donor.name
 
@@ -203,7 +203,7 @@ def create_donation(donor, data):
         frappe.log_error(f"Failed to create donation from donation form: {'; '.join(result.errors)}")
         frappe.throw(_("Unable to process donation. Please try again or contact support."))
 
-    donation = result.doc
+    donation = result.document
 
     # Submit if payment method is not requiring further action
     if data.get("payment_method") not in ["SEPA Direct Debit", "Mollie"]:

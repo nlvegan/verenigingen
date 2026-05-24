@@ -120,8 +120,25 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
         return None
 
 
-# Global instance for convenience
+# Effectively-public singleton (the underscore predates the test imports
+# that depend on it). Re-exported via `__all__` so `import *` from the
+# deprecated shim at `utils/chapter_role_profile_manager.py` works.
 _chapter_manager = ChapterRoleProfileManager()
+
+
+__all__ = [
+    "CHAPTER_CONFIG",
+    "ChapterRoleProfileManager",
+    "_chapter_manager",
+    "get_chapter_role_profile_config",
+    "determine_role_profile_for_board_member",
+    "assign_chapter_board_role_profile",
+    "remove_chapter_board_role_profile",
+    "bulk_assign_chapter_board_role_profiles",
+    "get_chapter_board_role_profile_mapping",
+    "get_chapters_requiring_role_profile",
+    "get_chapters_for_role_profile",
+]
 
 
 # Public API Functions (maintain backward compatibility)
