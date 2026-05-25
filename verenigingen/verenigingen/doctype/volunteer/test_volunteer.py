@@ -979,3 +979,29 @@ class TestVolunteer(EnhancedTestCase):
             s for s in volunteer.skills_and_qualifications if s.proficiency_level == "4 - Advanced"
         ]
         self.assertEqual(len(advanced_skills), 3, "Should have 3 advanced skills")
+
+
+class TestVolunteerSchemaContract(EnhancedTestCase):
+    """Pin invariants of the Volunteer DocType schema so accidental field
+    accesses fail loudly. Recorded because earlier tests assumed
+    `volunteer.first_name` exists; it does not — names live on the linked Member.
+    """
+
+    def test_volunteer_has_no_first_name_field(self):
+        meta = frappe.get_meta("Volunteer")
+        field_names = {f.fieldname for f in meta.fields}
+        self.assertNotIn(
+            "first_name",
+            field_names,
+            "If first_name is added to Volunteer, update the test guards in "
+            "test_erpnext_expense_mock_elimination.py and consider a "
+            "Volunteer.first_name @property that derives from the linked Member.",
+        )
+        self.assertNotIn("last_name", field_names)
+
+    def test_volunteer_has_volunteer_name_and_member_link(self):
+        """The two fields the schema DOES expose for naming."""
+        meta = frappe.get_meta("Volunteer")
+        field_names = {f.fieldname for f in meta.fields}
+        self.assertIn("volunteer_name", field_names)
+        self.assertIn("member", field_names)
