@@ -96,7 +96,11 @@ class DonationHistoryManager(BaseHistoryManager):
                 "name",
                 "donation_date",
                 "amount",
-                "payment_method",
+                # Donation schema has `mode_of_payment`, not `payment_method`.
+                # `payment_method` is the donor_history CHILD TABLE field name
+                # (see line 121 below — we map mode_of_payment → payment_method
+                # when appending to the child table).
+                "mode_of_payment",
                 "status",
                 "fund_designation",
                 "donation_purpose",

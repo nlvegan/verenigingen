@@ -155,9 +155,11 @@ def create_donation(donor, data):
 
     donation = frappe.new_doc("Donation")
     donation.donor = donor
-    donation.date = data.get("date") or frappe.utils.today()
+    # Donation schema uses donation_date + mode_of_payment, not date + payment_method.
+    # Accept either input key for backward compat with form payloads.
+    donation.donation_date = data.get("donation_date") or data.get("date") or frappe.utils.today()
     donation.amount = float(data.get("amount"))
-    donation.payment_method = data.get("payment_method")
+    donation.mode_of_payment = data.get("mode_of_payment") or data.get("payment_method")
     donation.status = data.get("donation_status", "One-time")
     donation.donation_purpose_type = data.get("donation_purpose_type", "General")
 
@@ -205,8 +207,10 @@ def create_donation(donor, data):
 
     donation = result.document
 
-    # Submit if payment method is not requiring further action
-    if data.get("payment_method") not in ["SEPA Direct Debit", "Mollie"]:
+    # Submit if payment method is not requiring further action.
+    # Read from the doc (canonical) rather than the input payload — handles
+    # both old (payment_method) and new (mode_of_payment) input keys.
+    if donation.mode_of_payment not in ["SEPA Direct Debit", "Mollie"]:
         donation.submit()
 
     return donation
@@ -223,7 +227,7 @@ def create_periodic_agreement_from_donation(donor, data):
         donor=donor,
         annual_amount=float(data.get("amount")) * 12,  # Assuming monthly
         payment_frequency=data.get("recurring_frequency", "Monthly"),
-        payment_method=data.get("payment_method"),
+        payment_method=data.get("mode_of_payment") or data.get("payment_method"),
         agreement_type="Private Written",
     )
 
@@ -261,7 +265,7 @@ def get_confirmation_email_content(donation, donor):
     <p><strong>Donation Details:</strong></p>
     <ul>
         <li>Reference: {donation.name}</li>
-        <li>Date: {frappe.utils.formatdate(donation.date)}</li>
+        <li>Date: {frappe.utils.formatdate(donation.donation_date)}</li>
         <li>Amount: €{donation.amount:.2f}</li>
         <li>Payment Method: {donation.mode_of_payment}</li>
     </ul>
