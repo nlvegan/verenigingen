@@ -924,10 +924,12 @@ def get_display_membership_fee(doc=None):
 
 @frappe.whitelist()
 def ensure_member_id(doc=None):
-    # ensure_member_has_id (called by the instance method) returns OperationResult,
-    # which is a @dataclass and not JSON-serialisable by Frappe's orjson encoder.
-    # Convert to dict here so HTTP /api/method/... callers don't 500. The instance
-    # method called via JS run_doc_method has the same latent issue — out of scope.
+    # The instance method's @high_security_api decorator already converts the
+    # underlying OperationResult to a dict (api_security_framework.py:934-939),
+    # so this normally returns a dict already. The fallback below is defence in
+    # depth: if the framework decorator is ever removed from the instance method
+    # without compensating here, callers that re-serialise via stdlib json
+    # (logging, debug, server scripts) would otherwise hit AttributeError.
     result = _load_member_for_shim(doc, "write").ensure_member_id()
     return result.to_dict() if hasattr(result, "to_dict") else result
 
