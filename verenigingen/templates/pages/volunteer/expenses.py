@@ -338,13 +338,19 @@ def get_expense_details(expense_name: str):
                     order_by="idx",
                 )
 
-                # Get linked Volunteer Expense record for organization info
-                volunteer_expense = frappe.db.get_value(
-                    "Volunteer Expense",
-                    {"expense_claim_id": claim_name},
-                    ["organization_type", "chapter", "team", "category"],
-                    as_dict=True,
-                )
+                # Get linked Volunteer Expense record for organization info.
+                # Volunteer Expense was archived; the DocType + table are dropped
+                # by patches/v2_2/drop_volunteer_expense_archived_doctype.py on
+                # migrated sites. Guard the query so post-migration sites don't
+                # hit "Unknown table" SQL errors.
+                volunteer_expense = None
+                if frappe.db.exists("DocType", "Volunteer Expense"):
+                    volunteer_expense = frappe.db.get_value(
+                        "Volunteer Expense",
+                        {"expense_claim_id": claim_name},
+                        ["organization_type", "chapter", "team", "category"],
+                        as_dict=True,
+                    )
 
                 if expense_details:
                     detail = expense_details[0]
@@ -394,7 +400,13 @@ def get_expense_details(expense_name: str):
             else:
                 frappe.throw(_("Access denied - no employee record"))
         else:
-            # Legacy Volunteer Expense record
+            # Legacy Volunteer Expense record. The DocType was archived; on
+            # sites that have run patches/v2_2/drop_volunteer_expense_archived_doctype.py
+            # this branch is dead because no records remain. Guard so the
+            # get_doc doesn't raise DoesNotExistError on the missing controller.
+            if not frappe.db.exists("DocType", "Volunteer Expense"):
+                frappe.throw(_("Expense not found"))
+
             expense = frappe.get_doc("Volunteer Expense", expense_name)
             if expense.volunteer != volunteer.name:
                 frappe.throw(_("Access denied"))
