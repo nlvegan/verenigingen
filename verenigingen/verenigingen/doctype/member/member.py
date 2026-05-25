@@ -924,7 +924,12 @@ def get_display_membership_fee(doc=None):
 
 @frappe.whitelist()
 def ensure_member_id(doc=None):
-    return _load_member_for_shim(doc, "write").ensure_member_id()
+    # ensure_member_has_id (called by the instance method) returns OperationResult,
+    # which is a @dataclass and not JSON-serialisable by Frappe's orjson encoder.
+    # Convert to dict here so HTTP /api/method/... callers don't 500. The instance
+    # method called via JS run_doc_method has the same latent issue — out of scope.
+    result = _load_member_for_shim(doc, "write").ensure_member_id()
+    return result.to_dict() if hasattr(result, "to_dict") else result
 
 
 @frappe.whitelist()

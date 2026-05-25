@@ -291,14 +291,15 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         member.reload()
 
         # Test via API call
-        # ensure_member_has_id returns an OperationResult; once whitelisted methods
-        # cross the HTTP boundary they get serialised via OperationResult.to_dict().
+        # ensure_member_id shim normalises OperationResult to dict so HTTP callers
+        # don't 500 (orjson can't serialise the dataclass directly).
         result = frappe.call(
             "verenigingen.verenigingen.doctype.member.member.ensure_member_id", doc=member.as_dict()
         )
 
         # Verify a member_id was assigned and persisted
-        self.assertTrue(result)
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result.get("success"))
         member.reload()
         self.assertTrue(member.member_id)
 
@@ -477,13 +478,17 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
 
         # Verify mandate created. The deprecated wrapper returns a dict with
         # mandate_name (DB primary key) and mandate_id (caller-supplied reference).
+        # The wrapper explicitly sets status="Active" for legacy compatibility
+        # (sepa_api.py); pin that contract.
         self.assertTrue(mandate_result)
         self.assertTrue(mandate_result.get("success"))
         self.assertIn("mandate_name", mandate_result)
         self.assertEqual(mandate_result["mandate_id"], mandate_id)
+        self.assertEqual(mandate_result["status"], "Active")
 
         mandate = frappe.get_doc("SEPA Mandate", mandate_result["mandate_name"])
         self.assertEqual(mandate.member, member.name)
+        self.assertEqual(mandate.status, "Active")
 
     def test_permission_checks(self):
         """Test permission checks on whitelisted methods"""
