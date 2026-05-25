@@ -46,10 +46,11 @@ class TestERPNextExpenseMockElimination(EnhancedTestCase):
         """Set up real test data using Enhanced Test Factory"""
         super().setUp()
         
-        # Create real test volunteer using Enhanced Test Factory  
+        # Create real test volunteer using Enhanced Test Factory.
+        # NOTE: Volunteer doctype has no first_name/last_name fields — those live
+        # on the linked Member. The factory auto-creates a Member and assembles
+        # volunteer_name from member.first_name + member.last_name.
         self.test_volunteer = self.create_test_volunteer(
-            first_name="Expense",
-            last_name="Test",
             email="expense.test@example.com"
         )
         
@@ -104,11 +105,15 @@ class TestERPNextExpenseMockElimination(EnhancedTestCase):
         if volunteer.employee_id:
             return volunteer.employee_id
             
-        # Create real Employee record for volunteer
+        # Create real Employee record for volunteer.
+        # Volunteer doctype has only `volunteer_name`, not `first_name`/`last_name`.
+        # Source those from the linked Member — the factory always links one.
+        self.assertTrue(volunteer.member, "Test volunteer must be linked to a Member")
+        linked_member = frappe.get_doc("Member", volunteer.member)
         employee = frappe.new_doc("Employee")
-        employee.first_name = volunteer.first_name
-        employee.last_name = volunteer.last_name  
-        employee.employee_name = volunteer.full_name
+        employee.first_name = linked_member.first_name
+        employee.last_name = linked_member.last_name
+        employee.employee_name = volunteer.volunteer_name
         employee.personal_email = volunteer.email
         employee.status = "Active"
         employee.company = frappe.defaults.get_global_default("company")
@@ -187,10 +192,12 @@ class TestERPNextExpenseMockElimination(EnhancedTestCase):
         employee_exists = frappe.db.exists("Employee", employee_id)
         self.assertIsNotNone(employee_exists, "Employee should exist in ERPNext")
         
-        # Verify real employee data
+        # Verify real employee data — Volunteer has volunteer_name only,
+        # first_name/last_name come from the linked Member (factory always links one).
         employee = frappe.get_doc("Employee", employee_id)
-        self.assertEqual(employee.first_name, self.test_volunteer.first_name)
-        self.assertEqual(employee.last_name, self.test_volunteer.last_name)
+        expected_member = frappe.get_doc("Member", self.test_volunteer.member)
+        self.assertEqual(employee.first_name, expected_member.first_name)
+        self.assertEqual(employee.last_name, expected_member.last_name)
         self.assertEqual(employee.personal_email, self.test_volunteer.email)
         self.assertEqual(employee.status, "Active")
         
