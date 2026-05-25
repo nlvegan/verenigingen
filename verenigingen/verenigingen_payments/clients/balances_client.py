@@ -50,6 +50,14 @@ class BalancesClient(MollieBaseClient):
         Raises:
             frappe.ValidationError: If backend API is not configured properly
         """
+        # Only short-circuit when MollieBaseClient.__init__ actually substituted
+        # the in-test dummy api_key (no real key was provided). A test that
+        # constructs the client with an explicit api_key still flows through the
+        # full validation path, even under frappe.flags.in_test. This keeps the
+        # bypass scoped to the exact failure mode the test runner produces on
+        # unconfigured CI sites.
+        if getattr(self, "_test_bypass_active", False):
+            return
         try:
             # This will raise appropriate errors if backend API is not configured
             self._get_backend_api_key()
