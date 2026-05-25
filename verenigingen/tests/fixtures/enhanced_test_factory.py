@@ -1599,11 +1599,17 @@ class EnhancedTestCase(FrappeTestCase):
         try:
             # Rollback any uncommitted changes from this test method
             frappe.db.rollback()
-            # Note: Explicitly committed data (via frappe.db.commit() in production code)
-            # will NOT be rolled back - see account_creation_manager.py lines 1170, 1452
-            # Those require additional cleanup or commit-skipping during tests
         except Exception as e:
             frappe.logger().warning(f"Rollback failed in tearDown: {e}")
+
+        # DRAIN TRACKED DOCUMENTS: rollback above only undoes uncommitted writes;
+        # this step deletes records that survived because the test (or production
+        # code it called) issued frappe.db.commit(). See _drain_tracked_documents
+        # for the dedupe + priority-order semantics.
+        try:
+            self._drain_tracked_documents()
+        except Exception as e:
+            frappe.logger().warning(f"Tracked doc drain failed in tearDown: {e}")
 
         # SETTINGS RESTORATION: Restore Verenigingen Settings to original values
         # This undoes changes made by _ensure_verenigingen_settings() which commits
@@ -1614,6 +1620,105 @@ class EnhancedTestCase(FrappeTestCase):
             frappe.logger().warning(f"Settings restoration failed in tearDown: {e}")
 
         super().tearDown()
+
+    def _drain_tracked_documents(self):
+        """Delete factory-tracked documents that survived per-method rollback.
+
+        `frappe.db.rollback()` undoes uncommitted writes; this method handles
+        committed writes (e.g. `frappe.db.commit()` in production code called
+        by the test). Without this, committed test data accumulates across
+        runs and trips uniqueness constraints (Customer.PRIMARY etc.) on
+        subsequent runs.
+
+        Dedupe and priority semantics:
+        - Records double-tracked across Enhanced + Core (e.g. Member) are
+          deduped by (doctype, name), keeping the HIGHEST priority across
+          sources. Highest priority deletes first.
+        - Priority < 0 is treated as shared infrastructure (e.g. root
+          Department, Territory) and SKIPPED by the drain — see
+          `_ensure_master_data`. Use this for any tracked record that
+          must persist across test methods.
+
+        Safety:
+        - Issues defensive `frappe.db.rollback()` before any DELETE so the
+          drain doesn't commit uncommitted test state along with cleanup if
+          the tearDown rollback above raised and was swallowed.
+        - Per-doc try/except: cleanup never breaks the test run, but
+          unresolved failures (typically docstatus=1 ValidationError or a
+          before_delete hook raising) log at WARNING and trigger an
+          aggregate end-of-drain warning so CI logs reveal leakage.
+        """
+        if not hasattr(self, 'factory'):
+            return
+
+        tracked: dict[tuple[str, str], int] = {}
+        skip: set[tuple[str, str]] = set()
+
+        for d in getattr(self.factory, 'created_documents', []):
+            key = (d['doctype'], d['name'])
+            prio = d.get('priority', 0)
+            if prio < 0:
+                skip.add(key)
+                continue
+            if key not in tracked or prio > tracked[key]:
+                tracked[key] = prio
+
+        core = getattr(self.factory, 'core', None)
+        if core is not None:
+            for d in getattr(core, 'created_records', []):
+                key = (d['doctype'], d['name'])
+                if key in skip:
+                    continue
+                if key not in tracked:
+                    tracked[key] = 0
+
+        unique = [(dt, nm, prio) for (dt, nm), prio in tracked.items()]
+
+        if not unique:
+            self.factory.created_documents = []
+            if core is not None:
+                core.created_records = []
+            return
+
+        unique.sort(key=lambda x: -x[2])
+
+        try:
+            frappe.db.rollback()
+        except Exception as e:
+            frappe.logger().warning(f"Drain pre-rollback failed (skipping drain): {e}")
+            self.factory.created_documents = []
+            if core is not None:
+                core.created_records = []
+            return
+
+        delete_failures = 0
+        for doctype, name, _prio in unique:
+            try:
+                if not frappe.db.exists(doctype, name):
+                    continue
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except frappe.DoesNotExistError:
+                pass
+            except Exception as e:
+                delete_failures += 1
+                frappe.logger().warning(
+                    f"Drain delete failed for {doctype}/{name}: {e}"
+                )
+
+        self.factory.created_documents = []
+        if core is not None:
+            core.created_records = []
+
+        try:
+            frappe.db.commit()
+        except Exception as e:
+            frappe.logger().warning(f"Drain commit failed: {e}")
+
+        if delete_failures:
+            frappe.logger().warning(
+                f"Drain completed with {delete_failures} unresolved deletion(s); "
+                f"records may persist into next run and require _cleanup_stale_test_data"
+            )
 
     def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5, is_team_role=False, use_secure_operations=False):
         """Clean up document with retry logic for lock timeouts"""
@@ -2688,9 +2793,10 @@ class EnhancedTestCase(FrappeTestCase):
 
                 if not result.success:
                     frappe.logger().warning(f"Failed to create test company: {result.errors}")
-                    # Fallback to direct creation only if secure operation fails
+                    # Fallback to direct creation only if secure operation fails.
+                    # NOT tracked: Company is session-scoped infrastructure shared by
+                    # subsequent tests; per-method drain would tear down before next setUp.
                     company.insert()
-                    self.factory.track_document("Company", company.name, priority=1)
 
             # Ensure Test Company has round_off_cost_center configured for GL entries
             # This is required by ERPNext for invoice submission
@@ -2764,9 +2870,10 @@ class EnhancedTestCase(FrappeTestCase):
                             frappe.logger().info(f"Created fiscal year: {fy_name}")
                         else:
                             frappe.logger().warning(f"Failed to create fiscal year {fy_name}: {result.errors}")
-                            # Fallback only if secure operation fails
+                            # Fallback only if secure operation fails.
+                            # NOT tracked: Fiscal Year is session-scoped; subsequent tests
+                            # within the class need it to persist past per-method drain.
                             fiscal_year.insert()
-                            self.factory.track_document("Fiscal Year", fiscal_year.name, priority=1)
                     except Exception as fy_error:
                         frappe.logger().warning(f"Failed to create fiscal year {fy_name}: {fy_error}")
             
@@ -2793,7 +2900,8 @@ class EnhancedTestCase(FrappeTestCase):
                             "company": test_company
                         })
                         parent_dept.insert()
-                        self.factory.track_document("Department", parent_dept.name, priority=1)
+                        # NOT tracked: "All Departments" is the ERPNext root, shared with
+                        # production data. Per-method drain MUST NOT delete it.
                         frappe.logger().info(f"Created parent department: {parent_dept_name}")
                     except Exception as dept_error:
                         frappe.logger().warning(f"Failed to create parent department {parent_dept_name}: {dept_error}")
@@ -2807,7 +2915,8 @@ class EnhancedTestCase(FrappeTestCase):
                         "parent_territory": "All Territories"
                     })
                     territory.insert(ignore_permissions=True)
-                    self.factory.track_document("Territory", territory.name, priority=1)
+                    # NOT tracked: country-level Territory is shared with production
+                    # Customer/Supplier records. Per-method drain MUST NOT delete it.
                     frappe.logger().info("Created Netherlands territory for tests")
                 except Exception as terr_error:
                     frappe.logger().warning(f"Failed to create Netherlands territory: {terr_error}")

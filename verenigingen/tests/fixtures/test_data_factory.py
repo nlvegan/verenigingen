@@ -184,6 +184,7 @@ class CoreTestDataFactory:
                 frappe.local.in_test = original_in_test
 
         if member.customer:
+            self.track_doc("Customer", member.customer)
             self._create_customer_address(member)
 
     def _create_customer_address(self, member):
