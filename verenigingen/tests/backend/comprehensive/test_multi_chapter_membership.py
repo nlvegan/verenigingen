@@ -114,7 +114,7 @@ class TestPrimaryChapterDesignation(VereningingenTestCase):
     # Helper methods
 
     def create_test_chapters(self):
-        """Create test chapters"""
+        """Create test chapters using the factory (handles required region/introduction)."""
         chapters = {}
 
         for name, city, postal_codes in [
@@ -122,16 +122,10 @@ class TestPrimaryChapterDesignation(VereningingenTestCase):
             ("rotterdam", "Rotterdam", "3000AA-3099ZZ"),
             ("utrecht", "Utrecht", "3500AA-3599ZZ"),
         ]:
-            chapter = frappe.new_doc("Chapter")
-            chapter.chapter_name = f"Test {city} Chapter {frappe.generate_hash(length=4)}"
-            chapter.city = city
-            chapter.status = "Active"
-            # Add postal code range if the field exists
-            if hasattr(chapter, "postal_code_ranges"):
-                chapter.append("postal_code_ranges", {"postal_code_range": postal_codes})
-            chapter.save()
-            self.track_doc("Chapter", chapter.name)
-            chapters[name] = chapter
+            chapters[name] = self.create_test_chapter(
+                chapter_name=f"Test {city} Chapter {frappe.generate_hash(length=4)}",
+                postal_codes=postal_codes,
+            )
 
         return chapters
 
@@ -318,19 +312,13 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
     # Helper methods
 
     def create_test_chapters_with_cost_centers(self):
-        """Create test chapters with cost centers"""
+        """Create test chapters via factory; cost center may be auto-created by hooks."""
         chapters = {}
 
         for name, city in [("amsterdam", "Amsterdam"), ("rotterdam", "Rotterdam")]:
-            chapter = frappe.new_doc("Chapter")
-            chapter.chapter_name = f"Test {city} {frappe.generate_hash(length=4)}"
-            chapter.city = city
-            chapter.status = "Active"
-            chapter.save()
-            self.track_doc("Chapter", chapter.name)
-
-            # Cost center may be auto-created by hooks
-            chapters[name] = chapter
+            chapters[name] = self.create_test_chapter(
+                chapter_name=f"Test {city} {frappe.generate_hash(length=4)}",
+            )
 
         return chapters
 
@@ -581,13 +569,9 @@ class TestChapterTransferScenarios(VereningingenTestCase):
         """Create test chapters"""
         chapters = {}
         for name, city in [("amsterdam", "Amsterdam"), ("rotterdam", "Rotterdam"), ("utrecht", "Utrecht")]:
-            chapter = frappe.new_doc("Chapter")
-            chapter.chapter_name = f"Test {city} {frappe.generate_hash(length=4)}"
-            chapter.city = city
-            chapter.status = "Active"
-            chapter.save()
-            self.track_doc("Chapter", chapter.name)
-            chapters[name] = chapter
+            chapters[name] = self.create_test_chapter(
+                chapter_name=f"Test {city} {frappe.generate_hash(length=4)}",
+            )
         return chapters
 
     def assign_member_to_chapter(self, member_name, chapter_name, join_date=None, is_primary=False):
@@ -779,13 +763,9 @@ class TestChapterHistoryTracking(VereningingenTestCase):
         """Create test chapters"""
         chapters = {}
         for name, city in [("amsterdam", "Amsterdam"), ("rotterdam", "Rotterdam")]:
-            chapter = frappe.new_doc("Chapter")
-            chapter.chapter_name = f"Test {city} History {frappe.generate_hash(length=4)}"
-            chapter.city = city
-            chapter.status = "Active"
-            chapter.save()
-            self.track_doc("Chapter", chapter.name)
-            chapters[name] = chapter
+            chapters[name] = self.create_test_chapter(
+                chapter_name=f"Test {city} History {frappe.generate_hash(length=4)}",
+            )
         return chapters
 
     def assign_member_to_chapter(self, member_name, chapter_name, join_date=None):
@@ -958,24 +938,17 @@ class TestChapterEdgeCases(VereningingenTestCase):
     # Helper methods
 
     def create_active_chapter(self, suffix=""):
-        """Create active test chapter"""
-        chapter = frappe.new_doc("Chapter")
-        chapter.chapter_name = f"Test Active Chapter {frappe.generate_hash(length=4)}{suffix}"
-        chapter.city = "Test City"
-        chapter.status = "Active"
-        chapter.save()
-        self.track_doc("Chapter", chapter.name)
-        return chapter
+        """Create active test chapter via factory."""
+        return self.create_test_chapter(
+            chapter_name=f"Test Active Chapter {frappe.generate_hash(length=4)}{suffix}",
+        )
 
     def create_inactive_chapter(self):
-        """Create inactive test chapter"""
-        chapter = frappe.new_doc("Chapter")
-        chapter.chapter_name = f"Test Inactive Chapter {frappe.generate_hash(length=4)}"
-        chapter.city = "Test City"
-        chapter.status = "Inactive"
-        chapter.save()
-        self.track_doc("Chapter", chapter.name)
-        return chapter
+        """Create inactive test chapter via factory."""
+        return self.create_test_chapter(
+            chapter_name=f"Test Inactive Chapter {frappe.generate_hash(length=4)}",
+            status="Inactive",
+        )
 
     def assign_member_to_chapter(self, member_name, chapter_name, is_primary=None):
         """Assign member to chapter"""
