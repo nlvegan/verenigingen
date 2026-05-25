@@ -50,13 +50,13 @@ class BalancesClient(MollieBaseClient):
         Raises:
             frappe.ValidationError: If backend API is not configured properly
         """
-        # In CI / `bench run-tests`, Mollie Settings is unconfigured by default and
-        # MollieBaseClient.__init__ already substitutes a dummy api_key when
-        # frappe.flags.in_test is set. The matching short-circuit here keeps this
-        # secondary validation gate from re-raising on test sites that never meant
-        # to authenticate against Mollie. Tests that target the real validation
-        # path are expected to clear this flag or patch the method directly.
-        if frappe.flags.in_test:
+        # Only short-circuit when MollieBaseClient.__init__ actually substituted
+        # the in-test dummy api_key (no real key was provided). A test that
+        # constructs the client with an explicit api_key still flows through the
+        # full validation path, even under frappe.flags.in_test. This keeps the
+        # bypass scoped to the exact failure mode the test runner produces on
+        # unconfigured CI sites.
+        if getattr(self, "_test_bypass_active", False):
             return
         try:
             # This will raise appropriate errors if backend API is not configured

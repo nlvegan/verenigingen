@@ -112,7 +112,12 @@ class MollieBaseClient:
         self.strict_financial_validation = strict_financial_validation
         self.enable_cache = enable_cache
 
-        # Get API key from settings if not provided
+        # Get API key from settings if not provided.
+        # Track whether the in-test bypass actually fired. Subclasses (e.g.
+        # BalancesClient) gate their own secondary validation on this flag so a
+        # test that constructs a client with a REAL api_key while
+        # `frappe.flags.in_test` is set still gets full validation.
+        self._test_bypass_active = False
         if not api_key:
             if frappe.flags.in_test:
                 # In CI / `bench run-tests`, Mollie Settings has empty test/live keys
@@ -127,6 +132,7 @@ class MollieBaseClient:
                 # methods (e.g. test_mollie_configuration_service.py) must still see
                 # the production error path.
                 api_key = "test_dummy_key_for_tests"
+                self._test_bypass_active = True
             elif use_backend_api:
                 api_key = self._get_backend_api_key()
             else:
