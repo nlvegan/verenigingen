@@ -114,17 +114,18 @@ class TestPrimaryChapterDesignation(VereningingenTestCase):
     # Helper methods
 
     def create_test_chapters(self):
-        """Create test chapters using the factory (handles required region/introduction)."""
+        """Create test chapters using the factory (handles required region/introduction).
+
+        NOTE: Chapter's postal_codes validator rejects alphanumeric Dutch
+        formats like "1000AA-1099ZZ" — it expects numeric ranges. The
+        factory's auto-generated numeric postal_codes pass validation and
+        are sufficient for the tests here (no assertions on postal codes).
+        """
         chapters = {}
 
-        for name, city, postal_codes in [
-            ("amsterdam", "Amsterdam", "1000AA-1099ZZ"),
-            ("rotterdam", "Rotterdam", "3000AA-3099ZZ"),
-            ("utrecht", "Utrecht", "3500AA-3599ZZ"),
-        ]:
+        for name, city in [("amsterdam", "Amsterdam"), ("rotterdam", "Rotterdam"), ("utrecht", "Utrecht")]:
             chapters[name] = self.create_test_chapter(
                 chapter_name=f"Test {city} Chapter {frappe.generate_hash(length=4)}",
-                postal_codes=postal_codes,
             )
 
         return chapters

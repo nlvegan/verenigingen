@@ -262,15 +262,22 @@ class CoreTestDataFactory:
 
         Args:
             validate_fields: If True, validates kwargs against DocType schema.
-            **kwargs: Field overrides for the Chapter document.
+            **kwargs: Field overrides for the Chapter document. Note that
+                Chapter has no `chapter_name` field — the kwarg is used to
+                set `chapter.name` (since autoname='prompt') and is honored
+                when supplied; otherwise a seq-based default is generated.
         """
         seq = self._get_next_sequence("chapter")
-        chapter_name = f"Test Chapter {seq} - {self.test_run_id}"
+        default_chapter_name = f"Test Chapter {seq} - {self.test_run_id}"
 
         test_region = self.get_or_create_test_region()
 
+        # chapter_name is consumed as the doc's primary key (chapter.name),
+        # NOT as a doc field. Pop it from kwargs so honor-kwarg semantics work
+        # for both the kwarg-supplied and the default case.
+        chapter_name = kwargs.pop("chapter_name", default_chapter_name)
+
         defaults = {
-            "chapter_name": chapter_name,
             "status": "Active",
             "region": test_region.name,
             "postal_codes": f"{1000 + (seq % 9000):04d}-{1000 + (seq % 9000) + 99:04d}",
