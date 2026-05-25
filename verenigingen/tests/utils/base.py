@@ -384,7 +384,17 @@ class VereningingenTestCase(FrappeTestCase):
             name: The document name
             depends_on: Optional tuple of (doctype, name) that this document depends on.
                         Dependent documents are cleaned up AFTER their dependencies.
+
+        Idempotent: re-registering the same (doctype, name) is a no-op.
+        This protects against the wrapper-and-factory both calling track_doc
+        for the same doc (e.g. create_test_chapter → factory.create_test_chapter
+        chain), which previously caused double-delete attempts in tearDown.
         """
+        for existing in self._test_docs:
+            if existing.get("doctype") == doctype and existing.get("name") == name:
+                # Already tracked; preserve original registration order.
+                return
+
         doc_info = {
             "doctype": doctype,
             "name": name,
