@@ -155,9 +155,11 @@ def create_donation(donor, data):
 
     donation = frappe.new_doc("Donation")
     donation.donor = donor
-    donation.date = data.get("date") or frappe.utils.today()
+    # Donation schema uses donation_date + mode_of_payment, not date + payment_method.
+    # Accept either input key for backward compat with form payloads.
+    donation.donation_date = data.get("donation_date") or data.get("date") or frappe.utils.today()
     donation.amount = float(data.get("amount"))
-    donation.payment_method = data.get("payment_method")
+    donation.mode_of_payment = data.get("mode_of_payment") or data.get("payment_method")
     donation.status = data.get("donation_status", "One-time")
     donation.donation_purpose_type = data.get("donation_purpose_type", "General")
 
