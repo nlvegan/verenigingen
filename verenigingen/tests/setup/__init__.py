@@ -93,3 +93,18 @@ def before_tests():
             frappe.db.commit()
     except Exception as e:
         frappe.logger().warning(f"Customer test record creation failed: {e}")
+
+    # Seed the Mode of Payment records the app and many tests depend on
+    # (Bank Transfer, SEPA Direct Debit, Mollie, Manual, Cash). The same helper
+    # is wired into after_migrate for production sites; CI sites are bench-new
+    # without migrate, so the records are missing at test-time and
+    # Member.payment_method / Donation.mode_of_payment link validation fails
+    # with "Could not find Payment Method: <name>" across ~119 tests.
+    try:
+        from verenigingen.services.member.approval.application_helpers import (
+            ensure_payment_modes_exist,
+        )
+
+        ensure_payment_modes_exist()
+    except Exception as e:
+        frappe.logger().warning(f"Payment mode seeding failed: {e}")

@@ -100,6 +100,9 @@ def ensure_payment_modes_exist():
         {"mode_of_payment": "Bank Transfer", "type": "Bank"},
         {"mode_of_payment": "SEPA Direct Debit", "type": "Bank"},
         {"mode_of_payment": "Mollie", "type": "General"},
+        # 'Manual' is used by integration test fixtures as a non-bank/cash
+        # symbolic mode; keep as 'General' to avoid bank-account validation.
+        {"mode_of_payment": "Manual", "type": "General"},
         {"mode_of_payment": "Cash", "type": "Cash"},
     ]
 
