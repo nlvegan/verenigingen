@@ -33,6 +33,20 @@ class TestSecureOperationResultContract(unittest.TestCase):
             _ = result.doc
         self.assertIn("document", str(ctx.exception))
 
+    def test_hasattr_doc_returns_false_due_to_property(self):
+        """Pin the counter-intuitive `hasattr` semantics of the loud-fail property.
+
+        `hasattr(obj, 'doc')` returns False when accessing `obj.doc` raises
+        AttributeError. So `if hasattr(result, 'doc'):` to probe for backwards
+        compat will silently skip rather than raise loudly. Direct attribute
+        access is the path that surfaces the typo — pinned here so future
+        callers know which idiom to use.
+        """
+        from verenigingen.utils.secure_operations import SecureOperationResult
+
+        result = SecureOperationResult(success=True, operation_id="test-op-hasattr")
+        self.assertFalse(hasattr(result, "doc"))
+
     def test_result_has_expected_attributes(self):
         from verenigingen.utils.secure_operations import SecureOperationResult
 
