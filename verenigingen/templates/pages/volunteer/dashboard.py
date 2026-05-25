@@ -249,14 +249,18 @@ def get_recent_activities(volunteer_name):
             }
         )
 
-    # Get recent expenses
-    expenses = frappe.get_all(
-        "Volunteer Expense",
-        filters={"volunteer": volunteer_name, "docstatus": ["!=", 2]},
-        fields=["name", "expense_date", "description", "amount", "status"],
-        order_by="expense_date desc",
-        limit=3,
-    )
+    # Get recent expenses. Volunteer Expense was archived; on migrated sites
+    # the DocType + table are gone. The portal landing page must not crash on
+    # the volunteer dashboard query — return an empty list instead.
+    expenses = []
+    if frappe.db.exists("DocType", "Volunteer Expense"):
+        expenses = frappe.get_all(
+            "Volunteer Expense",
+            filters={"volunteer": volunteer_name, "docstatus": ["!=", 2]},
+            fields=["name", "expense_date", "description", "amount", "status"],
+            order_by="expense_date desc",
+            limit=3,
+        )
 
     for expense in expenses:
         activities.append(

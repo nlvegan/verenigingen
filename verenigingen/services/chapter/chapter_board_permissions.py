@@ -317,6 +317,11 @@ def reset_chapter_board_permissions():
         target_role = "Verenigingen Chapter Board Member"
 
         for doctype_name in doctypes_to_reset:
+            # Volunteer Expense was archived; skip on migrated sites where the
+            # DocType is gone (see patches/v2_2/drop_volunteer_expense_archived_doctype.py).
+            if not frappe.db.exists("DocType", doctype_name):
+                frappe.logger().info(f"Skipping permission reset on missing DocType {doctype_name}")
+                continue
             # DocPerm is a child table with no permissions defined — direct delete
             # via secure_document_operation fails for every user. Remove the matching
             # rows from the parent DocType.permissions and save the DocType,

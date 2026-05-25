@@ -338,13 +338,19 @@ def get_expense_details(expense_name: str):
                     order_by="idx",
                 )
 
-                # Get linked Volunteer Expense record for organization info
-                volunteer_expense = frappe.db.get_value(
-                    "Volunteer Expense",
-                    {"expense_claim_id": claim_name},
-                    ["organization_type", "chapter", "team", "category"],
-                    as_dict=True,
-                )
+                # Get linked Volunteer Expense record for organization info.
+                # Volunteer Expense was archived; the DocType + table are dropped
+                # by patches/v2_2/drop_volunteer_expense_archived_doctype.py on
+                # migrated sites. Guard the query so post-migration sites don't
+                # hit "Unknown table" SQL errors.
+                volunteer_expense = None
+                if frappe.db.exists("DocType", "Volunteer Expense"):
+                    volunteer_expense = frappe.db.get_value(
+                        "Volunteer Expense",
+                        {"expense_claim_id": claim_name},
+                        ["organization_type", "chapter", "team", "category"],
+                        as_dict=True,
+                    )
 
                 if expense_details:
                     detail = expense_details[0]
@@ -394,24 +400,13 @@ def get_expense_details(expense_name: str):
             else:
                 frappe.throw(_("Access denied - no employee record"))
         else:
-            # Legacy Volunteer Expense record
-            expense = frappe.get_doc("Volunteer Expense", expense_name)
-            if expense.volunteer != volunteer.name:
-                frappe.throw(_("Access denied"))
-
-            expense_dict = expense.as_dict()
-
-            if expense.category:
-                expense_dict["category_name"] = frappe.db.get_value(
-                    "Expense Category", expense.category, "category_name"
-                )
-
-            expense_dict["organization_name"] = expense.chapter or expense.team
-            expense_dict["attachment_count"] = frappe.db.count(
-                "File", {"attached_to_name": expense.name, "attached_to_doctype": "Volunteer Expense"}
-            )
-
-            return expense_dict
+            # Legacy Volunteer Expense branch was always unreachable: the routing
+            # condition above tests for "-" in the name, and Volunteer Expense
+            # records used autoname `VE-{YYYY}-{MM}-{#####}` (see archived JSON),
+            # so they always contain hyphens. Both reviewers of PR #86 flagged
+            # this branch as dead code. Replaced with a clean "not found" since
+            # the legacy code path cannot be reached.
+            frappe.throw(_("Expense not found"))
 
     except Exception as e:
         frappe.log_error(f"Error getting expense details: {str(e)}", "Expense Details Error")
