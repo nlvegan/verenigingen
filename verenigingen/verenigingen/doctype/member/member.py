@@ -869,6 +869,64 @@ class Member(
 # Module-level functions for static calls
 
 
+def _load_member_for_shim(doc, ptype):
+    # Shim helper: resolves a Member doc passed by frappe.call("...member.<method>", doc=...).
+    # JS uses frm.call('<method>'), which goes through Frappe's run_doc_method resolver and
+    # never reaches these shims. The shims exist so dotted-path callers (tests, server scripts,
+    # /api/method/<dotted.path>) can invoke whitelisted Member instance methods.
+    #
+    # Defense layering: this loader enforces DocPerm via check_permission(ptype). The wrapped
+    # instance methods carry their own @critical_api/@high_security_api decorators that fire
+    # the role-tier framework check when called. Stacking a framework decorator here too would
+    # short-circuit at the role tier and mask the DocPerm-layer frappe.PermissionError that
+    # callers (and tests) rely on.
+    if not doc:
+        frappe.throw(_("Member document required"))
+    if isinstance(doc, str):
+        doc = frappe.parse_json(doc)
+    name = doc.get("name") if isinstance(doc, dict) else None
+    if not name:
+        frappe.throw(_("Member name required"))
+    member = frappe.get_doc("Member", name)
+    member.check_permission(ptype)
+    return member
+
+
+@frappe.whitelist()
+def create_customer(doc=None):
+    return _load_member_for_shim(doc, "write").create_customer()
+
+
+@frappe.whitelist()
+def create_user(doc=None):
+    return _load_member_for_shim(doc, "write").create_user()
+
+
+@frappe.whitelist()
+def update_membership_duration(doc=None):
+    return _load_member_for_shim(doc, "write").update_membership_duration()
+
+
+@frappe.whitelist()
+def get_address_members_html(doc=None):
+    return _load_member_for_shim(doc, "read").get_address_members_html()
+
+
+@frappe.whitelist()
+def get_current_membership_fee(doc=None):
+    return _load_member_for_shim(doc, "read").get_current_membership_fee()
+
+
+@frappe.whitelist()
+def get_display_membership_fee(doc=None):
+    return _load_member_for_shim(doc, "read").get_display_membership_fee()
+
+
+@frappe.whitelist()
+def ensure_member_id(doc=None):
+    return _load_member_for_shim(doc, "write").ensure_member_id()
+
+
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.PUBLIC)
 def is_chapter_management_enabled():
