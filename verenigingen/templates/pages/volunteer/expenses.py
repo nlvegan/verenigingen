@@ -400,30 +400,13 @@ def get_expense_details(expense_name: str):
             else:
                 frappe.throw(_("Access denied - no employee record"))
         else:
-            # Legacy Volunteer Expense record. The DocType was archived; on
-            # sites that have run patches/v2_2/drop_volunteer_expense_archived_doctype.py
-            # this branch is dead because no records remain. Guard so the
-            # get_doc doesn't raise DoesNotExistError on the missing controller.
-            if not frappe.db.exists("DocType", "Volunteer Expense"):
-                frappe.throw(_("Expense not found"))
-
-            expense = frappe.get_doc("Volunteer Expense", expense_name)
-            if expense.volunteer != volunteer.name:
-                frappe.throw(_("Access denied"))
-
-            expense_dict = expense.as_dict()
-
-            if expense.category:
-                expense_dict["category_name"] = frappe.db.get_value(
-                    "Expense Category", expense.category, "category_name"
-                )
-
-            expense_dict["organization_name"] = expense.chapter or expense.team
-            expense_dict["attachment_count"] = frappe.db.count(
-                "File", {"attached_to_name": expense.name, "attached_to_doctype": "Volunteer Expense"}
-            )
-
-            return expense_dict
+            # Legacy Volunteer Expense branch was always unreachable: the routing
+            # condition above tests for "-" in the name, and Volunteer Expense
+            # records used autoname `VE-{YYYY}-{MM}-{#####}` (see archived JSON),
+            # so they always contain hyphens. Both reviewers of PR #86 flagged
+            # this branch as dead code. Replaced with a clean "not found" since
+            # the legacy code path cannot be reached.
+            frappe.throw(_("Expense not found"))
 
     except Exception as e:
         frappe.log_error(f"Error getting expense details: {str(e)}", "Expense Details Error")

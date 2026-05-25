@@ -75,7 +75,9 @@ def setup_member_portal_menu():
             {
                 "title": "My Expenses",
                 "route": "/my_expenses",
-                "reference_doctype": "Volunteer Expense",
+                # Volunteer Expense was archived; live expense flow uses Expense Claim.
+                # See patches/v2_2/drop_volunteer_expense_archived_doctype.py.
+                "reference_doctype": "Expense Claim",
                 "role": "Verenigingen Volunteer",
                 "enabled": 1,
             },

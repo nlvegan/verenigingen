@@ -477,7 +477,15 @@ def get_approved_expense_claims_count(chapter: str | None = None):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_volunteer_expenses_count(chapter: str | None = None):
-    """Get count of volunteer expenses for dashboard number card"""
+    """Get count of volunteer expenses for dashboard number card.
+
+    Volunteer Expense was archived; on migrated sites the DocType is gone
+    (see patches/v2_2/drop_volunteer_expense_archived_doctype.py). Returns
+    0 in that case rather than raising "Unknown table" SQL errors from
+    the chapter dashboard card.
+    """
+    if not frappe.db.exists("DocType", "Volunteer Expense"):
+        return {"value": 0, "fieldtype": "Data"}
 
     if not chapter:
         from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters

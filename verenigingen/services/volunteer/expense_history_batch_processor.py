@@ -201,7 +201,9 @@ class ExpenseHistoryBatchProcessor:
                 message=message,
                 default_roles=list(Roles.ADMIN_PAIR),
                 notification_type="Alert",
-                document_type="Volunteer Expense",
+                # Volunteer Expense was archived; the live system uses Expense Claim.
+                # See patches/v2_2/drop_volunteer_expense_archived_doctype.py.
+                document_type="Expense Claim",
             )
 
         except Exception as e:
