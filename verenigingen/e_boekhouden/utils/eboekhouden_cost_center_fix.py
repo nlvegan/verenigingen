@@ -217,7 +217,7 @@ def create_cost_center_safe(cc_data, company, parent_cc, id_map, has_children=No
             )
             return {"success": False, "error": f"Failed to create cost center: {'; '.join(result.errors)}"}
 
-        cc = result.doc
+        cc = result.document
 
         return {"success": True, "name": cc.name}
 
@@ -271,7 +271,7 @@ def ensure_root_cost_center(company):
             )
 
             if result.success:
-                cc = result.doc
+                cc = result.document
                 frappe.logger().info(f"Created root cost center for company: {company}")
                 return cc.name
             else:

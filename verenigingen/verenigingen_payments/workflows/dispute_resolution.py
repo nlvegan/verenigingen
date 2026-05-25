@@ -129,7 +129,7 @@ class DisputeResolutionWorkflow:
                 )
                 raise Exception(f"Failed to create dispute case: {'; '.join(result.errors)}")
 
-            case_doc = result.doc
+            case_doc = result.document
 
             # Add to timeline
             case["timeline"].append(

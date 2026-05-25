@@ -28,6 +28,26 @@ from verenigingen.services.member.account.base_role_profile_manager import (
 )
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
+# Public API surface. `_chapter_manager` is included despite the
+# underscore prefix because the deprecated shim at
+# `utils/chapter_role_profile_manager.py` and three test files import it
+# by name; renaming to `chapter_manager` is the durable fix tracked as
+# a follow-up to PR #80.
+__all__ = [
+    "CHAPTER_CONFIG",
+    "ChapterRoleProfileManager",
+    "_chapter_manager",
+    "get_chapter_role_profile_config",
+    "determine_role_profile_for_board_member",
+    "assign_chapter_board_role_profile",
+    "remove_chapter_board_role_profile",
+    "bulk_assign_chapter_board_role_profiles",
+    "get_chapter_board_role_profile_mapping",
+    "get_chapters_requiring_role_profile",
+    "get_chapters_for_role_profile",
+]
+
+
 # Chapter-specific configuration
 CHAPTER_CONFIG = EntityConfig(
     entity_type="chapter",
@@ -120,7 +140,12 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
         return None
 
 
-# Global instance for convenience
+# TODO(rename): rename `_chapter_manager` → `chapter_manager`. The
+# leading underscore implies "private" but the symbol is imported by
+# 3 test files and re-exported via __all__ — it's effectively public.
+# Coordinate the rename across `base_role_profile_manager.py:1123,1125`,
+# `test_role_profile_managers.py`, `test_api_contracts.py`, and
+# `test_role_profile_integration.py`. Tracked as PR #80 follow-up.
 _chapter_manager = ChapterRoleProfileManager()
 
 

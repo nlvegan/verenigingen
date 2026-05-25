@@ -149,7 +149,7 @@ def create_simple_dd_batch_workflow():
             frappe.log_error(f"Failed to create SEPA workflow: {'; '.join(result.errors)}")
             return False
 
-        workflow_doc = result.doc
+        workflow_doc = result.document
 
         print(
             f"   ✅ Successfully created workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"

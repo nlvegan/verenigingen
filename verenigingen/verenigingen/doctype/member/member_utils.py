@@ -250,7 +250,7 @@ def add_manual_payment_record(member, amount, payment_date=None, payment_method=
         )
         frappe.throw(_("Failed to create payment record for member {0}").format(member))
 
-    payment = payment_result.doc
+    payment = payment_result.document
     payment.submit()
 
     # Audit log successful transaction
@@ -385,7 +385,7 @@ def create_sepa_mandate_from_bank_details(
         )
         frappe.throw(_("Failed to create SEPA mandate for member {0}").format(member))
 
-    mandate = mandate_result.doc
+    mandate = mandate_result.document
 
     # Audit log successful mandate creation
     frappe.log_error(

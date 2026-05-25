@@ -250,7 +250,7 @@ def create_membership_application_workflow():
             frappe.log_error(f"Failed to create workflow: {'; '.join(result.errors)}")
             return False
 
-        workflow_doc = result.doc
+        workflow_doc = result.document
 
         print(
             f"   ✅ Successfully created membership application workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"

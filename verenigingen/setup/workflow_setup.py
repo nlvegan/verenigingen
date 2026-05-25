@@ -200,7 +200,7 @@ def create_termination_workflow_corrected():
             )
             return False
 
-        workflow_doc = result.doc
+        workflow_doc = result.document
 
         print(
             f"   ✅ Successfully created workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"
@@ -361,7 +361,7 @@ def create_appeals_workflow_corrected():
             )
             return False
 
-        workflow_doc = result.doc
+        workflow_doc = result.document
 
         print(
             f"   ✅ Successfully created appeals workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"
