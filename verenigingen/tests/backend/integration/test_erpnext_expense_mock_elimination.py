@@ -104,11 +104,17 @@ class TestERPNextExpenseMockElimination(EnhancedTestCase):
         if volunteer.employee_id:
             return volunteer.employee_id
             
-        # Create real Employee record for volunteer
+        # Create real Employee record for volunteer.
+        # Volunteer doctype has only `volunteer_name`, not `first_name`/`last_name`.
+        # Source those from the linked Member.
+        linked_member = frappe.get_doc("Member", volunteer.member) if volunteer.member else None
         employee = frappe.new_doc("Employee")
-        employee.first_name = volunteer.first_name
-        employee.last_name = volunteer.last_name  
-        employee.employee_name = volunteer.full_name
+        employee.first_name = linked_member.first_name if linked_member else volunteer.volunteer_name.split(" ", 1)[0]
+        employee.last_name = (
+            linked_member.last_name if linked_member
+            else (volunteer.volunteer_name.split(" ", 1)[1] if " " in volunteer.volunteer_name else "Volunteer")
+        )
+        employee.employee_name = volunteer.volunteer_name
         employee.personal_email = volunteer.email
         employee.status = "Active"
         employee.company = frappe.defaults.get_global_default("company")
@@ -187,10 +193,19 @@ class TestERPNextExpenseMockElimination(EnhancedTestCase):
         employee_exists = frappe.db.exists("Employee", employee_id)
         self.assertIsNotNone(employee_exists, "Employee should exist in ERPNext")
         
-        # Verify real employee data
+        # Verify real employee data — Volunteer has volunteer_name only,
+        # first_name/last_name come from the linked Member.
         employee = frappe.get_doc("Employee", employee_id)
-        self.assertEqual(employee.first_name, self.test_volunteer.first_name)
-        self.assertEqual(employee.last_name, self.test_volunteer.last_name)
+        expected_member = (
+            frappe.get_doc("Member", self.test_volunteer.member)
+            if self.test_volunteer.member else None
+        )
+        if expected_member:
+            self.assertEqual(employee.first_name, expected_member.first_name)
+            self.assertEqual(employee.last_name, expected_member.last_name)
+        else:
+            self.assertTrue(employee.first_name)
+            self.assertTrue(employee.last_name)
         self.assertEqual(employee.personal_email, self.test_volunteer.email)
         self.assertEqual(employee.status, "Active")
         
