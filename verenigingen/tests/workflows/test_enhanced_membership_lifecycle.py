@@ -4,9 +4,21 @@ Comprehensive workflow tests for the enhanced membership lifecycle
 Tests complete end-to-end workflows with the new membership dues system
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_months, add_days, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+_ENHANCED_MEMBERSHIP_API_GONE = (
+    "verenigingen.api.enhanced_membership_application module was deleted; the "
+    "process_enhanced_application / get_membership_types_for_application / "
+    "validate_contribution_amount entry points no longer exist at this path. "
+    "Re-enable when these are rewired (some functions migrated, e.g. "
+    "validate_contribution_amount → templates/pages/membership_application.py:125). "
+    "Group G3 follow-up — see PR #96 notes."
+)
 
 
 class TestEnhancedMembershipLifecycle(EnhancedTestCase):
@@ -18,6 +30,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.tier_membership_type = self.create_tier_based_membership_type()
         self.calculator_membership_type = self.create_calculator_based_membership_type()
 
+    @unittest.skip(_ENHANCED_MEMBERSHIP_API_GONE)
     def test_tier_based_membership_complete_workflow(self):
         """Test complete workflow for tier-based membership"""
 
@@ -71,6 +84,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         # 7. Test membership type change
         self.test_membership_type_change_workflow(member)
 
+    @unittest.skip(_ENHANCED_MEMBERSHIP_API_GONE)
     def test_calculator_based_membership_complete_workflow(self):
         """Test complete workflow for calculator-based membership"""
 
@@ -375,6 +389,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
             # Validate adjustment
             self.assertAlmostEqual(schedule.dues_rate, original_amount * adjustment_factor, places=2)
 
+    @unittest.skip(_ENHANCED_MEMBERSHIP_API_GONE)
     def test_enhanced_application_api_workflow(self):
         """Test the enhanced application API workflow"""
 
