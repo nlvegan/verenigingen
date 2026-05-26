@@ -209,8 +209,8 @@ def test_option_ac_api_endpoints():
 def test_optimization_integrations(processor):
     """Test the new optimization integrations"""
     tests_passed = 0
-    total_tests = 6
-    
+    total_tests = 5  # Was 6; Test 6 removed (see below)
+
     try:
         # Test 1: Mandate service integration
         try:
@@ -255,16 +255,12 @@ def test_optimization_integrations(processor):
         except Exception:
             pass
         
-        # Test 6: Database indexes (via test function)
-        try:
-            from verenigingen.fixtures.add_sepa_database_indexes import verify_sepa_indexes
-            verification_results = verify_sepa_indexes()
-            found_count = len([r for r in verification_results if r['status'] == 'found'])
-            if found_count >= 8:  # At least 8 of 11 indexes should be found
-                tests_passed += 1
-        except Exception:
-            pass
-            
+        # Test 6 (database indexes via verify_sepa_indexes) removed: the
+        # verenigingen.fixtures.add_sepa_database_indexes module was deleted
+        # when index creation moved to the migration path. The previous
+        # try/except block silently no-op'd, never incrementing tests_passed.
+        # total_tests was reduced from 6 to 5 above accordingly.
+
     except Exception as e:
         print(f"  Optimization test error: {e}")
     
