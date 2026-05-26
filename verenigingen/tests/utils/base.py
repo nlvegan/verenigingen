@@ -854,34 +854,20 @@ class VereningingenTestCase(FrappeTestCase):
         return team
 
     def create_test_volunteer_expense(self, **kwargs):
-        """Create a test volunteer expense with default values"""
-        # Create a volunteer first if not provided
-        if "volunteer" not in kwargs:
-            volunteer = self.create_test_volunteer()
-            kwargs["volunteer"] = volunteer.name
+        """Removed: Volunteer Expense DocType was archived in commit 1a8e5fa2.
 
-        # Get first available expense category
-        existing_categories = frappe.get_all("Expense Category", limit=1, pluck="name")
-        expense_category = existing_categories[0] if existing_categories else "Reiskosten"
-
-        defaults = {
-            "expense_date": frappe.utils.today(),
-            "description": "Test volunteer expense",
-            "amount": 25.00,
-            "category": expense_category,
-            "organization_type": "Chapter",
-            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0],
-            "status": "Submitted"
-        }
-        defaults.update(kwargs)
-
-        expense = frappe.new_doc("Volunteer Expense")
-        for key, value in defaults.items():
-            setattr(expense, key, value)
-
-        expense.save()
-        self.track_doc("Volunteer Expense", expense.name)
-        return expense
+        The underlying tabVolunteer Expense table is dropped by
+        patches/v2_2/drop_volunteer_expense_archived_doctype.py. Use the
+        HRMS Expense Claim helpers in verenigingen/services/volunteer/
+        volunteer_expense_setup.py (get_or_create_expense_type, etc.) or
+        call verenigingen.templates.pages.volunteer.expenses.submit_expense
+        through the portal flow, which routes into ERPNext Expense Claim.
+        """
+        raise NotImplementedError(
+            "Volunteer Expense DocType archived in commit 1a8e5fa2; create "
+            "Expense Claim records via the HRMS flow instead. See docstring "
+            "for migration pointers."
+        )
 
     def create_test_event(self, **kwargs):
         """Create a test event with default values"""
