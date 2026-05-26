@@ -144,9 +144,18 @@ def before_tests():
 def _seed_verenigingen_test_system_user():
     """Create a test system user and wire it into Verenigingen Settings.
 
-    The user is enabled, has System Manager + Verenigingen Administrator
-    roles so service-side operations succeed, and uses a non-routable email
-    domain so any test email leak is harmless.
+    The user is enabled, has the System Manager role (sufficient for
+    ``utils.secure_operations.get_system_user_for_operation`` which only
+    gates on user-exists + enabled), and uses a non-routable email domain
+    so any test email leak is harmless.
+
+    Deliberately does NOT add the ``Verenigingen Administrator`` role:
+    it is a custom-fixture role loaded by ``bench migrate`` / ``bench
+    import-fixtures``, neither of which runs on fresh CI sites created
+    via ``bench new-site``. Appending a non-existent role link would make
+    ``user.insert()`` throw and the outer ``try/except`` would silently
+    log — leaving ``creation_user`` empty and reproducing the very B1
+    failure this helper exists to fix.
     """
     test_user_email = "verenigingen-test-system@example.invalid"
     if not frappe.db.exists("User", test_user_email):
@@ -157,8 +166,7 @@ def _seed_verenigingen_test_system_user():
         user.enabled = 1
         user.user_type = "System User"
         user.send_welcome_email = 0
-        for role in ("System Manager", "Verenigingen Administrator"):
-            user.append("roles", {"role": role})
+        user.append("roles", {"role": "System Manager"})
         user.insert(ignore_permissions=True)
         frappe.db.commit()
 
@@ -173,15 +181,20 @@ def _seed_verenigingen_test_system_user():
 
 
 def _seed_default_leaf_customer_group():
-    """Ensure Selling Settings.customer_group points at a leaf (is_group=0).
+    """Ensure Selling Settings.customer_group and the user default both
+    point at a leaf (is_group=0).
 
     Creates "Individual" (or reuses any leaf) under the root if needed.
-    """
-    current = frappe.db.get_single_value("Selling Settings", "customer_group")
-    if current and frappe.db.get_value("Customer Group", current, "is_group") == 0:
-        # Already a leaf, nothing to do.
-        return
 
+    Both the Single and the user-level default must agree on a leaf:
+    - The Single is read by `services.customer_group_resolver` and by
+      ERPNext's Customer form defaults.
+    - The user-level default (`frappe.db.set_default("customer_group", ...)`)
+      is what `frappe.new_doc("Customer")` inherits when the caller doesn't
+      set the field explicitly. ERPNext's Customer controller would reject
+      a root-group inherited value with "Cannot select a Group type
+      Customer Group".
+    """
     leaf = frappe.db.get_value(
         "Customer Group", {"name": "Individual", "is_group": 0}, "name"
     ) or frappe.db.get_value(
@@ -204,5 +217,16 @@ def _seed_default_leaf_customer_group():
         leaf = group.name
         frappe.db.commit()
 
-    frappe.db.set_single_value("Selling Settings", "customer_group", leaf)
-    frappe.db.commit()
+    current_single = frappe.db.get_single_value(
+        "Selling Settings", "customer_group"
+    )
+    current_default = frappe.db.get_default("customer_group")
+    needs_commit = False
+    if current_single != leaf:
+        frappe.db.set_single_value("Selling Settings", "customer_group", leaf)
+        needs_commit = True
+    if current_default != leaf:
+        frappe.db.set_default("customer_group", leaf)
+        needs_commit = True
+    if needs_commit:
+        frappe.db.commit()
