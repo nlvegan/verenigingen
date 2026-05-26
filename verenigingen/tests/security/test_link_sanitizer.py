@@ -10,6 +10,7 @@ Tests both unit-level behavior and integration with real Frappe documents.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.link_sanitizer import (
     BrokenLinkError,
     get_broken_links_summary,
@@ -31,7 +32,7 @@ class TestLinkSanitizerUnit(FrappeTestCase):
                 {
                     "doctype": "Customer",
                     "customer_name": self.test_customer_name,
-                    "customer_group": "All Customer Groups",
+                    "customer_group": resolve_non_group_customer_group(),
                     "territory": "All Territories",
                 }
             )
@@ -164,7 +165,7 @@ class TestLinkSanitizerIntegration(FrappeTestCase):
             {
                 "doctype": "Customer",
                 "customer_name": self.customer_name,
-                "customer_group": "All Customer Groups",
+                "customer_group": resolve_non_group_customer_group(),
                 "territory": "All Territories",
                 "custom_member": self.member_name,
             }

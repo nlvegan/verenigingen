@@ -11,6 +11,7 @@ Tests payment failure scenarios and recovery processes
 import frappe
 from frappe.utils import add_days, add_months, today
 
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager, TestUserFactory
 
@@ -146,7 +147,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "doctype": "Customer",
                 "customer_name": f"PaymentTest Member-{unique_id}",
                 "customer_type": "Individual",
-                "customer_group": "All Customer Groups",
+                "customer_group": resolve_non_group_customer_group(),
                 "territory": "Netherlands"}
         )
         customer.insert(ignore_permissions=True)

@@ -108,3 +108,101 @@ def before_tests():
         ensure_payment_modes_exist()
     except Exception as e:
         frappe.logger().warning(f"Payment mode seeding failed: {e}")
+
+    # Seed Verenigingen Settings.creation_user (reqd=1) with a dedicated
+    # non-Administrator test user. Required by utils.secure_operations
+    # `get_system_user_for_operation`, which raises ConfigurationError when the
+    # field is empty (~91 fails) and cascades MandatoryError on any later
+    # .save() of the Singles doc (~71 fails). The install path normally seeds
+    # this via setup/__init__.py:412 but the seed silently fails on fresh CI
+    # sites; the test-side seed makes the setup deterministic.
+    #
+    # IMPORTANT: do NOT default to "Administrator" — PR #81 was closed for
+    # silently re-enabling an Administrator fallback that secure_operations.py
+    # had been hardened to refuse. We create a dedicated test user instead.
+    # Use db.set_single_value to bypass the Singles .save() validation chain
+    # (System Settings / Verenigingen Settings both have other reqd fields
+    # that would cascade their own MandatoryError).
+    try:
+        _seed_verenigingen_test_system_user()
+    except Exception as e:
+        frappe.logger().warning(f"Verenigingen Settings creation_user seeding failed: {e}")
+
+    # Reset Selling Settings.customer_group away from the root "All Customer
+    # Groups" that erpnext_before_tests() sets. ERPNext's Customer controller
+    # rejects any Customer Group with is_group=1 with "Cannot select a Group
+    # type Customer Group" (~72 fails). Production code already uses
+    # services.customer_group_resolver.resolve_non_group_customer_group() to
+    # work around the bad default; this matches the resolver's behaviour for
+    # tests that bypass it by writing customer.customer_group directly.
+    try:
+        _seed_default_leaf_customer_group()
+    except Exception as e:
+        frappe.logger().warning(f"Customer Group default reset failed: {e}")
+
+
+def _seed_verenigingen_test_system_user():
+    """Create a test system user and wire it into Verenigingen Settings.
+
+    The user is enabled, has System Manager + Verenigingen Administrator
+    roles so service-side operations succeed, and uses a non-routable email
+    domain so any test email leak is harmless.
+    """
+    test_user_email = "verenigingen-test-system@example.invalid"
+    if not frappe.db.exists("User", test_user_email):
+        user = frappe.new_doc("User")
+        user.email = test_user_email
+        user.first_name = "Verenigingen"
+        user.last_name = "Test System"
+        user.enabled = 1
+        user.user_type = "System User"
+        user.send_welcome_email = 0
+        for role in ("System Manager", "Verenigingen Administrator"):
+            user.append("roles", {"role": role})
+        user.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    current = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
+    if current != test_user_email:
+        # set_single_value writes the Singles row directly without firing
+        # validate (which would trip on other reqd fields on a fresh site).
+        frappe.db.set_single_value(
+            "Verenigingen Settings", "creation_user", test_user_email
+        )
+        frappe.db.commit()
+
+
+def _seed_default_leaf_customer_group():
+    """Ensure Selling Settings.customer_group points at a leaf (is_group=0).
+
+    Creates "Individual" (or reuses any leaf) under the root if needed.
+    """
+    current = frappe.db.get_single_value("Selling Settings", "customer_group")
+    if current and frappe.db.get_value("Customer Group", current, "is_group") == 0:
+        # Already a leaf, nothing to do.
+        return
+
+    leaf = frappe.db.get_value(
+        "Customer Group", {"name": "Individual", "is_group": 0}, "name"
+    ) or frappe.db.get_value(
+        "Customer Group", {"is_group": 0}, "name", order_by="name asc"
+    )
+
+    if not leaf:
+        # No leaf exists — create "Individual" under the root.
+        root = frappe.db.get_value(
+            "Customer Group", {"is_group": 1, "parent_customer_group": ["in", ("", None)]}, "name"
+        )
+        if not root:
+            # No tree at all (unlikely after erpnext_before_tests, but safe).
+            return
+        group = frappe.new_doc("Customer Group")
+        group.customer_group_name = "Individual"
+        group.parent_customer_group = root
+        group.is_group = 0
+        group.insert(ignore_permissions=True)
+        leaf = group.name
+        frappe.db.commit()
+
+    frappe.db.set_single_value("Selling Settings", "customer_group", leaf)
+    frappe.db.commit()
