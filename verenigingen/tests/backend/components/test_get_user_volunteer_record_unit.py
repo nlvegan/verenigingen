@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """
 Unit tests specifically for get_user_volunteer_record function to prevent field omission bugs
+
+Note on test semantics after G3 import path move:
+The function moved from templates/pages/volunteer/expenses to
+services/volunteer/volunteer_expense_portal_utils, which delegates to the
+performance-optimized variant in utils/performance_utils.py that uses
+frappe.db.sql() with a JOIN. The tests below were originally written
+against the old templates implementation that used frappe.db.get_value().
+test_database_query_optimization is now skipped because its mock targets
+the wrong DB API; two other tests still verify field shape but no longer
+exercise distinct lookup paths (member-via-JOIN vs direct-email). See
+G3 PR for details; rewriting against the new SQL implementation is a
+follow-up.
 """
 
+import unittest
 from unittest.mock import patch
 
 import frappe
@@ -140,6 +153,15 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
                             result[field], expected_type, f"Field '{field}' must be of type {expected_type}"
                         )
 
+    @unittest.skip(
+        "Test mocks frappe.db.get_value, but the function was re-routed to "
+        "utils/performance_utils.py:get_user_volunteer_record_optimized which "
+        "uses frappe.db.sql with a JOIN. The mock is never invoked, so the "
+        "assertions inside the for-loop never run — test trivially passed "
+        "before this skip was added. Re-enable by mocking frappe.db.sql "
+        "with the JOIN query shape, or replace with an integration assertion "
+        "that the actual SQL query selects only the minimal field set."
+    )
     def test_database_query_optimization(self):
         """Test that database queries are optimized and don't fetch unnecessary fields"""
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
