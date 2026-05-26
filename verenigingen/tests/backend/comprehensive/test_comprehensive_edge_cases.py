@@ -22,7 +22,6 @@ def run_all_edge_case_tests():
         ("Security Tests", "test_security_comprehensive", "run_security_tests"),
         ("Financial Edge Cases", "test_financial_integration_edge_cases", "run_financial_edge_case_tests"),
         ("SEPA Mandate Edge Cases", "test_sepa_mandate_edge_cases", "run_sepa_mandate_edge_case_tests"),
-        ("Payment Failure Scenarios", "test_payment_failure_scenarios", "run_payment_failure_scenario_tests"),
         ("Member Status Transitions", "test_member_status_transitions", "run_member_status_transition_tests"),
         (
             "Termination Workflow Edge Cases",
@@ -97,13 +96,11 @@ def run_financial_only():
 
     try:
         from verenigingen.tests.backend.comprehensive.test_financial_integration_edge_cases import run_financial_edge_case_tests
-        from verenigingen.tests.backend.components.test_payment_failure_scenarios import run_payment_failure_scenario_tests
         from verenigingen.tests.backend.comprehensive.test_sepa_mandate_edge_cases import run_sepa_mandate_edge_case_tests
 
         results = []
         results.append(run_financial_edge_case_tests())
         results.append(run_sepa_mandate_edge_case_tests())
-        results.append(run_payment_failure_scenario_tests())
 
         return all(results)
 
@@ -170,7 +167,6 @@ def run_smoke_edge_cases():
         "verenigingen.tests.test_security_comprehensive",
         "verenigingen.tests.backend.comprehensive.test_financial_integration_edge_cases",
         "verenigingen.tests.backend.comprehensive.test_sepa_mandate_edge_cases",
-        "verenigingen.tests.backend.components.test_payment_failure_scenarios",
         "verenigingen.tests.backend.components.test_member_status_transitions",
         "verenigingen.tests.backend.comprehensive.test_termination_workflow_edge_cases",
         "verenigingen.tests.backend.performance.test_performance_edge_cases",

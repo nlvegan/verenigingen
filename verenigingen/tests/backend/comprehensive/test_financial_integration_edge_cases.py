@@ -253,34 +253,16 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         # Clean up
         membership.delete()
 
+    @unittest.skip(
+        "verenigingen.api.financial.validate_payment endpoint was removed; "
+        "see Group G2 PR notes. The original test relied on a "
+        "frappe.call() into a deleted module, which was being swallowed by "
+        "an AttributeError → skipTest fallback (silent no-op). Re-enable "
+        "when a replacement payment-validation API ships."
+    )
     def test_payment_amount_mismatch(self):
         """Test handling of payment amount mismatches"""
-        membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": self.member.name,
-                "membership_type": self.membership_type.name,
-                # Note: fee is defined in membership_type, not directly on membership
-                "status": "Active"}
-        )
-        membership.insert()
-
-        # Test real payment validation with mismatched amount
-        # Create actual payment entry with wrong amount to test validation
-        try:
-            # Test direct validation call with mismatched amount (should fail)
-            with self.assertRaises((frappe.ValidationError, ValueError)):
-                frappe.call(
-                    "verenigingen.api.financial.validate_payment",
-                    membership=membership.name,
-                    amount=50.00  # Wrong amount vs membership cost
-                )
-        except AttributeError:
-            # If validation API doesn't exist, skip this specific validation test
-            self.skipTest("Payment validation API not available in test environment")
-
-        # Clean up
-        membership.delete()
+        pass
 
     # ===== DUES SCHEDULE OVERRIDE EDGE CASES =====
 
