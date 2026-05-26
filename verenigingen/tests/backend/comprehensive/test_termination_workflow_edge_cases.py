@@ -43,15 +43,22 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
 
-        # Create membership type
+        # Membership Type reqd fields: membership_type_name (autoname=field:),
+        # minimum_amount, role_profile. Look up any Role Profile for the link.
+        role_profile = (
+            frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
+            or frappe.db.get_value("Role Profile", {}, "name")
+        )
         cls.membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type": "Termination Test Type",
-                # Note: fee is defined in membership_type, not directly on membership
-                "currency": "EUR"}
+                "membership_type_name": "Termination Test Type",
+                "description": "Test membership type for termination edge cases",
+                "minimum_amount": 25.0,
+                "role_profile": role_profile,
+            }
         )
-        cls.membership_type.insert()
+        cls.membership_type.insert(ignore_permissions=True)
         cls.test_records.append(cls.membership_type)
 
         # Create test members
