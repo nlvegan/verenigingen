@@ -34,7 +34,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
     def test_function_returns_all_required_fields(self):
         """Test that get_user_volunteer_record returns all required fields"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         with self.as_user(self.test_volunteer.email):
             result = get_user_volunteer_record()
@@ -55,7 +55,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
     def test_member_lookup_path_includes_member_field(self):
         """Test that member-based lookup path returns volunteer with member info"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         # Test with actual data - the function uses an optimized utility
         # so we test the actual behavior, not mocked database calls
@@ -71,7 +71,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
     def test_direct_email_lookup_path_includes_member_field(self):
         """Test that direct email lookup path returns volunteer info"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         # Test with actual data - direct volunteer email lookup
         with self.as_user(self.test_volunteer.email):
@@ -86,7 +86,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
     def test_function_handles_volunteer_without_member_gracefully(self):
         """Test function handles volunteers without member links gracefully"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         # Create volunteer without member link using factory method
         volunteer_no_member = self.create_test_volunteer(
@@ -106,7 +106,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
     def test_function_returns_none_for_nonexistent_user(self):
         """Test function returns None for non-existent users"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         with self.as_user("nonexistent@example.com"):
             result = get_user_volunteer_record()
@@ -115,7 +115,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
     def test_field_completeness_regression(self):
         """Regression test: ensure no fields are accidentally omitted in future changes"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         with self.as_user(self.test_volunteer.email):
             result = get_user_volunteer_record()
@@ -142,7 +142,7 @@ class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
 
     def test_database_query_optimization(self):
         """Test that database queries are optimized and don't fetch unnecessary fields"""
-        from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import get_user_volunteer_record
 
         with patch("frappe.db.get_value") as mock_get_value:
             mock_get_value.side_effect = [

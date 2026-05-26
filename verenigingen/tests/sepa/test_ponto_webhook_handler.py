@@ -807,7 +807,7 @@ class TestPontoWebhookUser(FrappeTestCase):
 
     def test_get_webhook_user_from_settings(self):
         """Should get webhook user from settings."""
-        from verenigingen.verenigingen_payments.ponto.api.webhook import (
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
             _get_webhook_user,
         )
 
@@ -856,7 +856,7 @@ class TestPontoPaymentLinkStatusUpdate(FrappeTestCase):
 
     def test_update_payment_link_status_not_found(self):
         """Should handle missing payment link."""
-        from verenigingen.verenigingen_payments.ponto.api.webhook import (
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
             _update_payment_link_status,
         )
 
@@ -870,7 +870,7 @@ class TestPontoPaymentLinkStatusUpdate(FrappeTestCase):
 
     def test_update_payment_link_status_unknown_status(self):
         """Should handle unknown status values."""
-        from verenigingen.verenigingen_payments.ponto.api.webhook import (
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
             _update_payment_link_status,
         )
 
@@ -909,7 +909,7 @@ class TestPontoPaymentEntryCreation(FrappeTestCase):
 
     def test_process_executed_payment_no_member(self):
         """Should skip invoice matching when no member linked."""
-        from verenigingen.verenigingen_payments.ponto.api.webhook import (
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
             _process_executed_payment,
         )
 
@@ -929,7 +929,7 @@ class TestPontoPaymentEntryCreation(FrappeTestCase):
 
     def test_create_ponto_payment_entry_nonexistent_invoice(self):
         """Should handle nonexistent invoice gracefully."""
-        from verenigingen.verenigingen_payments.ponto.api.webhook import (
+        from verenigingen.verenigingen_payments.ponto.api.webhook_handlers import (
             _create_ponto_payment_entry,
         )
 
