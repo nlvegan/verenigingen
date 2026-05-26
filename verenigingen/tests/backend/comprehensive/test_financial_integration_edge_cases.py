@@ -21,26 +21,45 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         super().setUpClass()
         cls.test_records = []
 
-        # Create test chapter
+        # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
+        # ensure backing Region exists before creating the chapter.
+        test_region_name = "Financial Test Region"
+        if not frappe.db.exists("Region", test_region_name):
+            region = frappe.get_doc({
+                "doctype": "Region",
+                "region_name": test_region_name,
+                "region_code": "FTR",
+            })
+            region.insert(ignore_permissions=True)
+
         cls.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "chapter_name": "Financial Test Chapter",
-                "short_name": "FTC",
-                "country": "Netherlands"}
+                "status": "Active",
+                "region": test_region_name,
+                "introduction": "Financial Integration Edge Cases test chapter",
+            }
         )
-        cls.chapter.insert()
+        cls.chapter.name = "Financial Test Chapter"
+        cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
 
-        # Create test membership type
+        # Membership Type reqd fields: membership_type_name (autoname=field:),
+        # minimum_amount, role_profile. Look up any Role Profile for the link.
+        role_profile = (
+            frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
+            or frappe.db.get_value("Role Profile", {}, "name")
+        )
         cls.membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
-                "membership_type": "Test Premium",
-                # Note: fee is defined in membership_type, not directly on membership
-                "currency": "EUR"}
+                "membership_type_name": "Financial Test Premium",
+                "description": "Test membership type for financial edge cases",
+                "minimum_amount": 25.0,
+                "role_profile": role_profile,
+            }
         )
-        cls.membership_type.insert()
+        cls.membership_type.insert(ignore_permissions=True)
         cls.test_records.append(cls.membership_type)
 
         # Create test member

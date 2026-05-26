@@ -21,16 +21,27 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
         super().setUpClass()
         cls.test_records = []
 
-        # Create test chapter with proper fields
+        # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
+        # ensure backing Region exists before creating the chapter.
+        test_region_name = "Payment Test Region"
+        if not frappe.db.exists("Region", test_region_name):
+            region = frappe.get_doc({
+                "doctype": "Region",
+                "region_name": test_region_name,
+                "region_code": "PTR",
+            })
+            region.insert(ignore_permissions=True)
+
         cls.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": "Payment Test Chapter",
-                "chapter_name": "Payment Test Chapter",
-                "short_name": "PTC",
-                "country": "Netherlands"}
+                "status": "Active",
+                "region": test_region_name,
+                "introduction": "Payment Failure Scenarios test chapter",
+            }
         )
-        cls.chapter.insert()
+        cls.chapter.name = "Payment Test Chapter"
+        cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
 
         # Create test membership type with Enhanced Test Factory field names
@@ -50,13 +61,12 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
         cls.membership_type.insert()
         cls.test_records.append(cls.membership_type)
 
-        # Create test member with proper field names (email_address, birth_date)
         cls.member = frappe.get_doc(
             {
                 "doctype": "Member",
                 "first_name": "Payment",
                 "last_name": "Testmember",
-                "email_address": "payment.test@test.com",
+                "email": "payment.test@test.com",
                 "birth_date": "1990-01-01",
                 "status": "Active",
                 "chapter": cls.chapter.name}
