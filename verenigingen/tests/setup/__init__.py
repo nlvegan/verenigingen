@@ -140,6 +140,22 @@ def before_tests():
     except Exception as e:
         frappe.logger().warning(f"Customer Group default reset failed: {e}")
 
+    # Seed dummy values for MijnRood Sync Settings reqd fields (ssh_host,
+    # ssh_username, db_name, db_username, db_password). The event_application
+    # service tests use a StatusMappingSetupMixin that calls
+    # `settings.save(ignore_permissions=True)` in setUp — and on a fresh CI
+    # site where the Singles row is empty, the .save() cascades MandatoryError
+    # across ~33 tests. Production sites configure these via the install/setup
+    # UI; tests just need the validation to pass.
+    #
+    # SSH/DB credentials are never actually consumed during tests — the
+    # event_application path doesn't open an SFTP connection unless a sync
+    # job is triggered, which no test does. Dummy values are safe.
+    try:
+        _seed_mijnrood_sync_settings_dummy_credentials()
+    except Exception as e:
+        frappe.logger().warning(f"MijnRood Sync Settings seeding failed: {e}")
+
 
 def _seed_verenigingen_test_system_user():
     """Create a test system user and wire it into Verenigingen Settings.
@@ -230,3 +246,48 @@ def _seed_default_leaf_customer_group():
         needs_commit = True
     if needs_commit:
         frappe.db.commit()
+
+
+def _seed_mijnrood_sync_settings_dummy_credentials():
+    """Populate the reqd fields on MijnRood Sync Settings with dummy values.
+
+    Fields seeded: ssh_host, ssh_username, db_name, db_username, db_password.
+    Tests that mutate the Single via ``.save(ignore_permissions=True)``
+    (mainly the StatusMappingSetupMixin in event_application tests) cascade
+    MandatoryError on a fresh CI site where the Singles row is empty.
+
+    Loads the Single, sets any empty reqd fields, and saves once with
+    ``ignore_mandatory`` so the encrypted password write goes through the
+    password store correctly. Subsequent test .save() calls then validate
+    cleanly because the fields are populated.
+
+    Idempotent: returns early if all reqd fields already have values.
+    """
+    if not frappe.db.exists("DocType", "MijnRood Sync Settings"):
+        # mijnrood_sync module not installed on this site; nothing to do.
+        return
+
+    settings = frappe.get_single("MijnRood Sync Settings")
+    defaults = {
+        "ssh_host": "test.mijnrood.invalid",
+        "ssh_username": "test_user",
+        "db_name": "test_db",
+        "db_username": "test_user",
+    }
+
+    dirty = False
+    for field, dummy in defaults.items():
+        if not settings.get(field):
+            settings.set(field, dummy)
+            dirty = True
+
+    if not settings.get_password("db_password", raise_exception=False):
+        settings.db_password = "test_db_password"
+        dirty = True
+
+    if not dirty:
+        return
+
+    settings.flags.ignore_mandatory = True
+    settings.save(ignore_permissions=True)
+    frappe.db.commit()
