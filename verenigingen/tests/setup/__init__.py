@@ -249,17 +249,29 @@ def _seed_default_leaf_customer_group():
 
 
 def _seed_mijnrood_sync_settings_dummy_credentials():
-    """Populate the reqd fields on MijnRood Sync Settings with dummy values.
+    """Populate the reqd fields on MijnRood Sync Settings with placeholder
+    test-fixture values.
 
     Fields seeded: ssh_host, ssh_username, db_name, db_username, db_password.
     Tests that mutate the Single via ``.save(ignore_permissions=True)``
     (mainly the StatusMappingSetupMixin in event_application tests) cascade
     MandatoryError on a fresh CI site where the Singles row is empty.
 
-    Loads the Single, sets any empty reqd fields, and saves once with
-    ``ignore_mandatory`` so the encrypted password write goes through the
-    password store correctly. Subsequent test .save() calls then validate
-    cleanly because the fields are populated.
+    ``flags.ignore_mandatory = True`` is set on the seeder's save only —
+    it bypasses ``_validate_mandatory`` so we can populate any subset of
+    empty reqd fields in one pass. It has nothing to do with how the
+    password is stored: ``Document._save_passwords`` always runs as part
+    of ``save()`` and writes the value encrypted to the ``__Auth`` table,
+    replacing the in-memory attribute with the masked asterisk string.
+    Plaintext never lands in ``tabSingles``. Subsequent test ``.save()``
+    calls don't carry the flag but validate cleanly because all five
+    fields are now populated.
+
+    The credentials are placeholders, not "nowhere-used dummies": they
+    are written to the DB. They're safe because the event_application
+    test path never opens an SFTP/DB connection — the only consumer is
+    the scheduled sync job, which is gated by ``settings.enabled=0``
+    (the default and not touched here).
 
     Idempotent: returns early if all reqd fields already have values.
     """
