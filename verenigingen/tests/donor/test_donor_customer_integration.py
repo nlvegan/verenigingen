@@ -6,6 +6,7 @@ Donor and Customer records, following CLAUDE.md testing requirements.
 """
 
 import frappe
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -189,7 +190,7 @@ class TestDonorCustomerIntegration(EnhancedTestCase):
         customer.customer_name = "Existing Customer"
         customer.customer_type = "Individual"
         customer.email_id = "existing@example.com"
-        customer.customer_group = "All Customer Groups"
+        customer.customer_group = resolve_non_group_customer_group()
         customer.territory = "All Territories"
         customer.save()
         self.track_doc("Customer", customer.name)

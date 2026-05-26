@@ -313,54 +313,65 @@ class TestCustomerHandlingServiceIntegration(EnhancedTestCase):
             frappe.db.set_single_value("Selling Settings", "customer_group", original)
 
     def test_customer_group_fallback_resolves_to_leaf_not_group_node(self):
-        """The Selling Settings.customer_group default may legitimately point
-        to a group node (e.g. ERPNext's `set_defaults_for_tests` sets it to
-        the root 'All Customer Groups', and that exact value is live on this
-        site). ERPNext's validate_customer_group rejects group-node values
-        with 'Cannot select a Group type Customer Group', so create_customer_
-        for_member must resolve to a leaf (is_group=0) instead of passing the
-        group node through verbatim."""
-        # Verify the precondition this test exists to guard against: the
-        # Selling Settings default IS a group node here. (It is on every site
-        # that ran ERPNext's test-setup hook.) Skip the test if the local
-        # configuration is already a leaf, so the test exercises only the
-        # path it is meant to.
-        configured = frappe.db.get_single_value("Selling Settings", "customer_group")
-        if configured and not frappe.db.get_value(
-            "Customer Group", configured, "is_group"
-        ):
+        """The resolver must coerce a group-node default to a leaf.
+
+        ERPNext's validate_customer_group rejects group-node values with
+        'Cannot select a Group type Customer Group'. The test temporarily
+        points ``Selling Settings.customer_group`` at a group node (the
+        root) for the duration of the test, so the assertion exercises the
+        coercion path regardless of what the test fixture seeds. Previously
+        this test self-skipped when Settings already pointed at a leaf —
+        which became always-true after the leaf seeder landed in
+        ``before_tests``, silently turning this guarantee into a no-op.
+        """
+        original = frappe.db.get_single_value(
+            "Selling Settings", "customer_group"
+        )
+        root = frappe.db.get_value(
+            "Customer Group",
+            {"is_group": 1, "parent_customer_group": ["in", ("", None)]},
+            "name",
+        )
+        if not root:
             self.skipTest(
-                f"Selling Settings.customer_group is '{configured}' (a leaf); "
-                f"this test exercises only the group-node fallback path."
+                "No root Customer Group exists on this site; cannot exercise "
+                "the group-node fallback path."
             )
 
-        member = self.create_test_member(
-            first_name="Group",
-            last_name="Fallback",
-            email="group.fallback@verenigingen.invalid",
-            birth_date="1990-01-01",
-        )
-        self._created_members.append(member.name)
+        try:
+            frappe.db.set_single_value("Selling Settings", "customer_group", root)
 
-        if member.customer:
-            self._created_customers.append(member.customer)
-            member.db_set("customer", None, update_modified=False)
-            member.reload()
+            member = self.create_test_member(
+                first_name="Group",
+                last_name="Fallback",
+                email="group.fallback@verenigingen.invalid",
+                birth_date="1990-01-01",
+            )
+            self._created_members.append(member.name)
 
-        customer_name = self.service.create_customer_for_member(
-            member, suppress_messages=True
-        )
-        self.assertIsNotNone(customer_name)
-        self._created_customers.append(customer_name)
+            if member.customer:
+                self._created_customers.append(member.customer)
+                member.db_set("customer", None, update_modified=False)
+                member.reload()
 
-        customer = frappe.get_doc("Customer", customer_name)
-        is_group = frappe.db.get_value(
-            "Customer Group", customer.customer_group, "is_group"
-        )
-        self.assertEqual(
-            is_group,
-            0,
-            f"Customer.customer_group resolved to {customer.customer_group!r} "
-            f"which has is_group={is_group}. A group node will be rejected by "
-            f"ERPNext's validate_customer_group.",
-        )
+            customer_name = self.service.create_customer_for_member(
+                member, suppress_messages=True
+            )
+            self.assertIsNotNone(customer_name)
+            self._created_customers.append(customer_name)
+
+            customer = frappe.get_doc("Customer", customer_name)
+            is_group = frappe.db.get_value(
+                "Customer Group", customer.customer_group, "is_group"
+            )
+            self.assertEqual(
+                is_group,
+                0,
+                f"Customer.customer_group resolved to {customer.customer_group!r} "
+                f"which has is_group={is_group}. A group node will be rejected by "
+                f"ERPNext's validate_customer_group.",
+            )
+        finally:
+            frappe.db.set_single_value(
+                "Selling Settings", "customer_group", original
+            )

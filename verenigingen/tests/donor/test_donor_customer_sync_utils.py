@@ -7,6 +7,7 @@ following CLAUDE.md testing requirements.
 
 import frappe
 from unittest.mock import patch
+from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.donor_customer_sync import (
     sync_donor_to_customer,
@@ -131,7 +132,7 @@ class TestDonorCustomerSyncUtils(EnhancedTestCase):
         customer = frappe.new_doc("Customer")
         customer.customer_name = "No Donor Reference"
         customer.customer_type = "Individual"
-        customer.customer_group = "All Customer Groups"
+        customer.customer_group = resolve_non_group_customer_group()
         customer.territory = "All Territories"
         customer.save()
         self.track_doc("Customer", customer.name)
