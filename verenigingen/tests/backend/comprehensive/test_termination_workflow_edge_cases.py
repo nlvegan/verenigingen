@@ -20,15 +20,27 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         super().setUpClass()
         cls.test_records = []
 
-        # Create test chapter
+        # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
+        # ensure backing Region exists before creating the chapter.
+        test_region_name = "Termination Test Region"
+        if not frappe.db.exists("Region", test_region_name):
+            region = frappe.get_doc({
+                "doctype": "Region",
+                "region_name": test_region_name,
+                "region_code": "TTR",
+            })
+            region.insert(ignore_permissions=True)
+
         cls.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "chapter_name": "Termination Test Chapter",
-                "short_name": "TTC",
-                "country": "Netherlands"}
+                "status": "Active",
+                "region": test_region_name,
+                "introduction": "Termination Workflow Edge Cases test chapter",
+            }
         )
-        cls.chapter.insert()
+        cls.chapter.name = "Termination Test Chapter"
+        cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
 
         # Create membership type

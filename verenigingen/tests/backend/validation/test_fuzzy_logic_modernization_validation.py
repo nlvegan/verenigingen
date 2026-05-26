@@ -73,8 +73,8 @@ class TestFuzzyLogicModernizationValidation(VereningingenTestCase):
         # Test that all email fields use same validation
         email_test_cases = [
             ("Member", "email"),
-            ("Verenigingen Volunteer", "email"),
-            ("Donor", "email_address")
+            ("Volunteer", "email"),
+            ("Donor", "donor_email")
         ]
         
         for doctype, field in email_test_cases:

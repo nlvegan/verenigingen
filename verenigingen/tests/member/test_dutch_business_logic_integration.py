@@ -410,7 +410,7 @@ class TestDutchAgeValidation(EnhancedTestCase):
                     member = frappe.new_doc("Member")
                     member.first_name = f"Age{age}"
                     member.last_name = "MemberTest"
-                    member.email_address = f"age{age}@member.test"
+                    member.email = f"age{age}@member.test"
                     member.birth_date = birth_date.strftime("%Y-%m-%d")
                     member.status = "Active"
                     
@@ -442,7 +442,7 @@ class TestDutchMembershipLifecycle(EnhancedTestCase):
         application = frappe.new_doc("Member")
         application.first_name = "Workflow"
         application.last_name = "TestMember"
-        application.email_address = "workflow@lifecycle.test"
+        application.email = "workflow@lifecycle.test"
         application.birth_date = "1985-06-15"
         application.postal_code = "1234 AB"  # Valid Dutch postal code
         application.status = "Pending"
@@ -589,7 +589,7 @@ class TestDutchDataPrivacyCompliance(EnhancedTestCase):
             member.reload()
             
             # Verify real anonymization logic
-            self.assertNotEqual(member.email_address, "gdpr@retentiontest.test")
+            self.assertNotEqual(member.email, "gdpr@retentiontest.test")
         
         # Test data export functionality (GDPR right to data portability)
         if hasattr(member, 'export_personal_data'):
@@ -607,7 +607,7 @@ class TestDutchDataPrivacyCompliance(EnhancedTestCase):
         minimal_member = frappe.new_doc("Member")
         minimal_member.first_name = "Minimal"
         minimal_member.last_name = "Data"
-        minimal_member.email_address = "minimal@data.test"
+        minimal_member.email = "minimal@data.test"
         minimal_member.birth_date = "1990-01-01"
         
         # Should be able to save with minimal required data (real validation)

@@ -50,13 +50,12 @@ class TestPaymentFailureScenarios(EnhancedTestCase):
         cls.membership_type.insert()
         cls.test_records.append(cls.membership_type)
 
-        # Create test member with proper field names (email_address, birth_date)
         cls.member = frappe.get_doc(
             {
                 "doctype": "Member",
                 "first_name": "Payment",
                 "last_name": "Testmember",
-                "email_address": "payment.test@test.com",
+                "email": "payment.test@test.com",
                 "birth_date": "1990-01-01",
                 "status": "Active",
                 "chapter": cls.chapter.name}
