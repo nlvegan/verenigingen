@@ -254,10 +254,10 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
         """Test that all Option A+C components are properly integrated"""
         # Verify all key components are available
         components = {
-            "Enhanced SEPA Processor": "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor.SEPAProcessor",
-            "Direct Debit Batch": "verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch.DirectDebitBatch", 
-            "Batch Scheduler": "verenigingen.api.dd_batch_scheduler.daily_batch_optimization",
-            "Notification System": "verenigingen.api.sepa_batch_notifications.handle_automated_batch_validation"
+            "Enhanced SEPA Processor": "verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor.SEPAProcessor",
+            "Direct Debit Batch": "verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.DirectDebitBatch",
+            "Batch Scheduler": "verenigingen.verenigingen_payments.api.dd_batch_scheduler.daily_batch_optimization",
+            "Notification System": "verenigingen.verenigingen_payments.api.sepa_batch_notifications.handle_automated_batch_validation"
         }
         
         for component_name, import_path in components.items():
