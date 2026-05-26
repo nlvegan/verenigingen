@@ -993,9 +993,8 @@ class TestVolunteerSchemaContract(EnhancedTestCase):
         self.assertNotIn(
             "first_name",
             field_names,
-            "If first_name is added to Volunteer, update the test guards in "
-            "test_erpnext_expense_mock_elimination.py and consider a "
-            "Volunteer.first_name @property that derives from the linked Member.",
+            "If first_name is added to Volunteer, consider a Volunteer.first_name "
+            "@property that derives from the linked Member.",
         )
         self.assertNotIn("last_name", field_names)
 
