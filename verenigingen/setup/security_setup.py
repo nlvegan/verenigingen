@@ -76,23 +76,40 @@ def security_rate_limit(limit=5, seconds=60):
 def validate_csrf_token():
     """
     Validate CSRF token for security operations.
+
+    The original `from frappe.sessions import validate_csrf_token` import was
+    never valid — Frappe's CSRF check has lived on `LoginManager.validate_csrf_token`
+    (`frappe/auth.py:81`) since 2015, never in `sessions.py`. Reimplement the
+    saved-token comparison inline rather than depending on the framework helper.
+
+    Intentionally stricter than the framework gate: we do NOT skip on a
+    matching `Referer` (no `is_allowed_referrer()` call) and we don't gate on
+    HTTP method. The sole caller (`enable_csrf_protection` below) is an admin
+    POST endpoint where neither relaxation is wanted.
     """
-    if not frappe.conf.get("ignore_csrf", 0):
-        # CSRF is enabled, validate token
-        csrf_token = frappe.local.form_dict.get("csrf_token") or frappe.get_request_header(
-            "X-Frappe-CSRF-Token"
-        )
+    if frappe.conf.get("ignore_csrf", 0):
+        return
 
-        if not csrf_token:
-            frappe.throw(_("CSRF token missing"), frappe.CSRFTokenError)
+    # `.pop` rather than `.get` to avoid leaking the token to downstream code,
+    # matching Frappe's LoginManager pattern.
+    csrf_token = frappe.local.form_dict.pop("csrf_token", None) or frappe.get_request_header(
+        "X-Frappe-CSRF-Token"
+    )
+    if not csrf_token:
+        frappe.throw(_("CSRF token missing"), frappe.CSRFTokenError)
 
-        # Validate token using Frappe's built-in validation
-        from frappe.sessions import validate_csrf_token as frappe_validate_csrf
+    # `frappe.session` is a Werkzeug LocalProxy — attribute access on an unbound
+    # proxy raises RuntimeError, which `getattr(..., default=None)` doesn't catch.
+    # Pull the underlying value via `frappe.local.session` and bail cleanly when
+    # there's no session context (background jobs, CLI), matching Frappe's
+    # `or not frappe.session` short-circuit in auth.py.
+    session = getattr(frappe.local, "session", None)
+    if not session:
+        return
 
-        try:
-            frappe_validate_csrf(csrf_token)
-        except Exception:
-            frappe.throw(_("Invalid CSRF token"), frappe.CSRFTokenError)
+    saved_token = getattr(getattr(session, "data", None), "csrf_token", None)
+    if not saved_token or csrf_token != saved_token:
+        frappe.throw(_("Invalid CSRF token"), frappe.CSRFTokenError)
 
 
 def setup_csrf_protection():
@@ -611,10 +628,10 @@ def setup_all_security():
 # API Endpoints for manual security management
 
 
-@rate_limit(limit=5, seconds=60)  # 5 attempts per minute
-@security_rate_limit(limit=3, seconds=300)  # Additional: 3 attempts per 5 minutes
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@rate_limit(limit=5, seconds=60)  # 5 attempts per minute
+@security_rate_limit(limit=3, seconds=300)  # Additional: 3 attempts per 5 minutes
 def enable_csrf_protection():
     """Manually enable CSRF protection."""
     # Validate CSRF token if protection is enabled
@@ -652,9 +669,9 @@ def enable_csrf_protection():
         return {"success": False, "message": str(e)}
 
 
-@rate_limit(limit=10, seconds=60)  # 10 attempts per minute (read-only, less restrictive)
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@rate_limit(limit=10, seconds=60)  # 10 attempts per minute (read-only, less restrictive)
 def check_current_security_status():
     """Check current security configuration status."""
     # No CSRF validation needed for read-only operation

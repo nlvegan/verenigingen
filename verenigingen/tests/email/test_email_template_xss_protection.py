@@ -12,12 +12,23 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestEmailTemplateXSSProtection(EnhancedTestCase):
-    """Test XSS protection in email templates."""
+    """Test XSS protection in email templates.
+
+    Reads `verenigingen/fixtures/email_template.json` directly (the production
+    install fixture). Every template added there is gated by this suite —
+    template authors editing that file should expect their additions to be
+    inspected by `test_specific_xss_vulnerable_patterns`, `test_url_handling_security`,
+    `test_variable_escaping_patterns`, etc.
+    """
 
     def setUp(self):
         """Load email templates for testing."""
         super().setUp()
-        template_file = Path(__file__).parent.parent / "fixtures" / "email_template.json"
+        # Email templates live in the production fixtures dir (loaded by app install),
+        # not under tests/fixtures. Read directly from the canonical location.
+        template_file = (
+            Path(__file__).parent.parent.parent / "fixtures" / "email_template.json"
+        )
 
         with open(template_file, 'r') as f:
             self.templates = json.load(f)
