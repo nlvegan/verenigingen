@@ -31,6 +31,7 @@ import frappe
 import unittest
 from datetime import datetime, timedelta
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class ChapterBoardTestFactory:
@@ -472,6 +473,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
         
         frappe.db.commit()
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_scenario_a_happy_path_treasurer_workflow(self):
         """Scenario A: Complete treasurer approval workflow"""
         # Create expense in Chapter A by regular member
@@ -529,6 +531,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
             expense_2.reload()
             self.assertEqual(expense_2.status, "Rejected", "Treasurer should be able to reject expenses")
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_scenario_b_cross_chapter_security(self):
         """Scenario B: Cross-chapter access prevention validation"""
         # Create expense in Chapter B
@@ -574,6 +577,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
                 with self.assertRaises(frappe.PermissionError):
                     frappe.get_doc("Member", application_b.name)
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_scenario_c_role_lifecycle(self):
         """Scenario C: Role assignment and removal lifecycle"""
         # Create new member who will become board member
@@ -632,6 +636,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
                 test_expense_2.status = "Approved"
                 test_expense_2.save()
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_scenario_d_non_treasurer_board_member(self):
         """Scenario D: Non-treasurer board member access validation"""
         # Secretary should be able to access membership applications in their chapter
@@ -701,6 +706,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
             with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
                 frappe.get_doc("Membership Termination Request", termination_request.name)
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_workflow_edge_cases(self):
         """Test edge cases in expense approval workflow"""
         # Test expense without chapter assignment
@@ -782,6 +788,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
             except Exception as e:
                 self.fail(f"System should handle orphaned board member records gracefully: {e}")
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_performance_permission_queries(self):
         """Test performance of permission queries with larger datasets"""
         import time
@@ -825,6 +832,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
             except Exception as e:
                 self.fail(f"Permission query should handle larger datasets efficiently: {e}")
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_security_privilege_escalation_prevention(self):
         """Test prevention of privilege escalation attempts"""
         # Regular member should not be able to create board positions for themselves
@@ -917,6 +925,7 @@ class TestChapterBoardMemberCoverage(VereningingenTestCase):
         self.assertEqual(board_member.chapter_role, role.name)
         self.assertTrue(board_member.is_active)
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_complete_workflow_integration(self):
         """Test complete integration of all workflow components"""
         # Create complete scenario

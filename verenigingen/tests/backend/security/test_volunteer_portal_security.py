@@ -3,8 +3,10 @@ import unittest
 import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
+@unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
 class TestVolunteerPortalSecurity(EnhancedTestCase):
     """Security-focused tests for the volunteer portal"""
 

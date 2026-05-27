@@ -10,6 +10,7 @@ import unittest
 import frappe
 from unittest.mock import patch, MagicMock
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 from verenigingen.templates.pages.volunteer.expenses import submit_expense
 from verenigingen.utils.cost_center_resolver import get_organization_cost_center_from_dict as get_organization_cost_center
@@ -110,6 +111,7 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
             return self.category_mapping.get(english_name, english_name)
         return english_name
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_submit_expense_basic_functionality(self):
         """Test basic expense submission functionality with real volunteer record"""
         # Skip test if no category is available
@@ -153,6 +155,7 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
         self.assertIsNotNone(complete_expense_data["description"])
         self.assertIn("organization_type", complete_expense_data)
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_creation_with_categories(self):
         """Test volunteer expense creation with different expense categories"""
         for category in ["Travel", "Office Supplies", "Communications"]:
@@ -179,6 +182,7 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
                 self.assertEqual(volunteer_expense.category, expected_category)
                 self.assertIn(category.lower(), volunteer_expense.description.lower())
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_amount_validation(self):
         """Test expense amount validation"""
         # Test valid amounts
@@ -342,6 +346,7 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
         # Test that description is present
         self.assertIn("description", incomplete_data)
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_data_validation_invalid_organization(self):
         """Test expense data validation with invalid organization selection"""
         # Test organization_type "Chapter" without chapter field - should fail validation
@@ -389,6 +394,7 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
         self.assertIsNotNone(fetched_volunteer.email)
         self.assertIn("@", fetched_volunteer.email)
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_hrms_availability_check(self):
         """Test HRMS availability checking in integration test"""
         # Test that required apps and doctypes exist
@@ -406,6 +412,7 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
             with self.subTest(doctype=doctype):
                 self.assertTrue(frappe.db.exists("DocType", doctype))
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_doctypes_availability(self):
         """Test behavior when checking doctype availability"""
         # Test that core verenigingen doctypes exist
@@ -424,6 +431,7 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
                     exists = frappe.db.exists("DocType", doctype)
                     self.assertTrue(exists, f"ERPNext DocType {doctype} should exist")
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_record_creation(self):
         """Test that volunteer expense records are created properly"""
         # Create multiple volunteer expense records to test the system
@@ -533,6 +541,7 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
             return self.category_mapping.get(english_name, english_name)
         return english_name
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_submission_with_unicode_characters(self):
         """Test expense submission with unicode characters in description"""
         # Create real volunteer expense with unicode characters
@@ -554,6 +563,7 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
         self.assertIn("üñïçödé", unicode_expense.notes)
         self.assertTrue(unicode_expense.amount == 25.50)
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_submission_with_very_large_amount(self):
         """Test expense submission with very large amount"""
         # Create real volunteer expense with large amount
@@ -574,6 +584,7 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
         self.assertEqual(large_expense.amount, 999999.99)
         self.assertTrue(large_expense.amount > 100000)  # Confirm it's a large amount
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_submission_with_future_date(self):
         """Test that expense submission properly rejects future dates"""
         future_date = frappe.utils.add_days(frappe.utils.today(), 30)
@@ -598,6 +609,7 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
         # Verify the error message mentions future date
         self.assertIn("future", str(context.exception).lower())
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_submission_with_very_long_description(self):
         """Test that expense submission properly rejects descriptions that are too long"""
         long_description = "This is a very long description " * 50  # 1500+ characters
@@ -635,6 +647,7 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
         # Error should mention category not found
         self.assertIn("not found", str(context.exception).lower())
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_sequential_multiple_expense_creation(self):
         """Test creating multiple expenses sequentially without data conflicts"""
         # NOTE: True threading with frappe is problematic in tests due to site/db connection issues
@@ -696,6 +709,7 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
             f"Expected validation error message, got: {result.get('message')}"
         )
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_batch_expense_creation(self):
         """Test creating a batch of expense records efficiently"""
         # Create small batch for integration testing (5 records - balance between coverage and speed)

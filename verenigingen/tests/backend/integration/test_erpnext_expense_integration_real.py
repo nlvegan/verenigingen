@@ -18,10 +18,13 @@ This approach catches real configuration issues, business rule violations, and i
 that mocked tests miss entirely.
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_days
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.templates.pages.volunteer.expenses import (
     submit_expense,
 )
@@ -476,6 +479,7 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
             if not expense_claim_exists:
                 self.skipTest("ERPNext HRMS not installed - DocTypes unavailable")
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_dual_tracking_creation_real_integration(self):
         """Test dual ERPNext and Volunteer expense tracking with real database"""
         
