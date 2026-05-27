@@ -79,22 +79,28 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         # Reload immediately after creation to get fresh timestamp
         member.reload()
 
-        # Set initial state
+        # Set initial state — `status` must be "Pending" to keep `application_status`
+        # in the application workflow (MemberValidationService._clear_application_status_if_needed
+        # clears app_status once member.status leaves Pending/Rejected).
+        member.status = "Pending"
         member.application_status = "Pending"
         member.save()
 
         # Refresh to avoid timestamp mismatch
         member.reload()
-        
+
         # Verify workflow state
         self.assertEqual(member.application_status, "Pending")
-        
-        # Test state transition (simulate approval)
+
+        # Test state transition (simulate approval). flags.ignore_status_validation
+        # mirrors the production approve/reject path which bypasses the clear logic.
+        member.flags.ignore_status_validation = True
         member.application_status = "Approved"
         member.save()
-        
+        member.reload()
+
         self.assertEqual(member.application_status, "Approved")
-        
+
         print("✅ Member workflow integration works")
 
     def test_workflow_permissions(self):
@@ -208,6 +214,10 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
 
     def test_approval_idempotency(self):
         """Test that approving an already-approved member is idempotent"""
+        # Create the Membership Type used by this test (literal "Annual Membership"
+        # is not a seeded fixture; the helper creates a uniquely-named one).
+        mt = self.create_test_membership_type()
+
         # Create a test member that's already approved
         member = self.create_test_member(
             first_name="Test",
@@ -215,8 +225,11 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
             email="test.idempotent@example.com"
         )
 
-        # Manually set member to approved state (bypass full approval flow to avoid test complexity)
+        # Manually set member to approved state. flags.ignore_status_validation
+        # mirrors the production approve/reject path which prevents
+        # MemberValidationService from clearing application_status when status leaves Pending.
         member.reload()
+        member.flags.ignore_status_validation = True
         member.application_status = "Approved"
         member.status = "Active"
         member.member_since = frappe.utils.today()
@@ -227,7 +240,7 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         membership = frappe.get_doc({
             "doctype": "Membership",
             "member": member.name,
-            "membership_type": "Annual Membership",
+            "membership_type": mt.name,
             "start_date": frappe.utils.today(),
             "end_date": frappe.utils.add_months(frappe.utils.today(), 12),
             "status": "Active"
@@ -241,7 +254,7 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         # Try to approve again (should be idempotent)
         result = approve_membership_application(
             member_name=member.name,
-            membership_type="Annual Membership",
+            membership_type=mt.name,
             create_invoice=False
         )
 
