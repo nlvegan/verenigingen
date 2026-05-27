@@ -9,25 +9,9 @@ import unittest
 import frappe
 from frappe.utils import today, add_months, add_days, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-
-
-_ENHANCED_MEMBERSHIP_API_GONE = (
-    "verenigingen.api.enhanced_membership_application module was deleted; the "
-    "process_enhanced_application / get_membership_types_for_application / "
-    "validate_contribution_amount entry points no longer exist at this path. "
-    "Re-enable when these are rewired (some functions migrated, e.g. "
-    "validate_contribution_amount → templates/pages/membership_application.py:125). "
-    "Group G3 follow-up — see PR #96 notes."
-)
-
-_LIFECYCLE_SCHEMA_GONE = (
-    "Membership Type schema migrated in patches/v2_0/migrate_membership_type_billing_to_dues_schedule.py: "
-    "predefined_tiers, contribution_mode, enable_income_calculator, income_percentage_rate, "
-    "suggested_contribution moved to Membership Dues Schedule templates. The setUp helpers "
-    "(create_tier_based_membership_type, create_calculator_based_membership_type, "
-    "create_calculator_dues_schedule) write to fields that no longer exist on Membership Type. "
-    "Re-enable after rewriting helpers against the new template-based schema. See "
-    "docs/plans/2026-05-27-test-failure-triage-plan.md (Bucket B — schema dead)."
+from verenigingen.tests.utils.skip_reasons import (
+    ENHANCED_MEMBERSHIP_API_GONE as _ENHANCED_MEMBERSHIP_API_GONE,
+    LIFECYCLE_SCHEMA_GONE as _LIFECYCLE_SCHEMA_GONE,
 )
 
 

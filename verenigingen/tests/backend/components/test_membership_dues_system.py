@@ -8,21 +8,11 @@ import frappe
 import unittest
 from frappe.utils import today, add_months, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import DUES_SCHEMA_GONE
 from verenigingen.tests.fixtures.test_data_factory import TestDataFactory
 
 
-_DUES_SCHEMA_GONE = (
-    "Membership Type schema migrated in patches/v2_0/migrate_membership_type_billing_to_dues_schedule.py: "
-    "predefined_tiers, contribution_mode, enable_income_calculator, income_percentage_rate, "
-    "suggested_contribution moved to Membership Dues Schedule templates (with renamed/restructured Select "
-    "options). The setUp helpers in this file write to fields that no longer exist on Membership Type, "
-    "and tests also import the removed verenigingen.api.enhanced_membership_application module. "
-    "Re-enable after rewriting helpers against the new template-based schema. See "
-    "docs/plans/2026-05-27-test-failure-triage-plan.md (Bucket B — schema dead). G3 sweep deferral from PR #98."
-)
-
-
-@unittest.skip(_DUES_SCHEMA_GONE)
+@unittest.skip(DUES_SCHEMA_GONE)
 class TestMembershipDuesSystem(VereningingenTestCase):
     """Test the enhanced membership dues system functionality"""
 
