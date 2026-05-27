@@ -36,14 +36,25 @@ def security_rate_limit(limit=5, seconds=60):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Use Frappe's built-in rate limiting
+            # Use the namespaced cache API (`get_value` / `set_value`)
+            # rather than raw redis `get` / `setex`. The raw calls store
+            # un-namespaced keys that `frappe.cache.delete_keys()` cannot
+            # match, leaving the only cleanup path as Redis TTL eviction.
+            # That broke test isolation (cleanup couldn't actually clear
+            # state between tests) and silently leaked keys in production
+            # until their TTL fired.
+            #
+            # `use_local_cache=False` on the read is required: `set_value`
+            # always populates `frappe.local.cache` with no TTL, and
+            # `get_value` reads from that local cache first. Without this
+            # flag, a TTL-expired Redis key still returns a stale count
+            # from the request-local cache (broke
+            # `test_rate_limit_cache_expiration`).
             key = f"security_rate_limit:{frappe.session.user}:{func.__name__}"
 
-            # Check rate limit
             from frappe.utils import cint
 
-            # Get current count
-            count = cint(frappe.cache.get(key) or 0)
+            count = cint(frappe.cache.get_value(key, use_local_cache=False) or 0)
 
             if count >= limit:
                 # Log rate limit exceeded
@@ -62,10 +73,8 @@ def security_rate_limit(limit=5, seconds=60):
                     frappe.RateLimitExceededError,
                 )
 
-            # Increment counter
-            frappe.cache.setex(key, seconds, count + 1)
+            frappe.cache.set_value(key, count + 1, expires_in_sec=seconds)
 
-            # Execute function
             return func(*args, **kwargs)
 
         return wrapper
