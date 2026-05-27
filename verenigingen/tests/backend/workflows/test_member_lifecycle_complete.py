@@ -7,10 +7,13 @@ Complete Member Lifecycle Workflow Test
 Tests the entire journey from application submission to termination with full environment
 """
 
+import unittest
+
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import add_days, add_months, today, random_string, now_datetime
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
 
 
@@ -125,6 +128,7 @@ class TestMemberLifecycleComplete(EnhancedTestCase):
             
         super().tearDownClass()
         
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_complete_member_lifecycle(self):
         """Test the complete member lifecycle from application to termination"""
         

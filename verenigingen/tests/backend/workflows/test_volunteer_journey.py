@@ -8,9 +8,12 @@ Tests the complete volunteer lifecycle from member to active volunteer
 """
 
 
+import unittest
+
 import frappe
 from frappe.utils import add_days, today
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestVolunteerJourney(VereningingenWorkflowTestCase):
@@ -53,6 +56,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
             email=self.test_email
         )
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_complete_volunteer_journey(self):
         """Test the complete volunteer journey from member to deactivation"""
 

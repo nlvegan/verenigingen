@@ -6,6 +6,7 @@ Tests for privilege escalation, data isolation, financial fraud protection, and 
 import unittest
 import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestSecurityComprehensive(VereningingenTestCase):
@@ -151,6 +152,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     # ===== FINANCIAL FRAUD PROTECTION =====
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_payment_amount_tampering(self):
         """Test prevention of payment amount manipulation"""
         # VereningingenTestCase handles permissions: frappe.set_user(self.chapter1_admin)
@@ -320,6 +322,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     # ===== DATA VALIDATION EDGE CASES =====
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_boundary_value_attacks(self):
         """Test boundary value manipulation attacks"""
         # Test negative amounts

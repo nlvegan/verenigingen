@@ -4,9 +4,12 @@ Comprehensive performance testing including large dataset validation,
 concurrent user simulation, query optimization, and resource monitoring
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_days, now_datetime, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 import time
 import threading
 from datetime import datetime, timedelta
@@ -269,6 +272,7 @@ class TestPerformanceComprehensive(VereningingenTestCase):
             "records_deleted": len(temp_members)
         }
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_concurrent_user_load_simulation(self):
         """Test system behavior under concurrent user load"""
         print(f"👥 Simulating {self.performance_config['concurrent_users']} concurrent users...")
