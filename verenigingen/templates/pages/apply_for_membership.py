@@ -82,9 +82,13 @@ def get_context(context):
     context.is_dutch_installation = is_dutch_installation()
 
     # Get membership types with enhanced contribution options
-    from verenigingen.templates.pages.membership_application import get_membership_types_with_contributions
+    from verenigingen.services.member.application.membership_application_service import (
+        get_membership_application_service,
+    )
 
-    context.enhanced_membership_types = get_membership_types_with_contributions()
+    context.enhanced_membership_types = (
+        get_membership_application_service().get_membership_types_with_contributions()
+    )
 
     # Basic context setup
     context.already_member = False
