@@ -16,8 +16,16 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestMembershipApplicationPageImports(EnhancedTestCase):
+    def setUp(self):
+        super().setUp()
+        # Seed at least one active Membership Type. Without this, both tests below
+        # would have vacuous-pass paths on a bare site: an empty list satisfies
+        # `isinstance(..., list)` and skips the `contribution_options` for-loop.
+        self.test_membership_type = self.create_test_membership_type()
+
     def test_apply_for_membership_get_context_resolves_imports(self):
-        """`/apply_for_membership` page load must not raise ImportError."""
+        """`/apply_for_membership` page load must not raise ImportError and must
+        reach the service path (not silently fall back to an empty list)."""
         from verenigingen.templates.pages.apply_for_membership import get_context
 
         original_user = frappe.session.user
@@ -30,11 +38,21 @@ class TestMembershipApplicationPageImports(EnhancedTestCase):
 
         self.assertIn("enhanced_membership_types", result)
         self.assertIsInstance(result.enhanced_membership_types, list)
+        # setUp seeded a Membership Type — service path must surface it.
+        self.assertGreater(
+            len(result.enhanced_membership_types),
+            0,
+            "Expected at least the setUp-seeded membership type in service output",
+        )
+        # Service path enriches each entry with contribution_options; the gone
+        # module-level function would have raised ImportError before reaching here.
+        for mt in result.enhanced_membership_types:
+            self.assertIn("contribution_options", mt)
 
     def test_get_form_data_uses_service_path(self):
         """`get_form_data` must reach the service accessor, not the fallback.
 
-        The service path enriches each membership type with `contribution_options`;
+        Service path enriches each membership type with `contribution_options`;
         the bare-except fallback only adds `billing_frequency`. Asserting on
         `contribution_options` confirms the import resolved.
         """
@@ -43,10 +61,17 @@ class TestMembershipApplicationPageImports(EnhancedTestCase):
         result = get_form_data()
 
         self.assertTrue(result["success"], f"get_form_data failed: {result}")
-        if result["membership_types"]:
-            for mt in result["membership_types"]:
-                self.assertIn(
-                    "contribution_options",
-                    mt,
-                    "Fallback path ran — service import is broken again",
-                )
+        # setUp seeded a Membership Type — a vacuous-pass guard would hide a
+        # regression of the service import back to the silent fallback (the
+        # fallback returns success=True with the same shape).
+        self.assertGreater(
+            len(result["membership_types"]),
+            0,
+            "Expected at least the setUp-seeded membership type in form data",
+        )
+        for mt in result["membership_types"]:
+            self.assertIn(
+                "contribution_options",
+                mt,
+                "Fallback path ran — service import is broken again",
+            )
