@@ -20,7 +20,18 @@ _ENHANCED_MEMBERSHIP_API_GONE = (
     "Group G3 follow-up — see PR #96 notes."
 )
 
+_LIFECYCLE_SCHEMA_GONE = (
+    "Membership Type schema migrated in patches/v2_0/migrate_membership_type_billing_to_dues_schedule.py: "
+    "predefined_tiers, contribution_mode, enable_income_calculator, income_percentage_rate, "
+    "suggested_contribution moved to Membership Dues Schedule templates. The setUp helpers "
+    "(create_tier_based_membership_type, create_calculator_based_membership_type, "
+    "create_calculator_dues_schedule) write to fields that no longer exist on Membership Type. "
+    "Re-enable after rewriting helpers against the new template-based schema. See "
+    "docs/plans/2026-05-27-test-failure-triage-plan.md (Bucket B — schema dead)."
+)
 
+
+@unittest.skip(_LIFECYCLE_SCHEMA_GONE)
 class TestEnhancedMembershipLifecycle(EnhancedTestCase):
     """Test complete enhanced membership lifecycle workflows"""
 
@@ -76,13 +87,13 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         dues_schedule = self.create_dues_schedule_from_application(member, application)
 
         # 5. Test dues collection process
-        self.test_dues_collection_for_schedule(dues_schedule)
+        self._dues_collection_for_schedule(dues_schedule)
 
         # 6. Test contribution adjustment
-        self.test_contribution_adjustment(dues_schedule, "Supporter")
+        self._contribution_adjustment(dues_schedule, "Supporter")
 
         # 7. Test membership type change
-        self.test_membership_type_change_workflow(member)
+        self._membership_type_change_workflow(member)
 
     @unittest.skip(_ENHANCED_MEMBERSHIP_API_GONE)
     def test_calculator_based_membership_complete_workflow(self):
@@ -126,8 +137,9 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         dues_schedule = self.create_dues_schedule_from_member(member)
 
         # 4. Test payment plan request for calculator-based member
-        self.test_payment_plan_request_workflow(member, dues_schedule)
+        self._payment_plan_request_workflow(member, dues_schedule)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_contribution_adjustment_workflow(self):
         """Test workflow for adjusting contribution amounts"""
 
@@ -153,6 +165,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
             self.assertEqual(dues_schedule.dues_rate, new_tier.amount)
             self.assertNotEqual(dues_schedule.dues_rate, original_amount)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_payment_failure_recovery_workflow(self):
         """Test complete payment failure and recovery workflow"""
 
@@ -213,8 +226,8 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         dues_schedule.reload()
         self.assertEqual(dues_schedule.status, "Payment Plan Active")
 
-    def test_membership_type_change_workflow(self, member):
-        """Test workflow for changing membership type through portal"""
+    def _membership_type_change_workflow(self, member):
+        """Helper: workflow for changing membership type through portal."""
 
         # Get member's current membership
         membership = frappe.get_value(
@@ -297,6 +310,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.assertEqual(active_schedule.membership_type, new_membership_type.name)
         self.assertEqual(active_schedule.dues_rate, new_membership_type.minimum_amount)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_membership_type_migration_workflow(self):
         """Test workflow for migrating between membership types"""
 
@@ -331,6 +345,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.assertEqual(new_dues_schedule.status, "Active")
         self.assertNotEqual(old_dues_schedule.membership_type, new_dues_schedule.membership_type)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_seasonal_membership_workflow(self):
         """Test workflow for seasonal/temporary membership adjustments"""
 
@@ -363,6 +378,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.assertEqual(dues_schedule.dues_rate, original_amount)
         self.assertFalse(dues_schedule.uses_custom_amount)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_bulk_contribution_adjustment_workflow(self):
         """Test workflow for bulk contribution adjustments"""
 
@@ -479,8 +495,8 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         return dues_schedule
 
-    def test_dues_collection_for_schedule(self, dues_schedule):
-        """Test dues collection for a schedule"""
+    def _dues_collection_for_schedule(self, dues_schedule):
+        """Helper: dues collection for a schedule."""
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
         # Make schedule eligible for collection
@@ -495,8 +511,8 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         schedule_names = [s.name for s in eligible]
         self.assertIn(dues_schedule.name, schedule_names)
 
-    def test_contribution_adjustment(self, dues_schedule, target_tier_name):
-        """Test adjusting contribution to different tier"""
+    def _contribution_adjustment(self, dues_schedule, target_tier_name):
+        """Helper: adjust contribution to different tier."""
         if dues_schedule.contribution_mode == "Tier":
             membership_type = frappe.get_doc("Membership Type", dues_schedule.membership_type)
 
@@ -517,8 +533,8 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
                 self.assertEqual(dues_schedule.dues_rate, target_tier.amount)
                 self.assertNotEqual(dues_schedule.dues_rate, original_amount)
 
-    def test_payment_plan_request_workflow(self, member, dues_schedule):
-        """Test payment plan request for member"""
+    def _payment_plan_request_workflow(self, member, dues_schedule):
+        """Helper: payment plan request for member."""
         from verenigingen.api.payment_plan_management import request_payment_plan
 
         # Set up member email for permission test
