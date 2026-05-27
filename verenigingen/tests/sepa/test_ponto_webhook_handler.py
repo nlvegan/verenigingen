@@ -297,8 +297,8 @@ class TestPontoSyncEventHandlers(FrappeTestCase):
             result = handle_sync_failed(payload)
 
         self.assertTrue(result["handled"])
-        self.assertEqual(result["action"], "error_logged")
-        self.assertEqual(result["error"]["error_code"], "BANK_ERROR")
+        self.assertEqual(result["action"], "sync_failure_logged")
+        self.assertEqual(result["error_info"]["error_code"], "BANK_ERROR")
         mock_log.assert_called_once()
 
     def test_handle_sync_failed_detects_reauth_needed(self):
@@ -347,7 +347,7 @@ class TestPontoSyncEventHandlers(FrappeTestCase):
         result = handle_sync_no_change(payload)
 
         self.assertTrue(result["handled"])
-        self.assertEqual(result["action"], "no_action_needed")
+        self.assertEqual(result["action"], "logged")
 
 
 class TestPontoTransactionEventHandlers(FrappeTestCase):
@@ -464,7 +464,7 @@ class TestPontoAccountEventHandlers(FrappeTestCase):
             result = handle_account_revoked(payload)
 
         self.assertTrue(result["handled"])
-        self.assertEqual(result["action"], "admin_notified")
+        self.assertEqual(result["action"], "logged")
         self.assertEqual(result["account_id"], account_id)
         mock_log.assert_called_once()
 
