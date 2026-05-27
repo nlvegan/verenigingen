@@ -257,11 +257,11 @@ def get_form_data():
         # Get enhanced membership types with contribution options in one bulk operation
         membership_types = []
         try:
-            from verenigingen.templates.pages.membership_application import (
-                get_membership_types_with_contributions,
+            from verenigingen.services.member.application.membership_application_service import (
+                get_membership_application_service,
             )
 
-            membership_types = get_membership_types_with_contributions()
+            membership_types = get_membership_application_service().get_membership_types_with_contributions()
         except Exception as e:
             # Fallback to basic membership types if enhanced version fails
             frappe.log_error(f"Error getting enhanced membership types, falling back to basic: {str(e)}")
