@@ -34,18 +34,21 @@ from verenigingen.setup.security_setup import (
 
 class TestSecurityRateLimit(VereningingenTestCase):
     """Test custom rate limiting decorator"""
-    
+
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
         frappe.session.user = "test_user@example.com"
-    
+        # Clear cache from prior runs. The first test in the class
+        # otherwise inherits keys whose 10-60s TTL may not have expired
+        # (only tearDown was clearing — there's no tearDown before the
+        # first setUp in a session). RedisWrapper.delete_keys appends a
+        # trailing `*` internally via get_keys (redis_wrapper.py:131),
+        # so the bare prefix is correct.
+        frappe.cache.delete_keys("security_rate_limit:")
+
     def tearDown(self):
         frappe.session.user = self.original_user
-        # Clear cache between tests. `from frappe.cache import cache` was removed
-        # in current Frappe; `frappe.cache` is now the RedisWrapper directly.
-        # No trailing `*` — `RedisWrapper.delete_keys` appends one internally
-        # via `get_keys` (redis_wrapper.py:131).
         frappe.cache.delete_keys("security_rate_limit:")
         super().tearDown()
     
@@ -477,9 +480,16 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
         super().setUp()
         self.original_user = frappe.session.user
         frappe.session.user = "admin@example.com"
+        # `enable_csrf_protection` is wrapped with `@security_rate_limit`;
+        # without clearing the prior run's cache the first invocation of
+        # the API tests trips the rate limit before reaching the
+        # permission check under test.
+        frappe.cache.delete_keys("security_rate_limit:")
 
     def tearDown(self):
         frappe.session.user = self.original_user
+        frappe.cache.delete_keys("security_rate_limit:")
+        super().tearDown()
 
     @contextlib.contextmanager
     def _with_admin_user(self):
@@ -493,13 +503,17 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
             yield
         finally:
             frappe.set_user(previous)
-        super().tearDown()
     
     # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('verenigingen.setup.security_setup.log_security_audit')
     # Mock justified: Infrastructure - external dependency, not the boundary under test
     @patch('frappe.installer.update_site_config')
-    def test_enable_csrf_protection_success(self, mock_update_config, mock_audit):
+    # Mock justified: validate_csrf_token reads frappe.local.request which is
+    # unbound in the unittest runner (RuntimeError: object is not bound). The
+    # CSRF validation logic itself is exercised by TestCSRFValidation; here we
+    # only care about the enable-CSRF flow downstream of the gate.
+    @patch('verenigingen.setup.security_setup.validate_csrf_token')
+    def test_enable_csrf_protection_success(self, mock_csrf, mock_update_config, mock_audit):
         """Test successful CSRF protection enabling with real permissions.
 
         ``enable_csrf_protection`` writes site_config — a privileged operation
@@ -518,22 +532,31 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
     
     def test_enable_csrf_protection_permission_denied(self):
         """Test CSRF protection enabling without permissions"""
-        # Test with regular user (no System Settings write permission)
-        frappe.set_user("test_user@example.com")
-        
-        # Ensure user exists with basic role
+        # Create the test user as Administrator (insert + role assignment
+        # both need write permission on User), THEN switch to the user to
+        # exercise the actual permission boundary. Without this split, the
+        # test errored on `user_doc.insert()` before reaching the assertion.
         if not frappe.db.exists("User", "test_user@example.com"):
-            user_doc = frappe.get_doc({
-                "doctype": "User",
-                "email": "test_user@example.com",
-                "first_name": "Test",
-                "last_name": "User",
-                "enabled": 1
-            })
-            user_doc.insert()
-            user_doc.add_roles("Employee")
-        
-        with self.assertRaises(frappe.PermissionError):
+            with self._with_admin_user():
+                user_doc = frappe.get_doc({
+                    "doctype": "User",
+                    "email": "test_user@example.com",
+                    "first_name": "Test",
+                    "last_name": "User",
+                    "enabled": 1
+                })
+                user_doc.insert()
+                user_doc.add_roles("Employee")
+
+        frappe.set_user("test_user@example.com")
+
+        # The @critical_api decorator raises
+        # `verenigingen.utils.error_handling.PermissionError`, which extends
+        # `VerenigingenException` (→ `frappe.ValidationError`), NOT
+        # `frappe.PermissionError`. Accept either to cover both the
+        # framework's permission gate and the application's stricter gate.
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
+        with self.assertRaises((frappe.PermissionError, VPermissionError)):
             enable_csrf_protection()
     
     # Mock justified: Infrastructure - external dependency, not the boundary under test
@@ -546,9 +569,14 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
             "recommendations": []
         }
         mock_check.return_value = mock_status
-        
-        result = check_current_security_status()
-        
+
+        # check_current_security_status is wrapped with @critical_api; the
+        # session.user set in setUp ("admin@example.com") doesn't grant the
+        # critical-role membership the decorator enforces. Switch to a real
+        # Administrator session for the call.
+        with self._with_admin_user():
+            result = check_current_security_status()
+
         self.assertTrue(result["success"])
         self.assertEqual(result["status"], mock_status)
     
@@ -558,20 +586,29 @@ class TestSecurityAPIEndpoints(VereningingenTestCase):
     @patch('frappe.installer.update_site_config')
     def test_apply_production_security_comprehensive(self, mock_update_config, mock_audit):
         """Test applying production security settings with real permissions"""
-        # Test with admin permissions set up in setUp - FrappeTestCase handles permissions
-        # frappe.set_user moved to setUp context
-        
-        # Mock current insecure configuration
-        with patch.object(frappe.conf, 'developer_mode', 1):
-            with patch.object(frappe.conf, 'get', side_effect=lambda key, default=None: {
-                'ignore_csrf': 1,
-                'allow_tests': 1,
-                'secret_key': None
-            }.get(key, default)):
-                # Mock justified: Infrastructure - external dependency, not the boundary under test
-                with patch('verenigingen.setup.security_setup.generate_session_secret', return_value=True):
+        # apply_production_security is @critical_api; run inside the
+        # Administrator context for the call.
+        #
+        # `patch.object(frappe.conf, 'developer_mode', 1)` was failing with
+        # `TypeError: 'NoneType' object is not subscriptable` inside mock's
+        # `get_original` because `frappe.conf` is a `frappe._dict` whose
+        # attribute access proxies to dict access — there is no real
+        # instance attribute for mock to capture. Use `patch.dict` instead;
+        # `frappe._dict.__getattr__` reads the dict, so the production
+        # `frappe.conf.developer_mode` attribute access still resolves to
+        # the patched value.
+        config_overrides = {
+            'developer_mode': 1,
+            'ignore_csrf': 1,
+            'allow_tests': 1,
+            'secret_key': None,
+        }
+        with patch.dict(frappe.conf, config_overrides):
+            # Mock justified: Infrastructure - external dependency, not the boundary under test
+            with patch('verenigingen.setup.security_setup.generate_session_secret', return_value=True):
+                with self._with_admin_user():
                     result = apply_production_security()
-        
+
         self.assertTrue(result["success"])
         self.assertGreater(len(result["changes"]), 0)
         
@@ -659,10 +696,14 @@ class TestSecurityEdgeCases(VereningingenTestCase):
         mock_get_config.return_value = {"ignore_csrf": 1, "developer_mode": 0}
         
         result = setup_csrf_protection()
-        
+
         self.assertEqual(result["status"], "error")
-        self.assertIn("error", result)
-    
+        # Production code returns {"status": "error", "message": ...} — verify
+        # the failure carries a message rather than asserting a non-existent
+        # "error" key.
+        self.assertIn("message", result)
+        self.assertIn("Update failed", result["message"])
+
     def test_security_audit_with_none_user(self):
         """Test audit logging with None user"""
         original_user = frappe.session.user
