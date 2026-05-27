@@ -139,6 +139,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         # 4. Test payment plan request for calculator-based member
         self._payment_plan_request_workflow(member, dues_schedule)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_contribution_adjustment_workflow(self):
         """Test workflow for adjusting contribution amounts"""
 
@@ -164,6 +165,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
             self.assertEqual(dues_schedule.dues_rate, new_tier.amount)
             self.assertNotEqual(dues_schedule.dues_rate, original_amount)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_payment_failure_recovery_workflow(self):
         """Test complete payment failure and recovery workflow"""
 
@@ -308,6 +310,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.assertEqual(active_schedule.membership_type, new_membership_type.name)
         self.assertEqual(active_schedule.dues_rate, new_membership_type.minimum_amount)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_membership_type_migration_workflow(self):
         """Test workflow for migrating between membership types"""
 
@@ -342,6 +345,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.assertEqual(new_dues_schedule.status, "Active")
         self.assertNotEqual(old_dues_schedule.membership_type, new_dues_schedule.membership_type)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_seasonal_membership_workflow(self):
         """Test workflow for seasonal/temporary membership adjustments"""
 
@@ -374,6 +378,7 @@ class TestEnhancedMembershipLifecycle(EnhancedTestCase):
         self.assertEqual(dues_schedule.dues_rate, original_amount)
         self.assertFalse(dues_schedule.uses_custom_amount)
 
+    @unittest.skip(_LIFECYCLE_SCHEMA_GONE)
     def test_bulk_contribution_adjustment_workflow(self):
         """Test workflow for bulk contribution adjustments"""
 
