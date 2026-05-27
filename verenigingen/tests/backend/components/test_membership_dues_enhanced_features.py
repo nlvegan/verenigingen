@@ -5,12 +5,15 @@ Tests the flexible contribution system, income calculator, and payment workflows
 """
 
 import frappe
+import unittest
 from frappe.utils import today, add_months, add_days, flt, getdate
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import DUES_SCHEMA_GONE
 from decimal import Decimal
 import json
 
 
+@unittest.skip(DUES_SCHEMA_GONE)
 class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     """Test enhanced features from the membership dues system design document"""
 

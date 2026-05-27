@@ -5,11 +5,14 @@ Tests the flexible contribution system with tiers, calculator, and custom amount
 """
 
 import frappe
+import unittest
 from frappe.utils import today, add_months, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import DUES_SCHEMA_GONE
 from verenigingen.tests.fixtures.test_data_factory import TestDataFactory
 
 
+@unittest.skip(DUES_SCHEMA_GONE)
 class TestMembershipDuesSystem(VereningingenTestCase):
     """Test the enhanced membership dues system functionality"""
 

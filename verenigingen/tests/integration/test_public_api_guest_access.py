@@ -90,21 +90,10 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
             "suggest_chapters_for_postal_code",
             "Chapter suggestions by postal code",
         ),
-        (
-            "verenigingen.api.enhanced_membership_application",
-            "submit_enhanced_application",
-            "Submit membership application",
-        ),
-        (
-            "verenigingen.api.enhanced_membership_application",
-            "get_membership_types_for_application",
-            "Get membership types for form",
-        ),
-        (
-            "verenigingen.api.enhanced_membership_application",
-            "get_contribution_calculator_config",
-            "Contribution calculator config",
-        ),
+        # `verenigingen.api.enhanced_membership_application` was deleted during the
+        # application-flow refactor (submit_enhanced_application / get_membership_types_for_application /
+        # get_contribution_calculator_config no longer exist). When the replacement
+        # public endpoints stabilize, add their entries here.
     ]
 
     def test_guest_can_access_application_form_data(self):

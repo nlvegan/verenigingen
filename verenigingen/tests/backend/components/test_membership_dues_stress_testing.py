@@ -5,14 +5,17 @@ Tests system behavior under load and with large datasets
 """
 
 import frappe
+import unittest
 from frappe.utils import today, add_months, add_days, flt, getdate, now_datetime
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import DUES_SCHEMA_GONE
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
 
 
+@unittest.skip(DUES_SCHEMA_GONE)
 class TestMembershipDuesStressTesting(VereningingenTestCase):
     """Test stress scenarios and performance limits for membership dues system"""
 
