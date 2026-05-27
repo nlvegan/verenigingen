@@ -318,7 +318,6 @@
 ./verenigingen/tests/backend/features/test_application_submission_validation.py
 ./verenigingen/tests/backend/features/test_complete_application_flow.py
 ./verenigingen/tests/backend/integration/test_javascript_api_integration.py
-./verenigingen/tests/backend/unit/api/test_enhanced_membership_application_api.py
 ./verenigingen/tests/backend/validation/test_special_characters_validation.py
 ./verenigingen/tests/backend/validation/test_validation_regression.py
 ./verenigingen/tests/financial/volunteer_expense_testing_code.py

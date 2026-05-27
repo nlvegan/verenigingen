@@ -112,6 +112,16 @@ class TestIBANValidationIntegration(EnhancedTestCase):
         self.assertEqual(mandate.iban, "NL91 ABNA 0417 1643 00")
         self.assertEqual(mandate.bic, "ABNANL2A")
 
+    @unittest.skip(
+        "verenigingen.api.membership_application.validate_application_data was "
+        "removed during the application-flow refactor. There is currently no "
+        "application-flow IBAN-validation entry point that surfaces "
+        "validation_result['valid'] / ['errors']['iban'] in the shape this "
+        "test asserts. The underlying IBAN check still works "
+        "(utils/validation/iban_validator.py:validate_iban is exercised by "
+        "test_iban_validator.py). Re-enable when a replacement validation "
+        "API ships."
+    )
     def test_membership_application_iban_validation(self):
         """Test IBAN validation in membership application API"""
         from verenigingen.api.membership_application import validate_application_data
