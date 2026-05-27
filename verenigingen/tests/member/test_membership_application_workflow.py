@@ -93,7 +93,11 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         self.assertEqual(member.application_status, "Pending")
 
         # Test state transition (simulate approval). flags.ignore_status_validation
-        # mirrors the production approve/reject path which bypasses the clear logic.
+        # prevents MemberValidationService._clear_application_status_if_needed from
+        # clearing application_status during the test scenario.
+        # NOTE: production approve/reject code does NOT currently set this flag —
+        # see follow-up: investigate whether production approval silently clears
+        # application_status (skeptical review of PR #99 raised this question).
         member.flags.ignore_status_validation = True
         member.application_status = "Approved"
         member.save()
@@ -226,8 +230,11 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         )
 
         # Manually set member to approved state. flags.ignore_status_validation
-        # mirrors the production approve/reject path which prevents
-        # MemberValidationService from clearing application_status when status leaves Pending.
+        # prevents MemberValidationService._clear_application_status_if_needed
+        # from clearing application_status once status leaves Pending/Rejected.
+        # NOTE: production approve/reject code does NOT currently set this flag —
+        # see follow-up: investigate whether production approval silently clears
+        # application_status (skeptical review of PR #99 raised this question).
         member.reload()
         member.flags.ignore_status_validation = True
         member.application_status = "Approved"
