@@ -44,7 +44,9 @@ class TestSecurityRateLimit(VereningingenTestCase):
         frappe.session.user = self.original_user
         # Clear cache between tests. `from frappe.cache import cache` was removed
         # in current Frappe; `frappe.cache` is now the RedisWrapper directly.
-        frappe.cache.delete_keys("security_rate_limit:*")
+        # No trailing `*` — `RedisWrapper.delete_keys` appends one internally
+        # via `get_keys` (redis_wrapper.py:131).
+        frappe.cache.delete_keys("security_rate_limit:")
         super().tearDown()
     
     def test_rate_limit_decorator_application(self):
