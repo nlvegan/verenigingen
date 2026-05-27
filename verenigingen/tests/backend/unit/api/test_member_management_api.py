@@ -8,11 +8,14 @@ Tests the whitelisted API functions for member management operations
 """
 
 
+import unittest
+
 import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.api import member_management
 from verenigingen.tests.utils.assertions import AssertionHelpers
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
@@ -175,6 +178,7 @@ class TestMemberManagementAPI(VereningingenUnitTestCase):
         self.assertEqual(member.status, "Active")
         self.assertIsNotNone(member.suspension_lifted_date)
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_get_member_activity_summary(self):
         """Test getting member activity summary"""
         # Create member with volunteer profile and activities

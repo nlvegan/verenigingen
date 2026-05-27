@@ -8,10 +8,13 @@ This file restores critical payment integration testing that was removed during 
 Focus on payment processing, ERPNext integration, and financial workflows
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_days, add_months, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestPaymentIntegration(EnhancedTestCase):
@@ -303,6 +306,7 @@ class TestPaymentIntegrationWorkflows(VereningingenTestCase):
         self.assertEqual(renewal_payment.party, self.test_member.customer)
         self.assertEqual(renewal_payment.paid_amount, renewal_invoice.grand_total)
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_payment_workflow(self):
         """Test payment workflow for volunteer expenses"""
         # Create volunteer

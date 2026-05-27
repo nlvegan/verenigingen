@@ -8,9 +8,12 @@ This file restores critical member renewal edge case testing that was removed du
 Focus on complex renewal scenarios, edge cases, and error handling
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_days, add_months, add_years, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestMemberRenewalEdgeCases(VereningingenTestCase):
@@ -403,6 +406,7 @@ class TestMemberRenewalDataIntegrity(VereningingenTestCase):
         self.assertEqual(original_payment.party, self.test_member.customer)
         self.assertEqual(renewal_payment.party, self.test_member.customer)
     
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_renewal_volunteer_record_integrity(self):
         """Test volunteer record integrity across member renewals"""
         # Create volunteer record

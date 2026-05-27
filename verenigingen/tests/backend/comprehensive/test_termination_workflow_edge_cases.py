@@ -8,6 +8,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 import unittest
 
 
@@ -180,6 +181,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
             self.member1.suspension_reason = ""
             self.member1.save()
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_termination_with_outstanding_obligations(self):
         """Test termination request when member has outstanding obligations"""
         # Create membership with unpaid fees

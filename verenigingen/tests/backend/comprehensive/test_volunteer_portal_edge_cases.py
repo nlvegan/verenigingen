@@ -1,9 +1,11 @@
 import frappe
 from frappe.utils import add_days, today
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 import unittest
 
 
+@unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
 class TestVolunteerPortalEdgeCases(VereningingenTestCase):
     """Edge case tests for the volunteer portal"""
 

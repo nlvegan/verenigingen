@@ -7,6 +7,7 @@ team management interface, and address change workflow functionality
 import frappe
 from frappe.utils import today, add_days, now_datetime, cint
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from unittest.mock import patch, MagicMock
 import json
 import unittest
@@ -180,6 +181,7 @@ class TestPortalFunctionalityIntegration(EnhancedTestCase):
             return frappe.get_all("Member Payment History", filters={"member": member_name})
         return None
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_dashboard_functionality(self):
         """Test volunteer dashboard functionality and data presentation"""
         # Create volunteer assignments for dashboard testing

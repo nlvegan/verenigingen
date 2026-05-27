@@ -4,9 +4,12 @@ Test persona: Volunteer becomes chapter board member with finance access
 Tests complete lifecycle from volunteer application to membership approval and expense management
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_months, add_days, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestVolunteerBoardFinancePersona(VereningingenTestCase):
@@ -25,6 +28,7 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         # Create a finance-enabled chapter role
         self.finance_role = self.create_finance_chapter_role()
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_alex_volunteer_to_finance_board_member_lifecycle(self):
         """
         Complete test persona lifecycle:
@@ -292,6 +296,7 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         self.track_doc("Chapter Role", role.name)
         return role
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_finance_permissions_edge_cases(self):
         """Test edge cases for finance permissions"""
 

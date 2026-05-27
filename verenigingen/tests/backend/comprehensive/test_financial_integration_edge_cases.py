@@ -10,6 +10,7 @@ import frappe
 from frappe.utils import add_days, flt, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
@@ -343,6 +344,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
 
     # ===== VOLUNTEER EXPENSE EDGE CASES =====
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_negative_amount(self):
         """Test negative volunteer expense amounts"""
         with self.assertRaises(frappe.ValidationError):
@@ -357,6 +359,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
             )
             expense.insert()
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_extreme_amounts(self):
         """Test extremely large volunteer expense amounts"""
         # Test reasonable large amount (should pass)
@@ -385,6 +388,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
             )
             expense.insert()
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_future_date(self):
         """Test volunteer expenses with future dates"""
         future_date = add_days(today(), 30)
@@ -402,6 +406,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
             )
             expense.insert()
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_currency_mismatch(self):
         """Test volunteer expense currency validation"""
         # Test with different currencies

@@ -8,11 +8,14 @@ Tests the entire journey from application submission to termination
 """
 
 
+import unittest
+
 import frappe
 from frappe.utils import add_days, add_months, today
 
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager, TestUserFactory
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestMemberLifecycle(VereningingenWorkflowTestCase):
@@ -45,6 +48,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
         )
         self.admin_user = TestUserFactory.create_admin_user()
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_complete_member_lifecycle(self):
         """Test the complete member lifecycle from application to termination"""
 

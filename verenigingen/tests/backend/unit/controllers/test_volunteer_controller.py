@@ -8,11 +8,14 @@ Tests the API endpoints that JavaScript calls
 """
 
 
+import unittest
+
 import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
 
 
@@ -340,6 +343,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
             # Member should be able to see their own volunteer record
             self.assertNotEqual(query.strip(), "1=0")
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_workflow(self):
         """Test volunteer expense submission and approval"""
         test_data = (

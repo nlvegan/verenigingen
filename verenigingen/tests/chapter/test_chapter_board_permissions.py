@@ -20,6 +20,7 @@ import frappe
 import unittest
 from unittest.mock import patch, MagicMock
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
 
 class TestChapterBoardPermissions(EnhancedTestCase):
@@ -169,6 +170,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
                 "Board member should not have access to termination requests from other chapters"
             )
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_chapter_filtering(self):
         """Test that board members can only see expenses from their chapters"""
         from verenigingen.permissions import has_volunteer_expense_permission
@@ -201,6 +203,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
                 "Board member should not have access to expenses from other chapters"
             )
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_treasurer_expense_approval(self):
         """Test that only treasurers can approve volunteer expenses"""
         from verenigingen.permissions import can_approve_volunteer_expense
@@ -327,6 +330,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
                 "Board member should not have access to memberships from other chapters"
             )
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_expense_approval_workflow_validation(self):
         """Test that expense approval workflow properly validates treasurer permissions"""
         from verenigingen.utils.chapter_role_events import before_volunteer_expense_submit

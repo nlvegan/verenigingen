@@ -8,10 +8,13 @@ Demonstrates the enhanced test infrastructure and workflows
 """
 
 
+import unittest
+
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.test_personas import TestPersonas
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.tests.backend.workflows.test_member_lifecycle import TestMemberLifecycle
 from verenigingen.tests.backend.workflows.test_payment_failure_recovery import TestPaymentFailureRecovery
 from verenigingen.tests.backend.workflows.test_volunteer_journey import TestVolunteerJourney
@@ -23,6 +26,7 @@ class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase):
     Shows integration of all testing components
     """
 
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_all_personas_creation(self):
         """Test that all standard personas can be created successfully"""
         personas = TestPersonas.create_all_personas()

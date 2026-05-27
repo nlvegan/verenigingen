@@ -4,9 +4,12 @@ Volunteer integration with member status tests
 Tests how member status affects volunteer eligibility, assignments, and workflow
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_months, add_days, flt, getdate, add_to_date, now_datetime
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from unittest.mock import patch, MagicMock
 import json
 from datetime import datetime, timedelta
@@ -270,6 +273,7 @@ class TestVolunteerMemberIntegration(EnhancedTestCase):
         self.assertEqual(expense_submission.get("status"), "Requires Additional Approval")
         self.assertIn("grace_period_member", expense_submission.get("flags", []))
         
+    @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)
     def test_volunteer_expense_approval_workflow_with_member_status(self):
         """Test expense approval workflow considering member status"""
         member = self.test_member
