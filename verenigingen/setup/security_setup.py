@@ -76,23 +76,23 @@ def security_rate_limit(limit=5, seconds=60):
 def validate_csrf_token():
     """
     Validate CSRF token for security operations.
+
+    Reimplements the check inline because `frappe.sessions.validate_csrf_token`
+    was removed from Frappe — current Frappe does CSRF in `LoginManager.validate_csrf_token`
+    (frappe/auth.py:81) by comparing the request token against the session-stored token.
+    Same comparison logic here so this wrapper stays usable from the
+    `enable_csrf_protection` flow below.
     """
-    if not frappe.conf.get("ignore_csrf", 0):
-        # CSRF is enabled, validate token
-        csrf_token = frappe.local.form_dict.get("csrf_token") or frappe.get_request_header(
-            "X-Frappe-CSRF-Token"
-        )
+    if frappe.conf.get("ignore_csrf", 0):
+        return
 
-        if not csrf_token:
-            frappe.throw(_("CSRF token missing"), frappe.CSRFTokenError)
+    csrf_token = frappe.local.form_dict.get("csrf_token") or frappe.get_request_header("X-Frappe-CSRF-Token")
+    if not csrf_token:
+        frappe.throw(_("CSRF token missing"), frappe.CSRFTokenError)
 
-        # Validate token using Frappe's built-in validation
-        from frappe.sessions import validate_csrf_token as frappe_validate_csrf
-
-        try:
-            frappe_validate_csrf(csrf_token)
-        except Exception:
-            frappe.throw(_("Invalid CSRF token"), frappe.CSRFTokenError)
+    saved_token = getattr(getattr(frappe.session, "data", None), "csrf_token", None)
+    if not saved_token or csrf_token != saved_token:
+        frappe.throw(_("Invalid CSRF token"), frappe.CSRFTokenError)
 
 
 def setup_csrf_protection():

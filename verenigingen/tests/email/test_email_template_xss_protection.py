@@ -17,7 +17,11 @@ class TestEmailTemplateXSSProtection(EnhancedTestCase):
     def setUp(self):
         """Load email templates for testing."""
         super().setUp()
-        template_file = Path(__file__).parent.parent / "fixtures" / "email_template.json"
+        # Email templates live in the production fixtures dir (loaded by app install),
+        # not under tests/fixtures. Read directly from the canonical location.
+        template_file = (
+            Path(__file__).parent.parent.parent / "fixtures" / "email_template.json"
+        )
 
         with open(template_file, 'r') as f:
             self.templates = json.load(f)
