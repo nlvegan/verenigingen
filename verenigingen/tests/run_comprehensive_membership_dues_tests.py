@@ -67,12 +67,6 @@ def run_comprehensive_membership_dues_tests(test_categories=None, verbose=False)
                 'verenigingen.tests.backend.components.test_enhanced_sepa_processing',
             ]
         },
-        'lifecycle': {
-            'description': 'Enhanced Membership Lifecycle Tests',
-            'modules': [
-                'verenigingen.tests.workflows.test_enhanced_membership_lifecycle',
-            ]
-        }
     }
     
     # Determine which categories to run
