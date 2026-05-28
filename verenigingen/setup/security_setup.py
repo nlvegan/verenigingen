@@ -58,26 +58,40 @@ def security_rate_limit(limit=5, seconds=60):
         def wrapper(*args, **kwargs):
             # Atomic INCR+EXPIRE bypasses the pickled get_value/set_value
             # layer entirely. We namespace explicitly via make_key so the
-            # keys still match frappe.cache.delete_keys('security_rate_limit:*')
-            # patterns used by test cleanup and the rest of this codebase.
-            # Raw INCR is incompatible with set_value's pickle.dumps wrapping —
-            # the two paths must never write to the same key, which is why
-            # we drop set_value/get_value here entirely.
+            # keys still match the frappe.cache.delete_keys('security_rate_limit:')
+            # cleanup pattern used by tests. Raw INCR is incompatible with
+            # set_value's pickle.dumps wrapping — the two paths must never
+            # write to the same key, which is why we drop set_value/get_value
+            # here entirely.
+            #
+            # Failure mode on Redis down: frappe.cache.eval raises
+            # redis.exceptions.ConnectionError. We deliberately do NOT
+            # suppress it the way the old set_value/get_value paths did.
+            # The previous behavior was fail-open (rate limiter silently
+            # bypassed); for a security endpoint fail-closed (the request
+            # 500s) is preferable.
             from frappe.utils import cint
+            from redis.exceptions import ResponseError
 
             logical_key = f"security_rate_limit:{frappe.session.user}:{func.__name__}"
             namespaced_key = frappe.cache.make_key(logical_key)
 
             try:
                 count = cint(frappe.cache.eval(_RATE_LIMIT_LUA, 1, namespaced_key, seconds))
-            except Exception as e:
-                # Transition guard: a pre-existing pickled value from the
-                # prior implementation (or stale state from a partial deploy)
-                # will make INCR fail with "value is not an integer". Drop
-                # the stale key and retry once. After ``seconds`` of clean
-                # traffic this branch becomes unreachable.
+            except ResponseError as e:
+                # Transition guard: a pre-existing pickled value left by
+                # the prior implementation makes INCR fail with the Redis
+                # error "value is not an integer or out of range" (wrapped
+                # by EVAL into a script error message that still contains
+                # the substring). Drop the stale key (via delete_value so
+                # frappe.local.cache is also cleared) and retry once.
+                #
+                # TODO(remove after 2026-06-04): the longest configured
+                # TTL is 300s; one week post-deploy any stale pickled
+                # values are guaranteed evicted and this branch becomes
+                # unreachable. Delete then.
                 if "not an integer" in str(e):
-                    frappe.cache.delete(namespaced_key)
+                    frappe.cache.delete_value([namespaced_key], make_keys=False)
                     count = cint(frappe.cache.eval(_RATE_LIMIT_LUA, 1, namespaced_key, seconds))
                 else:
                     raise
@@ -663,6 +677,12 @@ def setup_all_security():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+# Decorator stack note: ``@rate_limit`` is Frappe's built-in IP-based
+# best-effort limiter; ``@security_rate_limit`` is the user-based atomic
+# (Lua INCR+EXPIRE) gate added here. The custom one is the authoritative
+# limit — do not remove it on the assumption that the framework version
+# is sufficient; the framework version has its own check-then-set race
+# (see apps/frappe/frappe/rate_limiter.py).
 @rate_limit(limit=5, seconds=60)  # 5 attempts per minute
 @security_rate_limit(limit=3, seconds=300)  # Additional: 3 attempts per 5 minutes
 def enable_csrf_protection():

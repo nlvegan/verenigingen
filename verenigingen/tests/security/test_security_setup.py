@@ -167,7 +167,11 @@ class TestSecurityRateLimit(VereningingenTestCase):
             frappe.init(site=site, force=True)
             frappe.local.session = frappe._dict(user=test_user)
             try:
-                barrier.wait(timeout=5)
+                # 15s (not 5s): frappe.init(force=True) × 40 workers on
+                # a slow CI shard can serialise long enough to time the
+                # barrier out, surfacing as BrokenBarrierError noise
+                # rather than a real rate-limit regression.
+                barrier.wait(timeout=15)
                 test_function()
                 with results_lock:
                     results["success"] += 1
@@ -197,6 +201,70 @@ class TestSecurityRateLimit(VereningingenTestCase):
         self.assertEqual(
             results["rate_limited"], n_threads - limit,
             f"Expected {n_threads - limit} rate-limited responses, got {results['rate_limited']}"
+        )
+
+    def test_rate_limit_transition_guard_recovers_from_pickled_value(self):
+        """Transition guard: a stale pickled value left by the prior
+        implementation must not 500 the endpoint — it should be cleared
+        and the call retried atomically. Without this regression test
+        the guard is implementation-only (no proof it actually works).
+        """
+        import pickle
+
+        @security_rate_limit(limit=2, seconds=60)
+        def test_function():
+            return "success"
+
+        # Mimic the pre-fix state: a pickled integer left in Redis by
+        # the old set_value(key, count, expires_in_sec=seconds) path.
+        # Use the same key the decorator computes.
+        namespaced_key = frappe.cache.make_key(
+            f"security_rate_limit:{frappe.session.user}:test_function"
+        )
+        frappe.cache.set(namespaced_key, pickle.dumps(1), ex=60)
+
+        # First call: INCR sees pickled bytes → ResponseError → guard
+        # deletes + retries. Retry returns 1 (clean slate). Allowed.
+        self.assertEqual(test_function(), "success")
+
+        # Second call: count=2 ≤ limit. Allowed.
+        self.assertEqual(test_function(), "success")
+
+        # Third call: count=3 > limit. Rate-limited.
+        with self.assertRaises(frappe.RateLimitExceededError):
+            test_function()
+
+    def test_rate_limit_window_does_not_slide(self):
+        """Security property: the fixed window does NOT slide.
+
+        EXPIRE runs only on the first INCR; subsequent calls within the
+        window leave TTL alone. Without this property an attacker could
+        keep their counter alive indefinitely by pacing requests just
+        under the limit each window. A regression that moves EXPIRE
+        outside the ``count == 1`` branch in the Lua script would refresh
+        TTL on every hit — this test catches that.
+        """
+        @security_rate_limit(limit=10, seconds=60)
+        def test_function():
+            return "success"
+
+        test_function()
+        namespaced_key = frappe.cache.make_key(
+            f"security_rate_limit:{frappe.session.user}:test_function"
+        )
+        ttl_after_first = frappe.cache.ttl(namespaced_key)
+        self.assertGreater(
+            ttl_after_first, 55,
+            f"Expected TTL near 60s after first INCR, got {ttl_after_first}"
+        )
+
+        time.sleep(2.1)
+        test_function()
+        ttl_after_second = frappe.cache.ttl(namespaced_key)
+        self.assertLess(
+            ttl_after_second, ttl_after_first - 1,
+            f"TTL slid: first={ttl_after_first}, second={ttl_after_second}. "
+            f"EXPIRE must not refresh on subsequent INCRs."
         )
 
 
