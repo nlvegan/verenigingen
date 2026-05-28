@@ -31469,22 +31469,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "validate_api_security",
-  "operation_name": "validate_api_security",
-  "operation_type": "reporting",
-  "description": "Validate api security input",
-  "enabled": 1,
-  "security_level": "low",
-  "business_context": "Data validation and integrity checking",
-  "required_roles": "System Manager\nVerenigingen Staff\nVerenigingen Member",
-  "rate_limit_calls": 180,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "minimal",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "test_tegenrekening_mapping",
   "operation_name": "test_tegenrekening_mapping",
   "operation_type": "admin",

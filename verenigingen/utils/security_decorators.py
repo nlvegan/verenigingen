@@ -264,35 +264,9 @@ def system_operation_required():
 
 
 # Convenience decorator combinations
-def admin_required():
-    """Shorthand for requiring administrator privileges"""
-    return require_roles(["Administrator", Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN])
-
-
 def member_access_required():
     """Shorthand for requiring member access permissions"""
     return require_permissions("Member", "read")
-
-
-@frappe.whitelist()
-@admin_required()
-def validate_api_security():
-    """
-    Administrative function to validate API security across the application.
-    Returns a report of endpoints and their security status.
-    """
-    # This would scan all whitelisted functions and report their security status
-    # Implementation would require reflection over all loaded modules
-
-    return {
-        "message": "API security validation completed",
-        "recommendations": [
-            "Apply @development_only() to test utilities",
-            "Add @require_roles() to administrative functions",
-            "Use @require_permissions() for DocType operations",
-            "Implement @audit_operation() for sensitive operations",
-        ],
-    }
 
 
 # Example usage documentation
