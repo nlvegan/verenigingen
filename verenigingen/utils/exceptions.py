@@ -165,6 +165,20 @@ class PermissionError(VerenigingenError):
     Examples:
         >>> raise PermissionError("approve_application", "Member")
         >>> raise PermissionError("delete", "Chapter", user=current_user)
+
+    FIXME: This class has the same hierarchy bugs that PR #107 fixed in
+    ``verenigingen.utils.error_handling.PermissionError`` — it extends
+    ``VerenigingenError(Exception)`` directly, so ``isinstance(e,
+    frappe.PermissionError)`` is False, and ``http_status_code = 403``
+    is set as an instance attribute (Frappe's transport layer reads
+    the class attribute via ``app.py:346``). Currently zero production
+    callers import this class, so the bugs are latent. If a caller is
+    ever added, also multi-inherit from ``frappe.PermissionError`` and
+    promote ``http_status_code`` to a class attribute. Separate
+    constructor signature (``(operation, resource)`` vs ``(message,
+    error_code, ...)``) and separate ``VerenigingenError`` root mean
+    consolidating with ``error_handling.PermissionError`` is its own
+    refactor — out of scope for #107.
     """
 
     def __init__(self, operation: str, resource: str, **kwargs: Any):
