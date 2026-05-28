@@ -202,25 +202,32 @@ class PermissionError(VerenigingenException, frappe.PermissionError):
 
     Multi-inherits from both:
       * ``VerenigingenException`` — for structured error metadata + the
-        existing ``except VerenigingenException`` catch site at
-        ``error_handling.py:455``.
+        existing ``except VerenigingenException`` catch site in
+        ``handle_api_error`` (``error_handling.py:480``).
       * ``frappe.PermissionError`` — so ``except frappe.PermissionError``
         (used in Frappe core at ``client.py:488``, ``permissions.py:892``
         and 6+ sites in this codebase) actually catches our exception.
         Previously only inherited from ``frappe.ValidationError`` via
         ``VerenigingenException``, which routed permission denials to
-        the wrong branch and wrong HTTP status.
+        the wrong branch and wrong HTTP status at the transport layer.
+
+    Both parents have empty ``__init__`` (just bare ``pass``), so there
+    is no cooperative-inheritance hazard — ``super().__init__()`` chains
+    cleanly through ``VerenigingenException`` to ``Exception``.
 
     The explicit ``http_status_code = 403`` overrides the 417 inherited
     via ``VerenigingenException → frappe.ValidationError``. Frappe's
     request handler (``apps/frappe/frappe/app.py:346``) reads the class
     attribute via ``getattr(e, "http_status_code", 500)`` to set the
     response code. The previous ``self.http_status = 403`` (instance
-    attribute, different name) was dead code — Frappe never reads it.
+    attribute, *different name*) was never read by Frappe — it was only
+    consumed inside ``handle_api_error`` below. Both attributes coexist
+    and both now resolve to 403; the class attribute is what fixes the
+    HTTP response on uncaught raises.
 
-    Catches ``isinstance(e, frappe.ValidationError)`` is still True via
-    the MRO, so ``except frappe.ValidationError`` sites that previously
-    caught us continue to do so unchanged.
+    ``isinstance(e, frappe.ValidationError)`` is still True via the MRO,
+    so ``except frappe.ValidationError`` sites that previously caught
+    us continue to do so unchanged.
     """
 
     http_status_code = 403

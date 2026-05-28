@@ -110,6 +110,46 @@ class TestPermissionErrorHierarchy(VereningingenTestCase):
         with self.assertRaises(frappe.ValidationError):
             raise VPermissionError("denied")
 
+    def test_handle_api_error_routes_through_verenigingen_branch(self):
+        """``handle_api_error`` (error_handling.py:480) catches
+        ``VerenigingenException`` BEFORE ``frappe.PermissionError``. Our
+        ``VPermissionError`` matches both, but Python evaluates except
+        clauses in order — so it still hits the VerenigingenException
+        branch, preserving the structured-error metadata path
+        (``error_code``, ``http_status`` instance attr, ``details``).
+        Without this test, a future refactor that reorders the except
+        clauses could silently change the response shape for our
+        permission errors. Senior reviewer's M2.
+        """
+        from verenigingen.utils.error_handling import handle_api_error
+
+        @handle_api_error
+        def raises_perm():
+            raise VPermissionError(
+                "Insufficient permissions",
+                error_code="MEMBER_MERGE_PERM",
+                details={"member": "MEM-001"},
+            )
+
+        result = raises_perm()
+        # OperationResult shape from the VerenigingenException branch:
+        # message = str(exc), error_code = exc.error_code (preserved),
+        # http_status = exc.http_status (403 via __init__), details
+        # carried over. NOT the generic "Access denied: ..." prefix
+        # that the frappe.PermissionError branch would inject.
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "MEMBER_MERGE_PERM")
+        self.assertEqual(result.http_status, 403)
+        # The VerenigingenException branch tags errors with the actual
+        # class name. The frappe.PermissionError branch would tag
+        # ["PermissionError"] (Frappe's, not ours).
+        self.assertEqual(result.errors, ["PermissionError"])
+        # Verify the message is the raw exception text, not the
+        # "Access denied: {0}" prefix the frappe.PermissionError branch
+        # would have wrapped it in.
+        self.assertNotIn("Access denied:", result.error_message)
+        self.assertIn("Insufficient permissions", result.error_message)
+
 
 if __name__ == "__main__":
     unittest.main()
