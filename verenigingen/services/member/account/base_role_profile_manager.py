@@ -338,14 +338,6 @@ class BaseRoleProfileManager(ABC):
             return self._create_response(
                 success=False, error=f"Record not found: {str(e)}", error_code=ERROR_CODES["NOT_FOUND"]
             )
-        except frappe.ValidationError as e:
-            if transaction_started:
-                frappe.db.rollback()
-            return self._create_response(
-                success=False,
-                error=f"Validation failed: {str(e)}",
-                error_code=ERROR_CODES["VALIDATION_ERROR"],
-            )
         except frappe.PermissionError as e:
             if transaction_started:
                 frappe.db.rollback()
@@ -353,6 +345,14 @@ class BaseRoleProfileManager(ABC):
                 success=False,
                 error=f"Permission denied: {str(e)}",
                 error_code=ERROR_CODES["PERMISSION_ERROR"],
+            )
+        except frappe.ValidationError as e:
+            if transaction_started:
+                frappe.db.rollback()
+            return self._create_response(
+                success=False,
+                error=f"Validation failed: {str(e)}",
+                error_code=ERROR_CODES["VALIDATION_ERROR"],
             )
         except Exception as e:
             if transaction_started:

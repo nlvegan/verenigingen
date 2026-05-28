@@ -169,6 +169,16 @@ repos:
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|scripts/validation/archived/|.*_test\.py|debug_.*\.py)'
         fail_fast: true
 
+      - id: except-order-validator
+        name: 🔀 Except-Clause Order (post-PR-#107)
+        description: Catches `except frappe.ValidationError` before `except frappe.PermissionError` in the same try block — shadows our multi-inherited verenigingen.utils.error_handling.PermissionError
+        entry: python scripts/validation/except_order_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|scripts/validation/archived/)'
+
       - id: deprecated-function-checker
         name: 🚨 Deprecated Function Usage Check
         description: Check for usage of deprecated functions using Codanna

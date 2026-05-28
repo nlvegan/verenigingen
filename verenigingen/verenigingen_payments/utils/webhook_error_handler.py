@@ -134,10 +134,16 @@ class WebhookErrorHandler:
                 # Raw result (not a status dict) - return as-is for successful operations
                 return result
 
-        except frappe.ValidationError as e:
-            return self.handle_validation_error(
-                f"{operation_name} validation failed", {"validation_error": str(e)}
-            )
+        # Order matters: PermissionError must precede ValidationError because
+        # our local verenigingen.utils.error_handling.PermissionError multi-
+        # inherits from both (see PR #107). DoesNotExistError extends
+        # ValidationError in Frappe (frappe/exceptions.py:44 — http 404),
+        # so it must precede ValidationError too; otherwise the 404 path
+        # is silently routed to the generic validation handler.
+        # DuplicateEntryError extends NameError (not ValidationError), so
+        # its position relative to ValidationError doesn't matter.
+        except frappe.PermissionError as e:
+            return self.handle_business_logic_error(f"Permission denied during {operation_name}", e)
 
         except frappe.DoesNotExistError as e:
             return self.handle_business_logic_error(f"Required record not found during {operation_name}", e)
@@ -145,8 +151,10 @@ class WebhookErrorHandler:
         except frappe.DuplicateEntryError as e:
             return self.handle_business_logic_error(f"Duplicate entry during {operation_name}", e)
 
-        except frappe.PermissionError as e:
-            return self.handle_business_logic_error(f"Permission denied during {operation_name}", e)
+        except frappe.ValidationError as e:
+            return self.handle_validation_error(
+                f"{operation_name} validation failed", {"validation_error": str(e)}
+            )
 
         except Exception as e:
             # Catch-all for unexpected system errors

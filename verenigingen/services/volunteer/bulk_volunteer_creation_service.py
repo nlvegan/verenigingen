@@ -383,16 +383,16 @@ class BulkVolunteerCreationService(StatelessService):
                 details={"volunteer_display_name": volunteer_display_name},
             )
 
-        except frappe.ValidationError as e:
-            return VolunteerCreationResult(
-                member_name=member_name,
-                outcome=VolunteerCreationOutcome.VALIDATION_ERROR,
-                error_message=str(e)[:200],
-            )
         except frappe.PermissionError as e:
             return VolunteerCreationResult(
                 member_name=member_name,
                 outcome=VolunteerCreationOutcome.PERMISSION_ERROR,
+                error_message=str(e)[:200],
+            )
+        except frappe.ValidationError as e:
+            return VolunteerCreationResult(
+                member_name=member_name,
+                outcome=VolunteerCreationOutcome.VALIDATION_ERROR,
                 error_message=str(e)[:200],
             )
         except Exception as e:

@@ -818,10 +818,10 @@ def create_volunteer_from_member(
 
         return result
 
-    except frappe.ValidationError as e:
-        return {"success": False, "error": f"Validation failed: {str(e)}"}
     except frappe.PermissionError as e:
         return {"success": False, "error": f"Permission denied: {str(e)}"}
+    except frappe.ValidationError as e:
+        return {"success": False, "error": f"Validation failed: {str(e)}"}
     except Exception as e:
         frappe.log_error(
             f"Error creating volunteer from member {member_name}: {str(e)}", "Volunteer Creation Error"
