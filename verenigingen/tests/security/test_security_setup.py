@@ -118,18 +118,154 @@ class TestSecurityRateLimit(VereningingenTestCase):
         @security_rate_limit(limit=1, seconds=1)  # 1 second expiration
         def test_function():
             return "success"
-        
+
         # Hit limit
         test_function()
         with self.assertRaises(frappe.RateLimitExceededError):
             test_function()
-        
+
         # Wait for expiration
         time.sleep(1.1)
-        
+
         # Should work again
         result = test_function()
         self.assertEqual(result, "success")
+
+    def test_rate_limit_concurrent_requests_respect_limit(self):
+        """TOCTOU regression: concurrent calls must not exceed the configured limit.
+
+        Pre-fix: ``security_rate_limit`` was check-then-set
+        (``get_value`` → branch → ``set_value``). N workers reading the
+        same count below ``limit`` simultaneously all proceeded — effective
+        ceiling became ``limit + (N-1)``. This test fires ``n_threads``
+        workers through a barrier and asserts exactly ``limit`` succeed.
+        With atomic INCR semantics this is guaranteed; with the old code
+        the assertion fails almost every run.
+        """
+        import threading
+
+        limit = 5
+        n_threads = 40
+        test_user = "concurrent_test@example.com"
+
+        @security_rate_limit(limit=limit, seconds=60)
+        def test_function():
+            return "success"
+
+        # frappe.local is per-thread (werkzeug.local.Local). frappe.init()
+        # is the canonical way to populate the conf/flags/message_log/lang
+        # set that frappe.throw + msgprint touch. Workers without it raise
+        # RuntimeError('object is not bound') from LocalProxy on access
+        # instead of the expected RateLimitExceededError.
+        site = frappe.local.site
+
+        barrier = threading.Barrier(n_threads)
+        results_lock = threading.Lock()
+        results = {"success": 0, "rate_limited": 0, "errors": []}
+
+        def worker():
+            frappe.init(site=site, force=True)
+            frappe.local.session = frappe._dict(user=test_user)
+            try:
+                # 15s (not 5s): frappe.init(force=True) × 40 workers on
+                # a slow CI shard can serialise long enough to time the
+                # barrier out, surfacing as BrokenBarrierError noise
+                # rather than a real rate-limit regression.
+                barrier.wait(timeout=15)
+                test_function()
+                with results_lock:
+                    results["success"] += 1
+            except frappe.RateLimitExceededError:
+                with results_lock:
+                    results["rate_limited"] += 1
+            except Exception as exc:
+                with results_lock:
+                    results["errors"].append(repr(exc))
+
+        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(
+            results["errors"], [],
+            f"Unexpected worker errors: {results['errors'][:3]}"
+        )
+        self.assertEqual(
+            results["success"], limit,
+            f"TOCTOU regression: expected exactly {limit} successes under "
+            f"concurrent load of {n_threads} workers, got {results['success']}. "
+            f"Atomic INCR semantics required."
+        )
+        self.assertEqual(
+            results["rate_limited"], n_threads - limit,
+            f"Expected {n_threads - limit} rate-limited responses, got {results['rate_limited']}"
+        )
+
+    def test_rate_limit_transition_guard_recovers_from_pickled_value(self):
+        """Transition guard: a stale pickled value left by the prior
+        implementation must not 500 the endpoint — it should be cleared
+        and the call retried atomically. Without this regression test
+        the guard is implementation-only (no proof it actually works).
+        """
+        import pickle
+
+        @security_rate_limit(limit=2, seconds=60)
+        def test_function():
+            return "success"
+
+        # Mimic the pre-fix state: a pickled integer left in Redis by
+        # the old set_value(key, count, expires_in_sec=seconds) path.
+        # Use the same key the decorator computes.
+        namespaced_key = frappe.cache.make_key(
+            f"security_rate_limit:{frappe.session.user}:test_function"
+        )
+        frappe.cache.set(namespaced_key, pickle.dumps(1), ex=60)
+
+        # First call: INCR sees pickled bytes → ResponseError → guard
+        # deletes + retries. Retry returns 1 (clean slate). Allowed.
+        self.assertEqual(test_function(), "success")
+
+        # Second call: count=2 ≤ limit. Allowed.
+        self.assertEqual(test_function(), "success")
+
+        # Third call: count=3 > limit. Rate-limited.
+        with self.assertRaises(frappe.RateLimitExceededError):
+            test_function()
+
+    def test_rate_limit_window_does_not_slide(self):
+        """Security property: the fixed window does NOT slide.
+
+        EXPIRE runs only on the first INCR; subsequent calls within the
+        window leave TTL alone. Without this property an attacker could
+        keep their counter alive indefinitely by pacing requests just
+        under the limit each window. A regression that moves EXPIRE
+        outside the ``count == 1`` branch in the Lua script would refresh
+        TTL on every hit — this test catches that.
+        """
+        @security_rate_limit(limit=10, seconds=60)
+        def test_function():
+            return "success"
+
+        test_function()
+        namespaced_key = frappe.cache.make_key(
+            f"security_rate_limit:{frappe.session.user}:test_function"
+        )
+        ttl_after_first = frappe.cache.ttl(namespaced_key)
+        self.assertGreater(
+            ttl_after_first, 55,
+            f"Expected TTL near 60s after first INCR, got {ttl_after_first}"
+        )
+
+        time.sleep(2.1)
+        test_function()
+        ttl_after_second = frappe.cache.ttl(namespaced_key)
+        self.assertLess(
+            ttl_after_second, ttl_after_first - 1,
+            f"TTL slid: first={ttl_after_first}, second={ttl_after_second}. "
+            f"EXPIRE must not refresh on subsequent INCRs."
+        )
 
 
 class TestCSRFValidation(VereningingenTestCase):

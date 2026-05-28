@@ -37,9 +37,16 @@ class SecurityPropertyTestCase(VereningingenTestCase):
         frappe.session.user = "test_security@example.com"
         # For admin tools security testing, we need Administrator permissions in setUp
         frappe.set_user("Administrator")  # VereningingenTestCase allows this in setUp
-    
+        # Rate-limit property tests all share the inner ``test_function`` name
+        # and ``Administrator`` as user, so they collide on the same counter
+        # key. Pre-existing failure (test_rate_limit_invariant_under_limit
+        # has been failing at Call 4 since the counter starts non-zero);
+        # mirrors the cleanup TestSecurityRateLimit already does.
+        frappe.cache.delete_keys("security_rate_limit:")
+
     def tearDown(self):
         frappe.session.user = self.original_user
+        frappe.cache.delete_keys("security_rate_limit:")
         super().tearDown()
 
 
