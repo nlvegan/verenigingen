@@ -11,7 +11,7 @@ This module implements the security patterns recommended in the remediation plan
 """
 
 import functools
-from typing import Any, Callable, List, Optional
+from typing import Callable, List, Optional
 
 import frappe
 from frappe import _
@@ -263,36 +263,6 @@ def system_operation_required():
     return decorator
 
 
-def rate_limited(max_calls: int = 10, window_minutes: int = 60):
-    """
-    Decorator to implement rate limiting for sensitive operations.
-
-    Args:
-        max_calls: Maximum number of calls allowed
-        window_minutes: Time window in minutes
-
-    Example:
-        @frappe.whitelist()
-        @rate_limited(max_calls=5, window_minutes=60)
-        def expensive_operation():
-            pass
-    """
-
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            # This is a basic implementation - production should use proper rate limiting
-            # with Redis or similar persistent storage
-
-            return func(*args, **kwargs)
-
-        wrapper._rate_limit_max = max_calls
-        wrapper._rate_limit_window = window_minutes
-        return wrapper
-
-    return decorator
-
-
 # Convenience decorator combinations
 def admin_required():
     """Shorthand for requiring administrator privileges"""
@@ -302,45 +272,6 @@ def admin_required():
 def member_access_required():
     """Shorthand for requiring member access permissions"""
     return require_permissions("Member", "read")
-
-
-def secure_debug_function():
-    """Combination decorator for debug/test functions"""
-
-    def decorator(func: Callable) -> Callable:
-        # Apply multiple decorators
-        func = development_only()(func)
-        func = audit_operation("debug_operation")(func)
-        func = rate_limited(max_calls=20, window_minutes=60)(func)
-        return func
-
-    return decorator
-
-
-# Validation functions for existing code
-def get_endpoint_security_info(func: Callable) -> dict:
-    """
-    Get security information about a function/endpoint.
-    Useful for security audits and documentation.
-    """
-    info = {
-        "function_name": func.__name__,
-        "has_role_requirements": hasattr(func, "_required_roles"),
-        "has_permission_requirements": hasattr(func, "_required_doctype"),
-        "development_only": hasattr(func, "_development_only"),
-        "requires_system_auth": hasattr(func, "_requires_system_authorization"),
-        "has_audit": hasattr(func, "_audit_operation"),
-        "has_rate_limit": hasattr(func, "_rate_limit_max"),
-    }
-
-    if hasattr(func, "_required_roles"):
-        info["required_roles"] = func._required_roles
-
-    if hasattr(func, "_required_doctype"):
-        info["required_doctype"] = func._required_doctype
-        info["required_permission"] = func._required_permission
-
-    return info
 
 
 @frappe.whitelist()
@@ -385,8 +316,8 @@ def validate_api_security():
 #
 # 3. DocType Operation with Permissions:
 # @frappe.whitelist()
+# @frappe.rate_limit(limit=50, seconds=3600)  # Frappe's IP-based limiter
 # @require_permissions("Member", "write")
-# @rate_limited(max_calls=50, window_minutes=60)
 # def update_member_status():
 #     # Member update logic here
 #     pass
