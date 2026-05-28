@@ -118,18 +118,86 @@ class TestSecurityRateLimit(VereningingenTestCase):
         @security_rate_limit(limit=1, seconds=1)  # 1 second expiration
         def test_function():
             return "success"
-        
+
         # Hit limit
         test_function()
         with self.assertRaises(frappe.RateLimitExceededError):
             test_function()
-        
+
         # Wait for expiration
         time.sleep(1.1)
-        
+
         # Should work again
         result = test_function()
         self.assertEqual(result, "success")
+
+    def test_rate_limit_concurrent_requests_respect_limit(self):
+        """TOCTOU regression: concurrent calls must not exceed the configured limit.
+
+        Pre-fix: ``security_rate_limit`` was check-then-set
+        (``get_value`` → branch → ``set_value``). N workers reading the
+        same count below ``limit`` simultaneously all proceeded — effective
+        ceiling became ``limit + (N-1)``. This test fires ``n_threads``
+        workers through a barrier and asserts exactly ``limit`` succeed.
+        With atomic INCR semantics this is guaranteed; with the old code
+        the assertion fails almost every run.
+        """
+        import threading
+
+        limit = 5
+        n_threads = 40
+        test_user = "concurrent_test@example.com"
+
+        @security_rate_limit(limit=limit, seconds=60)
+        def test_function():
+            return "success"
+
+        # frappe.local is per-thread (werkzeug.local.Local). frappe.init()
+        # is the canonical way to populate the conf/flags/message_log/lang
+        # set that frappe.throw + msgprint touch. Workers without it raise
+        # RuntimeError('object is not bound') from LocalProxy on access
+        # instead of the expected RateLimitExceededError.
+        site = frappe.local.site
+
+        barrier = threading.Barrier(n_threads)
+        results_lock = threading.Lock()
+        results = {"success": 0, "rate_limited": 0, "errors": []}
+
+        def worker():
+            frappe.init(site=site, force=True)
+            frappe.local.session = frappe._dict(user=test_user)
+            try:
+                barrier.wait(timeout=5)
+                test_function()
+                with results_lock:
+                    results["success"] += 1
+            except frappe.RateLimitExceededError:
+                with results_lock:
+                    results["rate_limited"] += 1
+            except Exception as exc:
+                with results_lock:
+                    results["errors"].append(repr(exc))
+
+        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(
+            results["errors"], [],
+            f"Unexpected worker errors: {results['errors'][:3]}"
+        )
+        self.assertEqual(
+            results["success"], limit,
+            f"TOCTOU regression: expected exactly {limit} successes under "
+            f"concurrent load of {n_threads} workers, got {results['success']}. "
+            f"Atomic INCR semantics required."
+        )
+        self.assertEqual(
+            results["rate_limited"], n_threads - limit,
+            f"Expected {n_threads - limit} rate-limited responses, got {results['rate_limited']}"
+        )
 
 
 class TestCSRFValidation(VereningingenTestCase):

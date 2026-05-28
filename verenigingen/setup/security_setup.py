@@ -6,7 +6,6 @@ Ensures proper security configuration during installation
 
 import secrets
 import string
-import time
 from functools import wraps
 
 import frappe
@@ -27,6 +26,27 @@ except ImportError:
     security_logger = frappe.logger("verenigingen.security")
 
 
+# Atomic increment-and-expire executed server-side in Redis. Replaces the
+# previous check-then-set pattern (read count via get_value, compare, write
+# count+1 via set_value) that allowed N concurrent workers reading the same
+# sub-limit count to all proceed — effective ceiling became limit + (N-1).
+#
+# Semantics:
+#   - INCR creates the key at 1 if absent, otherwise increments by 1.
+#   - EXPIRE runs only on first INCR (count == 1) so the fixed window does
+#     not slide forward on every hit. Without this guard, an attacker could
+#     keep their counter alive indefinitely by hitting the endpoint just
+#     under the limit every (seconds - 1) seconds.
+#   - Returns the new count atomically.
+_RATE_LIMIT_LUA = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
+"""
+
+
 def security_rate_limit(limit=5, seconds=60):
     """
     Custom rate limiter for security endpoints with enhanced logging.
@@ -36,27 +56,33 @@ def security_rate_limit(limit=5, seconds=60):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Use the namespaced cache API (`get_value` / `set_value`)
-            # rather than raw redis `get` / `setex`. The raw calls store
-            # un-namespaced keys that `frappe.cache.delete_keys()` cannot
-            # match, leaving the only cleanup path as Redis TTL eviction.
-            # That broke test isolation (cleanup couldn't actually clear
-            # state between tests) and silently leaked keys in production
-            # until their TTL fired.
-            #
-            # `use_local_cache=False` on the read is required: `set_value`
-            # always populates `frappe.local.cache` with no TTL, and
-            # `get_value` reads from that local cache first. Without this
-            # flag, a TTL-expired Redis key still returns a stale count
-            # from the request-local cache (broke
-            # `test_rate_limit_cache_expiration`).
-            key = f"security_rate_limit:{frappe.session.user}:{func.__name__}"
-
+            # Atomic INCR+EXPIRE bypasses the pickled get_value/set_value
+            # layer entirely. We namespace explicitly via make_key so the
+            # keys still match frappe.cache.delete_keys('security_rate_limit:*')
+            # patterns used by test cleanup and the rest of this codebase.
+            # Raw INCR is incompatible with set_value's pickle.dumps wrapping —
+            # the two paths must never write to the same key, which is why
+            # we drop set_value/get_value here entirely.
             from frappe.utils import cint
 
-            count = cint(frappe.cache.get_value(key, use_local_cache=False) or 0)
+            logical_key = f"security_rate_limit:{frappe.session.user}:{func.__name__}"
+            namespaced_key = frappe.cache.make_key(logical_key)
 
-            if count >= limit:
+            try:
+                count = cint(frappe.cache.eval(_RATE_LIMIT_LUA, 1, namespaced_key, seconds))
+            except Exception as e:
+                # Transition guard: a pre-existing pickled value from the
+                # prior implementation (or stale state from a partial deploy)
+                # will make INCR fail with "value is not an integer". Drop
+                # the stale key and retry once. After ``seconds`` of clean
+                # traffic this branch becomes unreachable.
+                if "not an integer" in str(e):
+                    frappe.cache.delete(namespaced_key)
+                    count = cint(frappe.cache.eval(_RATE_LIMIT_LUA, 1, namespaced_key, seconds))
+                else:
+                    raise
+
+            if count > limit:
                 # Log rate limit exceeded
                 log_security_audit(
                     "Rate Limit Exceeded",
@@ -72,8 +98,6 @@ def security_rate_limit(limit=5, seconds=60):
                     _("Too many security configuration attempts. Please wait before trying again."),
                     frappe.RateLimitExceededError,
                 )
-
-            frappe.cache.set_value(key, count + 1, expires_in_sec=seconds)
 
             return func(*args, **kwargs)
 
