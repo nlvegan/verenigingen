@@ -145,18 +145,18 @@ def execute_safe_termination(member_name, termination_type, termination_date=Non
 
         return results
 
-    except frappe.ValidationError as e:
-        return {
-            "success": False,
-            "error": f"Validation error: {str(e)}",
-            "message": "Termination validation failed",
-        }
-
     except frappe.PermissionError as e:
         return {
             "success": False,
             "error": f"Permission denied: {str(e)}",
             "message": "Insufficient permissions for termination",
+        }
+
+    except frappe.ValidationError as e:
+        return {
+            "success": False,
+            "error": f"Validation error: {str(e)}",
+            "message": "Termination validation failed",
         }
 
     except Exception as e:

@@ -134,6 +134,9 @@ class WebhookErrorHandler:
                 # Raw result (not a status dict) - return as-is for successful operations
                 return result
 
+        except frappe.PermissionError as e:
+            return self.handle_business_logic_error(f"Permission denied during {operation_name}", e)
+
         except frappe.ValidationError as e:
             return self.handle_validation_error(
                 f"{operation_name} validation failed", {"validation_error": str(e)}
@@ -144,9 +147,6 @@ class WebhookErrorHandler:
 
         except frappe.DuplicateEntryError as e:
             return self.handle_business_logic_error(f"Duplicate entry during {operation_name}", e)
-
-        except frappe.PermissionError as e:
-            return self.handle_business_logic_error(f"Permission denied during {operation_name}", e)
 
         except Exception as e:
             # Catch-all for unexpected system errors

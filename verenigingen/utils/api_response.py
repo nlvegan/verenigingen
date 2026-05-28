@@ -334,10 +334,10 @@ def api_response_handler(func):
             # Otherwise, wrap in success response
             return APIResponse.success(data=result)
 
-        except frappe.ValidationError as e:
-            return APIResponse.validation_error(str(e))
         except frappe.PermissionError as e:
             return APIResponse.forbidden(str(e))
+        except frappe.ValidationError as e:
+            return APIResponse.validation_error(str(e))
         except frappe.DoesNotExistError as e:
             return APIResponse.not_found("Resource", str(e))
         except Exception as e:
