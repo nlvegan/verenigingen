@@ -89,19 +89,26 @@ def _handler_exception_names(handler: ast.ExceptHandler) -> list[str]:
 
 
 def _imports_from_frappe(tree: ast.Module) -> set[str]:
-    """Return the set of names imported directly from the ``frappe`` package.
+    """Return the set of ORIGINAL exception names imported from ``frappe``.
 
-    Tracks ``from frappe import ValidationError`` so we can recognise the
-    bare ``ValidationError`` reference as ``frappe.ValidationError``.
+    For ``from frappe import ValidationError`` we add ``"ValidationError"``
+    to the set so a bare ``except ValidationError:`` later in the file is
+    recognised as ``frappe.ValidationError``.
+
+    Aliased imports (``from frappe import ValidationError as VE``) are
+    intentionally NOT resolved: we add the original name only, ignoring
+    the alias. This is a documented v1 gap — see
+    ``test_aliased_import_is_v1_gap`` in the regression suite. Aliased
+    exception imports are rare in this codebase; resolving them would
+    require tracking the alias as a synonym for the original name, which
+    isn't worth the complexity for v1.
     """
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "frappe":
             for alias in node.names:
-                # ``from frappe import ValidationError as VE`` — the local
-                # name is alias.asname or alias.name. Track the LOCAL name
-                # because that's what the except handler will reference.
-                names.add(alias.asname or alias.name)
+                if alias.asname is None:
+                    names.add(alias.name)
     return names
 
 
@@ -132,12 +139,17 @@ def check_file(file_path: Path) -> list[Violation]:
     frappe_imports = _imports_from_frappe(tree)
     violations: list[Violation] = []
 
+    # PEP 654 ``try/except*`` (exception groups, Python 3.11+) is a
+    # separate AST node from ``ast.Try``. Both are inspected so the
+    # ordering rule applies uniformly to exception-group blocks too.
+    try_node_types: tuple[type, ...] = (ast.Try,)
+    if hasattr(ast, "TryStar"):
+        try_node_types = (ast.Try, ast.TryStar)
+
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Try):
+        if not isinstance(node, try_node_types):
             continue
 
-        # For each handler, record (index, line, [list of caught type names]).
-        seen_validation_at: int | None = None
         seen_validation_line: int | None = None
         for handler in node.handlers:
             names = _handler_exception_names(handler)
@@ -148,7 +160,7 @@ def check_file(file_path: Path) -> list[Violation]:
                 _is_frappe_permission_error(n, frappe_imports) for n in names
             )
 
-            if catches_permission and seen_validation_at is not None:
+            if catches_permission and seen_validation_line is not None:
                 # A previous handler already caught frappe.ValidationError;
                 # this PermissionError handler is unreachable for our
                 # multi-inherited ``verenigingen.utils.error_handling.PermissionError``.
@@ -170,8 +182,7 @@ def check_file(file_path: Path) -> list[Violation]:
                     )
                 )
 
-            if catches_validation and seen_validation_at is None:
-                seen_validation_at = handler.lineno
+            if catches_validation and seen_validation_line is None:
                 seen_validation_line = handler.lineno
 
     return violations
