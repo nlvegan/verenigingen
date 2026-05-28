@@ -197,8 +197,33 @@ class ChapterError(VerenigingenException):
         )
 
 
-class PermissionError(VerenigingenException):
-    """Raised when user lacks required permissions"""
+class PermissionError(VerenigingenException, frappe.PermissionError):
+    """Raised when user lacks required permissions.
+
+    Multi-inherits from both:
+      * ``VerenigingenException`` — for structured error metadata + the
+        existing ``except VerenigingenException`` catch site at
+        ``error_handling.py:455``.
+      * ``frappe.PermissionError`` — so ``except frappe.PermissionError``
+        (used in Frappe core at ``client.py:488``, ``permissions.py:892``
+        and 6+ sites in this codebase) actually catches our exception.
+        Previously only inherited from ``frappe.ValidationError`` via
+        ``VerenigingenException``, which routed permission denials to
+        the wrong branch and wrong HTTP status.
+
+    The explicit ``http_status_code = 403`` overrides the 417 inherited
+    via ``VerenigingenException → frappe.ValidationError``. Frappe's
+    request handler (``apps/frappe/frappe/app.py:346``) reads the class
+    attribute via ``getattr(e, "http_status_code", 500)`` to set the
+    response code. The previous ``self.http_status = 403`` (instance
+    attribute, different name) was dead code — Frappe never reads it.
+
+    Catches ``isinstance(e, frappe.ValidationError)`` is still True via
+    the MRO, so ``except frappe.ValidationError`` sites that previously
+    caught us continue to do so unchanged.
+    """
+
+    http_status_code = 403
 
     def __init__(
         self,
