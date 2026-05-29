@@ -35,12 +35,22 @@ from pathlib import Path
 #   "\x1b[41m FAIL \x1b[0m test_name (a.b.C.test_name)"
 #   "ERROR test_name (a.b.C.test_name)"   /   "FAIL: test_name (a.b.C.test_name)"
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# Frappe prints each failure/error in the END-OF-RUN summary (printErrors) as
+#   " FAIL  <name> (<dotted.path>)"  /  " ERROR  <name> (<dotted.path>)"
+# where <name> is a test method (test_*) OR a fixture hook whose failure fails a
+# whole class/module (setUpClass, setUpModule, setUp, tearDownClass, ...). We must
+# capture the hook forms too — a NEW setUpClass error fails an entire class.
 _RESULT = re.compile(
-    r"(?:^|\s)(?:FAIL|ERROR)[: ]\s*(test_[A-Za-z0-9_]+ \([A-Za-z0-9_.]+\))"
+    r"(?:^|\s)(?:FAIL|ERROR)[: ]\s*"
+    r"((?:test_[A-Za-z0-9_]+|setUpClass|setUpModule|setUp|tearDownClass|tearDownModule|tearDown)"
+    r" \([A-Za-z0-9_.]+\))"
 )
-# Markers that prove the suite actually executed tests (so an empty/truncated log
-# from an infra-killed shard is not silently treated as "0 new failures").
-_RAN_MARKER = re.compile(r"✔|✖|✗|\bRan \d+ test|(?:^|\s)(?:ok|OK)\s+test_")
+# Authoritative end-of-run sentinel, emitted by ParallelTestRunner.print_result()
+# via click.echo(TestResult) AFTER the failure summary — present on EVERY completed
+# run (even green), absent if the shard crashed/hung mid-run. Requiring it closes
+# the false-pass hole where a crash before the summary leaves only streamed "✖"
+# markers (which carry no dotted path and are NOT in the summary the regex reads).
+_SENTINEL = re.compile(r"Tests:\s*(\d+),\s*Failing:\s*(\d+),\s*Errors:\s*(\d+)")
 
 DEFAULT_BASELINE = (
     Path(__file__).resolve().parents[1].parent
@@ -56,14 +66,17 @@ def extract_failures(text: str) -> set:
     return {m.group(1).strip() for m in _RESULT.finditer(clean)}
 
 
-def run_executed(text: str) -> bool:
-    """True if the output shows the suite actually ran tests.
+def run_completed(text: str):
+    """Return (failing, errors) from the end-of-run sentinel, or None if absent.
 
-    Guards against an infra-killed / truncated shard (empty log) being read as
-    "0 failures -> pass". A run with real failures already proves execution; this
-    catches the zero-failure-because-nothing-ran case.
+    None means the shard did NOT finish (crashed/hung/killed before
+    print_result), so the failure summary the gate diffs against was never
+    emitted — the run must be treated as inconclusive, not "0 new failures".
     """
-    return bool(_RAN_MARKER.search(text))
+    m = _SENTINEL.search(text)
+    if not m:
+        return None
+    return int(m.group(2)), int(m.group(3))
 
 
 def load_baseline(path: Path) -> set:
@@ -100,15 +113,31 @@ def main(argv=None) -> int:
         print("\n".join(sorted(failures)))
         return 0
 
-    # Completeness guard: a truncated/empty log (infra-killed shard) must not
-    # pass the gate just because no failures were parsed from it.
-    if not failures and not run_executed(results_text):
+    # Completeness guard: require the authoritative end-of-run sentinel. Without
+    # it the shard crashed/hung before emitting the failure summary, so "0 parsed
+    # failures" is meaningless — fail safe rather than rubber-stamp a green check.
+    completed = run_completed(results_text)
+    if completed is None:
         print(
-            "::error::No test results found in the output — the test run likely did "
-            "not complete (e.g. an infra-killed shard or a truncated log). Re-run the job.",
+            "::error::End-of-run sentinel ('Tests: N, Failing: N, Errors: N') not found — "
+            "the test run did not complete (infra-killed/hung shard or truncated log). "
+            "This is treated as a gate failure; re-run the job.",
             file=sys.stderr,
         )
         return 2
+
+    reported_failing, reported_errors = completed
+    reported_total = reported_failing + reported_errors
+    # Sanity cross-check (informational): parsed unique test ids should be close to
+    # the suite's reported failing+errors. They won't match exactly — subTests are
+    # counted per-subtest in the sentinel but collapse to one method id here. A
+    # large shortfall hints the parser missed a new result format.
+    if len(failures) < reported_total * 0.9 - 5:
+        print(
+            f"::warning::parsed {len(failures)} failing test ids but the suite reported "
+            f"{reported_total} (failing={reported_failing}, errors={reported_errors}); the "
+            f"result parser may be missing some lines — review scripts/testing/check_new_test_failures.py",
+        )
 
     baseline = load_baseline(Path(args.baseline))
     new_failures = sorted(failures - baseline)
@@ -117,7 +146,8 @@ def main(argv=None) -> int:
     # the count of baseline failures that recurred (informational).
     recurred = failures & baseline
 
-    print(f"Total failures in this run:   {len(failures)}")
+    print(f"Run completed (suite reported failing={reported_failing}, errors={reported_errors})")
+    print(f"Parsed failing test ids:      {len(failures)}")
     print(f"  matched baseline (allowed): {len(recurred)}")
     print(f"  NEW (regressions):          {len(new_failures)}")
 

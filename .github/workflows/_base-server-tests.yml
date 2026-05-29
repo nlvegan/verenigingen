@@ -145,6 +145,7 @@ jobs:
           path: |
             ${GITHUB_WORKSPACE}/bench_start.log
             ${GITHUB_WORKSPACE}/logs/
+            ${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt
           retention-days: 7
 
   # Coverage aggregation (optional)

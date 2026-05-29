@@ -1,13 +1,41 @@
 # Known (pre-existing) Server Tests failures — the "no-new-failures" gate baseline.
-# Generated from the union of develop CI runs (2026-05-29, commits 24f9de11 + 2f0db748).
-# Consumed by scripts/testing/check_new_test_failures.py: a PR fails the gate only
-# if it produces a failing test NOT listed here. Lines starting with # are ignored.
+# Generated from the union of 2 develop CI runs (2026-05-29, commits 24f9de11 + 2f0db748),
+# all 4 shards each, via scripts/testing/check_new_test_failures.py --emit-baseline.
+# Includes test methods AND fixture-hook failures (setUpClass/setUpModule/...).
+# Consumed by the checker: a PR fails the gate only if it produces a failing test
+# NOT listed here. Lines starting with # are ignored.
 #
 # Regenerate after legitimately fixing/adding baseline failures:
-#   1. download a green-base develop run`s 4 shard logs
-#   2. for each: check_new_test_failures.py --results <log> --emit-baseline
-#   3. concat all 4, `sort -u`, keep this header, commit.
+#   for each of a green-base develop run`s 4 shard logs:
+#     check_new_test_failures.py --results <log> --emit-baseline >> /tmp/b.txt
+#   sort -u /tmp/b.txt, re-add this header, commit.
 # See docs/plans/2026-05-29-server-tests-red-baseline-triage.md.
+setUpClass (verenigingen.services.csv_import.test_member_import_service.TestMemberImportService)
+setUpClass (verenigingen.tests.backend.components.test_chapter_assignment_edge_cases.TestChapterAssignmentEdgeCases)
+setUpClass (verenigingen.tests.backend.components.test_membership_analytics_permissions.TestMembershipAnalyticsPermissions)
+setUpClass (verenigingen.tests.backend.components.test_sepa_reconciliation.TestSEPAReconciliation)
+setUpClass (verenigingen.tests.backend.comprehensive.test_chapter_assignment_comprehensive.TestChapterAssignmentComprehensive)
+setUpClass (verenigingen.tests.backend.comprehensive.test_chapter_membership_validation_edge_cases.TestChapterMembershipValidationEdgeCases)
+setUpClass (verenigingen.tests.backend.comprehensive.test_financial_integration_edge_cases.TestFinancialIntegrationEdgeCases)
+setUpClass (verenigingen.tests.backend.comprehensive.test_termination_system_comprehensive.TestTerminationSystemComprehensive)
+setUpClass (verenigingen.tests.backend.comprehensive.test_termination_workflow_edge_cases.TestTerminationWorkflowEdgeCases)
+setUpClass (verenigingen.tests.backend.unit.api.test_member_management_api.TestMemberManagementAPI)
+setUpClass (verenigingen.tests.backend.unit.api.test_payment_processing_api.TestPaymentProcessingAPI)
+setUpClass (verenigingen.tests.backend.unit.controllers.test_membership_controller.TestMembershipController)
+setUpClass (verenigingen.tests.backend.unit.controllers.test_volunteer_controller.TestVolunteerWhitelistMethods)
+setUpClass (verenigingen.tests.backend.workflows.test_member_lifecycle_complete.TestMemberLifecycleComplete)
+setUpClass (verenigingen.tests.e2e.test_workflow_validation.TestE2EWorkflowValidation)
+setUpClass (verenigingen.tests.performance.test_performance_scenarios.TestPerformanceScenarios)
+setUpClass (verenigingen.tests.security.test_cor_rate_limiting.TestCORRateLimitingEnforcement)
+setUpClass (verenigingen.tests.security.test_cor_rate_limiting.TestCORRateLimitingScopes)
+setUpClass (verenigingen.tests.security.test_security_penetration.TestSecurityPenetration)
+setUpClass (verenigingen.tests.sepa.test_ponto_client.TestPontoClient)
+setUpClass (verenigingen.tests.sepa.test_ponto_oauth2_service.TestPontoOAuth2Service)
+setUpClass (verenigingen.tests.sepa.test_sepa_mandate_runner.SEPAMandateComplianceTests)
+setUpClass (verenigingen.tests.sepa.test_sepa_mandate_runner.SEPAMandateIntegrationTests)
+setUpClass (verenigingen.tests.sepa.test_sepa_mandate_runner.SEPAMandateValidationTests)
+setUpClass (verenigingen.tests.services.test_chapter_permission_service_integration.TestChapterPermissionServiceIntegration)
+setUpClass (verenigingen.verenigingen_payments.doctype.sepa_mandate.test_sepa_mandate_comprehensive.ComprehensiveSEPAMandateTests)
 test_01_no_volunteer_record (verenigingen.tests.volunteer.test_volunteer_details_html.TestVolunteerDetailsHTML.test_01_no_volunteer_record)
 test_03_rolling_period_validation (verenigingen.tests.sepa.test_sepa_option_ac_workflow.TestSEPAOptionACWorkflow.test_03_rolling_period_validation)
 test_04_unpaid_invoice_lookup (verenigingen.tests.sepa.test_sepa_option_ac_workflow.TestSEPAOptionACWorkflow.test_04_unpaid_invoice_lookup)
