@@ -88,6 +88,14 @@ Options considered:
 
 **Recommended B1 approach:** investigate (c) first (one well-scoped production-robustness fix, CI-verified). If (c) is not the cause, fall back to (a) **scoped to only the email/customer-name derivation** (leave `last_name` field intact for assertions — derive the Customer name from `full_name + member_id` or similar so the PK is unique while the displayed name fields are unchanged), which sidesteps the 47 assertions.
 
+### 4.1 What was actually found & done (2026-05-29, PR #113)
+
+Option (c) was **disproven**: local probes show ERPNext *does* dedup duplicate Customer names (`'X' → 'X - 1'`), even with a committed prior customer, so production customer creation is **not** non-idempotent. And the suite runs **serially within a shard** (`frappe/parallel_test_runner.py` `run_tests` is a plain loop), so it isn't a concurrency race either.
+
+The real root cause (CI traceback + local repro): `EnhancedTestDataFactory.create_member` (`enhanced_test_factory.py:609`) appended a "uniqueness" suffix to `last_name` sourced from a **per-instance** counter (`get_next_sequence`). A fresh factory is built each `setUp`, so the counter reset to `1` every time → every test's first member got `last_name="<Name>1"` → identical `full_name` → identical Customer PK → collision. **Fix:** source the suffix from a process-global `itertools.count` class attribute (`_global_unique_seq`). This is option (a) done safely — it changes only the suffix *value*, not whether one is appended, so the 47 `last_name` assertions are unaffected (they already saw a suffix).
+
+**Residual B1 gap (follow-up):** `CoreTestDataFactory.create_test_member` (`test_data_factory.py:303`) does **not** apply this suffix, and its default name uses `test_run_id[-5:]` which is seed-derived (constant for `seed=12345`) — so Core-direct callers with `auto_create_customer=True` and a fixed `last_name` (e.g. `tests/backend/integration/test_erpnext_integration_complete.py:146-152`) can still collide. Low incidence today (one-per-`setUpClass`); fix by routing Core's customer-creating path through the same global counter or documenting that Core-direct callers must supply unique names. `SecureTestDataFactory.create_member` (`enhanced_test_factory.py:5418`) has the same latent shape.
+
 ---
 
 ## 5. PR #113 status (open) — hold, don't merge
