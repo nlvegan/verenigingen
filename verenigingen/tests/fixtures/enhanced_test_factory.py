@@ -1564,6 +1564,20 @@ class EnhancedTestCase(FrappeTestCase):
         Bulletproof: the real insert runs first and its result is returned
         unconditionally; capture is best-effort in a try/except so a capture bug
         can never break an insert (this wrapper runs for EVERY insert in the test).
+
+        Scope/limits (this SUBSTANTIALLY REDUCES, but does not fully guarantee,
+        order-independence):
+        - Does NOT capture rows created via frappe.db.bulk_insert, raw
+          frappe.db.sql("INSERT ..."), or Singles writes (update_single via
+          set_value/.save() — those don't go through Document.db_insert).
+        - Captures only inserts AFTER install (end of setUp), so shared
+          master/setup data created earlier (incl. setUpClass) is preserved.
+        - Over-deletion caveat: a record created by PRODUCTION code inside a test
+          body that is meant to be shared/persistent would also be force-deleted at
+          tearDown. This is inherent to "drain everything inserted"; the proper
+          long-term fix is for tests to create such records via the tracked factory
+          rather than raw inserts. Deletions swallow all errors and never fail
+          tearDown.
         """
         import frappe.model.document as _docmod
 
@@ -1665,6 +1679,12 @@ class EnhancedTestCase(FrappeTestCase):
         The class-level cleanup (_cleanup_stale_test_data) still runs to catch any
         records that escaped rollback due to explicit db.commit() calls in code.
         """
+        # Stop capturing FIRST, so the drains below (rollback/delete/commit) and any
+        # framework bookkeeping they emit (e.g. "Deleted Document" rows, which are
+        # meant to persist) are not captured. addCleanup also calls this as an
+        # idempotent backstop.
+        self._uninstall_insert_capture()
+
         # EMAIL MOCKING CLEANUP: Stop all email patches
         try:
             # Stop comprehensive email patches

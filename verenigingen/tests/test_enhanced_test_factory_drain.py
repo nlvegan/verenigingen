@@ -190,3 +190,15 @@ class TestCapturedInsertDrain(EnhancedTestCase):
             frappe.db.exists("Customer", created),
             "captured committed record must be drained (else it leaks into later tests)",
         )
+
+    def test_singles_setvalue_is_not_captured(self):
+        # Documents the known limit: Singles writes (update_single via set_value)
+        # don't go through Document.db_insert, so they're neither captured nor
+        # drained — correct, since Settings must persist / are restored separately.
+        # Guards against a future change that would wrongly drain them.
+        import frappe
+
+        before = list(self._captured_inserts)
+        frappe.db.set_value("System Settings", "System Settings", "language", "en")
+        new = [k for k in self._captured_inserts if k not in before]
+        self.assertEqual(new, [], "Singles set_value must not be captured as an insert")
