@@ -185,3 +185,50 @@ class TestFactoryUniqueSuffixIsProcessGlobal(EnhancedTestCase):
             "constructing a new EnhancedTestDataFactory must not reset the "
             "process-global last_name suffix counter",
         )
+
+
+class TestCapturedInsertDrain(EnhancedTestCase):
+    """Regression: committed records created via RAW frappe inserts (not the
+    factory) must be drained at tearDown, so they don't leak into later tests
+    and cause order-dependent failures. See
+    docs/plans/2026-05-29-server-tests-red-baseline-triage.md (isolation root cause).
+    """
+
+    def test_raw_committed_insert_is_captured_and_drained(self):
+        import frappe
+
+        name = f"Drain Probe Customer {self.uid}"
+        # Raw insert + COMMIT — bypasses factory tracking and survives rollback.
+        cust = frappe.get_doc(
+            {"doctype": "Customer", "customer_name": name, "customer_type": "Individual"}
+        )
+        cust.insert(ignore_permissions=True)
+        frappe.db.commit()
+        created = cust.name
+
+        self.assertTrue(frappe.db.exists("Customer", created), "precondition: customer committed")
+        self.assertIn(
+            ("Customer", created),
+            self._captured_inserts,
+            "raw insert should be captured by the global insert hook",
+        )
+
+        # Invoke the drain directly (tearDown runs it too).
+        self._drain_captured_inserts()
+
+        self.assertFalse(
+            frappe.db.exists("Customer", created),
+            "captured committed record must be drained (else it leaks into later tests)",
+        )
+
+    def test_singles_setvalue_is_not_captured(self):
+        # Documents the known limit: Singles writes (update_single via set_value)
+        # don't go through Document.db_insert, so they're neither captured nor
+        # drained — correct, since Settings must persist / are restored separately.
+        # Guards against a future change that would wrongly drain them.
+        import frappe
+
+        before = list(self._captured_inserts)
+        frappe.db.set_value("System Settings", "System Settings", "language", "en")
+        new = [k for k in self._captured_inserts if k not in before]
+        self.assertEqual(new, [], "Singles set_value must not be captured as an insert")

@@ -107,11 +107,24 @@ jobs:
       - name: Run Tests
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
+          # The suite has a large, long-standing red baseline (see
+          # docs/plans/2026-05-29-server-tests-red-baseline-triage.md). We do NOT
+          # fail the job on pre-existing failures here; the next step gates on
+          # NEW failures only. `tee` captures output for that comparison; `|| true`
+          # keeps a non-zero suite exit from failing this step.
+          set -o pipefail
           bench --site test_site run-parallel-tests \
             --app ${{ github.event.repository.name }} \
             --total-builds ${{ inputs.parallel-runs }} \
             --build-number ${{ matrix.index }} \
-            ${{ inputs.enable-coverage && '--with-coverage' || '' }}
+            ${{ inputs.enable-coverage && '--with-coverage' || '' }} \
+            2>&1 | tee "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" || true
+
+      - name: Gate on new test failures
+        run: |
+          python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_new_test_failures.py" \
+            --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \
+            --baseline "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/verenigingen/tests/known_test_failures.txt"
 
       - name: Upload Coverage
         if: ${{ inputs.enable-coverage }}
@@ -132,6 +145,7 @@ jobs:
           path: |
             ${GITHUB_WORKSPACE}/bench_start.log
             ${GITHUB_WORKSPACE}/logs/
+            ${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt
           retention-days: 7
 
   # Coverage aggregation (optional)
