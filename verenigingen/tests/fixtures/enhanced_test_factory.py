@@ -180,6 +180,7 @@ Version History
 - Added comprehensive document tracking with priority-based cleanup
 """
 
+import itertools
 import json
 import random
 from datetime import datetime, timedelta
@@ -298,7 +299,17 @@ class EnhancedTestDataFactory:
     - Schema-aware field validation
     - Deterministic data generation with seeds
     """
-    
+
+    # Process-global monotonic counter for the Customer-collision-prevention suffix
+    # appended to last_name. MUST NOT be a per-instance counter: a fresh factory is
+    # built in every test's setUp, so a per-instance counter resets to 1 each time,
+    # producing identical names (e.g. "TestUser1") across tests -> identical member
+    # full_name -> identical auto-created Customer name -> DuplicateEntryError on the
+    # Customer PRIMARY key. A class-level counter stays monotonic across instances
+    # within a shard process (shards use separate DBs, so no cross-shard concern).
+    # See bucket B1 in docs/plans/2026-05-29-server-tests-red-baseline-triage.md.
+    _global_unique_seq = itertools.count(1)
+
     def __init__(self, seed: int = 12345, use_faker: bool = True):
         """
         Initialize enhanced test data factory
@@ -606,7 +617,9 @@ class EnhancedTestDataFactory:
                 self.validate_field_exists("Member", field)
 
         # --- Enhanced pre-processing: unique naming for Customer collision prevention ---
-        unique_suffix = str(self.get_next_sequence("member_unique"))
+        # Use the process-global counter (NOT a per-instance one, which resets each
+        # setUp and re-collides — see _global_unique_seq above).
+        unique_suffix = str(next(EnhancedTestDataFactory._global_unique_seq))
         if "last_name" in kwargs and unique_suffix not in kwargs["last_name"]:
             kwargs["last_name"] = f"{kwargs['last_name']}{unique_suffix}"
         if "email" in kwargs:
