@@ -155,3 +155,38 @@ class TestDrainTrackedDocuments(EnhancedTestCase):
             d for d in self.factory.core.created_records
             if not (d['doctype'] == "ToyDoc" and d['name'] == "X")
         ]
+
+
+class TestCapturedInsertDrain(EnhancedTestCase):
+    """Regression: committed records created via RAW frappe inserts (not the
+    factory) must be drained at tearDown, so they don't leak into later tests
+    and cause order-dependent failures. See
+    docs/plans/2026-05-29-server-tests-red-baseline-triage.md (isolation root cause).
+    """
+
+    def test_raw_committed_insert_is_captured_and_drained(self):
+        import frappe
+
+        name = f"Drain Probe Customer {self.uid}"
+        # Raw insert + COMMIT — bypasses factory tracking and survives rollback.
+        cust = frappe.get_doc(
+            {"doctype": "Customer", "customer_name": name, "customer_type": "Individual"}
+        )
+        cust.insert(ignore_permissions=True)
+        frappe.db.commit()
+        created = cust.name
+
+        self.assertTrue(frappe.db.exists("Customer", created), "precondition: customer committed")
+        self.assertIn(
+            ("Customer", created),
+            self._captured_inserts,
+            "raw insert should be captured by the global insert hook",
+        )
+
+        # Invoke the drain directly (tearDown runs it too).
+        self._drain_captured_inserts()
+
+        self.assertFalse(
+            frappe.db.exists("Customer", created),
+            "captured committed record must be drained (else it leaks into later tests)",
+        )

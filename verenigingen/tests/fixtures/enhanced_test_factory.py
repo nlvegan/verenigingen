@@ -1546,6 +1546,106 @@ class EnhancedTestCase(FrappeTestCase):
         # RATE LIMIT MOCKING: Bypass rate limiting in tests using proper mocking
         self._setup_rate_limit_mocking()
 
+        # GLOBAL INSERT CAPTURE: record every document inserted from here on, so
+        # tearDown can drain committed survivors the factory tracker misses —
+        # raw `frappe.get_doc(...).insert()` + `frappe.db.commit()` in test bodies
+        # are the dominant source of order-dependent cross-test pollution (a record
+        # leaked by an earlier test fails a later one depending on shard/order).
+        # Installed AFTER shared master-data setup above so that data is NOT
+        # captured/drained (it must persist across methods). addCleanup guarantees
+        # the patch is removed even if the test errors.
+        self._captured_inserts = []
+        self._install_insert_capture()
+        self.addCleanup(self._uninstall_insert_capture)
+
+    def _install_insert_capture(self):
+        """Monkey-patch Document.db_insert to record (doctype, name) of every insert.
+
+        Bulletproof: the real insert runs first and its result is returned
+        unconditionally; capture is best-effort in a try/except so a capture bug
+        can never break an insert (this wrapper runs for EVERY insert in the test).
+        """
+        import frappe.model.document as _docmod
+
+        self._orig_db_insert = _docmod.Document.db_insert
+        captured = self._captured_inserts
+        orig = self._orig_db_insert
+
+        def _capturing_db_insert(doc, *args, **kwargs):
+            result = orig(doc, *args, **kwargs)
+            try:
+                if doc.doctype and doc.name:
+                    captured.append((doc.doctype, doc.name))
+            except Exception:
+                pass
+            return result
+
+        _docmod.Document.db_insert = _capturing_db_insert
+
+    def _uninstall_insert_capture(self):
+        try:
+            import frappe.model.document as _docmod
+
+            if getattr(self, "_orig_db_insert", None) is not None:
+                _docmod.Document.db_insert = self._orig_db_insert
+                self._orig_db_insert = None
+        except Exception:
+            pass
+
+    def _drain_captured_inserts(self):
+        """Delete committed records captured by the insert hook that the factory
+        tracker did not already drain. Mirrors _drain_tracked_documents' safety:
+        rollback first, force-delete each (swallowing per-doc errors), commit so
+        the deletions persist. Deletes in REVERSE creation order so dependents go
+        before their dependencies (e.g. Customer before its Member).
+        """
+        captured = getattr(self, "_captured_inserts", None)
+        if not captured:
+            return
+
+        # Reverse creation order, deduped, preserving first (latest) occurrence.
+        seen = set()
+        ordered = []
+        for key in reversed(captured):
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(key)
+
+        # Clear immediately so a partial failure can't re-drive the same set.
+        self._captured_inserts = []
+
+        try:
+            frappe.db.rollback()
+        except Exception as e:
+            frappe.logger().warning(f"Captured-insert drain pre-rollback failed (skipping): {e}")
+            return
+
+        delete_failures = 0
+        for doctype, name in ordered:
+            try:
+                if not frappe.db.exists(doctype, name):
+                    continue
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except frappe.DoesNotExistError:
+                pass
+            except Exception:
+                # Most leftovers (links, docstatus, before_delete hooks) are handled
+                # by the broader factory drain or simply persist as today; don't let
+                # one failure abort the rest or break tearDown.
+                delete_failures += 1
+
+        try:
+            frappe.db.commit()
+        except Exception as e:
+            frappe.logger().warning(f"Captured-insert drain commit failed: {e}")
+
+        if delete_failures:
+            frappe.logger().warning(
+                f"Captured-insert drain: {delete_failures} record(s) could not be deleted "
+                f"(may persist as orphans; usually link/docstatus constraints)."
+            )
+
     def tearDown(self):
         """
         Clean up test environment with per-method transaction rollback.
@@ -1610,6 +1710,15 @@ class EnhancedTestCase(FrappeTestCase):
             self._drain_tracked_documents()
         except Exception as e:
             frappe.logger().warning(f"Tracked doc drain failed in tearDown: {e}")
+
+        # DRAIN CAPTURED INSERTS: catch committed records the factory tracker missed
+        # (raw frappe inserts / production-code inserts). This is what makes failures
+        # order-INDEPENDENT — without it a leaked record fails a later test depending
+        # on shard split / execution order.
+        try:
+            self._drain_captured_inserts()
+        except Exception as e:
+            frappe.logger().warning(f"Captured-insert drain failed in tearDown: {e}")
 
         # SETTINGS RESTORATION: Restore Verenigingen Settings to original values
         # This undoes changes made by _ensure_verenigingen_settings() which commits
