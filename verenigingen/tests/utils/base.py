@@ -714,9 +714,13 @@ class VereningingenTestCase(FrappeTestCase):
 
     def create_test_membership_type(self, **kwargs):
         """Create a test membership type with default values and unique naming"""
-        # Get a dues schedule template first
-        template = frappe.db.get_value("Membership Dues Schedule",
-            {"name": ["like", "%Monthly%"]}, "name") or "Monthly Membership Template"
+        # NOTE: do NOT pre-assign dues_schedule_template. MembershipType.after_insert
+        # auto-creates and links a valid per-type "[Type] Membership Template"
+        # (valid contribution_mode, dues_rate 15.0). The previous hardcoded fallback to
+        # the literal "Monthly Membership Template" passed only because that record
+        # happened to exist in a dirty local DB; on a clean CI DB it raised
+        # LinkValidationError ("Could not find Default Dues Schedule Template") before
+        # after_insert could run.
 
         # Get a role profile for members (required field)
         role_profile = frappe.db.get_value(
@@ -729,14 +733,13 @@ class VereningingenTestCase(FrappeTestCase):
         unique_suffix = frappe.generate_hash(length=4)
         unique_name = f"Test Type {timestamp[-6:]}-{unique_suffix}"
 
+        # NOTE: only fields that actually exist on the Membership Type DocType are set.
+        # "amount", "contribution_mode", "enable_income_calculator" and
+        # "income_percentage_rate" were previously included but are NOT Membership Type
+        # fields (verified via frappe.get_meta) — setting them was a silent no-op.
         defaults = {
             "membership_type_name": unique_name,
-            "amount": 25.0,
             "is_active": 1,
-            "contribution_mode": "Calculator",
-            "enable_income_calculator": 1,
-            "income_percentage_rate": 0.75,
-            "dues_schedule_template": template,
             "role_profile": role_profile,
         }
         defaults.update(kwargs)

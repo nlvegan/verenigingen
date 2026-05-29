@@ -157,6 +157,36 @@ class TestDrainTrackedDocuments(EnhancedTestCase):
         ]
 
 
+class TestFactoryUniqueSuffixIsProcessGlobal(EnhancedTestCase):
+    """Regression: the Customer-collision-prevention suffix appended to last_name
+    in EnhancedTestDataFactory.create_member MUST come from a process-global
+    counter, not a per-instance one.
+
+    A fresh factory is built in every test's setUp; a per-instance counter
+    resets to 1 each time, so every test's first member got last_name="<Name>1"
+    -> identical Member full_name -> identical auto-created Customer name ->
+    DuplicateEntryError on the Customer PRIMARY key (the largest CI failure
+    bucket, B1). See docs/plans/2026-05-29-server-tests-red-baseline-triage.md.
+    """
+
+    def test_constructing_a_new_factory_does_not_reset_the_suffix_counter(self):
+        from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestDataFactory
+
+        a = next(EnhancedTestDataFactory._global_unique_seq)
+        b = next(EnhancedTestDataFactory._global_unique_seq)
+        self.assertNotEqual(a, b, "the suffix counter must advance monotonically")
+
+        # Building a new factory (as every setUp does) must NOT reset the shared
+        # counter back to 1 — that reset was the root cause of the collisions.
+        EnhancedTestDataFactory(seed=12345)
+        c = next(EnhancedTestDataFactory._global_unique_seq)
+        self.assertGreater(
+            c, b,
+            "constructing a new EnhancedTestDataFactory must not reset the "
+            "process-global last_name suffix counter",
+        )
+
+
 class TestCapturedInsertDrain(EnhancedTestCase):
     """Regression: committed records created via RAW frappe inserts (not the
     factory) must be drained at tearDown, so they don't leak into later tests
