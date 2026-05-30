@@ -60,6 +60,7 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import functools
 import os
 import tempfile
 import traceback
@@ -91,7 +92,76 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
+def _flatten_api_response(result: Any) -> Any:
+    """Flatten the nested OperationResult envelope into the flat shape callers read.
+
+    These endpoints return an OperationResult, and ``@critical_api`` serializes it
+    with ``OperationResult.to_dict(scrub_sensitive=True)`` (default ``nested=True``)
+    BEFORE this runs, producing::
+
+        {"success": True, "timestamp": ..., "data": {...}, "meta": {...}}          # ok
+        {"success": False, "timestamp": ..., "error": {"message": ...}, "meta": {...}}  # fail
+
+    But the overdue-payments report JS reads ``r.message.file_url`` / ``r.message.count``
+    and the test-suite reads ``result["count"]`` / ``result["message"]`` — i.e. flat,
+    top-level keys. Against the nested shape those are ``undefined`` (the export button
+    is broken). This lifts ``data`` / ``error`` / ``meta`` to the top level. It also
+    defensively serializes a raw OperationResult (in case ``@critical_api`` is absent)
+    and passes anything else through unchanged. No business logic or payload changes.
+    """
+    # Defensive: serialize a raw OperationResult if @critical_api did not already.
+    if isinstance(result, OperationResult):
+        result = result.to_dict(scrub_sensitive=True)
+    if not isinstance(result, dict):
+        return result
+    # Only transform the nested OperationResult envelope; leave plain dicts alone.
+    if "data" not in result and "error" not in result and "meta" not in result:
+        return result
+
+    flat: Dict[str, Any] = {k: v for k, v in result.items() if k not in ("data", "error", "meta")}
+
+    data = result.get("data")
+    if isinstance(data, dict):
+        flat.update(data)
+    elif data is not None:
+        flat["data"] = data
+
+    error = result.get("error")
+    if isinstance(error, dict):
+        flat.setdefault("message", error.get("message"))
+        if error.get("errors"):
+            flat.setdefault("errors", error["errors"])
+        if error.get("code"):
+            flat.setdefault("error_code", error["code"])
+    elif error is not None:
+        flat.setdefault("message", error)
+
+    meta = result.get("meta")
+    if isinstance(meta, dict):
+        # e.g. the success ``message=``; don't clobber data keys lifted above.
+        for key, value in meta.items():
+            flat.setdefault(key, value)
+
+    return flat
+
+
+def _flatten_operation_result(func):
+    """Flatten an endpoint's nested OperationResult envelope into a flat dict.
+
+    Sits INSIDE ``@frappe.whitelist()`` but OUTSIDE ``@critical_api`` — it must run
+    AFTER critical_api's ``to_dict`` serialization, on the nested dict that produces.
+    Only transforms the *returned* value; raised exceptions propagate untouched.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return _flatten_api_response(func(*args, **kwargs))
+
+    return wrapper
+
+
 @frappe.whitelist(methods=["POST"])
+@_flatten_operation_result
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
@@ -289,6 +359,7 @@ def send_overdue_payment_reminders(
 
 
 @frappe.whitelist()
+@_flatten_operation_result
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=5000)
@@ -380,6 +451,7 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
 
 
 @frappe.whitelist()
+@_flatten_operation_result
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=10000)
