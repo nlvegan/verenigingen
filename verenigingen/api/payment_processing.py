@@ -92,52 +92,70 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
-def _operation_result_to_response(result: Any) -> Any:
-    """Serialize an OperationResult into a flat, JSON-serializable dict for HTTP.
+def _flatten_api_response(result: Any) -> Any:
+    """Flatten the nested OperationResult envelope into the flat shape callers read.
 
-    A raw OperationResult is a @dataclass with no ``__json__``; Frappe's
-    ``json_handler`` cannot serialize it and raises TypeError (HTTP 500) when a
-    whitelisted endpoint returns one. Both callers of these endpoints — the
-    overdue-payments report JS (reads ``r.message.file_url`` / ``r.message.count``)
-    and the test-suite — expect the success payload's keys at the TOP level, so we
-    flatten ``data`` rather than nesting it under a ``data`` key (which is what
-    ``OperationResult.to_dict()`` would do). Business logic and payloads are
-    unchanged; only the return *type* is converted.
+    These endpoints return an OperationResult, and ``@critical_api`` serializes it
+    with ``OperationResult.to_dict(scrub_sensitive=True)`` (default ``nested=True``)
+    BEFORE this runs, producing::
+
+        {"success": True, "timestamp": ..., "data": {...}, "meta": {...}}          # ok
+        {"success": False, "timestamp": ..., "error": {"message": ...}, "meta": {...}}  # fail
+
+    But the overdue-payments report JS reads ``r.message.file_url`` / ``r.message.count``
+    and the test-suite reads ``result["count"]`` / ``result["message"]`` — i.e. flat,
+    top-level keys. Against the nested shape those are ``undefined`` (the export button
+    is broken). This lifts ``data`` / ``error`` / ``meta`` to the top level. It also
+    defensively serializes a raw OperationResult (in case ``@critical_api`` is absent)
+    and passes anything else through unchanged. No business logic or payload changes.
     """
-    if not isinstance(result, OperationResult):
+    # Defensive: serialize a raw OperationResult if @critical_api did not already.
+    if isinstance(result, OperationResult):
+        result = result.to_dict(scrub_sensitive=True)
+    if not isinstance(result, dict):
         return result
-    response: Dict[str, Any] = {"success": result.success}
-    if result.success:
-        if isinstance(result.data, dict):
-            response.update(result.data)
-        elif result.data is not None:
-            response["data"] = result.data
-    else:
-        response["message"] = result.error_message
-        if result.errors:
-            response["errors"] = result.errors
-        if result.error_code:
-            response["error_code"] = result.error_code
-        if result.http_status:
-            response["http_status"] = result.http_status
-    # Surface metadata (e.g. the success ``message=``) at the top level without
-    # clobbering data keys already set above.
-    for key, value in (result.metadata or {}).items():
-        response.setdefault(key, value)
-    return response
+    # Only transform the nested OperationResult envelope; leave plain dicts alone.
+    if "data" not in result and "error" not in result and "meta" not in result:
+        return result
+
+    flat: Dict[str, Any] = {k: v for k, v in result.items() if k not in ("data", "error", "meta")}
+
+    data = result.get("data")
+    if isinstance(data, dict):
+        flat.update(data)
+    elif data is not None:
+        flat["data"] = data
+
+    error = result.get("error")
+    if isinstance(error, dict):
+        flat.setdefault("message", error.get("message"))
+        if error.get("errors"):
+            flat.setdefault("errors", error["errors"])
+        if error.get("code"):
+            flat.setdefault("error_code", error["code"])
+    elif error is not None:
+        flat.setdefault("message", error)
+
+    meta = result.get("meta")
+    if isinstance(meta, dict):
+        # e.g. the success ``message=``; don't clobber data keys lifted above.
+        for key, value in meta.items():
+            flat.setdefault(key, value)
+
+    return flat
 
 
 def _flatten_operation_result(func):
-    """Convert an endpoint's OperationResult return into a flat JSON-serializable dict.
+    """Flatten an endpoint's nested OperationResult envelope into a flat dict.
 
-    Must sit INSIDE ``@frappe.whitelist()`` so the registered (outermost) object is
-    still the whitelisted one. Only transforms *returned* OperationResults; raised
-    exceptions propagate untouched to Frappe's error handling.
+    Sits INSIDE ``@frappe.whitelist()`` but OUTSIDE ``@critical_api`` — it must run
+    AFTER critical_api's ``to_dict`` serialization, on the nested dict that produces.
+    Only transforms the *returned* value; raised exceptions propagate untouched.
     """
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        return _operation_result_to_response(func(*args, **kwargs))
+        return _flatten_api_response(func(*args, **kwargs))
 
     return wrapper
 
