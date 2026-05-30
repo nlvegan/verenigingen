@@ -1,7 +1,7 @@
 import json
 import unittest
 import frappe
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import today, add_days
 
@@ -234,33 +234,36 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
             custom_member=self.overdue_member.name
         )
         
-        # Mock only file system operations (infrastructure)
-        with patch("builtins.open", create=True) as mock_open:
-            with patch("csv.DictWriter") as mock_csv_writer:
-                # Use REAL file document creation instead of mocking frappe.get_doc
-                try:
-                    # Create real file document in database
-                    file_doc = frappe.get_doc({
-                        "doctype": "File",
-                        "file_name": f"test_export_{frappe.utils.random_string(6)}.csv",
-                        "is_private": 0,
-                        "content": "test,content"  # Minimal content for testing
-                    })
-                    file_doc.insert()
-                    
-                    # Test export with real business logic and real file document
-                    result = export_overdue_payments(
-                        filters=json.dumps({"chapter": "Amsterdam"})
-                    )
-                    
-                    # Verify real business logic created real file
-                    self.assertIsInstance(result, dict, "Should return result from real business logic")
-                    if result.get("success"):
-                        self.assertIn("file_url", result, "Should include real file URL")
-                        
-                except Exception as e:
-                    # If file creation fails, test should handle gracefully
-                    self.assertTrue(True, f"Real business logic handled file creation appropriately: {str(e)}")
+        # Do NOT mock builtins.open here. Creating a File document (below and inside the
+        # export) runs File.before_insert -> set_file_type -> mimetypes.guess_type(), which
+        # lazily open()s the system mime DB. Under a global open() mock, mimetypes.readfp()
+        # ("while 1: line = fp.readline(); if not line: break") never terminates because the
+        # MagicMock readline() is always truthy -> infinite loop that balloons memory until
+        # the CI runner is reclaimed (SIGTERM 143). A "real business logic" test must use
+        # real file I/O (a small CSV in a tempdir); it is cheap.
+        try:
+            # Create real file document in database
+            file_doc = frappe.get_doc({
+                "doctype": "File",
+                "file_name": f"test_export_{frappe.utils.random_string(6)}.csv",
+                "is_private": 0,
+                "content": "test,content"  # Minimal content for testing
+            })
+            file_doc.insert()
+
+            # Test export with real business logic and real file document
+            result = export_overdue_payments(
+                filters=json.dumps({"chapter": "Amsterdam"})
+            )
+
+            # Verify real business logic created real file
+            self.assertIsInstance(result, dict, "Should return result from real business logic")
+            if result.get("success"):
+                self.assertIn("file_url", result, "Should include real file URL")
+
+        except Exception as e:
+            # If file creation fails, test should handle gracefully
+            self.assertTrue(True, f"Real business logic handled file creation appropriately: {str(e)}")
 
     def test_export_overdue_payments_file_error_real_logic(self):
         """Test export with file errors using REAL business logic"""

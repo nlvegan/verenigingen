@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, today
@@ -288,48 +288,42 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         """
         from verenigingen.api.payment_processing import export_overdue_payments
         
-        # Mock file operations (infrastructure - keeping file system mocks)
-        with patch("builtins.open", create=True) as mock_open:
-            with patch("csv.DictWriter") as mock_csv_writer:
-                # Test export with real database operations - no frappe.get_doc mocking
-                # Create real file document for export testing if needed
-                test_file_doc = None
-                try:
-                    # Only create file doc if export function actually needs it
-                    # This tests real file creation workflow without mocking database operations
-                    test_file_doc = frappe.get_doc({
-                        "doctype": "File",
-                        "file_name": "payment_export_test.csv",
-                        "file_url": "/files/payment_export_test.csv",
-                        "is_private": 0
-                    })
-                    test_file_doc.insert()
-                    self.track_doc("File", test_file_doc.name)
-                except Exception as e:
-                    # If File DocType creation fails, continue without it
-                    # The export function should handle missing file docs gracefully
-                    print(f"Note: Could not create test File doc: {e}")
-                    
-                # Execute export workflow with REAL database operations
-                result = export_overdue_payments(
-                    filters={},  # No specific filters - tests real data retrieval
-                    format="CSV"
-                )
+        # Do NOT mock builtins.open. Creating a File document (here and inside the export)
+        # runs File.before_insert -> mimetypes.guess_type(), which loops forever under a
+        # global open() mock (truthy MagicMock readline()), ballooning memory until the CI
+        # runner is killed (SIGTERM 143). Exercise the real file-creation workflow.
+        test_file_doc = None
+        try:
+            # Only create file doc if export function actually needs it
+            # This tests real file creation workflow without mocking database operations
+            test_file_doc = frappe.get_doc({
+                "doctype": "File",
+                "file_name": "payment_export_test.csv",
+                "file_url": "/files/payment_export_test.csv",
+                "is_private": 0
+            })
+            test_file_doc.insert()
+            self.track_doc("File", test_file_doc.name)
+        except Exception as e:
+            # If File DocType creation fails, continue without it
+            # The export function should handle missing file docs gracefully
+            print(f"Note: Could not create test File doc: {e}")
 
-                # Verify export completion with real business logic
-                self.assertIsInstance(result, dict)
-                self.assertTrue("success" in result)
-                self.assertTrue("count" in result)
+        # Execute export workflow with REAL database operations
+        result = export_overdue_payments(
+            filters={},  # No specific filters - tests real data retrieval
+            format="CSV"
+        )
 
-                if result["success"]:
-                    print(f"✅ Real export workflow successful - {result['count']} records exported")
+        # Verify export completion with real business logic
+        self.assertIsInstance(result, dict)
+        self.assertTrue("success" in result)
+        self.assertTrue("count" in result)
 
-                    # Verify file operations with real data
-                    if result["count"] > 0:
-                        # CSV writer should be called with real payment data
-                        self.assertTrue(mock_csv_writer.called or mock_open.called)
-                else:
-                    print("ℹ️ Export found no data - may be expected with test scenarios")
+        if result["success"]:
+            print(f"✅ Real export workflow successful - {result['count']} records exported")
+        else:
+            print("ℹ️ Export found no data - may be expected with test scenarios")
 
     @patch("frappe.sendmail")  # Mock justified: External Service - email infrastructure, not business logic
     def test_complete_bulk_action_workflow_real_business_logic(self, mock_sendmail):
