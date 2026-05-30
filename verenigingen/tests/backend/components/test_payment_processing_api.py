@@ -1,7 +1,7 @@
 import json
 import unittest
 import frappe
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import today, add_days
 
@@ -303,35 +303,31 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
 
     def test_export_overdue_payments_success_real_logic(self):
         """Test successful payment data export using REAL business logic"""
-        # Mock only infrastructure (physical file operations) - not business logic
-        with patch("builtins.open", create=True) as mock_open:
-            with patch("csv.DictWriter") as mock_csv_writer:
-                # Use REAL overdue payment data from our test setup
-                # Let the export function handle file creation naturally
-                result = export_overdue_payments(
-                    filters=json.dumps({"chapter": "Amsterdam"})
-                )
+        # Do NOT mock builtins.open. The export creates a File document whose before_insert
+        # calls mimetypes.guess_type(); under a global open() mock, mimetypes.readfp() loops
+        # forever on a truthy MagicMock, ballooning memory until the CI runner is killed
+        # (SIGTERM 143). Let the export write a real CSV to a tempdir (cheap, real).
+        result = export_overdue_payments(
+            filters=json.dumps({"chapter": "Amsterdam"})
+        )
 
-                # Verify successful export with real data
-                if result.get("success"):
-                    self.assertGreaterEqual(result["count"], 1)  # Should find our test member
-                    self.assertIn("Export completed", result["message"])
-                    self.assertIn("file_url", result)
-                    # Verify infrastructure mocks were called (CSV writing)
-                    mock_open.assert_called()
-                    mock_csv_writer.assert_called()
-                else:
-                    # Real business logic may return different messages for no data
-                    message = result.get("message", result.get("error", {}).get("message", ""))
-                    # Accept various real business logic responses for no data
-                    is_valid_no_data = (
-                        "no data" in message.lower() or
-                        "export" in message.lower() or
-                        "invalid" in message.lower() or
-                        message == ""
-                    )
-                    self.assertTrue(is_valid_no_data or not result.get("success", True),
-                                  f"Real business logic should handle no data appropriately, got: {message}")
+        # Verify successful export with real data
+        if result.get("success"):
+            self.assertGreaterEqual(result["count"], 1)  # Should find our test member
+            self.assertIn("Export completed", result["message"])
+            self.assertIn("file_url", result)
+        else:
+            # Real business logic may return different messages for no data
+            message = result.get("message", result.get("error", {}).get("message", ""))
+            # Accept various real business logic responses for no data
+            is_valid_no_data = (
+                "no data" in message.lower() or
+                "export" in message.lower() or
+                "invalid" in message.lower() or
+                message == ""
+            )
+            self.assertTrue(is_valid_no_data or not result.get("success", True),
+                          f"Real business logic should handle no data appropriately, got: {message}")
 
     def test_export_overdue_payments_no_data_real_logic(self):
         """Test export with no data using REAL business logic"""
