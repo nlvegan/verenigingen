@@ -813,7 +813,7 @@ class VereningingenTestCase(FrappeTestCase):
             "schedule_name": f"Test-Template-{membership_type}",
             "membership_type": membership_type,
             "dues_rate": 15.00,  # Fixed: was "amount", should be "dues_rate"
-            "contribution_mode": "Calculator",
+            "contribution_mode": "Income-Based",
             "currency": "EUR",
             "status": "Active",
             "auto_generate": 1,

@@ -50,7 +50,7 @@ class TestDuesScheduleDateValidation(VereningingenTestCase):
                 "minimum_amount": 5.0,
                 "dues_rate": 5.0,
                 "status": "Active",
-                "contribution_mode": "Calculator",
+                "contribution_mode": "Income-Based",
                 "auto_generate": 1
             })
             template.insert()
@@ -128,7 +128,7 @@ class TestDuesScheduleDateValidation(VereningingenTestCase):
                 "minimum_amount": 10.0,
                 "dues_rate": 10.0,
                 "status": "Active",
-                "contribution_mode": "Calculator",
+                "contribution_mode": "Income-Based",
                 "auto_generate": 1
             })
             template.insert()
@@ -201,7 +201,7 @@ class TestDuesScheduleDateValidation(VereningingenTestCase):
                 "minimum_amount": 25.0,
                 "dues_rate": 25.0,
                 "status": "Active",
-                "contribution_mode": "Calculator",
+                "contribution_mode": "Income-Based",
                 "auto_generate": 1
             })
             template.insert()

@@ -70,7 +70,7 @@ class TestComprehensiveProrating(BaseTestCase):
                 template.minimum_amount = type_data["minimum_amount"]
                 template.dues_rate = type_data["minimum_amount"]
                 template.status = "Active"
-                template.contribution_mode = "Calculator"
+                template.contribution_mode = "Income-Based"
                 template.invoice_days_before = 30
                 template.auto_generate = 1
                 template.insert()
