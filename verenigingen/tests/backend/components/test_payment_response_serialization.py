@@ -1,57 +1,88 @@
-"""Unit tests for the OperationResult -> flat HTTP response serializer.
+"""Unit tests for the flat-API-response helper on the payment endpoints.
 
-Guards the fix for the bug where whitelisted payment endpoints returned a raw
-OperationResult dataclass, which Frappe's json_handler cannot serialize (HTTP
-500), and whose nested to_dict() shape did not match the flat keys the report JS
-(`r.message.file_url` / `r.message.count`) and the test-suite read.
+In production, ``@critical_api`` serializes the endpoint's OperationResult with
+``OperationResult.to_dict(scrub_sensitive=True)`` (nested) BEFORE the
+``_flatten_operation_result`` decorator runs, so the decorator receives a NESTED
+dict ``{success, timestamp, data, meta}`` — NOT a raw OperationResult. The
+overdue-payments report JS and the test-suite read flat top-level keys
+(``r.message.file_url`` / ``r.message.count``), so the helper must flatten that
+nested envelope. These tests feed it the exact ``to_dict`` output critical_api
+produces, so they guard the real runtime path.
 
-Plain unittest.TestCase (no DB) — the serializer is a pure function.
+Plain unittest.TestCase (no DB) — the helper is a pure function.
 """
 import json
 import unittest
 
-from verenigingen.api.payment_processing import _operation_result_to_response
+from verenigingen.api.payment_processing import _flatten_api_response
 from verenigingen.utils.operation_result import OperationResult
 
 
+def _as_critical_api_emits(result: OperationResult) -> dict:
+    """Reproduce exactly what @critical_api returns: to_dict(scrub_sensitive=True)."""
+    return result.to_dict(scrub_sensitive=True)
+
+
 class TestPaymentResponseSerialization(unittest.TestCase):
-    def test_success_payload_is_flattened_to_top_level(self):
-        result = OperationResult.ok(
-            data={"count": 3, "file_url": "/files/x.csv", "file_name": "x.csv"},
-            message="Export completed successfully",
+    def test_success_envelope_is_flattened_to_top_level(self):
+        envelope = _as_critical_api_emits(
+            OperationResult.ok(
+                data={"count": 3, "file_url": "/files/x.csv", "file_name": "x.csv"},
+                message="Export completed successfully",
+            )
         )
-        response = _operation_result_to_response(result)
-        self.assertIs(response["success"], True)
-        self.assertEqual(response["count"], 3)
-        self.assertEqual(response["file_url"], "/files/x.csv")
-        self.assertEqual(response["file_name"], "x.csv")
-        self.assertEqual(response["message"], "Export completed successfully")
-        # data must NOT be nested under a "data" key — the JS reads r.message.file_url
-        self.assertNotIn("data", response)
+        # Precondition: the envelope really is nested (the bug the JS hits).
+        self.assertIn("data", envelope)
+        self.assertIsNone(envelope.get("file_url"))
+
+        flat = _flatten_api_response(envelope)
+        self.assertIs(flat["success"], True)
+        self.assertEqual(flat["count"], 3)
+        self.assertEqual(flat["file_url"], "/files/x.csv")
+        self.assertEqual(flat["file_name"], "x.csv")
+        self.assertEqual(flat["message"], "Export completed successfully")
+        # data/meta envelope keys must be gone (JS reads r.message.file_url, not .data.file_url)
+        self.assertNotIn("data", flat)
+        self.assertNotIn("meta", flat)
 
     def test_no_data_success(self):
-        result = OperationResult.ok(data={"count": 0}, message="No data to export")
-        response = _operation_result_to_response(result)
-        self.assertEqual(response, {"success": True, "count": 0, "message": "No data to export"})
+        envelope = _as_critical_api_emits(
+            OperationResult.ok(data={"count": 0}, message="No data to export")
+        )
+        flat = _flatten_api_response(envelope)
+        self.assertIs(flat["success"], True)
+        self.assertEqual(flat["count"], 0)
+        self.assertEqual(flat["message"], "No data to export")
 
-    def test_failure_payload(self):
-        result = OperationResult.fail("You don't have permission", http_status_code=403)
-        response = _operation_result_to_response(result)
-        self.assertIs(response["success"], False)
-        self.assertEqual(response["message"], "You don't have permission")
+    def test_failure_envelope_is_flattened(self):
+        envelope = _as_critical_api_emits(
+            OperationResult.fail("You don't have permission", http_status_code=403)
+        )
+        self.assertIn("error", envelope)  # precondition: nested error object
+        flat = _flatten_api_response(envelope)
+        self.assertIs(flat["success"], False)
+        self.assertEqual(flat["message"], "You don't have permission")
+        self.assertNotIn("error", flat)
 
     def test_response_is_json_serializable(self):
-        # The actual production bug: a raw OperationResult is not JSON-serializable,
-        # so a whitelisted endpoint returning one 500s during response serialization.
         for result in (
             OperationResult.ok(data={"count": 1, "file_url": "/f"}, message="ok"),
             OperationResult.fail("nope", http_status_code=500),
         ):
-            json.dumps(_operation_result_to_response(result))  # must not raise
+            json.dumps(_flatten_api_response(_as_critical_api_emits(result)))  # must not raise
 
-    def test_non_operation_result_passes_through(self):
-        self.assertEqual(_operation_result_to_response({"a": 1}), {"a": 1})
-        self.assertIsNone(_operation_result_to_response(None))
+    def test_raw_operation_result_is_serialized_defensively(self):
+        # If @critical_api is ever absent, a raw OperationResult must still flatten.
+        flat = _flatten_api_response(
+            OperationResult.ok(data={"count": 2, "file_url": "/g"}, message="ok")
+        )
+        self.assertEqual(flat["count"], 2)
+        self.assertEqual(flat["file_url"], "/g")
+        self.assertNotIn("data", flat)
+
+    def test_plain_dict_and_non_dict_pass_through(self):
+        self.assertEqual(_flatten_api_response({"already": "flat"}), {"already": "flat"})
+        self.assertIsNone(_flatten_api_response(None))
 
 
 if __name__ == "__main__":
