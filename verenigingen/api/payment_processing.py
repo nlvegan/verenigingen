@@ -60,6 +60,7 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import functools
 import os
 import tempfile
 import traceback
@@ -91,7 +92,58 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
+def _operation_result_to_response(result: Any) -> Any:
+    """Serialize an OperationResult into a flat, JSON-serializable dict for HTTP.
+
+    A raw OperationResult is a @dataclass with no ``__json__``; Frappe's
+    ``json_handler`` cannot serialize it and raises TypeError (HTTP 500) when a
+    whitelisted endpoint returns one. Both callers of these endpoints — the
+    overdue-payments report JS (reads ``r.message.file_url`` / ``r.message.count``)
+    and the test-suite — expect the success payload's keys at the TOP level, so we
+    flatten ``data`` rather than nesting it under a ``data`` key (which is what
+    ``OperationResult.to_dict()`` would do). Business logic and payloads are
+    unchanged; only the return *type* is converted.
+    """
+    if not isinstance(result, OperationResult):
+        return result
+    response: Dict[str, Any] = {"success": result.success}
+    if result.success:
+        if isinstance(result.data, dict):
+            response.update(result.data)
+        elif result.data is not None:
+            response["data"] = result.data
+    else:
+        response["message"] = result.error_message
+        if result.errors:
+            response["errors"] = result.errors
+        if result.error_code:
+            response["error_code"] = result.error_code
+        if result.http_status:
+            response["http_status"] = result.http_status
+    # Surface metadata (e.g. the success ``message=``) at the top level without
+    # clobbering data keys already set above.
+    for key, value in (result.metadata or {}).items():
+        response.setdefault(key, value)
+    return response
+
+
+def _flatten_operation_result(func):
+    """Convert an endpoint's OperationResult return into a flat JSON-serializable dict.
+
+    Must sit INSIDE ``@frappe.whitelist()`` so the registered (outermost) object is
+    still the whitelisted one. Only transforms *returned* OperationResults; raised
+    exceptions propagate untouched to Frappe's error handling.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return _operation_result_to_response(func(*args, **kwargs))
+
+    return wrapper
+
+
 @frappe.whitelist(methods=["POST"])
+@_flatten_operation_result
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
@@ -289,6 +341,7 @@ def send_overdue_payment_reminders(
 
 
 @frappe.whitelist()
+@_flatten_operation_result
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=5000)
@@ -380,6 +433,7 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
 
 
 @frappe.whitelist()
+@_flatten_operation_result
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=10000)
