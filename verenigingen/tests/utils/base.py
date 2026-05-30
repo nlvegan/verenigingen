@@ -813,7 +813,7 @@ class VereningingenTestCase(FrappeTestCase):
             "schedule_name": f"Test-Template-{membership_type}",
             "membership_type": membership_type,
             "dues_rate": 15.00,  # Fixed: was "amount", should be "dues_rate"
-            "contribution_mode": "Calculator",
+            "contribution_mode": "Income-Based",
             "currency": "EUR",
             "status": "Active",
             "auto_generate": 1,
@@ -834,27 +834,6 @@ class VereningingenTestCase(FrappeTestCase):
         dues_schedule.save()
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         return dues_schedule
-
-    def create_test_volunteer_team(self, **kwargs):
-        """Create a test volunteer team with default values"""
-        defaults = {
-            "team_name": f"Test Team {frappe.generate_hash(length=6)}",
-            "team_code": f"T{frappe.generate_hash(length=3)}",
-            "description": "Test volunteer team for automated testing",
-            "team_leader": f"leader.{frappe.generate_hash(length=4)}@example.com",
-            "is_active": 1,
-            "requires_background_check": 0,
-            "minimum_member_status": "Active"
-        }
-        defaults.update(kwargs)
-
-        team = frappe.new_doc("Volunteer Team")
-        for key, value in defaults.items():
-            setattr(team, key, value)
-
-        team.save()
-        self.track_doc("Volunteer Team", team.name)
-        return team
 
     def create_test_volunteer_expense(self, **kwargs):
         """Removed: Volunteer Expense DocType was archived in commit 1a8e5fa2.

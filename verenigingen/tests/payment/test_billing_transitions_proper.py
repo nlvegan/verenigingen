@@ -72,7 +72,7 @@ class TestBillingTransitionProper(BaseTestCase):
                     "minimum_amount": type_data["minimum_amount"],
                     "dues_rate": type_data["minimum_amount"],
                     "status": "Active",
-                    "contribution_mode": "Calculator",
+                    "contribution_mode": "Income-Based",
                     "auto_generate": 1
                 })
                 template.insert()
