@@ -415,15 +415,6 @@ class ProcuriosMandateImport(Document):
 _ADMIN_ROLES = ["System Manager", "Verenigingen Administrator"]
 
 
-def _coerce_test_mode(value) -> bool:
-    """Truthy 'true'/'1' as strings (REST), real booleans (Python callsite)."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in ("true", "1", "yes")
-    return bool(value)
-
-
 @frappe.whitelist()
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation (called from the client script)."""
@@ -448,11 +439,14 @@ def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: validate, build caches, process, finalize."""
     import traceback
 
-    from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
+    from verenigingen.utils.csv_import_processor import (
+        CSVImportBackgroundProcessor,
+        coerce_test_mode,
+    )
 
     # Enqueued context: session.user is the original caller, who must be admin.
     frappe.only_for(_ADMIN_ROLES)
-    test_mode = _coerce_test_mode(test_mode)
+    test_mode = coerce_test_mode(test_mode)
 
     frappe.flags.in_background_job = True
     frappe.flags.ignore_version_changes = True

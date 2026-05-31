@@ -26,6 +26,22 @@ from frappe import _
 from frappe.utils import get_datetime, now
 
 
+def coerce_test_mode(value) -> bool:
+    """Coerce a `test_mode` argument to a real bool.
+
+    Whitelisted endpoints called over REST receive every argument as a
+    string. The naive `if test_mode:` check then treats `"false"`,
+    `"0"`, etc. as truthy because they are non-empty strings. Use this
+    helper at the top of every whitelisted background-job entry point
+    that accepts a boolean.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value)
+
+
 def ensure_bulk_import_members_set():
     """
     Ensure frappe.local.bulk_import_members exists.

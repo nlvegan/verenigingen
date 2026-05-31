@@ -35,20 +35,24 @@ COUNTRY_NAME_MAP = {
 
 
 class ProcuriosCSVImport(Document):
+    # Cache slots: single underscore so Python name-mangling doesn't break
+    # the hasattr-then-set idiom. `self.__validator = ...` mangles to
+    # `_ProcuriosCSVImport__validator`, but `hasattr(self, "__validator")`
+    # checks the unmangled string — perpetually False, defeating the cache.
     @property
     def _validator(self) -> ProcuriosDataValidator:
-        if not hasattr(self, "__validator"):
-            self.__validator = ProcuriosDataValidator(
+        if not hasattr(self, "_validator_instance"):
+            self._validator_instance = ProcuriosDataValidator(
                 import_gender=bool(self.import_gender),
             )
-        return self.__validator
+        return self._validator_instance
 
     @property
     def _parser(self) -> SecureCSVParser:
-        if not hasattr(self, "__parser"):
+        if not hasattr(self, "_parser_instance"):
             encoding = None if self.encoding == "auto-detect" else self.encoding
-            self.__parser = SecureCSVParser(encoding=encoding, delimiter=self.csv_delimiter)
-        return self.__parser
+            self._parser_instance = SecureCSVParser(encoding=encoding, delimiter=self.csv_delimiter)
+        return self._parser_instance
 
     def validate(self):
         if not self.import_date:
@@ -298,8 +302,13 @@ def validate_import_file(import_doc_name: str) -> dict:
 
 
 @frappe.whitelist()
-def process_import_background(import_doc_name: str, test_mode: bool = False):
+def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: process the validated CSV and create members."""
+    from verenigingen.utils.csv_import_processor import coerce_test_mode
+
+    # REST callers pass strings; without coercion `"false"` is truthy.
+    test_mode = coerce_test_mode(test_mode)
+
     frappe.flags.in_background_job = True
     frappe.flags.bulk_member_operations = True
     frappe.flags.ignore_version_changes = True
