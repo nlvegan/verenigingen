@@ -429,7 +429,147 @@ class CoreTestDataFactory:
         self.track_doc("Membership", membership.name)
         return membership
 
-    # CORE METHOD 4: Membership Type Creation  
+    def _ensure_test_uom(self, uom_name="Nos"):
+        """Ensure a UOM exists on the test site, returning its name."""
+        if not frappe.db.exists("UOM", uom_name):
+            uom = frappe.get_doc({"doctype": "UOM", "uom_name": uom_name})
+            uom.insert(ignore_permissions=True)
+            self.track_doc("UOM", uom.name)
+        return uom_name
+
+    def _ensure_selling_price_list(self, currency="EUR"):
+        """Return a selling Price List name, preferring ERPNext's 'Standard Selling'."""
+        if frappe.db.exists("Price List", "Standard Selling"):
+            return "Standard Selling"
+        existing = frappe.db.get_value("Price List", {"selling": 1}, "name")
+        if existing:
+            return existing
+        price_list = frappe.get_doc({
+            "doctype": "Price List",
+            "price_list_name": "Standard Selling",
+            "selling": 1,
+            "currency": currency,
+        })
+        price_list.insert(ignore_permissions=True)
+        self.track_doc("Price List", price_list.name)
+        return price_list.name
+
+    def _ensure_test_item(self, item_code="Test Service"):
+        """Ensure a sellable, non-stock test Item exists (with mandatory stock_uom)."""
+        if not frappe.db.exists("Item", item_code):
+            stock_uom = self._ensure_test_uom("Nos")
+            item = frappe.get_doc({
+                "doctype": "Item",
+                "item_code": item_code,
+                "item_name": item_code,
+                "item_group": "All Item Groups",
+                "stock_uom": stock_uom,
+                "is_sales_item": 1,
+                "is_stock_item": 0,
+                "include_item_in_manufacturing": 0,
+                "standard_rate": 100.0,
+                "description": "Test item created by Core Test Factory",
+            })
+            item.insert(ignore_permissions=True)
+            self.track_doc("Item", item.name)
+        return item_code
+
+    def create_test_sales_invoice(self, customer=None, **kwargs):
+        """Create a Sales Invoice for testing.
+
+        Backward-compatibility bridge restored after factory consolidation.
+
+        Args:
+            customer: Customer name, Member name, or doc. If a Member is given,
+                      its linked Customer is used (created if missing).
+            company: Company to invoice under (default: first Company).
+            items: Optional list of item dicts; otherwise one default line is
+                   added using the "Test Service" item.
+            is_membership_invoice / membership: mapped to custom_* fields.
+            posting_date / due_date / status / grand_total: passthrough.
+        """
+        # Resolve customer (accept Member name/doc or Customer name/doc)
+        cust_name = customer.name if hasattr(customer, "name") else customer
+        if cust_name and frappe.db.exists("Member", cust_name):
+            member = frappe.get_doc("Member", cust_name)
+            if not member.customer:
+                self._create_customer_for_member(member)
+            cust_name = member.customer
+        if not cust_name or not frappe.db.exists("Customer", cust_name):
+            raise ValueError(f"Invalid customer reference for sales invoice: {customer}")
+
+        company = kwargs.get("company") or frappe.get_list("Company", limit=1)[0].name
+        company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
+
+        debit_to = frappe.db.get_value("Company", company, "default_receivable_account") or \
+            frappe.db.get_value(
+                "Account",
+                {"account_type": "Receivable", "company": company, "is_group": 0},
+                "name",
+            )
+        income_account = frappe.db.get_value(
+            "Account",
+            {"account_type": "Income Account", "company": company, "is_group": 0},
+            "name",
+        )
+        cost_center = frappe.db.get_value("Company", company, "cost_center") or \
+            frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+        invoice_data = {
+            "doctype": "Sales Invoice",
+            "customer": cust_name,
+            "company": company,
+            "currency": company_currency,
+            "conversion_rate": 1.0,
+            "posting_date": kwargs.get("posting_date", today()),
+            "due_date": kwargs.get("due_date", add_days(today(), 30)),
+            # Selling price list fields are mandatory on Sales Invoice in v16.
+            "selling_price_list": self._ensure_selling_price_list(company_currency),
+            "price_list_currency": company_currency,
+            "plc_conversion_rate": 1.0,
+            "ignore_pricing_rule": 1,
+            "custom_is_membership_invoice": kwargs.get("is_membership_invoice", 0),
+            "custom_membership": kwargs.get("membership"),
+        }
+        if debit_to:
+            invoice_data["debit_to"] = debit_to
+
+        if "items" in kwargs and kwargs["items"]:
+            items = kwargs["items"]
+            for item in items:
+                code = item.get("item_code")
+                if code:
+                    self._ensure_test_item(code)
+                item.setdefault("qty", 1)
+                if income_account:
+                    item.setdefault("income_account", income_account)
+                if cost_center:
+                    item.setdefault("cost_center", cost_center)
+            invoice_data["items"] = items
+        else:
+            self._ensure_test_item("Test Service")
+            rate = flt(kwargs.get("grand_total", 100.0))
+            line = {
+                "item_code": "Test Service",
+                "qty": 1,
+                "rate": rate,
+                "uom": "Nos",
+            }
+            if income_account:
+                line["income_account"] = income_account
+            if cost_center:
+                line["cost_center"] = cost_center
+            invoice_data["items"] = [line]
+
+        invoice = frappe.get_doc(invoice_data)
+        invoice.insert(ignore_permissions=True)
+        self.track_doc("Sales Invoice", invoice.name)
+
+        if kwargs.get("submit") and kwargs.get("status") != "Draft":
+            invoice.submit()
+        return invoice
+
+    # CORE METHOD 4: Membership Type Creation
     def create_test_membership_type(self, **kwargs):
         """Create membership type with intelligent defaults"""
         # Use existing template if not provided

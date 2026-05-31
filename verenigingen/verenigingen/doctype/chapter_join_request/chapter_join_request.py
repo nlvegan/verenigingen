@@ -19,6 +19,15 @@ from verenigingen.utils.security.api_security_framework import (
 class ChapterJoinRequest(Document):
     def validate(self):
         """Validate chapter join request"""
+        # Auto-default status. status is reqd=1 with JSON default "Pending",
+        # but Frappe v16 only applies field defaults at the form layer, not for
+        # frappe.get_doc({...}).insert(). The mandatory check runs after validate()
+        # but before on_submit(), so the default must be set here to avoid
+        # MandatoryError on raw-dict inserts. "Pending" is the correct initial
+        # state: a new join request awaits board review.
+        if not self.status:
+            self.status = "Pending"
+
         self.validate_field_references()
         self.validate_member_exists()
         self.validate_chapter_exists()

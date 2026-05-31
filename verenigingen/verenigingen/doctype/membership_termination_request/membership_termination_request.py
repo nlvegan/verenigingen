@@ -44,6 +44,14 @@ class MembershipTerminationRequest(Document):
 
     def set_defaults(self):
         """Set default values"""
+        # Auto-default status. status is reqd=1 with JSON default "Draft", but
+        # Frappe v16 only applies field defaults at the form layer, not for
+        # frappe.get_doc({...}).insert(). validate() runs before the mandatory
+        # check at insert, so set it here to avoid MandatoryError on raw-dict
+        # inserts. "Draft" is the correct initial state: a newly-created request
+        # has not yet been submitted for approval.
+        if not self.status:
+            self.status = "Draft"
         if not self.requested_by:
             self.requested_by = frappe.session.user
         if not self.request_date:

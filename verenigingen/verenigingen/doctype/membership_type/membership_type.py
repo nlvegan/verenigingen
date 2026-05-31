@@ -7,11 +7,33 @@ from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
+# Role Profile applied to members of a type when none is explicitly configured.
+# This mirrors the runtime fallback in
+# services/member/account/member_user_account_service.py, so auto-defaulting the
+# stored field assigns the same (most-restricted) member profile the system would
+# have used at account-creation time anyway. It does not grant any new permission.
+DEFAULT_ROLE_PROFILE = "Verenigingen Member"
+
 
 class MembershipType(Document):
     def validate(self):
+        self.set_default_role_profile()
         self.validate_billing_period()
         self.validate_amount()
+
+    def set_default_role_profile(self):
+        """Default the mandatory role_profile to the standard member profile.
+
+        role_profile is reqd on the DocType: every membership type must map to a
+        Role Profile that determines member permissions. When a type is created
+        without one (e.g. via API/import), fall back to the standard member
+        profile rather than rejecting the record, matching the runtime fallback
+        used during user-account creation.
+        """
+        if self.role_profile:
+            return
+        if frappe.db.exists("Role Profile", DEFAULT_ROLE_PROFILE):
+            self.role_profile = DEFAULT_ROLE_PROFILE
 
     def on_update(self):
         """Update template when membership type changes"""

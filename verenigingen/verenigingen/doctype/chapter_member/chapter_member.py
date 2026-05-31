@@ -21,6 +21,14 @@ class ChapterMember(Document):
 
     def validate(self):
         """Validate chapter member operations and ensure proper history tracking"""
+        # Auto-default status. status is reqd=1 with JSON default "Active", but
+        # Frappe v16 only applies field defaults at the form layer, not for child
+        # rows appended via frappe.get_doc({...}) / parent.append({...}) without an
+        # explicit status. Child-row validate() runs before the parent's mandatory
+        # check, so set it here to avoid MandatoryError. "Active" is the correct
+        # initial state: a member added to a chapter roster is active by default.
+        if not self.status:
+            self.status = "Active"
         self.validate_chapter_membership_tracking()
 
     def validate_chapter_membership_tracking(self):

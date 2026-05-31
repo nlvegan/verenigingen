@@ -754,15 +754,173 @@ class EnhancedTestDataFactory:
 
         self.track_document("Volunteer", volunteer.name)
         return volunteer
-            
+
+    # ------------------------------------------------------------------
+    # Backward-compatibility API bridge methods
+    #
+    # These ``create_test_*`` aliases were lost in the test-factory
+    # consolidation (see docs/plans/2026-02-21-test-factory-consolidation-design.md)
+    # but are still called by sibling factories (e.g. SEPATestDataFactory) and
+    # legacy tests that hold a factory instance directly. They are thin
+    # wrappers over the current canonical ``create_*`` methods and must NOT
+    # change the canonical API.
+    # ------------------------------------------------------------------
+    def create_test_member(self, *args, **kwargs):
+        """Alias for create_member() with legacy positional support.
+
+        Legacy positional conventions:
+          create_test_member(email)                          # contains "@"
+          create_test_member(first_name, last_name[, email[, iban]])
+        """
+        if args:
+            if len(args) == 1 and isinstance(args[0], str) and "@" in args[0]:
+                kwargs.setdefault("email", args[0])
+            else:
+                for value, field in zip(args, ["first_name", "last_name", "email", "iban"]):
+                    kwargs.setdefault(field, value)
+        return self.create_member(**kwargs)
+
+    def create_test_volunteer(self, member_name=None, **kwargs):
+        """Alias for create_volunteer(); accepts member= as well as member_name."""
+        if member_name is None and "member" in kwargs:
+            member_name = kwargs.pop("member")
+        return self.create_volunteer(member_name, **kwargs)
+
+    def create_test_chapter(self, **kwargs):
+        """Alias for create_chapter()."""
+        return self.create_chapter(**kwargs)
+
+    def create_test_customer(self, **kwargs):
+        """Create a test Customer document.
+
+        Honours an optional customer_name kwarg; otherwise generates a unique
+        marked test customer. Tracked for tearDown cleanup.
+        """
+        customer_name = kwargs.pop("customer_name", None)
+        if not customer_name:
+            seq = self.get_next_sequence("customer")
+            customer_name = f"TEST Customer {seq} {frappe.generate_hash()[:6]}"
+        customer_data = {
+            "doctype": "Customer",
+            "customer_name": customer_name,
+            "customer_type": kwargs.pop("customer_type", "Individual"),
+            "customer_group": kwargs.pop("customer_group", "Individual"),
+            **kwargs,
+        }
+        customer = frappe.get_doc(customer_data)
+        customer.insert(ignore_permissions=True)
+        self.track_document("Customer", customer.name, priority=3)
+        return customer
+
+    def create_test_membership(self, member_name=None, membership_type_name=None, **kwargs):
+        """Create a submitted Membership document.
+
+        Accepts both positional (member_name, membership_type_name) and legacy
+        keyword (member=, membership_type=) forms. A Membership Type is
+        auto-created when none is supplied.
+        """
+        if member_name is None:
+            member_name = kwargs.pop("member", None)
+        else:
+            kwargs.pop("member", None)
+        if membership_type_name is None:
+            membership_type_name = kwargs.pop("membership_type", None)
+        else:
+            kwargs.pop("membership_type", None)
+
+        if not member_name:
+            raise TypeError("create_test_membership() requires a member (member_name= or member=)")
+
+        if not membership_type_name:
+            membership_type_name = self.create_test_membership_type().name
+
+        start_date = kwargs.pop("start_date", frappe.utils.today())
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": member_name,
+            "membership_type": membership_type_name,
+            "start_date": start_date,
+            "status": kwargs.pop("status", "Active"),
+            **kwargs,
+        })
+        membership.insert()
+        self.track_document("Membership", membership.name, priority=5)
+        membership.submit()
+        return membership
+
+    def create_test_membership_type(self, membership_type_name=None, amount=100.0, **kwargs):
+        """Create a minimal active Membership Type for tests.
+
+        Generates a unique name and ensures a role_profile is present (mandatory).
+        """
+        import time
+
+        unique_name = f"{membership_type_name or 'Test Type'}-{int(time.time() * 1000)}-{self.get_next_sequence('mtype')}"
+
+        role_profile = kwargs.get("role_profile") or frappe.db.get_value(
+            "Role Profile", {"name": "Verenigingen Member"}
+        )
+        if not role_profile:
+            test_profile = frappe.new_doc("Role Profile")
+            test_profile.role_profile = f"Test Member Profile {self.get_next_sequence('roleprofile')}"
+            if frappe.db.exists("Role", "Verenigingen Member"):
+                test_profile.append("roles", {"role": "Verenigingen Member"})
+            test_profile.insert(ignore_permissions=True)
+            role_profile = test_profile.name
+            self.track_document("Role Profile", role_profile, priority=0)
+
+        membership_type = frappe.new_doc("Membership Type")
+        membership_type.membership_type_name = unique_name
+        membership_type.is_active = 1
+        membership_type.contribution_mode = kwargs.get("contribution_mode", "Fixed Amount")
+        membership_type.minimum_amount = kwargs.get("minimum_amount", amount)
+        membership_type.role_profile = role_profile
+        for key, value in kwargs.items():
+            if key not in ("role_profile", "contribution_mode", "minimum_amount") and hasattr(membership_type, key):
+                setattr(membership_type, key, value)
+        membership_type.insert()
+        self.track_document("Membership Type", membership_type.name, priority=1)
+        return membership_type
+
+    def _get_enhanced_member_defaults(self) -> Dict[str, Any]:
+        """Return a dict of validated default Member field values.
+
+        Used by create_test_member_optimized(); mirrors the deterministic
+        defaults applied by create_member()/CoreTestDataFactory.
+        """
+        return {
+            "first_name": self.generate_test_name("Member").split()[-1],
+            "last_name": f"Default{next(EnhancedTestDataFactory._global_unique_seq)}",
+            "email": self.generate_test_email("member"),
+            "birth_date": "1990-01-01",
+            "status": "Active",
+        }
+
+    def _validate_fields(self, doctype: str, data: Dict[str, Any]) -> None:
+        """Validate that each field in data exists on the DocType.
+
+        Delegates to CoreTestDataFactory._validate_fields when available,
+        otherwise falls back to per-field validate_field_exists().
+        """
+        core_validate = getattr(self.core, "_validate_fields", None)
+        if callable(core_validate):
+            core_validate(doctype, data)
+            return
+        for field in data:
+            self.validate_field_exists(doctype, field)
+
     def create_chapter(self, **kwargs):
         """Create chapter with field validation, delegating to CoreTestDataFactory.
 
         Preserves Enhanced-specific region-existence checks and field validation.
         """
-        # Enhanced field validation
+        # Enhanced field validation. `chapter_name` is not a Chapter field — it
+        # is consumed by CoreTestDataFactory as the document name (autoname=prompt),
+        # so skip schema validation for it.
+        skip_validation_fields = {"chapter_name"}
         for field in kwargs.keys():
-            self.validate_field_exists("Chapter", field)
+            if field not in skip_validation_fields:
+                self.validate_field_exists("Chapter", field)
 
         # Ensure region exists if caller provided one
         region_name = kwargs.get("region")
@@ -3097,8 +3255,47 @@ class EnhancedTestCase(FrappeTestCase):
         """
         return f"{base}_{self.uid}"
 
-    def create_test_member(self, **kwargs):
-        """Convenience method for creating test members"""
+    def _track_test_document(self, doctype, name, priority=0):
+        """Track a created document for tearDown cleanup, defensively.
+
+        Some test classes reassign ``self.factory`` to an unrelated object
+        (e.g. a production service factory). When that happens the factory no
+        longer has ``track_document``, so calling it directly would raise
+        AttributeError. This helper falls back to the document tracker
+        (``created_documents`` / ``created_records`` / ``_track_record``)
+        that the drain in tearDown actually reads, and never raises.
+        """
+        factory = getattr(self, "factory", None)
+        track = getattr(factory, "track_document", None)
+        if callable(track):
+            track(doctype, name, priority=priority)
+            return
+        # Fallbacks for when self.factory was reassigned by the test class.
+        record = getattr(self, "_track_record", None)
+        if callable(record):
+            record(doctype, name)
+        created = getattr(self, "created_records", None)
+        if isinstance(created, list):
+            created.append({"doctype": doctype, "name": name})
+
+    def create_test_member(self, *args, **kwargs):
+        """Convenience method for creating test members.
+
+        Backward-compatible with legacy positional calling conventions:
+          - create_test_member(email)                      # 1 positional, contains "@"
+          - create_test_member(first_name, last_name)      # 2 positional
+          - create_test_member(first_name, last_name, email)
+          - create_test_member(first_name, last_name, email, iban)
+        as well as the current keyword-only form create_test_member(**kwargs).
+        """
+        if args:
+            if len(args) == 1 and isinstance(args[0], str) and "@" in args[0]:
+                # Single positional that looks like an email address
+                kwargs.setdefault("email", args[0])
+            else:
+                positional_fields = ["first_name", "last_name", "email", "iban"]
+                for value, field in zip(args, positional_fields):
+                    kwargs.setdefault(field, value)
         return self.factory.create_member(**kwargs)
         
     def create_chapter(self, **kwargs):
@@ -3287,13 +3484,20 @@ class EnhancedTestCase(FrappeTestCase):
 
         return MockPayment()
     
-    def create_test_membership(self, member_name, membership_type_name, **kwargs):
+    def create_test_membership(self, member_name=None, membership_type_name=None, **kwargs):
         """
         Create a membership record for testing.
 
+        Backward-compatible with legacy keyword callers:
+          - create_test_membership(member=<name>, membership_type=<name>, ...)
+          - create_test_membership(member=<name>)   # membership_type auto-created
+        as well as the positional form
+          - create_test_membership(member_name, membership_type_name, ...)
+
         Args:
-            member_name: Name of the Member document
-            membership_type_name: Name of the Membership Type
+            member_name: Name of the Member document (alias: member=)
+            membership_type_name: Name of the Membership Type (alias: membership_type=).
+                                  If omitted, a test Membership Type is auto-created.
             start_date: Membership start date. Defaults to today().
                         Note: For membership to be Active, start_date + billing_period
                         must result in a renewal_date in the future.
@@ -3314,6 +3518,24 @@ class EnhancedTestCase(FrappeTestCase):
                 start_date="2025-11-15"  # Mid-Q4
             )
         """
+        # --- Backward-compatible keyword aliases ---
+        if member_name is None:
+            member_name = kwargs.pop("member", None)
+        else:
+            kwargs.pop("member", None)
+        if membership_type_name is None:
+            membership_type_name = kwargs.pop("membership_type", None)
+        else:
+            kwargs.pop("membership_type", None)
+
+        if not member_name:
+            raise TypeError("create_test_membership() requires a member (pass member_name= or member=)")
+
+        # Auto-create a Membership Type when none was supplied (legacy callers
+        # frequently omit it, e.g. create_test_membership(member=...)).
+        if not membership_type_name:
+            membership_type_name = self.create_test_membership_type().name
+
         start_date = kwargs.pop("start_date", frappe.utils.today())
         sync_member_since = kwargs.pop("sync_member_since", True)
 
@@ -3322,7 +3544,7 @@ class EnhancedTestCase(FrappeTestCase):
             "member": member_name,
             "membership_type": membership_type_name,
             "start_date": start_date,
-            "status": kwargs.get("status", "Active"),
+            "status": kwargs.pop("status", "Active"),
             **kwargs
         }
 
@@ -3330,7 +3552,7 @@ class EnhancedTestCase(FrappeTestCase):
         membership.insert()
 
         # Track for cleanup in tearDown
-        self.factory.track_document("Membership", membership.name, priority=5)
+        self._track_test_document("Membership", membership.name, priority=5)
 
         # Sync member_since on the Member document to match start_date
         # This ensures realistic test data where the member's join date
@@ -3508,6 +3730,11 @@ class EnhancedTestCase(FrappeTestCase):
             "currency": company_currency,  # Use company currency
             "conversion_rate": 1.0,  # No conversion needed for same currency
             "debit_to": debit_to_account,  # Explicit receivables account
+            # Selling price list fields are mandatory on Sales Invoice in v16.
+            "selling_price_list": self._ensure_selling_price_list(company_currency),
+            "price_list_currency": company_currency,
+            "plc_conversion_rate": 1.0,
+            "ignore_pricing_rule": 1,
             "custom_is_membership_invoice": kwargs.get("is_membership_invoice", 0),
             "custom_membership": kwargs.get("membership"),
         }
@@ -3549,14 +3776,16 @@ class EnhancedTestCase(FrappeTestCase):
                 "qty": 1,
                 "rate": kwargs.get("grand_total", 100.0),
                 "amount": kwargs.get("grand_total", 100.0),
-                "uom": "Unit",
+                # Match the item's stock_uom ("Nos") to avoid requiring a UOM
+                # conversion factor during Sales Invoice validation.
+                "uom": "Nos",
                 "income_account": income_account,  # Required for ERPNext validation
                 "cost_center": cost_center  # Required for ERPNext validation
             }]
-        
+
         invoice = frappe.get_doc(invoice_data)
         invoice.insert()
-        self.factory.track_document("Sales Invoice", invoice.name, priority=4)
+        self._track_test_document("Sales Invoice", invoice.name, priority=4)
 
         # Update grand_total and outstanding_amount manually for testing
         # This simulates overdue invoices with specific amounts
@@ -4125,20 +4354,50 @@ class EnhancedTestCase(FrappeTestCase):
     def _ensure_test_item(self, item_code):
         """Ensure test item exists for invoices"""
         if not frappe.db.exists("Item", item_code):
+            # stock_uom is mandatory on Item. Use "Nos", a UOM ERPNext ships by
+            # default; create it defensively in case the test site lacks it.
+            stock_uom = self._ensure_test_uom("Nos")
             item = frappe.get_doc({
                 "doctype": "Item",
                 "item_code": item_code,
                 "item_name": item_code,
                 "item_group": "All Item Groups",
+                "stock_uom": stock_uom,
                 "is_sales_item": 1,
                 "is_service_item": 1,
+                "is_stock_item": 0,
                 "include_item_in_manufacturing": 0,
                 "standard_rate": 100.0,
                 "description": f"Test item created by Enhanced Test Factory"
             })
             item.insert()
-            self.factory.track_document("Item", item.name, priority=1)
+            self._track_test_document("Item", item.name, priority=1)
         return item_code
+
+    def _ensure_test_uom(self, uom_name="Nos"):
+        """Ensure a UOM exists on the test site, returning its name."""
+        if not frappe.db.exists("UOM", uom_name):
+            uom = frappe.get_doc({"doctype": "UOM", "uom_name": uom_name})
+            uom.insert(ignore_permissions=True)
+            self._track_test_document("UOM", uom.name, priority=0)
+        return uom_name
+
+    def _ensure_selling_price_list(self, currency="EUR"):
+        """Return a selling Price List name, preferring ERPNext's 'Standard Selling'."""
+        if frappe.db.exists("Price List", "Standard Selling"):
+            return "Standard Selling"
+        existing = frappe.db.get_value("Price List", {"selling": 1}, "name")
+        if existing:
+            return existing
+        price_list = frappe.get_doc({
+            "doctype": "Price List",
+            "price_list_name": "Standard Selling",
+            "selling": 1,
+            "currency": currency,
+        })
+        price_list.insert(ignore_permissions=True)
+        self._track_test_document("Price List", price_list.name, priority=0)
+        return price_list.name
     
     def create_test_user(self, email, roles=None, **kwargs):
         """Create a test user with specified roles"""
@@ -4646,7 +4905,11 @@ class EnhancedTestCase(FrappeTestCase):
         control_params = {'submit', 'references'}  # These are handled separately
         for field in kwargs:
             if field not in payment_entry_data and field not in control_params:
-                self.factory.validate_field_exists("Payment Entry", field)
+                # self.factory may be reassigned by some test classes; only
+                # validate when the bound factory still exposes the validator.
+                validate = getattr(getattr(self, "factory", None), "validate_field_exists", None)
+                if callable(validate):
+                    validate("Payment Entry", field)
                 payment_entry_data[field] = kwargs[field]
 
         # Create and return the payment entry
@@ -4658,7 +4921,7 @@ class EnhancedTestCase(FrappeTestCase):
                 payment_entry.append("references", ref)
 
         payment_entry.insert()
-        self.factory.track_document("Payment Entry", payment_entry.name, priority=4)
+        self._track_test_document("Payment Entry", payment_entry.name, priority=4)
 
         # Submit if requested
         if kwargs.get("submit", False):
@@ -5198,6 +5461,12 @@ class EnhancedTestCase(FrappeTestCase):
 
     def create_test_dues_schedule(self, member, membership_type=None, amount=25.0, frequency="monthly", **kwargs):
         """Bridge method for dues schedule creation"""
+        # Accept dues_rate= as a legacy alias for amount (callers pass either).
+        if "dues_rate" in kwargs:
+            amount = kwargs.pop("dues_rate")
+        # membership= is not a Membership Dues Schedule field; drop it (the
+        # schedule links to the member, not the membership document).
+        kwargs.pop("membership", None)
         try:
             from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
             sepa_factory = SEPATestDataFactory(seed=self.factory.seed, use_faker=self.factory.use_faker)

@@ -128,6 +128,17 @@ class ChapterValidationService(StatelessService):
             if not chapter_doc.status:
                 chapter_doc.status = "Active"
 
+            # Auto-fix missing status on Chapter Member child rows. Chapter Member.status
+            # is reqd=1 with JSON default 'Active', but Frappe (v16) only applies field
+            # defaults at the form layer — not for child rows appended via
+            # parent.append({...}) / get_doc({...}) without an explicit status, and child
+            # controller validate() is never invoked by Frappe. The parent's validate()
+            # runs before the mandatory check, so default member-row status here. 'Active'
+            # is the correct initial state for a member on a chapter roster.
+            for member_row in chapter_doc.get("members") or []:
+                if not member_row.status:
+                    member_row.status = "Active"
+
             # Auto-fix missing region
             if not chapter_doc.region:
                 if hasattr(chapter_doc, "name") and chapter_doc.name:
