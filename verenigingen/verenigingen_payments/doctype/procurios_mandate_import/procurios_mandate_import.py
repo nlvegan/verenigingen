@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import frappe
 from frappe.model.document import Document
@@ -293,6 +293,63 @@ class ProcuriosMandateImport(Document):
 
         return ("updated", mandate.name)
 
+    # ---- submission ---------------------------------------------------
+
+    def on_submit(self):
+        self.db_set("import_status", "Queued")
+        frappe.enqueue(
+            method=(
+                "verenigingen.verenigingen_payments.doctype.procurios_mandate_import."
+                "procurios_mandate_import.process_import_background"
+            ),
+            queue="long",
+            timeout=3600,
+            import_doc_name=self.name,
+            test_mode=bool(self.test_mode),
+            now=False,
+        )
+
+    # ---- finalize -----------------------------------------------------
+
+    def _finalize_import_results(
+        self,
+        created_count: int,
+        updated_count: int,
+        skipped_count: int,
+        error_log: List[str],
+        _created_records=None,
+        _updated_records=None,
+        _skipped_records=None,
+        skip_counters: Optional[Dict[str, int]] = None,
+        filtered_old_cancelled: int = 0,
+    ) -> None:
+        """Write final counters + bounded error log + per-reason summary."""
+        self.reload()
+        self.mandates_created = created_count
+        self.mandates_updated = updated_count
+        # mandates_skipped includes filtered-old (which never reaches the processor)
+        self.mandates_skipped = skipped_count + filtered_old_cancelled
+        self.import_status = "Completed"
+
+        if error_log:
+            truncated = error_log[:50]
+            self.error_log = "\n".join(truncated)
+            if len(error_log) > 50:
+                self.error_log += f"\n... and {len(error_log) - 50} more errors"
+
+        summary_counts = dict(skip_counters or {})
+        summary_counts.setdefault("filtered_old_cancelled", 0)
+        summary_counts["filtered_old_cancelled"] += filtered_old_cancelled
+        self.skipped_summary = "\n".join(
+            f"{k}: {summary_counts.get(k, 0)}"
+            for k in ("filtered_old_cancelled", "no_member", "duplicate", "conflict", "error")
+        )
+
+        # Security: Background job updating its own import status document; the
+        # whole flow is gated by submit permission on Procurios Mandate Import.
+        self.save(ignore_permissions=True)
+        frappe.db.commit()
+
 
 @frappe.whitelist()
 def validate_import_file(import_doc_name: str) -> dict:
@@ -310,3 +367,81 @@ def validate_import_file(import_doc_name: str) -> dict:
             "status": "error",
             "message": sanitize_error_for_audit(str(e)),
         }
+
+
+@frappe.whitelist()
+def process_import_background(import_doc_name: str, test_mode: bool = False):
+    """Background job: validate, build caches, process, finalize."""
+    import traceback
+
+    from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
+
+    frappe.flags.in_background_job = True
+    frappe.flags.ignore_version_changes = True
+
+    doc = frappe.get_doc("Procurios Mandate Import", import_doc_name)
+    try:
+        csv_data = doc._read_csv_file()
+        headers = list(csv_data[0].keys()) if csv_data else []
+        missing = doc._validator.check_required_columns(headers)
+        if missing:
+            doc.db_set("import_status", "Failed")
+            doc.db_set("error_log", "Missing required columns: " + ", ".join(missing))
+            frappe.db.commit()
+            return
+
+        mapped, validator_errors, filtered_old = doc._validator.validate_and_map(csv_data)
+        if not mapped:
+            doc.db_set("import_status", "Failed")
+            doc.db_set("error_log", "No valid rows to import")
+            frappe.db.commit()
+            return
+
+        if test_mode:
+            mapped = mapped[:25]
+
+        caches = doc._build_caches()
+        skip_counters = {
+            "no_member": 0,
+            "duplicate": 0,
+            "conflict": 0,
+            "error": 0,
+        }
+        seeded_errors = list(validator_errors)
+
+        def _row_callback(mapped_row, error_log_list):
+            return doc._process_single_row(mapped_row, error_log_list, caches, skip_counters)
+
+        def _finalize(created, updated, skipped, error_log, *records):
+            # Prepend validator-stage errors (row-mapping errors that happened
+            # before the row reached the processor) so both kinds land in the
+            # final error_log.
+            combined = seeded_errors + list(error_log)
+            doc._finalize_import_results(
+                created,
+                updated,
+                skipped,
+                combined,
+                *records,
+                skip_counters=skip_counters,
+                filtered_old_cancelled=filtered_old,
+            )
+
+        processor = CSVImportBackgroundProcessor(import_doc_name, "Procurios Mandate Import")
+        processor.load_import_doc()
+        processor.process_import(
+            data_rows=mapped,
+            process_row_callback=_row_callback,
+            finalize_callback=_finalize,
+            batch_size=50,
+            batch_commit=True,
+        )
+
+    except Exception:
+        doc.reload()
+        doc.db_set("import_status", "Failed")
+        doc.db_set("error_log", sanitize_error_for_audit(traceback.format_exc()))
+        frappe.db.commit()
+    finally:
+        frappe.flags.in_background_job = False
+        frappe.flags.ignore_version_changes = False

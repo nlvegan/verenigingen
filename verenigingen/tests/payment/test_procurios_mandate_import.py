@@ -335,3 +335,64 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
         self.assertEqual(status, "skipped")
         self.assertEqual(counters["error"], 1)
         self.assertTrue(any("Row 1" in e for e in errors))
+
+
+from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (
+    process_import_background,
+)
+
+
+class TestProcuriosMandateImportEndToEnd(EnhancedTestCase):
+    """Full validate → process flow run in-process."""
+
+    def test_end_to_end_mixed_outcomes(self):
+        # Members for the active and cancellation rows. The orphan member ensures
+        # the `filtered_old_cancelled` row has a procurios_id that exists in the
+        # DB; even so the row will be filtered before reaching the processor.
+        m_active = _create_member_with_procurios_id(self, "E2E-ACT")
+        m_cancel = _create_member_with_procurios_id(self, "E2E-CAN")
+        _create_member_with_procurios_id(self, "E2E-ORPH")
+
+        # An existing active mandate that will be updated by a cancelled row.
+        existing = _create_active_sepa_mandate(
+            m_cancel.name, "E2E-EXISTING", "NL91ABNA0417164300"
+        )
+
+        rows = [
+            # active import, member exists, new mandate id → CREATED
+            _base_row(Mandaatnummer="E2E-NEW", Opzegdatum="", **{"Debiteur ID": "E2E-ACT"}),
+            # cancelled import, matches existing mandate id → UPDATED
+            _base_row(Mandaatnummer="E2E-EXISTING", Opzegdatum="2025-12-01", **{"Debiteur ID": "E2E-CAN"}),
+            # cancelled long ago → FILTERED (validator drops it before processing)
+            _base_row(Mandaatnummer="E2E-OLD", Opzegdatum="2020-01-01", **{"Debiteur ID": "E2E-ORPH"}),
+            # debiteur with no matching Member → no_member
+            _base_row(Mandaatnummer="E2E-NOMBR", Opzegdatum="", **{"Debiteur ID": "DOES-NOT-EXIST"}),
+        ]
+        file_url = _create_csv_attach(rows)
+        doc = _create_import_doc(file_url)
+        doc.submit()  # enqueues; we drive synchronously
+
+        process_import_background(doc.name, test_mode=False)
+
+        doc.reload()
+        self.assertEqual(doc.import_status, "Completed")
+        self.assertEqual(doc.mandates_created, 1)
+        self.assertEqual(doc.mandates_updated, 1)
+        # skipped = filtered_old (1) + no_member (1) = 2
+        self.assertEqual(doc.mandates_skipped, 2)
+
+        self.assertIn("filtered_old_cancelled: 1", doc.skipped_summary)
+        self.assertIn("no_member: 1", doc.skipped_summary)
+
+        # Created mandate is linked to the member's sepa_mandates table via after_insert.
+        member = frappe.get_doc("Member", m_active.name)
+        member_mandate_refs = [
+            (link.mandate_reference if hasattr(link, "mandate_reference") else None)
+            for link in (member.sepa_mandates or [])
+        ]
+        self.assertIn("E2E-NEW", member_mandate_refs)
+
+        # Existing mandate now cancelled.
+        existing.reload()
+        self.assertEqual(existing.status, "Cancelled")
+        self.assertEqual(str(existing.cancelled_date), "2025-12-01")
