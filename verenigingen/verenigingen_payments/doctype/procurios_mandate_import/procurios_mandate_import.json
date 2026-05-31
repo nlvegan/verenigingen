@@ -55,7 +55,7 @@
     {"depends_on": "eval:['Completed', 'Failed'].includes(doc.import_status)", "fieldname": "error_section", "fieldtype": "Section Break", "label": "Error Log"},
     {"allow_on_submit": 1, "fieldname": "error_log", "fieldtype": "Long Text", "label": "Error Log", "read_only": 1},
     {"allow_on_submit": 1, "fieldname": "skipped_summary", "fieldtype": "Small Text", "label": "Skipped Summary", "read_only": 1},
-    {"fieldname": "import_info_section", "fieldtype": "Section Break", "label": "Import Information", "hidden": 1},
+    {"fieldname": "import_info_section", "fieldtype": "Section Break", "label": "Import Information", "collapsible": 1},
     {"fieldname": "import_date", "fieldtype": "Date", "label": "Import Date", "read_only": 1},
     {"fieldname": "descriptive_name", "fieldtype": "Data", "label": "Descriptive Name", "read_only": 1}
   ],
@@ -75,5 +75,6 @@
   "sort_field": "creation",
   "sort_order": "DESC",
   "states": [],
+  "title_field": "descriptive_name",
   "track_changes": 1
 }

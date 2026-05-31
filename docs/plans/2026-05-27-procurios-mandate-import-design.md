@@ -99,14 +99,17 @@ Constants on every created mandate:
 - `used_for_memberships = 1`
 - `bic` left blank (SEPA validation service derives or warns; not required)
 
-The mandate's **status is not set explicitly** — the existing
-`sepa_mandate_lifecycle_service.set_status_based_on_dates(...)` (invoked from
-`SEPAMandate.validate`) derives it from the dates we provide:
-- `cancelled_date` set → status becomes `Cancelled`
-- `cancelled_date` blank → status becomes `Active`
+The mandate's **status is set explicitly** by the import:
+- CSV row has an `Opzegdatum` → `status = "Cancelled"` (plus `cancelled_date`)
+- otherwise → `status = "Active"`
 
-This avoids fighting the lifecycle service and keeps the import consistent
-with mandates created through the normal flow.
+Earlier drafts of this design assumed
+`sepa_mandate_lifecycle_service.set_status_based_on_dates(...)` would derive
+the status from `cancelled_date`. In fact it only inspects `sign_date` and
+`expiry_date`, defaulting to "Active" when no status is set — so the explicit
+assignment is required. The lifecycle service does preserve terminal statuses
+on subsequent saves (`Cancelled`, `Rejected`, `Expired`), so our explicit
+"Cancelled" survives validate cleanly.
 
 ## Per-Row Decision Logic
 

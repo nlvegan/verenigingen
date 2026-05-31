@@ -40,18 +40,22 @@ class _Caches:
 
 
 class ProcuriosMandateImport(Document):
+    # Cache slots: single underscore so Python name-mangling doesn't break
+    # the hasattr-then-set idiom (a double-underscore attribute would mangle
+    # to _ProcuriosMandateImport__x, leaving the hasattr check perpetually
+    # False against the unmangled name).
     @property
     def _parser(self) -> SecureCSVParser:
-        if not hasattr(self, "__parser"):
+        if not hasattr(self, "_parser_instance"):
             encoding = None if self.encoding == "auto-detect" else self.encoding
-            self.__parser = SecureCSVParser(encoding=encoding, delimiter=self.csv_delimiter)
-        return self.__parser
+            self._parser_instance = SecureCSVParser(encoding=encoding, delimiter=self.csv_delimiter)
+        return self._parser_instance
 
     @property
     def _validator(self) -> ProcuriosMandateValidator:
-        if not hasattr(self, "__validator"):
-            self.__validator = ProcuriosMandateValidator()
-        return self.__validator
+        if not hasattr(self, "_validator_instance"):
+            self._validator_instance = ProcuriosMandateValidator()
+        return self._validator_instance
 
     def validate(self):
         if not self.import_date:
@@ -89,7 +93,10 @@ class ProcuriosMandateImport(Document):
             mapped, errors, filtered_old = self._validator.validate_and_map(csv_data)
 
             if errors:
-                self.db_set("error_log", "\n".join(errors[:50]))
+                truncated = "\n".join(errors[:50])
+                if len(errors) > 50:
+                    truncated += f"\n... and {len(errors) - 50} more errors"
+                self.db_set("error_log", truncated)
 
             if mapped:
                 preview = [
@@ -315,7 +322,7 @@ class ProcuriosMandateImport(Document):
         self,
         created_count: int,
         updated_count: int,
-        skipped_count: int,
+        skipped_count: int,  # noqa: ARG002  — processor passes; we derive from skip_counters
         error_log: List[str],
         _created_records=None,
         _updated_records=None,
@@ -327,8 +334,13 @@ class ProcuriosMandateImport(Document):
         self.reload()
         self.mandates_created = created_count
         self.mandates_updated = updated_count
-        # mandates_skipped includes filtered-old (which never reaches the processor)
-        self.mandates_skipped = skipped_count + filtered_old_cancelled
+        # mandates_skipped is derived from skip_counters (which the per-row
+        # processor increments AND which is pre-seeded with validator-stage
+        # row-mapping errors) plus filtered-old-cancelled (validator-stage
+        # filter that never reaches the processor). Deriving from
+        # skip_counters guarantees consistency with skipped_summary.
+        counters = dict(skip_counters or {})
+        self.mandates_skipped = sum(counters.values()) + filtered_old_cancelled
         self.import_status = "Completed"
 
         if error_log:
@@ -337,7 +349,7 @@ class ProcuriosMandateImport(Document):
             if len(error_log) > 50:
                 self.error_log += f"\n... and {len(error_log) - 50} more errors"
 
-        summary_counts = dict(skip_counters or {})
+        summary_counts = dict(counters)
         summary_counts.setdefault("filtered_old_cancelled", 0)
         summary_counts["filtered_old_cancelled"] += filtered_old_cancelled
         self.skipped_summary = "\n".join(
@@ -351,9 +363,22 @@ class ProcuriosMandateImport(Document):
         frappe.db.commit()
 
 
+_ADMIN_ROLES = ["System Manager", "Verenigingen Administrator"]
+
+
+def _coerce_test_mode(value) -> bool:
+    """Truthy 'true'/'1' as strings (REST), real booleans (Python callsite)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value)
+
+
 @frappe.whitelist()
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation (called from the client script)."""
+    frappe.only_for(_ADMIN_ROLES)
     doc = frappe.get_doc("Procurios Mandate Import", import_doc_name)
     try:
         doc._validate_and_preview_csv()
@@ -370,11 +395,15 @@ def validate_import_file(import_doc_name: str) -> dict:
 
 
 @frappe.whitelist()
-def process_import_background(import_doc_name: str, test_mode: bool = False):
+def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: validate, build caches, process, finalize."""
     import traceback
 
     from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
+
+    # Enqueued context: session.user is the original caller, who must be admin.
+    frappe.only_for(_ADMIN_ROLES)
+    test_mode = _coerce_test_mode(test_mode)
 
     frappe.flags.in_background_job = True
     frappe.flags.ignore_version_changes = True
@@ -401,11 +430,17 @@ def process_import_background(import_doc_name: str, test_mode: bool = False):
             mapped = mapped[:25]
 
         caches = doc._build_caches()
+        # Validator-stage row-mapping errors (bad dates, missing required fields)
+        # are real per-row failures: count them toward `error` so the
+        # skipped_summary stays consistent with the row total.
         skip_counters = {
             "no_member": 0,
             "duplicate": 0,
             "conflict": 0,
-            "error": 0,
+            # Pre-seed `error` with the validator-stage mapping failures so
+            # they're counted in skipped_summary and mandates_skipped, not
+            # just logged into error_log.
+            "error": len(validator_errors),
         }
         seeded_errors = list(validator_errors)
 
