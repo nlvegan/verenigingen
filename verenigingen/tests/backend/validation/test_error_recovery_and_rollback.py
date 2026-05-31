@@ -35,6 +35,40 @@ from verenigingen.tests.fixtures.transaction_boundary_test_framework import (
 )
 
 
+class _DataGeneratorFactoryAdapter:
+    """Adapter exposing the legacy ``data_generator.factory`` API on top of the
+    current EnhancedTestCase helpers.
+
+    Historically these tests called ``self.data_generator.factory.create_*``.
+    The standalone data-generator object no longer exists, so this thin
+    adapter maps the old method names onto the test case's existing factory
+    and helper methods.
+    """
+
+    def __init__(self, test_case):
+        self._tc = test_case
+
+    def create_member(self, **kwargs):
+        return self._tc.factory.create_member(**kwargs)
+
+    def create_sepa_mandate(self, member=None, iban=None, **kwargs):
+        return self._tc.create_test_sepa_mandate(member_name=member, iban=iban, **kwargs)
+
+    def create_membership_dues_schedule(self, member=None, dues_rate=None, billing_frequency=None, **kwargs):
+        if dues_rate is not None:
+            kwargs["amount"] = dues_rate
+        if billing_frequency is not None:
+            kwargs["frequency"] = billing_frequency
+        return self._tc.create_test_dues_schedule(member=member, **kwargs)
+
+
+class _DataGeneratorAdapter:
+    """Provides the ``.factory`` attribute the legacy tests expect."""
+
+    def __init__(self, test_case):
+        self.factory = _DataGeneratorFactoryAdapter(test_case)
+
+
 class TestExternalAPIFailureRecovery(TransactionBoundaryTestCase):
     """
     Test error recovery when external APIs fail
@@ -45,7 +79,11 @@ class TestExternalAPIFailureRecovery(TransactionBoundaryTestCase):
     - Network timeouts and connection failures
     - Partial operation rollback when external calls fail
     """
-    
+
+    def setUp(self):
+        super().setUp()
+        self.data_generator = _DataGeneratorAdapter(self)
+
     def test_mollie_payment_creation_api_failure_rollback(self):
         """Test rollback when Mollie payment creation fails"""
         
@@ -225,7 +263,11 @@ class TestDatabaseConstraintViolationRecovery(TransactionBoundaryTestCase):
     - Check constraint violations
     - Proper rollback when constraints fail
     """
-    
+
+    def setUp(self):
+        super().setUp()
+        self.data_generator = _DataGeneratorAdapter(self)
+
     def test_unique_constraint_violation_rollback(self):
         """Test rollback when unique constraint is violated"""
         
@@ -388,7 +430,11 @@ class TestBusinessLogicFailureRecovery(TransactionBoundaryTestCase):
     - Multi-step validation failures
     - Rollback of partially validated data
     """
-    
+
+    def setUp(self):
+        super().setUp()
+        self.data_generator = _DataGeneratorAdapter(self)
+
     def test_member_age_validation_failure_rollback(self):
         """Test rollback when member age validation fails"""
         
@@ -559,7 +605,11 @@ class TestConcurrentAccessFailureRecovery(TransactionBoundaryTestCase):
     - Race condition graceful failure
     - Concurrent transaction rollback
     """
-    
+
+    def setUp(self):
+        super().setUp()
+        self.data_generator = _DataGeneratorAdapter(self)
+
     def test_deadlock_recovery_during_invoice_payment_processing(self):
         """Test recovery when deadlocks occur during concurrent invoice/payment processing"""
         

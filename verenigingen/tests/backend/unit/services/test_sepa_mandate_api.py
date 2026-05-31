@@ -7,10 +7,13 @@ Unit tests for SEPA Mandate API Endpoints
 Tests SEPA mandate API endpoints with OperationResult pattern.
 Focus on critical financial operations with type-safe error handling.
 
-Migration Status: ✅ COMPLETE (2025-11-24)
-- All tests use OperationResult API
-- Proper assertions for .success, .data, .error_message
-- Type-safe test patterns for critical financial APIs
+NOTE (2026-05-31): These API functions are decorated with @critical_api,
+which converts the returned OperationResult into the nested-schema dict via
+OperationResult.to_dict(scrub_sensitive=True) for JSON serialization. The
+values returned to these tests are dicts, not OperationResult objects:
+  - success:  result["success"] (bool)
+  - data:     result["data"]
+  - failure:  result["error"]["message"], result["error"].get("errors")
 """
 
 import frappe
@@ -47,9 +50,9 @@ class TestSEPAMandateAPI(EnhancedTestCase):
             mandate_id="TEST-001"
         )
 
-        # OperationResult pattern
+        # OperationResult (serialized to nested-schema dict by decorator)
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertIn("success", result)
 
     def test_validate_mandate_creation_api_with_invalid_iban_returns_failed_result(self):
         """Test validation with invalid IBAN returns failed OperationResult"""
@@ -67,8 +70,8 @@ class TestSEPAMandateAPI(EnhancedTestCase):
         )
 
         # Should fail gracefully
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
+        self.assertFalse(result["success"])
+        self.assertIsNotNone(result["error"]["message"])
 
     def test_create_mandate_api_returns_operation_result(self):
         """Test create_mandate_api returns OperationResult"""
@@ -86,9 +89,9 @@ class TestSEPAMandateAPI(EnhancedTestCase):
             account_holder_name="Create SEPA"
         )
 
-        # OperationResult pattern
+        # OperationResult (serialized to nested-schema dict by decorator)
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertIn("success", result)
 
     def test_create_mandate_api_with_invalid_member_returns_failed_result(self):
         """Test mandate creation with invalid member returns failed OperationResult"""
@@ -98,8 +101,8 @@ class TestSEPAMandateAPI(EnhancedTestCase):
         )
 
         # Should fail gracefully
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
+        self.assertFalse(result["success"])
+        self.assertIsNotNone(result["error"]["message"])
 
     def test_deactivate_mandates_for_iban_change_api_returns_operation_result(self):
         """Test deactivate_mandates_for_iban_change_api returns OperationResult"""
@@ -115,9 +118,9 @@ class TestSEPAMandateAPI(EnhancedTestCase):
             new_iban="NL20INGB0001234567"
         )
 
-        # OperationResult pattern
+        # OperationResult (serialized to nested-schema dict by decorator)
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertIn("success", result)
 
     def test_sepa_apis_never_throw_exceptions(self):
         """Test that SEPA APIs never throw exceptions"""
@@ -132,17 +135,17 @@ class TestSEPAMandateAPI(EnhancedTestCase):
             # validate_mandate_creation_api
             result1 = validate_mandate_creation_api(member, iban, mandate_id)
             self.assertIsNotNone(result1)
-            self.assertIsNotNone(result1.success)
+            self.assertIn("success", result1)
 
             # create_mandate_api
             result2 = create_mandate_api(member, iban)
             self.assertIsNotNone(result2)
-            self.assertIsNotNone(result2.success)
+            self.assertIn("success", result2)
 
             # deactivate_mandates_for_iban_change_api
             result3 = deactivate_mandates_for_iban_change_api(member, iban)
             self.assertIsNotNone(result3)
-            self.assertIsNotNone(result3.success)
+            self.assertIn("success", result3)
 
     def test_api_results_contain_proper_metadata(self):
         """Test that API results contain expected metadata structure"""
@@ -160,13 +163,13 @@ class TestSEPAMandateAPI(EnhancedTestCase):
             mandate_id="TEST-META"
         )
 
-        # Should have OperationResult structure
+        # Should have OperationResult nested-schema structure
         self.assertIsNotNone(result1)
-        if result1.success:
-            self.assertIsInstance(result1.data, dict)
+        if result1["success"]:
+            self.assertIsInstance(result1["data"], dict)
         else:
-            self.assertIsNotNone(result1.error_message)
-            self.assertIsInstance(result1.errors, list)
+            self.assertIsNotNone(result1["error"]["message"])
+            self.assertIsInstance(result1["error"].get("errors", []), list)
 
 
 def run_tests():

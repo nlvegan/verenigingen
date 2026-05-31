@@ -757,6 +757,50 @@ class VereningingenTestCase(FrappeTestCase):
         self.track_doc("Membership Type", membership_type.name)
         return membership_type
 
+    def ensure_test_membership_type(self, type_name, **kwargs):
+        """Idempotently ensure a Membership Type with a specific `name` exists.
+
+        Several legacy tests reference Membership Types by hardcoded names
+        (e.g. "Monthly Standard", "Regular"). On a fresh CI-mirror site these
+        master records are never seeded, so the link fails. This creates a
+        minimal valid instance (name == membership_type_name) if missing and
+        returns the existing/created doc.
+        """
+        if frappe.db.exists("Membership Type", type_name):
+            return frappe.get_doc("Membership Type", type_name)
+
+        role_profile = frappe.db.get_value(
+            "Role Profile", {"name": ["like", "%Member%"]}, "name"
+        ) or frappe.db.get_value("Role Profile", {}, "name")
+
+        defaults = {
+            "membership_type_name": type_name,
+            "is_active": 1,
+            "role_profile": role_profile,
+            "minimum_amount": 15.00,
+        }
+        defaults.update(kwargs)
+
+        membership_type = frappe.new_doc("Membership Type")
+        for key, value in defaults.items():
+            setattr(membership_type, key, value)
+        membership_type.insert(ignore_permissions=True)
+        self.track_doc("Membership Type", membership_type.name)
+        return membership_type
+
+    def ensure_team_roles(self):
+        """Idempotently ensure the standard seeded Team Role records exist.
+
+        The standard Team Roles ("Team Leader", "Team Member", "Coordinator",
+        "Secretary", "Treasurer", "Verenigingen Auditor") are created during
+        site setup via `verenigingen.setup.create_default_team_roles`, but
+        they are NOT seeded on fresh CI-mirror test sites. Tests that attach
+        Team Members with these named roles must ensure they exist first.
+        """
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+
     def create_test_dues_schedule(self, **kwargs):
         """Create a test dues schedule with default values"""
         # If member is provided, create instance directly (not from template)

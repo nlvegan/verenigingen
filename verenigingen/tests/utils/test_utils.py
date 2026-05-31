@@ -173,6 +173,37 @@ class TestDataFactory:
         member.insert()
         return member
 
+    @staticmethod
+    def create_test_volunteer(member=None, **kwargs):
+        """Create a test volunteer.
+
+        Mirrors CoreTestDataFactory.create_test_volunteer: auto-creates a
+        linked member when none is supplied. ``member`` may be a Member doc
+        or a member name string.
+        """
+        if member is None:
+            member = TestDataFactory.create_test_member()
+
+        member_name = member.name if hasattr(member, "name") else member
+        if hasattr(member, "first_name"):
+            vol_name = f"{member.first_name} {member.last_name}"
+        else:
+            vol_name = f"Test Volunteer-{frappe.generate_hash(length=4)}"
+
+        volunteer_data = {
+            "doctype": "Volunteer",
+            "member": member_name,
+            "volunteer_name": kwargs.get("volunteer_name", vol_name),
+            "email": kwargs.get("email", f"test-volunteer-{frappe.generate_hash(length=8)}@example.com"),
+            "status": kwargs.get("status", "Active"),
+            "start_date": kwargs.get("start_date", frappe.utils.today()),
+        }
+        volunteer_data.update(kwargs)
+
+        volunteer = frappe.get_doc(volunteer_data)
+        volunteer.insert()
+        return volunteer
+
 
 def with_test_cleanup(*doctypes):
     """Decorator to ensure test data cleanup after test execution"""

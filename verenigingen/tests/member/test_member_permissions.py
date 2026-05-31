@@ -85,6 +85,23 @@ class TestMemberPermissions(EnhancedTestCase):
             roles=["Verenigingen Member"]
         )
 
+    def create_test_chapter_member(self, chapter, member, status="Active"):
+        """Add a member to a chapter's `members` child table and save.
+
+        Returns the created Chapter Member child row.
+        """
+        from frappe.utils import today
+
+        chapter_doc = frappe.get_doc("Chapter", chapter)
+        row = chapter_doc.append("members", {
+            "member": member,
+            "enabled": 1,
+            "status": status,
+            "chapter_join_date": today(),
+        })
+        chapter_doc.save()
+        return row
+
     def test_staff_sees_all_members(self):
         """Verenigingen Staff should see all members without filtering"""
         frappe.set_user(self.staff_user.name)

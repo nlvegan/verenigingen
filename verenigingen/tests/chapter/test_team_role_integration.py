@@ -33,18 +33,18 @@ class TestTeamRoleIntegration(EnhancedTestCase):
         self._ensure_team_role_fixtures()
         
     def _ensure_team_role_fixtures(self):
-        """Ensure all required team roles exist for testing"""
-        required_roles = [
-            ("Team Leader", {"permissions_level": "Leader", "is_team_leader": 1, "is_unique": 1}),
-            ("Team Member", {"permissions_level": "Basic", "is_team_leader": 0, "is_unique": 0}),
-            ("Coordinator", {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 0}),
-            ("Secretary", {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1}),
-            ("Treasurer", {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1})
-        ]
-        
-        for role_name, attributes in required_roles:
-            if not DocumentExistenceValidator.check_document_exists("Team Role", role_name):
-                self.ensure_team_role(role_name, attributes)
+        """Ensure all required team roles exist for testing.
+
+        Team members reference Team Role records by their literal name
+        ("Team Leader", "Team Member", "Coordinator", "Secretary",
+        "Treasurer"). The factory's ensure_team_role() uniquifies names, so it
+        cannot produce literally-named records. These are standard seed records
+        created at site setup but absent on fresh CI-mirror sites, so create
+        them idempotently via the production seed function.
+        """
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
     
     def test_unique_role_validation_per_team(self):
         """Test that unique roles can only be assigned once per team"""

@@ -7,9 +7,13 @@ Unit tests for Member Merge Service API
 Tests member merge API endpoints with OperationResult pattern.
 Focus on type-safe error handling for duplicate member consolidation.
 
-Migration Status: ✅ COMPLETE (2025-11-24)
-- All tests use OperationResult API
-- Proper assertions for .success, .data, .error_message
+NOTE (2026-05-31): These API functions are decorated with @critical_api,
+which converts the returned OperationResult into the nested-schema dict via
+OperationResult.to_dict(scrub_sensitive=True) for JSON serialization. The
+values returned to these tests are dicts, not OperationResult objects:
+  - success:  result["success"] (bool)
+  - data:     result["data"]
+  - failure:  result["error"]["message"], result["error"].get("errors")
 """
 
 import frappe
@@ -50,9 +54,9 @@ class TestMemberMergeAPI(EnhancedTestCase):
 
         result = get_merge_preview(source.name, target.name)
 
-        # OperationResult pattern
+        # OperationResult (serialized to nested-schema dict by decorator)
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertIn("success", result)
 
     def test_get_merge_preview_with_invalid_member_returns_failed_result(self):
         """Test merge preview with invalid member returns failed OperationResult"""
@@ -66,8 +70,8 @@ class TestMemberMergeAPI(EnhancedTestCase):
         result = get_merge_preview("INVALID-MEMBER", valid_member.name)
 
         # Should fail gracefully
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
+        self.assertFalse(result["success"])
+        self.assertIsNotNone(result["error"]["message"])
 
     def test_execute_merge_returns_operation_result(self):
         """Test execute_merge returns OperationResult"""
@@ -96,9 +100,9 @@ class TestMemberMergeAPI(EnhancedTestCase):
 
         result = execute_merge(source.name, target.name, field_selections)
 
-        # OperationResult pattern
+        # OperationResult (serialized to nested-schema dict by decorator)
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertIn("success", result)
 
     def test_execute_merge_with_invalid_field_selections_returns_failed_result(self):
         """Test merge with invalid field selections format returns failed OperationResult"""
@@ -120,8 +124,8 @@ class TestMemberMergeAPI(EnhancedTestCase):
         result = execute_merge(source.name, target.name, "{invalid json}")
 
         # Should fail gracefully
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
+        self.assertFalse(result["success"])
+        self.assertIsNotNone(result["error"]["message"])
 
     def test_execute_merge_with_nonexistent_member_returns_failed_result(self):
         """Test merge with non-existent member returns failed OperationResult"""
@@ -137,8 +141,8 @@ class TestMemberMergeAPI(EnhancedTestCase):
         result = execute_merge("NONEXISTENT-001", valid_member.name, field_selections)
 
         # Should fail gracefully
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
+        self.assertFalse(result["success"])
+        self.assertIsNotNone(result["error"]["message"])
 
     def test_merge_apis_never_throw_exceptions(self):
         """Test that merge APIs never throw exceptions"""
@@ -152,12 +156,12 @@ class TestMemberMergeAPI(EnhancedTestCase):
             # get_merge_preview
             result1 = get_merge_preview(source, target)
             self.assertIsNotNone(result1)
-            self.assertIsNotNone(result1.success)
+            self.assertIn("success", result1)
 
             # execute_merge
             result2 = execute_merge(source, target, {})
             self.assertIsNotNone(result2)
-            self.assertIsNotNone(result2.success)
+            self.assertIn("success", result2)
 
     def test_merge_preview_result_contains_expected_fields(self):
         """Test that merge preview result contains expected metadata"""
@@ -179,18 +183,18 @@ class TestMemberMergeAPI(EnhancedTestCase):
         result = get_merge_preview(source.name, target.name)
 
         # Check structure
-        if result.success:
+        if result["success"]:
             expected_fields = ["source", "target", "fields", "warnings"]
             for field in expected_fields:
-                self.assertIn(field, result.data, f"Missing expected field in data: {field}")
+                self.assertIn(field, result["data"], f"Missing expected field in data: {field}")
 
             # Check source and target info
-            self.assertIn("name", result.data["source"])
-            self.assertIn("name", result.data["target"])
+            self.assertIn("name", result["data"]["source"])
+            self.assertIn("name", result["data"]["target"])
         else:
-            # On failure, should have error_message
-            self.assertIsNotNone(result.error_message)
-            self.assertIsInstance(result.errors, list)
+            # On failure, should have error message
+            self.assertIsNotNone(result["error"]["message"])
+            self.assertIsInstance(result["error"].get("errors", []), list)
 
     def test_execute_merge_result_contains_expected_fields(self):
         """Test that execute merge result contains expected metadata"""
@@ -213,17 +217,17 @@ class TestMemberMergeAPI(EnhancedTestCase):
         result = execute_merge(source.name, target.name, field_selections)
 
         # Check structure
-        if result.success:
+        if result["success"]:
             expected_fields = ["merged_member", "changes_applied"]
             for field in expected_fields:
-                self.assertIn(field, result.data, f"Missing expected field in data: {field}")
+                self.assertIn(field, result["data"], f"Missing expected field in data: {field}")
 
             # Verify merged member exists
-            self.assertTrue(frappe.db.exists("Member", result.data["merged_member"]))
+            self.assertTrue(frappe.db.exists("Member", result["data"]["merged_member"]))
         else:
-            # On failure, should have error_message
-            self.assertIsNotNone(result.error_message)
-            self.assertIsInstance(result.errors, list)
+            # On failure, should have error message
+            self.assertIsNotNone(result["error"]["message"])
+            self.assertIsInstance(result["error"].get("errors", []), list)
 
 
 def run_tests():

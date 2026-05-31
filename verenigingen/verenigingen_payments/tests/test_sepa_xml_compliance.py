@@ -65,6 +65,106 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
         """Set up each test with fresh batch data"""
         super().setUp()
         self.test_batch = None
+        # The batch child rows below require a real Sales Invoice link (the
+        # `invoice` field is a reqd Link to Sales Invoice). On a fresh CI-mirror
+        # site the hardcoded "INV-SEPA-001" names don't exist, so create a real
+        # member/customer once and mint real invoices per row. XML assertions
+        # read the row's member_name/iban/amount/mandate, NOT the linked invoice.
+        self._invoice_member = self.create_test_member(
+            first_name="SEPAXML",
+            last_name="Compliance",
+            email="sepaxml.compliance@example.com",
+        )
+        # Direct Debit Batch validation (validate_invoice_for_sepa) only accepts
+        # EUR invoices, so the invoices must belong to a EUR company. The default
+        # test company on a CI-mirror site may not be EUR, so resolve one and
+        # ensure it can post invoices for the current date (active fiscal year).
+        self._eur_company = frappe.db.get_value("Company", {"default_currency": "EUR"}, "name")
+        if self._eur_company:
+            self._ensure_active_fiscal_year(self._eur_company)
+        # Batch child rows require reqd Links to Member and Membership; create a
+        # membership for the test member so rows can be inserted on a fresh site.
+        self._membership = self.create_test_membership(member_name=self._invoice_member.name)
+
+    def _ensure_active_fiscal_year(self, company):
+        """Ensure an active Fiscal Year covers today and permits `company`.
+
+        Restricted fiscal years (linked to specific companies via the
+        Fiscal Year Company child table) block invoice posting for other
+        companies. Add the company to any active-but-restricted fiscal year.
+        """
+        today_date = frappe.utils.getdate(frappe.utils.today())
+        for fy in frappe.get_all("Fiscal Year", fields=["name", "year_start_date", "year_end_date"]):
+            if not (fy.year_start_date <= today_date <= fy.year_end_date):
+                continue
+            companies = frappe.get_all("Fiscal Year Company", filters={"parent": fy.name}, pluck="company")
+            if not companies:
+                return  # Unrestricted active fiscal year already usable
+            if company in companies:
+                return
+            fy_doc = frappe.get_doc("Fiscal Year", fy.name)
+            fy_doc.append("companies", {"company": company})
+            fy_doc.save(ignore_permissions=True)
+            return
+
+    def _real_invoice_name(self, amount=25.00):
+        """Create and return the name of a real, submitted EUR Sales Invoice.
+
+        The batch's `invoice` child field is a reqd Link to Sales Invoice and
+        the batch validates each as a valid (EUR, outstanding) SEPA invoice.
+        """
+        kwargs = {"customer": self._invoice_member.name, "grand_total": amount}
+        if self._eur_company:
+            kwargs["company"] = self._eur_company
+        invoice = self.create_test_sales_invoice(**kwargs)
+        return invoice.name
+
+    def _ensure_mandate(self, mandate_reference, iban, recurring=False):
+        """Idempotently ensure an active SEPA Mandate with this reference exists.
+
+        Direct Debit Batch.validate_sequence_types() requires an active SEPA
+        Mandate whose mandate_id matches each row's mandate_reference. These are
+        not seeded on fresh CI-mirror sites, so create them here. SEPA Mandate
+        validates the IBAN checksum, so generate a valid test IBAN rather than
+        relying on the batch row's (possibly synthetic) IBAN.
+
+        When ``recurring`` is True, a prior "Collected" usage row is recorded so
+        get_mandate_sequence_type() returns RCUR (otherwise first use → FRST,
+        which makes a RCUR batch row a critical SEPA compliance violation).
+        """
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+        if not frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_reference}):
+            # Date the mandate in the past so a prior usage can legitimately
+            # post after sign_date (renewal logic would otherwise force FRST).
+            sign_date = frappe.utils.add_days(frappe.utils.today(), -60)
+            mandate = frappe.get_doc(
+                {
+                    "doctype": "SEPA Mandate",
+                    "mandate_id": mandate_reference,
+                    "member": self._invoice_member.name,
+                    "account_holder_name": f"{self._invoice_member.first_name} {self._invoice_member.last_name}",
+                    "iban": generate_test_iban("TEST"),
+                    "status": "Active",
+                    "mandate_type": "RCUR",
+                    "scheme": "SEPA",
+                    "sign_date": sign_date,
+                }
+            )
+            if recurring:
+                mandate.append(
+                    "usage_history",
+                    {
+                        "usage_date": frappe.utils.add_days(frappe.utils.today(), -30),
+                        "reference_doctype": "Other",
+                        "sequence_type": "FRST",
+                        "amount": 25.00,
+                        "status": "Collected",
+                    },
+                )
+            mandate.insert(ignore_permissions=True)
+            self._track_test_document("SEPA Mandate", mandate.name)
+        return mandate_reference
 
     def tearDown(self):
         """Clean up test data"""
@@ -360,13 +460,15 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             batch_doc.append(
                 "invoices",
                 {
-                    "invoice": f"INV-SEPA-{i+1:03d}",
+                    "invoice": self._real_invoice_name(data["amount"]),
                     "customer": f"CUST-{i+1:03d}",
+                    "member": self._invoice_member.name,
+                    "membership": self._membership.name,
                     "member_name": data["name"],
                     "amount": data["amount"],
                     "currency": "EUR",
                     "iban": data["iban"],
-                    "mandate_reference": data["mandate"],
+                    "mandate_reference": self._ensure_mandate(data["mandate"], data["iban"]),
                     "status": "Pending",
                 },
             )
@@ -391,13 +493,19 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             batch_doc.append(
                 "invoices",
                 {
-                    "invoice": f"INV-SEQ-{i+1:03d}",
+                    "invoice": self._real_invoice_name(25.00),
                     "customer": f"CUST-SEQ-{i+1:03d}",
+                    "member": self._invoice_member.name,
+                    "membership": self._membership.name,
                     "member_name": f"Test Member {seq_type}",
                     "amount": 25.00,
                     "currency": "EUR",
                     "iban": f"NL{91+i:02d}ABNA041716{4300+i:04d}",
-                    "mandate_reference": f"MAND-{seq_type}-{i+1:03d}",
+                    "mandate_reference": self._ensure_mandate(
+                        f"MAND-{seq_type}-{i+1:03d}",
+                        f"NL{91+i:02d}ABNA041716{4300+i:04d}",
+                        recurring=(seq_type == "RCUR"),
+                    ),
                     "sequence_type": seq_type,
                     "status": "Pending",
                 },
@@ -436,13 +544,17 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             batch_doc.append(
                 "invoices",
                 {
-                    "invoice": f"INV-ADDR-{i+1:03d}",
+                    "invoice": self._real_invoice_name(30.00),
                     "customer": f"CUST-ADDR-{i+1:03d}",
+                    "member": self._invoice_member.name,
+                    "membership": self._membership.name,
                     "member_name": addr["name"],
                     "amount": 30.00,
                     "currency": "EUR",
                     "iban": f"NL{91+i:02d}ABNA041716{4300+i:04d}",
-                    "mandate_reference": f"MAND-ADDR-{i+1:03d}",
+                    "mandate_reference": self._ensure_mandate(
+                        f"MAND-ADDR-{i+1:03d}", f"NL{91+i:02d}ABNA041716{4300+i:04d}"
+                    ),
                     "status": "Pending",
                 },
             )
@@ -473,13 +585,17 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
             batch_doc.append(
                 "invoices",
                 {
-                    "invoice": f"INV-DUTCH-{i+1:03d}",
+                    "invoice": self._real_invoice_name(40.00),
                     "customer": f"CUST-DUTCH-{i+1:03d}",
+                    "member": self._invoice_member.name,
+                    "membership": self._membership.name,
                     "member_name": name,
                     "amount": 40.00,
                     "currency": "EUR",
                     "iban": f"NL{91+i:02d}ABNA041716{4300+i:04d}",
-                    "mandate_reference": f"MAND-DUTCH-{i+1:03d}",
+                    "mandate_reference": self._ensure_mandate(
+                        f"MAND-DUTCH-{i+1:03d}", f"NL{91+i:02d}ABNA041716{4300+i:04d}"
+                    ),
                     "status": "Pending",
                 },
             )

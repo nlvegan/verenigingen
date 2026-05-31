@@ -8,6 +8,7 @@ Uses mocking to avoid database dependencies.
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 from unittest.mock import Mock, patch, MagicMock, call
 from verenigingen.services.field_sync_service import (
     _find_target_document,
@@ -197,7 +198,7 @@ class TestFieldSyncServiceUnit(FrappeTestCase):
         self.assertEqual(result, {})
 
 
-class TestSyncFlagsAndLoopPrevention(FrappeTestCase):
+class TestSyncFlagsAndLoopPrevention(VereningingenTestCase):
     """Test sync flag behavior and infinite loop prevention."""
 
     def test_sync_flag_prevents_recursive_sync(self):
@@ -358,7 +359,7 @@ class TestErrorHandling(FrappeTestCase):
                 _find_target_document(source_doc, "TargetDocType", config)
 
 
-class TestPerformanceOptimizations(FrappeTestCase):
+class TestPerformanceOptimizations(VereningingenTestCase):
     """Test performance-related behaviors."""
 
     def test_sync_skips_when_no_fields_changed(self):

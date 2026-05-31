@@ -57,6 +57,15 @@ class TestSuspensionIntegrationReal(EnhancedTestCase):
             start_date=add_days(today(), -30)  # Started 30 days ago
         )
         
+        # The team below links to Chapter "Test Chapter" and uses Team Role
+        # "Team Member" by literal name. Neither is seeded on fresh CI-mirror
+        # sites, so ensure both exist before referencing them.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+        if not frappe.db.exists("Chapter", "Test Chapter"):
+            self.create_test_chapter(chapter_name="Test Chapter")
+
         # Create test team and membership for suspension testing with unique name
         import uuid
         unique_suffix = str(uuid.uuid4())[:8]

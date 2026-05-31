@@ -8,6 +8,8 @@ components with realistic business data and proper field validation.
 import time
 from unittest.mock import patch
 
+import frappe
+
 from verenigingen.services.infrastructure.base_service import APIService, DataService, StatefulService
 from verenigingen.services.infrastructure.example_service import (
     ExampleCalculationService,
@@ -34,6 +36,7 @@ class ServiceInfrastructureEnhancedTests(EnhancedTestCase):
         """Set up individual test with query monitoring."""
         super().setUp()
         self.test_services = []
+        self.logger = frappe.logger("test_service_infrastructure")
 
     def assert_service_result(self, result, success=True, has_data=None, has_errors=None):
         """Assert that a service result has the expected structure and status."""

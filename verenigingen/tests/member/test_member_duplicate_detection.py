@@ -464,10 +464,12 @@ class TestAPISecurity(EnhancedTestCase):
         # Test with invalid member name
         result = check_duplicate_for_approval("NonExistentMember123")
 
-        # OperationResult pattern
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
-        self.assertEqual(result.metadata.get("has_duplicates"), False)
+        # check_duplicate_for_approval is decorated with an API security
+        # decorator, which serializes the OperationResult into the nested-schema
+        # dict (success/error/meta) via to_dict(). Assert on dict keys.
+        self.assertFalse(result["success"])
+        self.assertIsNotNone(result["error"]["message"])
+        self.assertEqual(result.get("meta", {}).get("has_duplicates"), False)
 
     def test_api_permission_check(self):
         """API should check user permissions"""
@@ -499,11 +501,12 @@ class TestAPISecurity(EnhancedTestCase):
         # Test with invalid member name
         result = check_duplicate_for_approval("InvalidName123")
 
-        # OperationResult pattern
-        self.assertFalse(result.success)
+        # Decorator serializes OperationResult into the nested-schema dict.
+        self.assertFalse(result["success"])
         # Error should be user-friendly, not exposing internals
-        self.assertNotIn("Traceback", result.error_message or "")
-        self.assertNotIn("Exception", result.error_message or "")
+        error_message = result["error"]["message"] or ""
+        self.assertNotIn("Traceback", error_message)
+        self.assertNotIn("Exception", error_message)
 
 
 class TestEdgeCases(EnhancedTestCase):

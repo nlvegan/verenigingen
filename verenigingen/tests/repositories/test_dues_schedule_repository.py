@@ -19,6 +19,29 @@ from verenigingen.repositories import DuesScheduleRepository, ScheduleInfo, Sche
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
+def _ensure_named_membership_type(type_name):
+    """Idempotently ensure a Membership Type with a specific literal `name`.
+
+    The enhanced factory uniquifies names, so it cannot produce a record named
+    exactly "Regular". These schedules reference the type by literal name, which
+    is not seeded on fresh CI-mirror sites.
+    """
+    if frappe.db.exists("Membership Type", type_name):
+        return type_name
+    role_profile = frappe.db.get_value(
+        "Role Profile", {"name": ["like", "%Member%"]}, "name"
+    ) or frappe.db.get_value("Role Profile", {}, "name")
+    doc = frappe.get_doc({
+        "doctype": "Membership Type",
+        "membership_type_name": type_name,
+        "is_active": 1,
+        "role_profile": role_profile,
+        "minimum_amount": 15.00,
+    })
+    doc.insert(ignore_permissions=True)
+    return doc.name
+
+
 class TestDuesScheduleRepository(EnhancedTestCase):
     """Test suite for DuesScheduleRepository"""
 
@@ -26,6 +49,10 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         """Set up test fixtures"""
         super().setUp()
         self.repo = DuesScheduleRepository()
+
+        # Schedules below reference Membership Type "Regular" by its literal name;
+        # ensure it exists on fresh CI-mirror sites where it is not seeded.
+        _ensure_named_membership_type("Regular")
 
         # Create test member
         self.test_member = self.create_test_member(
@@ -326,8 +353,9 @@ class TestUpdateScheduleRate(EnhancedTestCase):
             email="rate.update@example.com",
             birth_date="1990-01-01",
         )
-        # Resolve a real Membership Type to avoid LinkValidationError on save()
-        self._membership_type = frappe.db.get_value("Membership Type", {}, "name") or "Lid"
+        # Resolve a real Membership Type to avoid LinkValidationError on save().
+        # On a fresh CI-mirror site no types are seeded, so ensure one exists.
+        self._membership_type = frappe.db.get_value("Membership Type", {}, "name") or _ensure_named_membership_type("Regular")
         # Create a submitted Membership so schedule validate() passes
         self._membership = self._create_active_membership(self.test_member.name)
         # Deactivate any auto-created schedules from membership submission

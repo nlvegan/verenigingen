@@ -52,6 +52,10 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
         user.first_name = "Test"
         user.last_name = "User"
         user.enabled = 1
+        # Suppress welcome email: Frappe v16's send_welcome_mail_to_user
+        # raises AttributeError ('bool' has no attribute 'message') when the
+        # mailer returns a bool in the no-email test context.
+        user.send_welcome_email = 0
 
         if roles:
             for role in roles:

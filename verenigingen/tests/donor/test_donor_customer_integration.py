@@ -7,10 +7,10 @@ Donor and Customer records, following CLAUDE.md testing requirements.
 
 import frappe
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestDonorCustomerIntegration(EnhancedTestCase):
+class TestDonorCustomerIntegration(VereningingenTestCase):
     """Test suite for Donor-Customer integration functionality"""
     
     def setUp(self):

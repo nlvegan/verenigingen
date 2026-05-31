@@ -30,14 +30,17 @@ class TestSEPAInputValidation(VereningingenTestCase):
             email="sepa@example.com"
         )
         
+        self.ensure_test_membership_type("Monthly Standard")
         self.membership = self.create_test_membership(
             member=self.member.name,
             membership_type="Monthly Standard"
         )
         
-        # Create test invoice
+        # Create test invoice. Pass `member=` (not `customer=`) so the factory
+        # creates/links a Customer for the member; the member name is NOT itself
+        # a Customer record on a fresh site.
         self.invoice = self.create_test_sales_invoice(
-            customer=self.member.name,
+            member=self.member.name,
             amount=25.00,
             status="Unpaid"
         )

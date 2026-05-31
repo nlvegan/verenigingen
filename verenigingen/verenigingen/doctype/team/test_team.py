@@ -60,6 +60,13 @@ class TestTeam(EnhancedTestCase):
         # Generate a unique ID for this test method
         super().setUp()
         self.test_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        # Team members reference Team Role records ("Team Leader", "Team Member",
+        # etc.) by their literal name. These are standard seed records created at
+        # site setup (verenigingen.setup.create_default_team_roles) but are NOT
+        # present on fresh CI-mirror test sites. Idempotently create them here.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
         # Create test data
         self.create_test_volunteers()
 

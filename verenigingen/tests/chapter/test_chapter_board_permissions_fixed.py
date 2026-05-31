@@ -39,11 +39,11 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
         test_region = self._test_region_name
         
         # Create test chapters using the base class method
-        self.chapter_a = self.create_chapter(
+        self.chapter_a = self.create_test_chapter(
             region=test_region,
             introduction="Test chapter A for permission testing"
         )
-        self.chapter_b = self.create_chapter(
+        self.chapter_b = self.create_test_chapter(
             region=test_region,
             introduction="Test chapter B for permission testing" 
         )

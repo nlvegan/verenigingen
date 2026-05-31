@@ -38,7 +38,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
         
         # Create test chapter for filtering with unique naming
         self.test_chapter = self.create_test_chapter(
-            chapter_name=f"Test Overdue Chapter {self.test_id}"
+            chapter_name=f"Test Overdue Chapter {self.test_run_id}"
         )
         
         # Create test members with different overdue scenarios
@@ -425,7 +425,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
         
         # Create member in different chapter for aggregation testing
         other_chapter = self.create_test_chapter(
-            chapter_name=f"Test Rotterdam Chapter {self.test_id}"
+            chapter_name=f"Test Rotterdam Chapter {self.test_run_id}"
         )
         
         other_chapter_member = self.create_test_member(

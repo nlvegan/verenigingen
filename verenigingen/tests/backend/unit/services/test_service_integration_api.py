@@ -7,9 +7,13 @@ Unit tests for Service Integration API
 Tests service integration API endpoints with OperationResult pattern.
 Focus on type-safe error handling for infrastructure monitoring operations.
 
-Migration Status: ✅ COMPLETE (2025-11-25)
-- All tests use OperationResult API
-- Proper assertions for .success, .data, .error_message
+NOTE (2026-05-31): These API functions are decorated with @high_security_api,
+which converts the returned OperationResult into the nested-schema dict via
+OperationResult.to_dict(scrub_sensitive=True) for JSON serialization. The
+values returned to these tests are dicts, not OperationResult objects:
+  - success:  result["success"] (bool)
+  - data:     result["data"]
+  - failure:  result["error"]["message"], result["error"].get("errors")
 """
 
 import frappe
@@ -32,27 +36,27 @@ class TestServiceIntegrationAPI(EnhancedTestCase):
         """Test get_service_infrastructure_status returns OperationResult"""
         result = get_service_infrastructure_status()
 
-        # OperationResult pattern
+        # OperationResult (serialized to nested-schema dict by decorator)
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertIn("success", result)
 
-        if result.success:
-            self.assertIsInstance(result.data, dict)
-            self.assertIn("data", result.data)
-            self.assertIn("timestamp", result.data)
+        if result["success"]:
+            self.assertIsInstance(result["data"], dict)
+            self.assertIn("data", result["data"])
+            self.assertIn("timestamp", result["data"])
 
     def test_run_service_integration_tests_returns_operation_result(self):
         """Test run_service_integration_tests returns OperationResult"""
         result = run_service_integration_tests()
 
-        # OperationResult pattern
+        # OperationResult (serialized to nested-schema dict by decorator)
         self.assertIsNotNone(result)
-        self.assertIsNotNone(result.success)
+        self.assertIn("success", result)
 
-        if result.success:
-            self.assertIsInstance(result.data, dict)
-            self.assertIn("data", result.data)
-            self.assertIn("timestamp", result.data)
+        if result["success"]:
+            self.assertIsInstance(result["data"], dict)
+            self.assertIn("data", result["data"])
+            self.assertIn("timestamp", result["data"])
 
     def test_infrastructure_apis_never_throw_exceptions(self):
         """Test that infrastructure APIs never throw exceptions"""
@@ -65,38 +69,36 @@ class TestServiceIntegrationAPI(EnhancedTestCase):
         for api_func, args in apis_to_test:
             result = api_func(*args)
             self.assertIsNotNone(result, f"{api_func.__name__} returned None")
-            self.assertIsNotNone(result.success, f"{api_func.__name__} missing success attribute")
+            self.assertIn("success", result, f"{api_func.__name__} missing success key")
 
     def test_api_results_contain_proper_metadata(self):
         """Test that API results contain expected metadata structure"""
         result = get_service_infrastructure_status()
 
-        # Check OperationResult structure
+        # Check OperationResult nested-schema structure
         self.assertIsNotNone(result)
-        if result.success:
-            self.assertIsInstance(result.data, dict)
+        if result["success"]:
+            self.assertIsInstance(result["data"], dict)
         else:
-            self.assertIsNotNone(result.error_message)
-            self.assertIsInstance(result.errors, list)
+            self.assertIsNotNone(result["error"]["message"])
+            self.assertIsInstance(result["error"].get("errors", []), list)
 
     def test_infrastructure_status_contains_timestamp(self):
         """Test that infrastructure status contains timestamp"""
         result = get_service_infrastructure_status()
 
-        if result.success:
-            self.assertIn("timestamp", result.data)
-            self.assertIsNotNone(result.data["timestamp"])
+        if result["success"]:
+            self.assertIn("timestamp", result["data"])
+            self.assertIsNotNone(result["data"]["timestamp"])
 
     def test_integration_tests_contains_timestamp(self):
         """Test that integration tests contain timestamp"""
         result = run_service_integration_tests()
 
-        # Should have timestamp regardless of success
-        if result.success:
-            self.assertIn("timestamp", result.data)
-        else:
-            # Failed results should also have timestamp
-            self.assertTrue(hasattr(result, 'timestamp') or 'timestamp' in result.__dict__)
+        # Top-level timestamp is always present in the serialized result dict
+        self.assertIn("timestamp", result)
+        if result["success"]:
+            self.assertIn("timestamp", result["data"])
 
 
 def run_tests():

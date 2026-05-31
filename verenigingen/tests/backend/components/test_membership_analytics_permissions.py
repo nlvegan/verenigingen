@@ -46,6 +46,10 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
                 "first_name": email.split("@")[0].title(),
                 "enabled": 1,
                 "new_password": "testpass123",
+                # Suppress welcome email: Frappe v16's send_welcome_mail_to_user
+                # raises AttributeError ('bool' has no attribute 'message') when the
+                # mailer returns a bool in the no-email test context.
+                "send_welcome_email": 0,
                 "roles": []
             })
             user.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately

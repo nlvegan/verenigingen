@@ -8,14 +8,14 @@ following CLAUDE.md testing requirements.
 import frappe
 from unittest.mock import patch
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.donor_customer_sync import (
     sync_donor_to_customer,
     sync_customer_to_donor
 )
 
 
-class TestDonorCustomerSyncUtils(EnhancedTestCase):
+class TestDonorCustomerSyncUtils(VereningingenTestCase):
     """Test suite for sync utility functions"""
     
     def setUp(self):

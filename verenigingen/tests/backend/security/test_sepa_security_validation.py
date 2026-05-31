@@ -26,6 +26,14 @@ class TestSEPASecurityValidation(EnhancedTestCase):
         self.notification_manager = SEPAMandateNotificationManager()
         self._original_user = frappe.session.user
 
+        # Create test member
+        self.test_member = self.create_test_member(
+            first_name="Security",
+            last_name="Test",
+            email="security@test.example",
+            birth_date="1985-01-01"
+        )
+
     @contextlib.contextmanager
     def _with_user(self, user):
         """Run the block as ``user``, restoring the original session user
@@ -38,14 +46,6 @@ class TestSEPASecurityValidation(EnhancedTestCase):
             yield
         finally:
             frappe.set_user(previous)
-        
-        # Create test member
-        self.test_member = self.create_test_member(
-            first_name="Security",
-            last_name="Test",
-            email="security@test.example",
-            birth_date="1985-01-01"
-        )
 
     def test_unauthorized_user_cannot_send_notifications(self):
         """Test that users without Communication:create permission cannot send notifications"""
@@ -58,6 +58,10 @@ class TestSEPASecurityValidation(EnhancedTestCase):
             limited_user.first_name = "Limited"
             limited_user.last_name = "User"
             limited_user.enabled = 1
+            # Suppress welcome email: Frappe v16's send_welcome_mail_to_user
+            # raises AttributeError ('bool' has no attribute 'message') when the
+            # mailer returns a bool in the no-email test context.
+            limited_user.send_welcome_email = 0
             limited_user.save()
         else:
             limited_user = frappe.get_doc("User", limited_user_email)
@@ -119,6 +123,10 @@ class TestSEPASecurityValidation(EnhancedTestCase):
             limited_user.first_name = "Test"
             limited_user.last_name = "Limited"
             limited_user.enabled = 1
+            # Suppress welcome email: Frappe v16's send_welcome_mail_to_user
+            # raises AttributeError ('bool' has no attribute 'message') when the
+            # mailer returns a bool in the no-email test context.
+            limited_user.send_welcome_email = 0
             limited_user.save()
 
         with self._with_user(limited_user_email):

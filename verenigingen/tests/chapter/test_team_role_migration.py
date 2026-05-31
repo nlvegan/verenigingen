@@ -27,19 +27,16 @@ class TestTeamRoleMigration(EnhancedTestCase):
         self._ensure_migration_test_data()
     
     def _ensure_migration_test_data(self):
-        """Ensure test data exists for migration testing"""
-        # Ensure all default team roles exist
-        default_roles = [
-            ("Team Leader", {"permissions_level": "Leader", "is_team_leader": 1, "is_unique": 1}),
-            ("Team Member", {"permissions_level": "Basic", "is_team_leader": 0, "is_unique": 0}),
-            ("Coordinator", {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 0}),
-            ("Secretary", {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1}),
-            ("Treasurer", {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1})
-        ]
-        
-        for role_name, attributes in default_roles:
-            if not frappe.db.exists("Team Role", role_name):
-                self.ensure_team_role(role_name, attributes)
+        """Ensure test data exists for migration testing.
+
+        These tests assert on literally-named Team Role records (the factory's
+        ensure_team_role() uniquifies names and cannot create them). They are
+        standard seed records created at site setup but absent on fresh
+        CI-mirror sites, so create them idempotently via the production seed.
+        """
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
     
     def test_migration_data_consistency_check(self):
         """Test that migrated data maintains consistency"""

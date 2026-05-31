@@ -18,6 +18,12 @@ class TestTeamRoleBasic(EnhancedTestCase):
     
     def setUp(self):
         super().setUp()
+        # These smoke tests assert the standard seeded Team Role records exist.
+        # They are created at site setup but absent on fresh CI-mirror sites,
+        # so create them idempotently via the production seed function.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
         # Enhanced Test Factory handles cleanup automatically
     
     def test_team_role_fixtures_exist(self):
