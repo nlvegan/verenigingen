@@ -44,6 +44,58 @@ def disable_workflow_action_emails():
         frappe.logger().warning(f"Could not disable workflow action emails for tests: {e}")
 
 
+def _erpnext_before_tests_v16():
+    """Reimplementation of erpnext's before_tests, removed in erpnext v16.20.
+
+    erpnext historically shipped ``erpnext.setup.utils.before_tests`` which ran
+    the setup wizard to create the base Company + Territory tree + Chart of
+    Accounts + Fiscal Year, enabled all roles, and set test defaults. v16.20
+    deleted it (commit e451b68). The downstream ``make_test_records("Company")``
+    /``("Customer")`` calls and the Customer-Group / Selling-Settings steps in
+    ``before_tests`` all assume those masters exist, so without this the whole
+    chain collapses and nearly every member/customer-creating test fails in
+    setUp ("Could not find Territory: All Territories", "Please select a
+    Company", ...). This mirrors the deleted erpnext implementation verbatim so
+    test behaviour matches the pre-v16.20 baseline.
+    """
+    from frappe.utils.data import now_datetime
+
+    frappe.clear_cache()
+    if not frappe.db.a_row_exists("Company"):
+        from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
+
+        current_year = now_datetime().year
+        setup_complete(
+            {
+                "currency": "USD",
+                "full_name": "Test User",
+                "company_name": "Wind Power LLC",
+                "timezone": "America/New_York",
+                "company_abbr": "WP",
+                "industry": "Manufacturing",
+                "country": "United States",
+                "fy_start_date": f"{current_year}-01-01",
+                "fy_end_date": f"{current_year}-12-31",
+                "language": "english",
+                "company_tagline": "Testing",
+                "email": "test@erpnext.com",
+                "password": "test",
+                "chart_of_accounts": "Standard",
+            }
+        )
+
+    # These helpers still exist in erpnext.setup.utils (only before_tests was removed)
+    try:
+        from erpnext.setup.utils import enable_all_roles_and_domains, set_defaults_for_tests
+
+        enable_all_roles_and_domains()
+        set_defaults_for_tests()
+    except Exception as e:  # pragma: no cover - defensive
+        frappe.logger().warning(f"erpnext test defaults setup failed: {e}")
+
+    frappe.db.commit()
+
+
 def before_tests():
     """
     Hook called before running tests for this app.
@@ -54,12 +106,17 @@ def before_tests():
     # Suppress slow synchronous workflow-action emails (see function docstring)
     disable_workflow_action_emails()
 
-    # Call ERPNext's before_tests to ensure basic setup
+    # Ensure ERPNext's base test masters (Company, Territory tree, Chart of
+    # Accounts, Fiscal Year, Customer Groups, default roles) exist. erpnext used
+    # to expose this as erpnext.setup.utils.before_tests, but v16.20 removed it,
+    # so prefer that entry point for older erpnext and otherwise reimplement it
+    # inline against the v16 setup wizard (see _erpnext_before_tests_v16).
     try:
         from erpnext.setup.utils import before_tests as erpnext_before_tests
+
         erpnext_before_tests()
     except ImportError:
-        frappe.logger().warning("ERPNext not installed, skipping ERPNext test setup")
+        _erpnext_before_tests_v16()
     except Exception as e:
         frappe.logger().info(f"ERPNext before_tests: {e}")
 
