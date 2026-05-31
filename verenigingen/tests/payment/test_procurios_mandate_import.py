@@ -396,3 +396,70 @@ class TestProcuriosMandateImportEndToEnd(EnhancedTestCase):
         existing.reload()
         self.assertEqual(existing.status, "Cancelled")
         self.assertEqual(str(existing.cancelled_date), "2025-12-01")
+
+
+import time
+
+
+class TestProcuriosMandateImportScale(EnhancedTestCase):
+    """Volume smoke test — 500 rows, mixed outcomes."""
+
+    def test_500_rows_completes_in_reasonable_time(self):
+        # Pre-create 300 members with sequential procurios_ids.
+        # Pass explicit last_name so the factory's _global_unique_seq suffix is
+        # applied — without it the name pool (20×20) exhausts after 20 members
+        # and triggers Customer DuplicateEntryError.
+        for i in range(300):
+            _create_member_with_procurios_id(self, f"SCL-{i}", last_name=f"ScaleTest{i}")
+
+        rows = []
+        # 250 "active, new mandate" rows → CREATED
+        for i in range(250):
+            rows.append(_base_row(
+                Mandaatnummer=f"SCL-NEW-{i}",
+                **{"Debiteur ID": f"SCL-{i}"},
+            ))
+        # 100 "no member" rows → SKIPPED no_member
+        for i in range(100):
+            rows.append(_base_row(
+                Mandaatnummer=f"SCL-NOMBR-{i}",
+                **{"Debiteur ID": f"NOT-EXISTS-{i}"},
+            ))
+        # 100 "old cancelled" rows → FILTERED by the validator before processing
+        for i in range(100):
+            rows.append(_base_row(
+                Mandaatnummer=f"SCL-OLD-{i}",
+                Opzegdatum="2020-01-01",
+                **{"Debiteur ID": f"SCL-{i + 250}"},
+            ))
+        # 50 "active rows for members whose previous row already created an active
+        # mandate" → CONFLICT (re-uses the first 50 procurios_ids whose CREATED
+        # rows ran earlier in the same CSV)
+        for i in range(50):
+            rows.append(_base_row(
+                Mandaatnummer=f"SCL-CONFLICT-{i}",
+                **{"Debiteur ID": f"SCL-{i}"},
+            ))
+
+        file_url = _create_csv_attach(rows)
+        doc = _create_import_doc(file_url)
+        doc.submit()
+
+        start = time.monotonic()
+        process_import_background(doc.name, test_mode=False)
+        elapsed = time.monotonic() - start
+
+        doc.reload()
+        self.assertEqual(doc.import_status, "Completed")
+        self.assertEqual(doc.mandates_created, 250)
+        self.assertEqual(doc.mandates_updated, 0)
+        # skipped = no_member (100) + conflict (50) + filtered_old (100) = 250
+        self.assertEqual(doc.mandates_skipped, 250)
+
+        # Generous ceiling — local dev typically finishes well under 60s.
+        # The point is to catch O(n^2) regressions, not to micro-benchmark.
+        self.assertLess(
+            elapsed,
+            180,
+            f"500-row import took {elapsed:.1f}s (>180s) — likely a regression",
+        )
