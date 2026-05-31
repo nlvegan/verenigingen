@@ -115,6 +115,7 @@ class CSVImportBackgroundProcessor:
         finalize_callback: Optional[Callable[[int, int, int, List[str], List[str]], None]] = None,
         batch_size: int = 50,
         batch_commit: bool = True,
+        progress_field_map: Optional[Dict[str, str]] = None,
     ) -> Dict:
         """
         Process CSV import in batches with progress tracking.
@@ -128,10 +129,23 @@ class CSVImportBackgroundProcessor:
                              Receives (created_count, updated_count, skipped_count, error_log, processed_records)
             batch_size: Number of rows to process before committing
             batch_commit: Whether to commit after each batch
+            progress_field_map: Optional override of the doctype field names that
+                             receive batch-level progress counters. Defaults to
+                             {"created": "members_created", "updated": "members_updated",
+                              "skipped": "members_skipped"} for backward compatibility
+                             with the existing member-import doctypes. Importers
+                             whose doctype uses different field names (e.g.
+                             `mandates_created`) must pass their own mapping or
+                             progress fields will silently stay at zero.
 
         Returns:
             dict: Summary of import results
         """
+        self._progress_field_map = progress_field_map or {
+            "created": "members_created",
+            "updated": "members_updated",
+            "skipped": "members_skipped",
+        }
         try:
             self.load_import_doc()
 
@@ -267,14 +281,24 @@ class CSVImportBackgroundProcessor:
             if hasattr(self.import_doc, "total_rows"):
                 self.import_doc.total_rows = total
 
-            if hasattr(self.import_doc, "members_created"):
-                self.import_doc.members_created = created
+            # Use the per-import progress field map (defaults to members_* for
+            # backward compatibility with the existing member-import doctypes).
+            field_map = getattr(self, "_progress_field_map", None) or {
+                "created": "members_created",
+                "updated": "members_updated",
+                "skipped": "members_skipped",
+            }
+            created_field = field_map.get("created")
+            if created_field and hasattr(self.import_doc, created_field):
+                setattr(self.import_doc, created_field, created)
 
-            if hasattr(self.import_doc, "members_updated"):
-                self.import_doc.members_updated = updated
+            updated_field = field_map.get("updated")
+            if updated_field and hasattr(self.import_doc, updated_field):
+                setattr(self.import_doc, updated_field, updated)
 
-            if hasattr(self.import_doc, "members_skipped"):
-                self.import_doc.members_skipped = skipped
+            skipped_field = field_map.get("skipped")
+            if skipped_field and hasattr(self.import_doc, skipped_field):
+                setattr(self.import_doc, skipped_field, skipped)
 
             if hasattr(self.import_doc, "last_processed_at"):
                 self.import_doc.last_processed_at = now()

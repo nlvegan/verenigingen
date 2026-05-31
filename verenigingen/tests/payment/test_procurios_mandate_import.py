@@ -204,7 +204,25 @@ def _make_mandate_row(**kw):
 
 
 def _empty_skip_counters():
-    return {"no_member": 0, "duplicate": 0, "conflict": 0, "error": 0}
+    return {
+        "no_member": 0,
+        "ambiguous_member": 0,
+        "duplicate": 0,
+        "conflict": 0,
+        "error": 0,
+    }
+
+
+def _recent_cancellation_date():
+    """A cancellation date well inside the 12-month cutoff.
+
+    Tests must not hard-code a wall-clock date here, or they will start
+    failing as the real `date.today()` moves past 12 months from that
+    date. Use a date 30 days ago relative to today.
+    """
+    from frappe.utils import add_days, today
+
+    return add_days(today(), -30)
 
 
 class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
@@ -262,15 +280,19 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
+        cancel_date = _recent_cancellation_date()
         row = _make_mandate_row(
-            mandate_id="M-UPD", debiteur_id="PROC-3", cancelled_date="2025-12-01"
+            mandate_id="M-UPD", debiteur_id="PROC-3", cancelled_date=cancel_date
         )
 
         status, _name = doc._process_single_row(row, errors, caches, counters)
         self.assertEqual(status, "updated")
         updated = frappe.get_doc("SEPA Mandate", existing.name)
-        self.assertEqual(str(updated.cancelled_date), "2025-12-01")
+        self.assertEqual(str(updated.cancelled_date), cancel_date)
         self.assertEqual(updated.status, "Cancelled")
+        # Active-count cache: this member's count should now be zero.
+        self.assertNotIn(member.name, caches.members_with_active_mandate)
+        self.assertEqual(caches.member_to_active_count.get(member.name, 0), 0)
 
     def test_skips_conflict_when_member_has_other_active(self):
         member = _create_member_with_procurios_id(self, "PROC-4")
@@ -288,14 +310,17 @@ class TestProcuriosMandateImportProcessRow(EnhancedTestCase):
 
     def test_cancelled_row_for_member_with_active_mandate_still_imports(self):
         # A historical cancelled mandate doesn't conflict with an active one.
-        member = _create_member_with_procurios_id(self, "PROC-5")
-        _create_active_sepa_mandate(member.name, "M-ACTIVE", "NL91ABNA0417164300")
+        _create_member_with_procurios_id(self, "PROC-5")
+        member_doc = frappe.get_value(
+            "Member", {"procurios_id": "PROC-5"}, "name"
+        )
+        _create_active_sepa_mandate(member_doc, "M-ACTIVE", "NL91ABNA0417164300")
         doc = _create_stub_import_doc()
         caches = doc._build_caches()
         counters = _empty_skip_counters()
         errors = []
         row = _make_mandate_row(
-            mandate_id="M-OLD", debiteur_id="PROC-5", cancelled_date="2025-12-01"
+            mandate_id="M-OLD", debiteur_id="PROC-5", cancelled_date=_recent_cancellation_date()
         )
 
         status, name = doc._process_single_row(row, errors, caches, counters)
@@ -358,11 +383,16 @@ class TestProcuriosMandateImportEndToEnd(EnhancedTestCase):
             m_cancel.name, "E2E-EXISTING", "NL91ABNA0417164300"
         )
 
+        recent_cancel = _recent_cancellation_date()
         rows = [
             # active import, member exists, new mandate id → CREATED
             _base_row(Mandaatnummer="E2E-NEW", Opzegdatum="", **{"Debiteur ID": "E2E-ACT"}),
             # cancelled import, matches existing mandate id → UPDATED
-            _base_row(Mandaatnummer="E2E-EXISTING", Opzegdatum="2025-12-01", **{"Debiteur ID": "E2E-CAN"}),
+            _base_row(
+                Mandaatnummer="E2E-EXISTING",
+                Opzegdatum=recent_cancel,
+                **{"Debiteur ID": "E2E-CAN"},
+            ),
             # cancelled long ago → FILTERED (validator drops it before processing)
             _base_row(Mandaatnummer="E2E-OLD", Opzegdatum="2020-01-01", **{"Debiteur ID": "E2E-ORPH"}),
             # debiteur with no matching Member → no_member
@@ -385,17 +415,119 @@ class TestProcuriosMandateImportEndToEnd(EnhancedTestCase):
         self.assertIn("no_member: 1", doc.skipped_summary)
 
         # Created mandate is linked to the member's sepa_mandates table via after_insert.
+        # No defensive hasattr fallback — if the link table's field name changes,
+        # we want this test to fail loudly with a clear AttributeError, not silently
+        # collect Nones and miss the regression.
         member = frappe.get_doc("Member", m_active.name)
         member_mandate_refs = [
-            (link.mandate_reference if hasattr(link, "mandate_reference") else None)
-            for link in (member.sepa_mandates or [])
+            link.mandate_reference for link in (member.sepa_mandates or [])
         ]
         self.assertIn("E2E-NEW", member_mandate_refs)
 
         # Existing mandate now cancelled.
         existing.reload()
         self.assertEqual(existing.status, "Cancelled")
-        self.assertEqual(str(existing.cancelled_date), "2025-12-01")
+        self.assertEqual(str(existing.cancelled_date), recent_cancel)
+
+
+class TestProcuriosMandateImportAmbiguousMember(EnhancedTestCase):
+    """Two Members share the same procurios_id → row is skipped, not silently
+    assigned to the last Member that happened to be returned by the query."""
+
+    def test_duplicate_procurios_id_yields_ambiguous_member_skip(self):
+        m1 = _create_member_with_procurios_id(self, "DUP-ID", last_name="AmbigA")
+        m2 = _create_member_with_procurios_id(self, "DUP-ID", last_name="AmbigB")
+        self.assertNotEqual(m1.name, m2.name)
+
+        doc = _create_stub_import_doc()
+        caches = doc._build_caches()
+        self.assertIn("DUP-ID", caches.ambiguous_procurios_ids)
+        self.assertNotIn("DUP-ID", caches.procurios_id_to_member)
+
+        counters = _empty_skip_counters()
+        errors = []
+        row = _make_mandate_row(mandate_id="AMBIG-1", debiteur_id="DUP-ID")
+        status, _ = doc._process_single_row(row, errors, caches, counters)
+
+        self.assertEqual(status, "skipped")
+        self.assertEqual(counters["ambiguous_member"], 1)
+        self.assertEqual(counters["no_member"], 0)
+        self.assertFalse(frappe.db.exists("SEPA Mandate", {"mandate_id": "AMBIG-1"}))
+
+
+class TestProcuriosMandateImportAllFilteredCompletes(EnhancedTestCase):
+    """A CSV where every row is filtered by the cutoff is a Completed import,
+    not a Failed one. The skipped_summary reports the filtered count."""
+
+    def test_all_rows_filtered_marks_completed(self):
+        _create_member_with_procurios_id(self, "AF-1", last_name="AllFilt1")
+        _create_member_with_procurios_id(self, "AF-2", last_name="AllFilt2")
+
+        rows = [
+            _base_row(
+                Mandaatnummer="AF-OLD-1",
+                Opzegdatum="2020-01-01",
+                **{"Debiteur ID": "AF-1"},
+            ),
+            _base_row(
+                Mandaatnummer="AF-OLD-2",
+                Opzegdatum="2019-06-15",
+                **{"Debiteur ID": "AF-2"},
+            ),
+        ]
+        file_url = _create_csv_attach(rows)
+        doc = _create_import_doc(file_url)
+        doc.submit()
+        process_import_background(doc.name, test_mode=False)
+
+        doc.reload()
+        self.assertEqual(doc.import_status, "Completed")
+        self.assertEqual(doc.mandates_created, 0)
+        self.assertEqual(doc.mandates_updated, 0)
+        self.assertEqual(doc.mandates_skipped, 2)
+        self.assertIn("filtered_old_cancelled: 2", doc.skipped_summary)
+
+
+class TestProcuriosMandateImportPermissions(EnhancedTestCase):
+    """Non-admin users must not be able to trigger the whitelisted endpoints.
+
+    Per project memory feedback_tests_run_as_admin.md: permission-sensitive
+    flows need a test running as the actual target role (not Administrator),
+    because Administrator bypasses all DocPerms.
+    """
+
+    def test_non_admin_cannot_validate(self):
+        from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (
+            validate_import_file,
+        )
+
+        # Create the import doc as Administrator so the test isn't blocked at
+        # setup; then re-run the whitelisted entry point as a plain user.
+        doc = _create_stub_import_doc()
+
+        original_user = frappe.session.user
+        try:
+            # Use the framework's guest sentinel — any non-admin user works.
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                validate_import_file(doc.name)
+        finally:
+            frappe.set_user(original_user)
+
+    def test_non_admin_cannot_run_background(self):
+        from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (
+            process_import_background,
+        )
+
+        doc = _create_stub_import_doc()
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                process_import_background(doc.name)
+        finally:
+            frappe.set_user(original_user)
 
 
 import time
@@ -405,12 +537,29 @@ class TestProcuriosMandateImportScale(EnhancedTestCase):
     """Volume smoke test — 500 rows, mixed outcomes."""
 
     def test_500_rows_completes_in_reasonable_time(self):
-        # Pre-create 300 members with sequential procurios_ids.
+        # Pre-create 350 members with sequential procurios_ids.
         # Pass explicit last_name so the factory's _global_unique_seq suffix is
         # applied — without it the name pool (20×20) exhausts after 20 members
         # and triggers Customer DuplicateEntryError.
-        for i in range(300):
-            _create_member_with_procurios_id(self, f"SCL-{i}", last_name=f"ScaleTest{i}")
+        members_by_id = {}
+        for i in range(350):
+            m = _create_member_with_procurios_id(
+                self, f"SCL-{i}", last_name=f"ScaleTest{i}"
+            )
+            members_by_id[f"SCL-{i}"] = m.name
+
+        # Pre-create 30 active SEPA Mandates that subsequent CSV rows will
+        # update to Cancelled — this exercises the _update_cancellation path
+        # under load, the slowest path because it does a save() with the full
+        # SEPA Mandate validate cycle.
+        for i in range(30):
+            _create_active_sepa_mandate(
+                members_by_id[f"SCL-{300 + i}"],
+                f"SCL-UPD-{i}",
+                "NL91ABNA0417164300",
+            )
+
+        recent_cancel = _recent_cancellation_date()
 
         rows = []
         # 250 "active, new mandate" rows → CREATED
@@ -419,22 +568,28 @@ class TestProcuriosMandateImportScale(EnhancedTestCase):
                 Mandaatnummer=f"SCL-NEW-{i}",
                 **{"Debiteur ID": f"SCL-{i}"},
             ))
+        # 30 "cancelled, matches existing mandate id" rows → UPDATED
+        for i in range(30):
+            rows.append(_base_row(
+                Mandaatnummer=f"SCL-UPD-{i}",
+                Opzegdatum=recent_cancel,
+                **{"Debiteur ID": f"SCL-{300 + i}"},
+            ))
         # 100 "no member" rows → SKIPPED no_member
         for i in range(100):
             rows.append(_base_row(
                 Mandaatnummer=f"SCL-NOMBR-{i}",
                 **{"Debiteur ID": f"NOT-EXISTS-{i}"},
             ))
-        # 100 "old cancelled" rows → FILTERED by the validator before processing
-        for i in range(100):
+        # 70 "old cancelled" rows → FILTERED by the validator before processing
+        for i in range(70):
             rows.append(_base_row(
                 Mandaatnummer=f"SCL-OLD-{i}",
                 Opzegdatum="2020-01-01",
                 **{"Debiteur ID": f"SCL-{i + 250}"},
             ))
         # 50 "active rows for members whose previous row already created an active
-        # mandate" → CONFLICT (re-uses the first 50 procurios_ids whose CREATED
-        # rows ran earlier in the same CSV)
+        # mandate" → CONFLICT
         for i in range(50):
             rows.append(_base_row(
                 Mandaatnummer=f"SCL-CONFLICT-{i}",
@@ -452,12 +607,15 @@ class TestProcuriosMandateImportScale(EnhancedTestCase):
         doc.reload()
         self.assertEqual(doc.import_status, "Completed")
         self.assertEqual(doc.mandates_created, 250)
-        self.assertEqual(doc.mandates_updated, 0)
-        # skipped = no_member (100) + conflict (50) + filtered_old (100) = 250
-        self.assertEqual(doc.mandates_skipped, 250)
+        self.assertEqual(doc.mandates_updated, 30)
+        # skipped = no_member (100) + conflict (50) + filtered_old (70) = 220
+        self.assertEqual(doc.mandates_skipped, 220)
 
         # Generous ceiling — local dev typically finishes well under 60s.
         # The point is to catch O(n^2) regressions, not to micro-benchmark.
+        # The update path runs an actual save() with the full validate cycle
+        # on the SEPA Mandate, which is more expensive than insert, so 30
+        # updates add a measurable but bounded cost.
         self.assertLess(
             elapsed,
             180,

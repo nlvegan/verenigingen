@@ -37,6 +37,15 @@ class _Caches:
     procurios_id_to_member: Dict[str, str] = field(default_factory=dict)
     existing_mandate_by_id: Dict[str, Dict] = field(default_factory=dict)
     members_with_active_mandate: Set[str] = field(default_factory=set)
+    # Procurios IDs that map to more than one Member. They are dropped from
+    # `procurios_id_to_member`; any row referencing one is skipped as
+    # `ambiguous_member` rather than silently assigned to whichever Member
+    # the query returned last.
+    ambiguous_procurios_ids: Set[str] = field(default_factory=set)
+    # Per-member count of currently-active mandates. Maintained in-loop so the
+    # cancellation path can decide whether a member still has *any* active
+    # mandate without re-querying the DB.
+    member_to_active_count: Dict[str, int] = field(default_factory=dict)
 
 
 class ProcuriosMandateImport(Document):
@@ -140,20 +149,33 @@ class ProcuriosMandateImport(Document):
     # ---- caches -------------------------------------------------------
 
     def _build_caches(self) -> _Caches:
-        """Build all three lookup caches with one query each.
+        """Build all lookup caches with one query each.
 
         Designed for a few thousand rows: each query is well-indexed and
         loads only the fields needed for the per-row decisions.
         """
         caches = _Caches()
 
+        # Member.procurios_id is a plain Data field without a unique
+        # constraint. If two Members share the same procurios_id, neither
+        # can be matched unambiguously — drop the id from the lookup and
+        # remember it so we can give a clear skip reason instead of a
+        # silent misassignment.
         for m in frappe.get_all(
             "Member",
             filters={"procurios_id": ["!=", ""]},
             fields=["name", "procurios_id"],
         ):
-            if m.procurios_id:
-                caches.procurios_id_to_member[m.procurios_id] = m.name
+            if not m.procurios_id:
+                continue
+            if m.procurios_id in caches.ambiguous_procurios_ids:
+                continue
+            if m.procurios_id in caches.procurios_id_to_member:
+                # Second hit: mark ambiguous and drop the earlier entry.
+                caches.ambiguous_procurios_ids.add(m.procurios_id)
+                caches.procurios_id_to_member.pop(m.procurios_id, None)
+                continue
+            caches.procurios_id_to_member[m.procurios_id] = m.name
 
         for sm in frappe.get_all(
             "SEPA Mandate",
@@ -168,6 +190,9 @@ class ProcuriosMandateImport(Document):
                 }
                 if sm.status == "Active" and sm.member:
                     caches.members_with_active_mandate.add(sm.member)
+                    caches.member_to_active_count[sm.member] = (
+                        caches.member_to_active_count.get(sm.member, 0) + 1
+                    )
 
         return caches
 
@@ -189,6 +214,15 @@ class ProcuriosMandateImport(Document):
         """
         try:
             # 1. Member match
+            if row.debiteur_id in caches.ambiguous_procurios_ids:
+                skip_counters["ambiguous_member"] += 1
+                error_log.append(
+                    f"Row {row.row_number} ({row.debiteur_naam}): "
+                    f"procurios_id={row.debiteur_id} matches multiple Members; "
+                    f"cannot import unambiguously"
+                )
+                return ("skipped", "")
+
             member_name = caches.procurios_id_to_member.get(row.debiteur_id)
             if not member_name:
                 skip_counters["no_member"] += 1
@@ -264,6 +298,7 @@ class ProcuriosMandateImport(Document):
         }
         if mandate.status == "Active":
             caches.members_with_active_mandate.add(member_name)
+            caches.member_to_active_count[member_name] = caches.member_to_active_count.get(member_name, 0) + 1
 
         return ("created", mandate.name)
 
@@ -279,6 +314,11 @@ class ProcuriosMandateImport(Document):
         to Cancelled. ignore_permissions because the bulk import runs in
         a background job.
         """
+        # Only decrement the active-count if the existing mandate was active
+        # before this update; cancelling an already-cancelled mandate is a
+        # no-op for the conflict-detection invariant.
+        was_active = existing.get("status") == "Active"
+
         mandate = frappe.get_doc("SEPA Mandate", existing["name"])
         mandate.cancelled_date = row.cancelled_date
         mandate.status = "Cancelled"
@@ -286,14 +326,16 @@ class ProcuriosMandateImport(Document):
         mandate.flags.ignore_permissions = True
         mandate.save()
 
-        # Cache refresh: the member may no longer have an active mandate.
-        if existing.get("member") in caches.members_with_active_mandate:
-            still_active = frappe.db.exists(
-                "SEPA Mandate",
-                {"member": existing["member"], "status": "Active"},
-            )
-            if not still_active:
-                caches.members_with_active_mandate.discard(existing["member"])
+        # Cache refresh via the in-memory active-count, so the per-row loop
+        # stays free of DB queries on the update path.
+        member = existing.get("member")
+        if was_active and member:
+            remaining = caches.member_to_active_count.get(member, 0) - 1
+            if remaining <= 0:
+                caches.member_to_active_count.pop(member, None)
+                caches.members_with_active_mandate.discard(member)
+            else:
+                caches.member_to_active_count[member] = remaining
 
         existing["status"] = mandate.status
         existing["cancelled_date"] = mandate.cancelled_date
@@ -354,7 +396,14 @@ class ProcuriosMandateImport(Document):
         summary_counts["filtered_old_cancelled"] += filtered_old_cancelled
         self.skipped_summary = "\n".join(
             f"{k}: {summary_counts.get(k, 0)}"
-            for k in ("filtered_old_cancelled", "no_member", "duplicate", "conflict", "error")
+            for k in (
+                "filtered_old_cancelled",
+                "no_member",
+                "ambiguous_member",
+                "duplicate",
+                "conflict",
+                "error",
+            )
         )
 
         # Security: Background job updating its own import status document; the
@@ -421,8 +470,27 @@ def process_import_background(import_doc_name: str, test_mode=False):
 
         mapped, validator_errors, filtered_old = doc._validator.validate_and_map(csv_data)
         if not mapped:
+            # Two distinct empty-mapped cases:
+            #  - All rows filtered out by the 12-month cutoff (no errors). That's
+            #    a legitimate Completed outcome — the CSV is fine, the business
+            #    rule just had nothing to import.
+            #  - Genuine failures or genuinely empty file. Report as Failed.
+            if filtered_old > 0 and not validator_errors:
+                doc.db_set("mandates_skipped", filtered_old)
+                doc.db_set(
+                    "skipped_summary",
+                    f"filtered_old_cancelled: {filtered_old}\n"
+                    f"no_member: 0\nambiguous_member: 0\n"
+                    f"duplicate: 0\nconflict: 0\nerror: 0",
+                )
+                doc.db_set("import_status", "Completed")
+                frappe.db.commit()
+                return
             doc.db_set("import_status", "Failed")
-            doc.db_set("error_log", "No valid rows to import")
+            doc.db_set(
+                "error_log",
+                "\n".join(validator_errors[:50]) if validator_errors else "No valid rows to import",
+            )
             frappe.db.commit()
             return
 
@@ -435,6 +503,7 @@ def process_import_background(import_doc_name: str, test_mode=False):
         # skipped_summary stays consistent with the row total.
         skip_counters = {
             "no_member": 0,
+            "ambiguous_member": 0,
             "duplicate": 0,
             "conflict": 0,
             # Pre-seed `error` with the validator-stage mapping failures so
@@ -464,12 +533,20 @@ def process_import_background(import_doc_name: str, test_mode=False):
 
         processor = CSVImportBackgroundProcessor(import_doc_name, "Procurios Mandate Import")
         processor.load_import_doc()
+        # Our doctype uses mandates_* progress fields rather than the shared
+        # processor's members_* default; override so the live progress fields
+        # update during batches (otherwise they stay at 0 until finalize).
         processor.process_import(
             data_rows=mapped,
             process_row_callback=_row_callback,
             finalize_callback=_finalize,
             batch_size=50,
             batch_commit=True,
+            progress_field_map={
+                "created": "mandates_created",
+                "updated": "mandates_updated",
+                "skipped": "mandates_skipped",
+            },
         )
 
     except Exception:
