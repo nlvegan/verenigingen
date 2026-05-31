@@ -193,6 +193,18 @@ from frappe.utils import now_datetime, add_days, add_months, getdate
 
 from .field_validator import FieldValidationError, FieldValidator, validate_field
 
+# erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
+# Groups, Chart of Accounts, Fiscal Year, price lists, ...) via a module-level
+# BootStrapTestData() call in erpnext.tests.utils. EnhancedTestCase tests run as
+# an "unspecified" category and so never trigger the before_tests hook; importing
+# erpnext.tests.utils here ensures those masters exist when such tests run in
+# isolation too. The import is cached + BootStrapTestData runs once per process,
+# so this never double-creates / collides.
+try:
+    import erpnext.tests.utils  # noqa: F401
+except Exception:  # pragma: no cover - defensive: never block factory import
+    pass
+
 
 class MockRolesContext:
     """

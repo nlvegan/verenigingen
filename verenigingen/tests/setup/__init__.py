@@ -45,44 +45,23 @@ def disable_workflow_action_emails():
 
 
 def _erpnext_before_tests_v16():
-    """Reimplementation of erpnext's before_tests, removed in erpnext v16.20.
+    """Create ERPNext's base test masters the v16.20 way.
 
-    erpnext historically shipped ``erpnext.setup.utils.before_tests`` which ran
-    the setup wizard to create the base Company + Territory tree + Chart of
-    Accounts + Fiscal Year, enabled all roles, and set test defaults. v16.20
-    deleted it (commit e451b68). The downstream ``make_test_records("Company")``
-    /``("Customer")`` calls and the Customer-Group / Selling-Settings steps in
-    ``before_tests`` all assume those masters exist, so without this the whole
-    chain collapses and nearly every member/customer-creating test fails in
-    setUp ("Could not find Territory: All Territories", "Please select a
-    Company", ...). This mirrors the deleted erpnext implementation verbatim so
-    test behaviour matches the pre-v16.20 baseline.
+    erpnext v16.20 removed ``erpnext.setup.utils.before_tests`` and replaced it
+    with ``BootStrapTestData``, which is instantiated at *module import* of
+    ``erpnext.tests.utils`` (a module-level ``BootStrapTestData()`` call). That
+    creates the base masters once per process: Company, Territory tree, Customer
+    Groups, Chart of Accounts, Fiscal Year, price lists, Modes of Payment, etc.
+    Importing the module here triggers it before our tests need those masters.
+
+    IMPORTANT: do NOT call ``setup_complete`` to create these — it duplicates the
+    same records and then collides with ``BootStrapTestData``'s non-idempotent
+    ``make_price_list``/``make_company`` (e.g. DuplicateEntryError on the
+    "Standard Buying" Price List). ``BootStrapTestData`` must be the single
+    creator. The import is cached, so triggering it from here and/or from a test
+    module only runs it once.
     """
-    from frappe.utils.data import now_datetime
-
-    frappe.clear_cache()
-    if not frappe.db.a_row_exists("Company"):
-        from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
-
-        current_year = now_datetime().year
-        setup_complete(
-            {
-                "currency": "USD",
-                "full_name": "Test User",
-                "company_name": "Wind Power LLC",
-                "timezone": "America/New_York",
-                "company_abbr": "WP",
-                "industry": "Manufacturing",
-                "country": "United States",
-                "fy_start_date": f"{current_year}-01-01",
-                "fy_end_date": f"{current_year}-12-31",
-                "language": "english",
-                "company_tagline": "Testing",
-                "email": "test@erpnext.com",
-                "password": "test",
-                "chart_of_accounts": "Standard",
-            }
-        )
+    import erpnext.tests.utils  # noqa: F401  (module-level BootStrapTestData() runs on import)
 
     # These helpers still exist in erpnext.setup.utils (only before_tests was removed)
     try:
