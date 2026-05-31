@@ -2167,7 +2167,7 @@
   "rate_limit_calls": 5,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 0,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -3156,7 +3156,7 @@
   "rate_limit_calls": 50,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 0,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -3207,7 +3207,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 0,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -3258,7 +3258,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 0,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -6172,7 +6172,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
-  "audit_level": "enhanced",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 50000,
@@ -6212,7 +6212,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enhanced",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 50000,
@@ -6232,7 +6232,7 @@
   "rate_limit_calls": 20,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
-  "audit_level": "enhanced",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 50000,
@@ -8072,7 +8072,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enhanced",
+  "audit_level": "detailed",
   "alert_on_execution": 0
  },
  {
@@ -8225,7 +8225,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enhanced",
+  "audit_level": "detailed",
   "alert_on_execution": 0
  },
  {
@@ -8663,7 +8663,7 @@
   "rate_limit_calls": 80,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
-  "audit_level": "enhanced",
+  "audit_level": "detailed",
   "alert_on_execution": 0
  },
  {
@@ -10204,7 +10204,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10322,7 +10322,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -10354,7 +10354,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10386,7 +10386,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10402,7 +10402,7 @@
   "rate_limit_calls": 90,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10453,7 +10453,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10469,7 +10469,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10485,7 +10485,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10501,7 +10501,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10622,7 +10622,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10702,7 +10702,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10826,7 +10826,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10842,7 +10842,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10858,7 +10858,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -10947,7 +10947,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -10979,7 +10979,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11030,7 +11030,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11113,7 +11113,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11145,7 +11145,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11161,7 +11161,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11263,7 +11263,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11279,7 +11279,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11295,7 +11295,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11311,7 +11311,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11327,7 +11327,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11343,7 +11343,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11359,7 +11359,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11375,7 +11375,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11407,7 +11407,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11423,7 +11423,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11439,7 +11439,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11455,7 +11455,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11471,7 +11471,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11487,7 +11487,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11503,7 +11503,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11519,7 +11519,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11535,7 +11535,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11551,7 +11551,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11567,7 +11567,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11583,7 +11583,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11599,7 +11599,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11615,7 +11615,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11631,7 +11631,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11647,7 +11647,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11663,7 +11663,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11679,7 +11679,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11714,7 +11714,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11730,7 +11730,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11746,7 +11746,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11762,7 +11762,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11778,7 +11778,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11794,7 +11794,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11810,7 +11810,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11826,7 +11826,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11842,7 +11842,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11858,7 +11858,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11874,7 +11874,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11909,7 +11909,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11925,7 +11925,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11941,7 +11941,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11957,7 +11957,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -11973,7 +11973,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "standard",
   "alert_on_execution": 0
  },
  {
@@ -11989,7 +11989,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12005,7 +12005,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12021,7 +12021,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12037,7 +12037,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12053,7 +12053,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12069,7 +12069,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12085,7 +12085,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12101,7 +12101,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12117,7 +12117,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12133,7 +12133,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12149,7 +12149,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12165,7 +12165,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12181,7 +12181,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12197,7 +12197,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12213,7 +12213,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12229,7 +12229,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12245,7 +12245,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12261,7 +12261,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12277,7 +12277,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12293,7 +12293,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12325,7 +12325,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 50000,
@@ -12345,7 +12345,7 @@
   "rate_limit_calls": 30,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 50000,
@@ -12365,7 +12365,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "enabled",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 50000,
@@ -12516,7 +12516,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12532,7 +12532,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12564,7 +12564,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12580,7 +12580,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12596,7 +12596,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12612,7 +12612,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12730,7 +12730,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12778,7 +12778,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12794,7 +12794,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12810,7 +12810,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12842,7 +12842,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12890,7 +12890,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12906,7 +12906,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -12986,7 +12986,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13002,7 +13002,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13018,7 +13018,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13082,7 +13082,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13098,7 +13098,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13114,7 +13114,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13162,7 +13162,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13178,7 +13178,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13194,7 +13194,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13210,7 +13210,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13226,7 +13226,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13242,7 +13242,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13258,7 +13258,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13274,7 +13274,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13382,7 +13382,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13398,7 +13398,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13414,7 +13414,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13430,7 +13430,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13446,7 +13446,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13462,7 +13462,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13564,7 +13564,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13580,7 +13580,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13596,7 +13596,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13644,7 +13644,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13660,7 +13660,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13759,7 +13759,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13775,7 +13775,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13855,7 +13855,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13871,7 +13871,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13887,7 +13887,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13922,7 +13922,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13954,7 +13954,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13970,7 +13970,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -13986,7 +13986,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14002,7 +14002,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14018,7 +14018,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14050,7 +14050,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14098,7 +14098,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14114,7 +14114,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14130,7 +14130,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14146,7 +14146,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14162,7 +14162,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14178,7 +14178,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14194,7 +14194,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14226,7 +14226,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14242,7 +14242,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14258,7 +14258,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14274,7 +14274,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14290,7 +14290,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14306,7 +14306,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14322,7 +14322,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14370,7 +14370,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14386,7 +14386,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14402,7 +14402,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14418,7 +14418,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14453,7 +14453,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14469,7 +14469,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14485,7 +14485,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14501,7 +14501,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14517,7 +14517,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14549,7 +14549,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14565,7 +14565,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14581,7 +14581,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14597,7 +14597,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14613,7 +14613,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14629,7 +14629,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14645,7 +14645,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14661,7 +14661,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14693,7 +14693,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14709,7 +14709,7 @@
   "rate_limit_calls": 5000,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14725,7 +14725,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14741,7 +14741,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14773,7 +14773,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14789,7 +14789,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14805,7 +14805,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14821,7 +14821,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14837,7 +14837,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14853,7 +14853,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14885,7 +14885,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14933,7 +14933,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14949,7 +14949,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14965,7 +14965,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14981,7 +14981,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -14997,7 +14997,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15013,7 +15013,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15045,7 +15045,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15061,7 +15061,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15077,7 +15077,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15093,7 +15093,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15109,7 +15109,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15125,7 +15125,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15176,7 +15176,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15192,7 +15192,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -15208,7 +15208,7 @@
   "rate_limit_calls": 180,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -32511,7 +32511,7 @@
   "doctype": "Critical Operation Rule",
   "name": "handle_mollie_payment_webhook",
   "operation_name": "handle_mollie_payment_webhook",
-  "operation_type": "PUBLIC",
+  "operation_type": "public",
   "description": "Mollie payment webhook forwarder endpoint for external payment notifications",
   "enabled": 1,
   "security_level": "high",
@@ -32597,7 +32597,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -32613,7 +32613,7 @@
   "rate_limit_calls": 120,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "disabled",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -32629,7 +32629,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 100000,
   "batch_rate_limit_period_seconds": 3600,
@@ -32709,7 +32709,7 @@
   "doctype": "Critical Operation Rule",
   "name": "handle_payment_webhook",
   "operation_name": "handle_payment_webhook",
-  "operation_type": "PUBLIC",
+  "operation_type": "public",
   "description": "Mollie payment webhook handler for external payment notifications",
   "enabled": 1,
   "security_level": "high",
@@ -32728,7 +32728,7 @@
   "doctype": "Critical Operation Rule",
   "name": "handle_refund_webhook",
   "operation_name": "handle_refund_webhook",
-  "operation_type": "PUBLIC",
+  "operation_type": "public",
   "description": "Mollie refund webhook handler for external refund notifications",
   "enabled": 1,
   "security_level": "high",
@@ -32870,7 +32870,7 @@
   "rate_limit_calls": 60,
   "rate_limit_period_seconds": 60,
   "rate_limit_scope": "per_user",
-  "audit_level": "basic",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -32902,7 +32902,7 @@
   "rate_limit_calls": 500,
   "rate_limit_period_seconds": 300,
   "rate_limit_scope": "per_user",
-  "audit_level": "basic",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -32918,7 +32918,7 @@
   "rate_limit_calls": 500,
   "rate_limit_period_seconds": 300,
   "rate_limit_scope": "per_user",
-  "audit_level": "basic",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -32934,7 +32934,7 @@
   "rate_limit_calls": 200,
   "rate_limit_period_seconds": 300,
   "rate_limit_scope": "per_user",
-  "audit_level": "basic",
+  "audit_level": "minimal",
   "alert_on_execution": 0
  },
  {
@@ -32950,7 +32950,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 100000,
   "batch_rate_limit_period_seconds": 3600,
@@ -32969,7 +32969,7 @@
   "rate_limit_calls": 20,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 100000,
   "batch_rate_limit_period_seconds": 3600,
@@ -32988,7 +32988,7 @@
   "rate_limit_calls": 5,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 100000,
   "batch_rate_limit_period_seconds": 3600,
@@ -33007,7 +33007,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 0,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -33080,7 +33080,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 100000,
@@ -33288,7 +33288,7 @@
   "rate_limit_calls": 20,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 0,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -33570,7 +33570,7 @@
   "rate_limit_calls": 5,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 0,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -33605,7 +33605,7 @@
   "rate_limit_calls": 2,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 100000,
   "batch_rate_limit_period_seconds": 3600,
@@ -33624,7 +33624,7 @@
   "rate_limit_calls": 3,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -33643,7 +33643,7 @@
   "rate_limit_calls": 3,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 50000,
   "batch_rate_limit_period_seconds": 3600,
@@ -33665,7 +33665,7 @@
   "batch_rate_limit_calls": 100,
   "batch_rate_limit_period_seconds": 3600,
   "apply_batch_limits_to": "Both",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 1
  },
  {
@@ -33684,7 +33684,7 @@
   "batch_rate_limit_calls": 100,
   "batch_rate_limit_period_seconds": 3600,
   "apply_batch_limits_to": "Both",
-  "audit_level": "comprehensive",
+  "audit_level": "detailed",
   "alert_on_execution": 1
  },
  {
@@ -33748,7 +33748,7 @@
   "rate_limit_calls": 5,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "batch_rate_limit_calls": 100000,
   "batch_rate_limit_period_seconds": 3600,
@@ -34129,7 +34129,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 100000,
@@ -34149,7 +34149,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 100000,
@@ -34169,7 +34169,7 @@
   "rate_limit_calls": 10,
   "rate_limit_period_seconds": 3600,
   "rate_limit_scope": "per_user",
-  "audit_level": "comprehensive",
+  "audit_level": "critical",
   "alert_on_execution": 1,
   "notification_recipients": "beheerder@veganisme.org",
   "batch_rate_limit_calls": 100000,
@@ -34420,7 +34420,7 @@
   "doctype": "Critical Operation Rule",
   "name": "get_default_webhook_url",
   "operation_name": "get_default_webhook_url",
-  "operation_type": "configuration",
+  "operation_type": "admin",
   "description": "Retrieve default webhook URL from Mollie Settings",
   "enabled": 1,
   "security_level": "low",
