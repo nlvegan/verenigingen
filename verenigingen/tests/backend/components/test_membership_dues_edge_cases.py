@@ -466,7 +466,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
                 if amount > (membership_type.minimum_amount * 10):  # If above maximum
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
@@ -501,7 +501,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
                 if amount > (membership_type.minimum_amount * 10):  # If above maximum
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"

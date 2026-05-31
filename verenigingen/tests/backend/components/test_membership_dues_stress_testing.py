@@ -392,7 +392,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
             schedule.member = member.name
             schedule.membership = membership.name
             schedule.membership_type = membership_type.name
-            schedule.contribution_mode = "Calculator"
+            schedule.contribution_mode = "Income-Based"
             schedule.dues_rate = 25.0 + (i * 2.0)  # Varied amounts
             schedule.billing_frequency = "Monthly"
             schedule.payment_method = "SEPA Direct Debit"
@@ -475,7 +475,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
         dues_schedule.member = member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
-        dues_schedule.contribution_mode = "Calculator"
+        dues_schedule.contribution_mode = "Income-Based"
         
         # Vary amounts and frequencies for realistic testing
         base_amount = membership_type.suggested_contribution

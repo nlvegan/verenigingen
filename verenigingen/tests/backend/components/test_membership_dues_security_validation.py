@@ -55,7 +55,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             admin_schedule.member = test_member.name
             admin_schedule.membership = test_membership.name
             admin_schedule.membership_type = membership_type.name
-            admin_schedule.contribution_mode = "Calculator"
+            admin_schedule.contribution_mode = "Income-Based"
             admin_schedule.dues_rate = 25.0
             admin_schedule.billing_frequency = "Monthly"
             admin_schedule.status = "Active"
@@ -71,7 +71,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             member_schedule.member = test_member.name
             member_schedule.membership = test_membership.name
             member_schedule.membership_type = membership_type.name
-            member_schedule.contribution_mode = "Calculator"
+            member_schedule.contribution_mode = "Income-Based"
             member_schedule.dues_rate = 25.0
             member_schedule.billing_frequency = "Monthly"
             member_schedule.status = "Active"
@@ -87,7 +87,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             guest_schedule.member = test_member.name
             guest_schedule.membership = test_membership.name
             guest_schedule.membership_type = membership_type.name
-            guest_schedule.contribution_mode = "Calculator"
+            guest_schedule.contribution_mode = "Income-Based"
             guest_schedule.dues_rate = 25.0
             guest_schedule.billing_frequency = "Monthly"
             guest_schedule.status = "Active"
@@ -108,7 +108,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             dues_schedule.member = test_member.name
             dues_schedule.membership = test_membership.name
             dues_schedule.membership_type = membership_type.name
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             dues_schedule.dues_rate = 25.0
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.status = "Active"
@@ -195,7 +195,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             schedule1.member = member1.name
             schedule1.membership = membership1.name
             schedule1.membership_type = membership_type.name
-            schedule1.contribution_mode = "Calculator"
+            schedule1.contribution_mode = "Income-Based"
             schedule1.amount = 25.0
             schedule1.billing_frequency = "Monthly"
             schedule1.status = "Active"
@@ -207,7 +207,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             schedule2.member = member2.name
             schedule2.membership = membership2.name
             schedule2.membership_type = membership_type.name
-            schedule2.contribution_mode = "Calculator"
+            schedule2.contribution_mode = "Income-Based"
             schedule2.amount = 50.0  # Different amount
             schedule2.billing_frequency = "Monthly"
             schedule2.status = "Active"
@@ -363,7 +363,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             dues_schedule.member = test_member.name
             dues_schedule.membership = test_membership.name
             dues_schedule.membership_type = membership_type.name
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             dues_schedule.dues_rate = 25.0
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.status = "Active"
@@ -431,7 +431,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
                 schedule.member = member.name
                 schedule.membership = membership.name
                 schedule.membership_type = membership_type.name
-                schedule.contribution_mode = "Calculator"
+                schedule.contribution_mode = "Income-Based"
                 schedule.dues_rate = 25.0
                 schedule.billing_frequency = "Monthly"
                 schedule.status = "Active"
@@ -453,7 +453,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
                     schedule = frappe.new_doc("Membership Dues Schedule")
                     schedule.member = member.name
                     schedule.membership_type = membership_type.name
-                    schedule.contribution_mode = "Calculator"
+                    schedule.contribution_mode = "Income-Based"
                     schedule.dues_rate = 25.0
                     schedule.billing_frequency = "Monthly"
                     schedule.status = "Active"

@@ -51,7 +51,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         
         # Get the template to check configuration
         template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-        self.assertEqual(template.contribution_mode, "Calculator")
+        self.assertEqual(template.contribution_mode, "Income-Based")
         
         # Test contribution options
         options = membership_type.get_contribution_options()
@@ -67,7 +67,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         
         # Get the template to check configuration
         template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-        self.assertEqual(template.contribution_mode, "Calculator")
+        self.assertEqual(template.contribution_mode, "Income-Based")
         
         # Test contribution options
         options = membership_type.get_contribution_options()
@@ -147,7 +147,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         dues_schedule.member = self.test_member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
-        dues_schedule.contribution_mode = "Calculator"
+        dues_schedule.contribution_mode = "Income-Based"
         dues_schedule.base_multiplier = 1.5  # 150% of suggested amount
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.status = "Active"
@@ -436,7 +436,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         template.membership_type = membership_type.name
         template.status = "Active"
         template.billing_frequency = "Annual"
-        template.contribution_mode = "Calculator"
+        template.contribution_mode = "Income-Based"
         # Note: These fields may not exist yet, but we'll add them later if needed
         # template.enable_income_calculator = 1
         # template.income_percentage_rate = 0.75
@@ -476,7 +476,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         template.membership_type = membership_type.name
         template.status = "Active"
         template.billing_frequency = "Annual"
-        template.contribution_mode = "Calculator"
+        template.contribution_mode = "Income-Based"
         template.minimum_amount = 15.0
         template.suggested_amount = 20.0
         template.invoice_days_before = 30
@@ -544,7 +544,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         dues_schedule.member = self.test_member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
-        dues_schedule.contribution_mode = "Calculator"
+        dues_schedule.contribution_mode = "Income-Based"
         dues_schedule.dues_rate = amount or 15.0  # Default test amount
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"

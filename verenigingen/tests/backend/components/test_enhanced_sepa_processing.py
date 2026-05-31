@@ -335,7 +335,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         dues_schedule.member = self.test_member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = self.test_membership_type.name
-        dues_schedule.contribution_mode = "Calculator"
+        dues_schedule.contribution_mode = "Income-Based"
         dues_schedule.dues_rate = 25.0
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.payment_method = "SEPA Direct Debit"
@@ -376,7 +376,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
             dues_schedule.member = self.test_member.name
             dues_schedule.membership_type = self.test_membership_type.name
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             dues_schedule.base_multiplier = 1.5
             dues_schedule.dues_rate = 30.0  # 20 * 1.5
             dues_schedule.billing_frequency = "Monthly"
@@ -416,7 +416,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
             dues_schedule.member = self.test_member.name
             dues_schedule.membership_type = self.test_membership_type.name
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             dues_schedule.dues_rate = 25.0
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.payment_method = "SEPA Direct Debit"

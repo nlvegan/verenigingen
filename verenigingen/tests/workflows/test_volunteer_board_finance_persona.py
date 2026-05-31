@@ -269,7 +269,7 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         # The membership type automatically creates a template, update it
         if membership_type.dues_schedule_template:
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-            template.contribution_mode = "Calculator"
+            template.contribution_mode = "Income-Based"
             template.minimum_amount = 25.0  # Must match membership type minimum
             template.suggested_amount = 25.0
             template.dues_rate = 25.0  # Must be >= membership type minimum

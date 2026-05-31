@@ -260,7 +260,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         original_dues.member = hardship_member.name
         original_dues.membership = hardship_membership.name
         original_dues.membership_type = hardship_type.name
-        original_dues.contribution_mode = "Calculator"
+        original_dues.contribution_mode = "Income-Based"
         original_dues.base_multiplier = 1.0
         original_dues.amount = 60.0
         original_dues.billing_frequency = "Monthly"
@@ -307,7 +307,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         recovery_dues.member = hardship_member.name
         recovery_dues.membership = hardship_membership.name
         recovery_dues.membership_type = hardship_type.name
-        recovery_dues.contribution_mode = "Calculator"
+        recovery_dues.contribution_mode = "Income-Based"
         recovery_dues.base_multiplier = 0.8  # 80% of suggested amount
         recovery_dues.amount = 48.0
         recovery_dues.billing_frequency = "Monthly"
@@ -645,7 +645,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         summer_dues.member = seasonal_member.name
         summer_dues.membership = seasonal_membership.name
         summer_dues.membership_type = seasonal_type.name
-        summer_dues.contribution_mode = "Calculator"
+        summer_dues.contribution_mode = "Income-Based"
         summer_dues.base_multiplier = 1.0
         summer_dues.amount = 40.0
         summer_dues.billing_frequency = "Monthly"
@@ -681,7 +681,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         next_summer_dues.member = seasonal_member.name
         next_summer_dues.membership = seasonal_membership.name
         next_summer_dues.membership_type = seasonal_type.name
-        next_summer_dues.contribution_mode = "Calculator"
+        next_summer_dues.contribution_mode = "Income-Based"
         next_summer_dues.base_multiplier = 1.2  # Slight increase
         next_summer_dues.amount = 48.0
         next_summer_dues.billing_frequency = "Monthly"

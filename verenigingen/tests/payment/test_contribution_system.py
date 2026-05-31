@@ -49,7 +49,7 @@ class TestContributionSystem(EnhancedTestCase):
         self.template.membership_type = self.membership_type.name
         self.template.status = "Active"
         self.template.billing_frequency = "Annual"
-        self.template.contribution_mode = "Calculator"
+        self.template.contribution_mode = "Income-Based"
         self.template.dues_rate = self.membership_type.minimum_amount  # Required field
         self.template.minimum_amount = self.membership_type.minimum_amount  # Must match or exceed membership type minimum
         self.template.suggested_amount = self.membership_type.minimum_amount or 15.0

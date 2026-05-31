@@ -564,7 +564,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         dues_schedule.save()
         
         # Stage 2: Member graduates, switches to calculator mode
-        dues_schedule.contribution_mode = "Calculator"
+        dues_schedule.contribution_mode = "Income-Based"
         dues_schedule.selected_tier = None
         dues_schedule.base_multiplier = 2.0  # Earning more now
         # Get amount from the dues schedule template
@@ -910,7 +910,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
             dues_schedule.dues_rate = amount
             dues_schedule.uses_custom_amount = 1
         else:
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             # Get amount from the dues schedule template
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
             dues_schedule.dues_rate = template.dues_rate
@@ -951,7 +951,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
             dues_schedule.dues_rate = amount
             dues_schedule.uses_custom_amount = 1
         else:
-            dues_schedule.contribution_mode = "Calculator"
+            dues_schedule.contribution_mode = "Income-Based"
             # Get amount from the dues schedule template
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
             dues_schedule.dues_rate = template.dues_rate
