@@ -266,3 +266,88 @@ class TestProcuriosDataValidator(unittest.TestCase):
         }
         mapped = self.validator.map_row_data(row, row_num=1)
         self.assertEqual(len(mapped.get("addresses", [])), 0)
+
+
+# ---- Controller-level tests (integration; need a Frappe site) ---------------
+
+import frappe  # noqa: E402
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase  # noqa: E402
+
+
+def _create_stub_procurios_csv_import_doc():
+    """Test fixture: insert a Procurios CSV Import with a placeholder file."""
+    file_doc = frappe.get_doc({
+        "doctype": "File",
+        "file_name": "stub_member.csv",
+        "is_private": 1,
+        "content": b"stub",
+    })
+    file_doc.flags.ignore_permissions = True
+    file_doc.insert()
+
+    doc = frappe.get_doc({
+        "doctype": "Procurios CSV Import",
+        "csv_file": file_doc.file_url,
+    })
+    doc.flags.ignore_permissions = True
+    doc.insert()
+    return doc
+
+
+class TestProcuriosCSVImportPermissions(EnhancedTestCase):
+    """Non-admin users must not be able to trigger the whitelisted endpoints.
+
+    Sibling of TestProcuriosMandateImportPermissions. The regex match on
+    'only allowed' isolates the frappe.only_for gate from later
+    get_doc / row-level permission checks.
+    """
+
+    def test_non_admin_cannot_validate(self):
+        from verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import import (
+            validate_import_file,
+        )
+
+        doc = _create_stub_procurios_csv_import_doc()
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
+                validate_import_file(doc.name)
+        finally:
+            frappe.set_user(original_user)
+
+    def test_non_admin_cannot_run_background(self):
+        from verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import import (
+            process_import_background,
+        )
+
+        doc = _create_stub_procurios_csv_import_doc()
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
+                process_import_background(doc.name)
+            # only_for must run BEFORE any side-effect flag set.
+            self.assertFalse(getattr(frappe.flags, "in_background_job", False))
+            self.assertFalse(getattr(frappe.flags, "bulk_member_operations", False))
+        finally:
+            frappe.set_user(original_user)
+
+
+class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
+    """Regression guard for the property-cache name-mangling fix.
+
+    See TestPropertyCacheHits in test_procurios_mandate_import.py for the
+    same guard on the sibling controller.
+    """
+
+    def test_validator_is_cached(self):
+        doc = _create_stub_procurios_csv_import_doc()
+        self.assertIs(doc._validator, doc._validator)
+
+    def test_parser_is_cached(self):
+        doc = _create_stub_procurios_csv_import_doc()
+        self.assertIs(doc._parser, doc._parser)

@@ -283,9 +283,13 @@ class ProcuriosCSVImport(Document):
         frappe.db.commit()
 
 
+_ADMIN_ROLES = ["System Manager", "Verenigingen Administrator"]
+
+
 @frappe.whitelist()
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation."""
+    frappe.only_for(_ADMIN_ROLES, message=True)
     doc = frappe.get_doc("Procurios CSV Import", import_doc_name)
     try:
         doc._validate_and_preview_csv()
@@ -305,6 +309,11 @@ def validate_import_file(import_doc_name: str) -> dict:
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: process the validated CSV and create members."""
     from verenigingen.utils.csv_import_processor import coerce_test_mode
+
+    # only_for must run BEFORE any flag-setting side effects, so an
+    # unauthorised caller can't flip frappe.flags.bulk_member_operations
+    # for their own session before the exception is raised.
+    frappe.only_for(_ADMIN_ROLES, message=True)
 
     # REST callers pass strings; without coercion `"false"` is truthy.
     test_mode = coerce_test_mode(test_mode)

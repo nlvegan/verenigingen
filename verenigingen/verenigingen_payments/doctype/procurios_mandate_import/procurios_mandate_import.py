@@ -148,11 +148,19 @@ class ProcuriosMandateImport(Document):
 
     # ---- caches -------------------------------------------------------
 
-    def _build_caches(self) -> _Caches:
+    def _build_caches(self, csv_mandate_ids: Optional[Set[str]] = None) -> _Caches:
         """Build all lookup caches with one query each.
 
         Designed for a few thousand rows: each query is well-indexed and
         loads only the fields needed for the per-row decisions.
+
+        Args:
+            csv_mandate_ids: If provided, the existing-mandate cache only
+                loads SEPA Mandates whose mandate_id is in the CSV OR whose
+                status is Active. This keeps the cache bounded by
+                (#csv_rows + #active_mandates) instead of the full historical
+                SEPA Mandate count. Callers that don't have the CSV-id set
+                available (e.g. tests) can omit it and accept the full scan.
         """
         caches = _Caches()
 
@@ -177,10 +185,33 @@ class ProcuriosMandateImport(Document):
                 continue
             caches.procurios_id_to_member[m.procurios_id] = m.name
 
-        for sm in frappe.get_all(
-            "SEPA Mandate",
-            fields=["name", "mandate_id", "status", "cancelled_date", "member"],
-        ):
+        if csv_mandate_ids:
+            # OR(status=Active, mandate_id in csv_ids): bound the scan by
+            # what the per-row decisions need, not the full historical
+            # mandate count. Frappe's filter dict can't express OR across
+            # fields directly, so do two filtered queries and de-dup.
+            sepa_rows = frappe.get_all(
+                "SEPA Mandate",
+                filters={"status": "Active"},
+                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+            )
+            seen_names = {r.name for r in sepa_rows}
+            csv_matches = frappe.get_all(
+                "SEPA Mandate",
+                filters={"mandate_id": ["in", list(csv_mandate_ids)]},
+                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+            )
+            for r in csv_matches:
+                if r.name not in seen_names:
+                    sepa_rows.append(r)
+                    seen_names.add(r.name)
+        else:
+            sepa_rows = frappe.get_all(
+                "SEPA Mandate",
+                fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+            )
+
+        for sm in sepa_rows:
             if sm.mandate_id:
                 caches.existing_mandate_by_id[sm.mandate_id] = {
                     "name": sm.name,
@@ -418,7 +449,7 @@ _ADMIN_ROLES = ["System Manager", "Verenigingen Administrator"]
 @frappe.whitelist()
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation (called from the client script)."""
-    frappe.only_for(_ADMIN_ROLES)
+    frappe.only_for(_ADMIN_ROLES, message=True)
     doc = frappe.get_doc("Procurios Mandate Import", import_doc_name)
     try:
         doc._validate_and_preview_csv()
@@ -445,7 +476,7 @@ def process_import_background(import_doc_name: str, test_mode=False):
     )
 
     # Enqueued context: session.user is the original caller, who must be admin.
-    frappe.only_for(_ADMIN_ROLES)
+    frappe.only_for(_ADMIN_ROLES, message=True)
     test_mode = coerce_test_mode(test_mode)
 
     frappe.flags.in_background_job = True
@@ -467,18 +498,26 @@ def process_import_background(import_doc_name: str, test_mode=False):
             # Two distinct empty-mapped cases:
             #  - All rows filtered out by the 12-month cutoff (no errors). That's
             #    a legitimate Completed outcome — the CSV is fine, the business
-            #    rule just had nothing to import.
+            #    rule just had nothing to import. Route through the normal
+            #    finalize path so the per-reason summary format stays in one
+            #    place (no inline literal that can drift).
             #  - Genuine failures or genuinely empty file. Report as Failed.
             if filtered_old > 0 and not validator_errors:
-                doc.db_set("mandates_skipped", filtered_old)
-                doc.db_set(
-                    "skipped_summary",
-                    f"filtered_old_cancelled: {filtered_old}\n"
-                    f"no_member: 0\nambiguous_member: 0\n"
-                    f"duplicate: 0\nconflict: 0\nerror: 0",
+                empty_skip_counters = {
+                    "no_member": 0,
+                    "ambiguous_member": 0,
+                    "duplicate": 0,
+                    "conflict": 0,
+                    "error": 0,
+                }
+                doc._finalize_import_results(
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    error_log=[],
+                    skip_counters=empty_skip_counters,
+                    filtered_old_cancelled=filtered_old,
                 )
-                doc.db_set("import_status", "Completed")
-                frappe.db.commit()
                 return
             doc.db_set("import_status", "Failed")
             doc.db_set(
@@ -491,7 +530,11 @@ def process_import_background(import_doc_name: str, test_mode=False):
         if test_mode:
             mapped = mapped[:25]
 
-        caches = doc._build_caches()
+        # Pass the CSV's mandate_ids so the existing-mandate query stays
+        # bounded by (#csv_rows + #active_mandates) instead of scanning
+        # every historical SEPA Mandate.
+        csv_mandate_ids = {row.mandate_id for row in mapped if row.mandate_id}
+        caches = doc._build_caches(csv_mandate_ids=csv_mandate_ids)
         # Validator-stage row-mapping errors (bad dates, missing required fields)
         # are real per-row failures: count them toward `error` so the
         # skipped_summary stays consistent with the row total.

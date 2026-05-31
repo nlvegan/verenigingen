@@ -10,6 +10,7 @@ import csv
 import json
 import os
 import tempfile
+import unittest
 
 import frappe
 
@@ -494,6 +495,12 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
     Per project memory feedback_tests_run_as_admin.md: permission-sensitive
     flows need a test running as the actual target role (not Administrator),
     because Administrator bypasses all DocPerms.
+
+    The exception-message regex ('only allowed') matches what
+    frappe.only_for raises — this isolates the only_for gate from the
+    later frappe.get_doc permission check (which would raise a different
+    PermissionError with a different message). Without the regex match,
+    deleting the only_for line would leave the test passing.
     """
 
     def test_non_admin_cannot_validate(self):
@@ -507,9 +514,8 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
 
         original_user = frappe.session.user
         try:
-            # Use the framework's guest sentinel — any non-admin user works.
             frappe.set_user("Guest")
-            with self.assertRaises(frappe.PermissionError):
+            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
                 validate_import_file(doc.name)
         finally:
             frappe.set_user(original_user)
@@ -524,10 +530,81 @@ class TestProcuriosMandateImportPermissions(EnhancedTestCase):
         original_user = frappe.session.user
         try:
             frappe.set_user("Guest")
-            with self.assertRaises(frappe.PermissionError):
+            with self.assertRaisesRegex(frappe.PermissionError, "only allowed"):
                 process_import_background(doc.name)
+            # only_for must run BEFORE any side-effect flag set.
+            self.assertFalse(getattr(frappe.flags, "in_background_job", False))
         finally:
             frappe.set_user(original_user)
+
+    def test_admin_can_validate(self):
+        """Positive symmetric test: an admin user should NOT raise."""
+        from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (
+            validate_import_file,
+        )
+
+        doc = _create_stub_import_doc()
+        # frappe.session.user is Administrator inside EnhancedTestCase by
+        # default, which is in System Manager. Just call directly.
+        result = validate_import_file(doc.name)
+        # The stub CSV is intentionally malformed (just b"stub") so we
+        # expect an error response — but it should be returned as a dict
+        # from inside the function, not raised as PermissionError.
+        self.assertIsInstance(result, dict)
+        self.assertIn("status", result)
+
+
+class TestCoerceTestMode(unittest.TestCase):
+    """Unit tests for the shared coerce_test_mode helper.
+
+    Lives in verenigingen.utils.csv_import_processor and is now used by
+    both Procurios CSV Import and Procurios Mandate Import. Whitelisted
+    endpoints receive every arg as a string from REST, so non-empty
+    strings like 'false' must NOT be treated as truthy.
+    """
+
+    def setUp(self):
+        from verenigingen.utils.csv_import_processor import coerce_test_mode
+
+        self.coerce = coerce_test_mode
+
+    def test_real_booleans_passthrough(self):
+        self.assertTrue(self.coerce(True))
+        self.assertFalse(self.coerce(False))
+
+    def test_truthy_strings(self):
+        for s in ("true", "True", "TRUE", "1", "yes", " true "):
+            self.assertTrue(self.coerce(s), f"expected truthy: {s!r}")
+
+    def test_falsy_strings(self):
+        for s in ("false", "False", "0", "no", "", "off", "anything-else"):
+            self.assertFalse(self.coerce(s), f"expected falsy: {s!r}")
+
+    def test_integer_values(self):
+        self.assertTrue(self.coerce(1))
+        self.assertFalse(self.coerce(0))
+
+    def test_none_is_falsy(self):
+        self.assertFalse(self.coerce(None))
+
+
+class TestPropertyCacheHits(EnhancedTestCase):
+    """Regression guard for the property-cache name-mangling fix.
+
+    Both Procurios CSV Import and Procurios Mandate Import historically
+    used `self.__validator` / `self.__parser` with `hasattr(self, "__x")`
+    — the hasattr never matched the mangled attribute name, so the cache
+    never hit. The fix renamed to single-underscore. Without these tests
+    a future "cleanup" could silently restore the bug.
+    """
+
+    def test_mandate_import_validator_is_cached(self):
+        doc = _create_stub_import_doc()
+        self.assertIs(doc._validator, doc._validator)
+
+    def test_mandate_import_parser_is_cached(self):
+        doc = _create_stub_import_doc()
+        self.assertIs(doc._parser, doc._parser)
 
 
 import time
