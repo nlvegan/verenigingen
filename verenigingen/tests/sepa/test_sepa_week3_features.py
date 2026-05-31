@@ -553,7 +553,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
              patch.object(manager, '_get_rule_recipients') as mock_recipients:
 
             mock_recipients.return_value = ["test@example.com"]
-            mock_sendmail.return_value = True
+            mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
 
             context = {
                 "batch_name": "TEST-BATCH-001",

@@ -202,7 +202,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
             # Mock infrastructure (email sending) to prevent actual emails during tests
             # Mock justified: External Service - SMTP delivery, not business logic
             with patch('frappe.sendmail') as mock_sendmail:
-                mock_sendmail.return_value = True
+                mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
                 
                 send_approval_notification(
                     self.test_member, 

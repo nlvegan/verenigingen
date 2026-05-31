@@ -74,7 +74,7 @@ class TestPaymentAPIRealWorking(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock ONLY infrastructure, not business logic
     def test_payment_reminder_with_real_member_data(self, mock_sendmail):
         """Tests real member document retrieval - eliminates member document mocks"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Create real member with real email
         real_member = self.create_test_member(

@@ -132,7 +132,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic 
     def test_send_overdue_payment_reminders_success_real_business_logic(self, mock_sendmail):
         """Test successful payment reminder sending with REAL business logic and REAL overdue data (NO DATABASE MOCKS)"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Create real overdue invoice in database (no mocks)
         real_overdue_invoice = self.create_real_test_invoice(
@@ -160,7 +160,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
     def test_send_overdue_payment_reminders_with_chapter_notification_real_logic(self, mock_sendmail):
         """Test payment reminders with chapter notifications using REAL business logic and REAL data (NO DATABASE MOCKS)"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Create real overdue invoice that system will actually find (no mocks)
         chapter_overdue_invoice = self.create_real_test_invoice(
@@ -291,7 +291,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
     def test_execute_bulk_payment_action_send_reminders_real_logic(self, mock_sendmail):
         """Test bulk action: send reminders using REAL business logic and REAL data"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Create real overdue payment data (no mocks)
         bulk_test_invoice = self.create_real_test_invoice(
@@ -318,7 +318,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock only email infrastructure
     def test_send_payment_reminder_email_with_template_real_logic(self, mock_sendmail):
         """Test sending payment reminder with REAL email template from database (NO DATABASE MOCKS)"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Use REAL member document (no mocks)
         self.assertIsNotNone(self.test_member.email, "Test member should have email")
@@ -351,7 +351,7 @@ class TestPaymentProcessingAPIReal(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock only email infrastructure
     def test_send_payment_reminder_email_fallback_html_real_logic(self, mock_sendmail):
         """Test sending payment reminder with HTML fallback using REAL member data"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Use REAL member document (no mocks)
         self.assertIsNotNone(self.test_member.email, "Test member should have email")

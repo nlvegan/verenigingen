@@ -251,7 +251,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         from verenigingen.api.payment_processing import send_overdue_payment_reminders
         
         # Mock successful email sending (infrastructure - appropriate)
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Execute reminder workflow with REAL payment data retrieval
         result = send_overdue_payment_reminders(
@@ -337,7 +337,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         from verenigingen.api.payment_processing import execute_bulk_payment_action
         
         # Mock successful operations (infrastructure - appropriate)
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Test bulk reminder action with REAL payment data filtering
         result = execute_bulk_payment_action(

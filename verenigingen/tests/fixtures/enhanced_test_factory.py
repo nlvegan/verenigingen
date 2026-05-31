@@ -2109,8 +2109,16 @@ class EnhancedTestCase(FrappeTestCase):
                 'to': self._extract_recipients(args, kwargs)  # Backward compatibility
             }
             self.captured_emails.append(email_data)
-            return True
-        
+            # Return a stub that mimics the Email Queue document frappe.sendmail
+            # really returns (never a bool). Frappe's User.send_welcome_mail_to_user
+            # accesses `q.message` on the result; returning True here raised
+            # AttributeError: 'bool' object has no attribute 'message' for every
+            # EnhancedTestCase test that inserted a User with send_welcome_email=1.
+            email_queue_stub = MagicMock(name="email_queue")
+            email_queue_stub.message = self._extract_message(args, kwargs) or ""
+            email_queue_stub.name = "TEST-EMAIL-QUEUE"
+            return email_queue_stub
+
         # Patch multiple email sending pathways
         self.email_patches = []
         

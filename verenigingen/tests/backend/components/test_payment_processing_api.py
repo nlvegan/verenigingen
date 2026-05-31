@@ -77,7 +77,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic 
     def test_send_overdue_payment_reminders_success_real_business_logic(self, mock_sendmail):
         """Test successful payment reminder sending with REAL business logic and REAL overdue data (NO MOCKS)"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Ensure our test member actually has real overdue invoices for get_data to find
         # Create overdue invoice that get_data will find
@@ -204,7 +204,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
     def test_send_overdue_payment_reminders_with_chapter_notification_real_logic(self, mock_sendmail):
         """Test payment reminders with chapter notifications using REAL business logic and REAL data (NO MOCKS)"""
-        mock_sendmail.return_value = True
+        mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
         
         # Ensure test member has real overdue invoice that get_data will find
         chapter_overdue_invoice = self.create_test_invoice(
