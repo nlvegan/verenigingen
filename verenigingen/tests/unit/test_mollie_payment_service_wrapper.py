@@ -26,11 +26,11 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.mock_complete_service = MagicMock()
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_init_creates_complete_service(self, mock_complete_service_class):
         """Test that __init__ creates CompletePaymentService instance."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -40,13 +40,13 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertIsNotNone(service._complete_service)
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_create_single_payment_delegates_to_complete_service(
         self, mock_complete_service_class
     ):
         """Test that create_single_payment delegates to CompletePaymentService."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -71,14 +71,14 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertEqual(result["payment_id"], "tr_test123")
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
-    @patch("verenigingen.utils.payment_services.mollie_payment_service.frappe")
+    @patch("verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.frappe")
     def test_create_payment_with_donation_reference(
         self, mock_frappe, mock_complete_service_class
     ):
         """Test create_payment loads donation doc when reference provided."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -112,14 +112,14 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertEqual(result["status"], "redirect_required")
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
-    @patch("verenigingen.utils.payment_services.mollie_payment_service.frappe")
+    @patch("verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.frappe")
     def test_create_payment_without_donation_reference_returns_error(
         self, mock_frappe, mock_complete_service_class
     ):
         """Test create_payment returns error when no donation reference provided."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -136,14 +136,14 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertIn("donation reference is required", result["message"].lower())
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
-    @patch("verenigingen.utils.payment_services.mollie_payment_service.frappe")
+    @patch("verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.frappe")
     def test_create_payment_with_nonexistent_donation_returns_error(
         self, mock_frappe, mock_complete_service_class
     ):
         """Test create_payment returns error when donation doesn't exist."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -160,13 +160,13 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertIn("not found", result["message"].lower())
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_process_webhook_extracts_payment_id_and_delegates(
         self, mock_complete_service_class
     ):
         """Test process_webhook extracts payment_id and calls correct method."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -188,11 +188,11 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertEqual(result["status"], "success")
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_process_webhook_handles_payment_id_key(self, mock_complete_service_class):
         """Test process_webhook handles 'payment_id' key as alternative to 'id'."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -210,14 +210,14 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         )
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
-    @patch("verenigingen.utils.payment_services.mollie_payment_service.frappe")
+    @patch("verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.frappe")
     def test_process_webhook_returns_error_when_no_payment_id(
         self, mock_frappe, mock_complete_service_class
     ):
         """Test process_webhook returns error when payment ID is missing."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -233,11 +233,11 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         mock_frappe.log_error.assert_called()
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_get_payment_delegates_to_client(self, mock_complete_service_class):
         """Test get_payment delegates to client."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -256,11 +256,11 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertEqual(result.id, "tr_test123")
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_create_refund_with_valid_data(self, mock_complete_service_class):
         """Test create_refund with valid payment ID and amount."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -287,13 +287,13 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertEqual(refund_data["description"], "Test refund")
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_create_refund_without_payment_id_returns_error(
         self, mock_complete_service_class
     ):
         """Test create_refund returns error when payment ID is empty."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -304,13 +304,13 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertIn("required", result["message"].lower())
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
     def test_create_refund_with_zero_amount_returns_error(
         self, mock_complete_service_class
     ):
         """Test create_refund returns error when amount is zero or negative."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
 
@@ -327,14 +327,14 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         self.assertIn("positive", result["message"].lower())
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
-    @patch("verenigingen.utils.payment_services.mollie_payment_service.frappe")
+    @patch("verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.frappe")
     def test_create_refund_handles_validation_error(
         self, mock_frappe, mock_complete_service_class
     ):
         """Test create_refund handles MollieValidationError properly."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
         from verenigingen.verenigingen_payments.mollie.exceptions import (
@@ -357,14 +357,14 @@ class TestMolliePaymentServiceWrapper(FrappeTestCase):
         mock_frappe.log_error.assert_called()
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.CompletePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.CompletePaymentService"
     )
-    @patch("verenigingen.utils.payment_services.mollie_payment_service.frappe")
+    @patch("verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.frappe")
     def test_create_refund_handles_api_error(
         self, mock_frappe, mock_complete_service_class
     ):
         """Test create_refund handles MollieAPIError properly."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             MolliePaymentService,
         )
         from verenigingen.verenigingen_payments.mollie.exceptions import MollieAPIError
@@ -389,13 +389,13 @@ class TestProcessMolliePaymentFunction(FrappeTestCase):
     """Test the process_mollie_payment standalone function."""
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.MolliePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.MolliePaymentService"
     )
     def test_process_mollie_payment_creates_service_and_calls_create_payment(
         self, mock_service_class
     ):
         """Test that process_mollie_payment delegates to MolliePaymentService."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             process_mollie_payment,
         )
 
@@ -414,14 +414,14 @@ class TestProcessMolliePaymentFunction(FrappeTestCase):
         self.assertEqual(result["status"], "redirect_required")
 
     @patch(
-        "verenigingen.utils.payment_services.mollie_payment_service.MolliePaymentService"
+        "verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.MolliePaymentService"
     )
-    @patch("verenigingen.utils.payment_services.mollie_payment_service.frappe")
+    @patch("verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service.frappe")
     def test_process_mollie_payment_handles_exception(
         self, mock_frappe, mock_service_class
     ):
         """Test that process_mollie_payment handles exceptions gracefully."""
-        from verenigingen.utils.payment_services.mollie_payment_service import (
+        from verenigingen.verenigingen_payments.utils.payment_services.mollie_payment_service import (
             process_mollie_payment,
         )
 

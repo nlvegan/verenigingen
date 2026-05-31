@@ -39,7 +39,24 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
         
         # Initialize bulk importer for testing core functions
         self.bulk_importer = BulkTransactionImporter()
-    
+
+    def _validate_iban_format(self, iban):
+        """Boolean IBAN validity check.
+
+        The importer no longer exposes a private ``_validate_iban_format``
+        helper; it delegates to the shared ``validate_iban`` validator which
+        returns a ``{"valid": bool, ...}`` dict (incl. mod-97 checksum). This
+        wrapper preserves the boolean-returning contract these tests rely on.
+        """
+        from verenigingen.utils.validation.iban_validator import validate_iban
+
+        if iban is None:
+            return False
+        try:
+            return bool(validate_iban(iban).get("valid"))
+        except Exception:
+            return False
+
     # ============================================================================
     # 1. IBAN Validation Testing
     # ============================================================================
@@ -49,15 +66,15 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
         valid_dutch_ibans = [
             "NL91ABNA0417164300",
             "NL20INGB0001234567", 
-            "NL68RABO0123456789",
-            "NL43ASNB0708498176",
-            "NL02BUNQ2025588916"
+            "NL44RABO0123456789",
+            "NL92ASNB0708498176",
+            "NL20BUNQ2025588916"
         ]
         
         for iban in valid_dutch_ibans:
             with self.subTest(iban=iban):
                 self.assertTrue(
-                    self.bulk_importer._validate_iban_format(iban),
+                    self._validate_iban_format(iban),
                     f"Dutch IBAN {iban} should be valid"
                 )
     
@@ -86,7 +103,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
         for iban in valid_european_ibans:
             with self.subTest(iban=iban):
                 self.assertTrue(
-                    self.bulk_importer._validate_iban_format(iban),
+                    self._validate_iban_format(iban),
                     f"European IBAN {iban} should be valid"
                 )
     
@@ -105,7 +122,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
         for spaced_iban in spacing_formats:
             with self.subTest(spacing=repr(spaced_iban)):
                 self.assertTrue(
-                    self.bulk_importer._validate_iban_format(spaced_iban),
+                    self._validate_iban_format(spaced_iban),
                     f"Spaced IBAN {repr(spaced_iban)} should be valid"
                 )
     
@@ -123,7 +140,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
         for case_iban in case_formats:
             with self.subTest(case=case_iban):
                 self.assertTrue(
-                    self.bulk_importer._validate_iban_format(case_iban),
+                    self._validate_iban_format(case_iban),
                     f"Case variant {case_iban} should be valid"
                 )
     
@@ -148,7 +165,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
         for invalid_iban in invalid_ibans:
             with self.subTest(iban=repr(invalid_iban)):
                 self.assertFalse(
-                    self.bulk_importer._validate_iban_format(invalid_iban),
+                    self._validate_iban_format(invalid_iban),
                     f"Invalid IBAN {repr(invalid_iban)} should be rejected"
                 )
     
@@ -167,7 +184,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
         
         # Time the validation process
         start_time = time.time()
-        results = [self.bulk_importer._validate_iban_format(iban) for iban in all_ibans]
+        results = [self._validate_iban_format(iban) for iban in all_ibans]
         end_time = time.time()
         
         # Performance assertions
@@ -248,7 +265,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
                 if case["payment"].get("method") == "ideal" and payment_details:
                     consumer_name = payment_details.get("consumerName")
                     consumer_account = payment_details.get("consumerAccount")
-                    if consumer_account and self.bulk_importer._validate_iban_format(consumer_account):
+                    if consumer_account and self._validate_iban_format(consumer_account):
                         consumer_iban = consumer_account
                 
                 # Validate extraction results
@@ -266,13 +283,13 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
                     "method": "banktransfer",
                     "details": {
                         "bankHolderName": "Pieter van den Heuvel",
-                        "bankAccount": "NL68RABO0123456789",
+                        "bankAccount": "NL44RABO0123456789",
                         "bankName": "Rabobank"
                     }
                 },
                 "expected_name": "Pieter van den Heuvel",
-                "expected_iban": "NL68RABO0123456789",
-                "expected_account": "NL68RABO0123456789"
+                "expected_iban": "NL44RABO0123456789",
+                "expected_account": "NL44RABO0123456789"
             },
             # Bank transfer with German IBAN
             {
@@ -303,7 +320,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
                     consumer_name = payment_details.get("bankHolderName")
                     consumer_account = payment_details.get("bankAccount")
                     bank_account = payment_details.get("bankAccount")
-                    if bank_account and self.bulk_importer._validate_iban_format(bank_account):
+                    if bank_account and self._validate_iban_format(bank_account):
                         consumer_iban = bank_account
                 
                 # Validate extraction results
@@ -336,13 +353,13 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
                     "method": "directdebit",
                     "details": {
                         "consumerName": "Elisabeth van der Berg-de Jong",
-                        "consumerAccount": "NL43ASNB0708498176",
+                        "consumerAccount": "NL92ASNB0708498176",
                         "mandateReference": "MNDREF002"
                     }
                 },
                 "expected_name": "Elisabeth van der Berg-de Jong",
-                "expected_iban": "NL43ASNB0708498176",
-                "expected_account": "NL43ASNB0708498176"
+                "expected_iban": "NL92ASNB0708498176",
+                "expected_account": "NL92ASNB0708498176"
             }
         ]
         
@@ -358,7 +375,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
                     consumer_name = payment_details.get("consumerName")
                     consumer_account = payment_details.get("consumerAccount")
                     consumer_account_raw = payment_details.get("consumerAccount")
-                    if consumer_account_raw and self.bulk_importer._validate_iban_format(consumer_account_raw):
+                    if consumer_account_raw and self._validate_iban_format(consumer_account_raw):
                         consumer_iban = consumer_account_raw
                 
                 # Validate extraction results
@@ -446,7 +463,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
                 if case["payment"].get("method") == "ideal" and payment_details:
                     consumer_name = payment_details.get("consumerName")
                     consumer_account = payment_details.get("consumerAccount")
-                    if consumer_account and self.bulk_importer._validate_iban_format(consumer_account):
+                    if consumer_account and self._validate_iban_format(consumer_account):
                         consumer_iban = consumer_account
                 
                 # Validate extraction handles edge cases gracefully
@@ -486,7 +503,7 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
             with self.subTest(input_snippet=repr(malicious_input[:30])):
                 # Should not raise exceptions or cause security issues
                 try:
-                    result = self.bulk_importer._validate_iban_format(malicious_input)
+                    result = self._validate_iban_format(malicious_input)
                     # All malicious inputs should be invalid
                     self.assertFalse(result, f"Malicious input should be rejected: {repr(malicious_input[:30])}")
                 except Exception as e:
@@ -610,17 +627,17 @@ class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
             if payment.get("method") == "ideal" and payment_details:
                 consumer_name = payment_details.get("consumerName")
                 consumer_account = payment_details.get("consumerAccount")
-                if consumer_account and self.bulk_importer._validate_iban_format(consumer_account):
+                if consumer_account and self._validate_iban_format(consumer_account):
                     consumer_iban = consumer_account
             elif payment.get("method") == "banktransfer" and payment_details:
                 consumer_name = payment_details.get("bankHolderName")
                 consumer_account = payment_details.get("bankAccount")
-                if consumer_account and self.bulk_importer._validate_iban_format(consumer_account):
+                if consumer_account and self._validate_iban_format(consumer_account):
                     consumer_iban = consumer_account
             elif payment.get("method") == "directdebit" and payment_details:
                 consumer_name = payment_details.get("consumerName")
                 consumer_account = payment_details.get("consumerAccount")
-                if consumer_account and self.bulk_importer._validate_iban_format(consumer_account):
+                if consumer_account and self._validate_iban_format(consumer_account):
                     consumer_iban = consumer_account
             
             extraction_results.append({

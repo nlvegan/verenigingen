@@ -578,6 +578,15 @@ class BulkTransactionImporter(MollieBaseClient):
             if payment.get("method") == "ideal" and payment_details:
                 consumer_name = payment_details.get("consumerName")
                 consumer_account = payment_details.get("consumerAccount")
+                # iDEAL's consumerAccount is a valid IBAN; populate consumer_iban
+                # for consistency with the banktransfer/directdebit branches below
+                # (previously iDEAL was the only method that left bank_party_iban
+                # unset even though it always supplies an IBAN).
+                consumer_iban = (
+                    consumer_account
+                    if (consumer_account and validate_iban(consumer_account)["valid"])
+                    else None
+                )
             elif payment.get("method") == "banktransfer" and payment_details:
                 # Use standard Mollie API field names (not bankHolderName/bankAccount)
                 consumer_name = payment_details.get("consumerName")
