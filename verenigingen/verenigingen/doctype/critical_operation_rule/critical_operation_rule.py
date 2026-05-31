@@ -111,10 +111,16 @@ class CriticalOperationRule(Document):
     def validate_notification_settings(self):
         """Validate notification configuration"""
         if self.alert_on_execution and not self.notification_recipients:
-            # Skip validation during fixture import to avoid circular dependency
-            if frappe.flags.in_import:
+            # Skip validation during bulk install/migrate/import operations.
+            # Verenigingen Settings (the source of the auto-populated contact email)
+            # is not configured yet during a fresh install, so enforcing this would
+            # block rule creation entirely. The requirement is still enforced at
+            # runtime; recipients can be auto-populated on a later save. This mirrors
+            # the guard in notify_policy_change().
+            if frappe.flags.in_import or frappe.flags.in_migrate or frappe.flags.in_install:
                 frappe.logger().info(
-                    f"Skipping notification validation for COR {self.name} during fixture import"
+                    f"Skipping notification validation for COR {self.name} during bulk operation "
+                    "(import/migrate/install)"
                 )
                 return
 
