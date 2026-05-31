@@ -15,17 +15,28 @@ Design: docs/plans/2026-05-27-procurios-mandate-import-design.md
 from __future__ import annotations
 
 import json
-from typing import Dict, List
+from dataclasses import dataclass, field
+from typing import Dict, List, Set, Tuple
 
 import frappe
 from frappe.model.document import Document
 from frappe.utils import today
 
 from verenigingen.utils.csv.procurios_mandate_validator import (
+    ProcuriosMandateRow,
     ProcuriosMandateValidator,
 )
 from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+
+
+@dataclass
+class _Caches:
+    """Pre-built lookup tables — populated once before the per-row loop."""
+
+    procurios_id_to_member: Dict[str, str] = field(default_factory=dict)
+    existing_mandate_by_id: Dict[str, Dict] = field(default_factory=dict)
+    members_with_active_mandate: Set[str] = field(default_factory=set)
 
 
 class ProcuriosMandateImport(Document):
@@ -118,6 +129,169 @@ class ProcuriosMandateImport(Document):
             self.db_set("error_log", sanitize_error_for_audit(str(e)))
             frappe.db.commit()
             raise
+
+    # ---- caches -------------------------------------------------------
+
+    def _build_caches(self) -> _Caches:
+        """Build all three lookup caches with one query each.
+
+        Designed for a few thousand rows: each query is well-indexed and
+        loads only the fields needed for the per-row decisions.
+        """
+        caches = _Caches()
+
+        for m in frappe.get_all(
+            "Member",
+            filters={"procurios_id": ["!=", ""]},
+            fields=["name", "procurios_id"],
+        ):
+            if m.procurios_id:
+                caches.procurios_id_to_member[m.procurios_id] = m.name
+
+        for sm in frappe.get_all(
+            "SEPA Mandate",
+            fields=["name", "mandate_id", "status", "cancelled_date", "member"],
+        ):
+            if sm.mandate_id:
+                caches.existing_mandate_by_id[sm.mandate_id] = {
+                    "name": sm.name,
+                    "status": sm.status,
+                    "cancelled_date": sm.cancelled_date,
+                    "member": sm.member,
+                }
+                if sm.status == "Active" and sm.member:
+                    caches.members_with_active_mandate.add(sm.member)
+
+        return caches
+
+    # ---- per-row processor -------------------------------------------
+
+    def _process_single_row(
+        self,
+        row: ProcuriosMandateRow,
+        error_log: List[str],
+        caches: _Caches,
+        skip_counters: Dict[str, int],
+    ) -> Tuple[str, str]:
+        """Process one mapped row. Returns (status, mandate_name).
+
+        Status is one of: "created", "updated", "skipped". On skip, the
+        relevant counter in `skip_counters` is incremented. Per-row
+        exceptions are caught, logged, and counted under "error" — they
+        never propagate.
+        """
+        try:
+            # 1. Member match
+            member_name = caches.procurios_id_to_member.get(row.debiteur_id)
+            if not member_name:
+                skip_counters["no_member"] += 1
+                error_log.append(
+                    f"Row {row.row_number} ({row.debiteur_naam}): "
+                    f"no Member with procurios_id={row.debiteur_id}"
+                )
+                return ("skipped", "")
+
+            # 2. Duplicate check
+            existing = caches.existing_mandate_by_id.get(row.mandate_id)
+            if existing:
+                if row.is_cancelled:
+                    # Update path: refresh cancelled_date on the existing mandate.
+                    return self._update_cancellation(existing, row, caches)
+                skip_counters["duplicate"] += 1
+                return ("skipped", "")
+
+            # 3. Conflict check (active rows only)
+            if not row.is_cancelled and member_name in caches.members_with_active_mandate:
+                skip_counters["conflict"] += 1
+                error_log.append(
+                    f"Row {row.row_number} ({row.debiteur_naam}): "
+                    f"member {member_name} already has an active mandate"
+                )
+                return ("skipped", "")
+
+            # 4. Create
+            return self._create_mandate(row, member_name, caches)
+
+        except Exception as e:
+            skip_counters["error"] += 1
+            sanitized = sanitize_error_for_audit(str(e))
+            error_log.append(f"Row {row.row_number} ({row.debiteur_naam}): {sanitized}")
+            return ("skipped", "")
+
+    def _create_mandate(
+        self,
+        row: ProcuriosMandateRow,
+        member_name: str,
+        caches: _Caches,
+    ) -> Tuple[str, str]:
+        """Insert a new SEPA Mandate and update caches."""
+        mandate = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": row.mandate_id,
+                "member": member_name,
+                "account_holder_name": row.account_holder_name,
+                "iban": row.iban,
+                "sign_date": row.sign_date,
+                "cancelled_date": row.cancelled_date,  # blank for active, set for cancelled
+                "status": "Cancelled" if row.is_cancelled else "Active",
+                "mandate_type": row.mandate_type,
+                "scheme": "SEPA",
+                "used_for_memberships": 1,
+                "notes": row.notes,
+            }
+        )
+        # Security: Background bulk import driven by an admin-submitted, validated CSV.
+        # The import DocType itself is restricted to System Manager / Verenigingen
+        # Administrator; per-row mandate inserts run with elevated rights to avoid
+        # re-checking the admin role for every one of potentially thousands of rows.
+        mandate.flags.ignore_permissions = True
+        mandate.insert()
+
+        # Cache updates so subsequent rows see the new state.
+        caches.existing_mandate_by_id[row.mandate_id] = {
+            "name": mandate.name,
+            "status": mandate.status,
+            "cancelled_date": mandate.cancelled_date,
+            "member": member_name,
+        }
+        if mandate.status == "Active":
+            caches.members_with_active_mandate.add(member_name)
+
+        return ("created", mandate.name)
+
+    def _update_cancellation(
+        self,
+        existing: Dict,
+        row: ProcuriosMandateRow,
+        caches: _Caches,
+    ) -> Tuple[str, str]:
+        """Mark an existing mandate as cancelled, refreshing cancelled_date.
+
+        Uses frappe.get_doc + save so the lifecycle service flips status
+        to Cancelled. ignore_permissions because the bulk import runs in
+        a background job.
+        """
+        mandate = frappe.get_doc("SEPA Mandate", existing["name"])
+        mandate.cancelled_date = row.cancelled_date
+        mandate.status = "Cancelled"
+        # Security: see _create_mandate — admin-submitted CSV, bulk background job.
+        mandate.flags.ignore_permissions = True
+        mandate.save()
+
+        # Cache refresh: the member may no longer have an active mandate.
+        if existing.get("member") in caches.members_with_active_mandate:
+            still_active = frappe.db.exists(
+                "SEPA Mandate",
+                {"member": existing["member"], "status": "Active"},
+            )
+            if not still_active:
+                caches.members_with_active_mandate.discard(existing["member"])
+
+        existing["status"] = mandate.status
+        existing["cancelled_date"] = mandate.cancelled_date
+
+        return ("updated", mandate.name)
 
 
 @frappe.whitelist()
