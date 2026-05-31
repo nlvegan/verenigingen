@@ -104,15 +104,24 @@ class TestMemberUtils(EnhancedTestCase):
         """Set up for each test method"""
         super().setUp()
         
-        # Create a test member using enhanced factory
+        # Create a test member using enhanced factory.
+        # NOTE: the factory uniquifies the email (e.g. test.member.17@...) to
+        # avoid Customer-name collisions. The lookup tests below resolve a Member
+        # from test_users['member_user'], so we must reconcile the Member's email
+        # back to that canonical address — otherwise get_member_name_for_user()
+        # returns None and the ownership/current-user tests raise
+        # "No member record found for your account".
         self.member = self.create_test_member(
             first_name="Test",
             last_name="Member",
             email=self.test_users['member_user'],
             birth_date="1990-01-01"
         )
+        if self.member.email != self.test_users['member_user']:
+            frappe.db.set_value("Member", self.member.name, "email", self.test_users['member_user'])
+            self.member.reload()
         TestMemberUtils.test_member_id = self.member.name
-        
+
         # Create a test user for the member
         if not frappe.db.exists("User", self.test_users['member_user']):
             self.user = self.create_test_user(
@@ -122,32 +131,29 @@ class TestMemberUtils(EnhancedTestCase):
                 roles=["Verenigingen Member"]
             )
     
-    def _ensure_membership_type(self, membership_type_name):
-        """Create membership type if it doesn't exist"""
-        if not frappe.db.exists("Membership Type", membership_type_name):
-            membership_type = frappe.get_doc({
-                "doctype": "Membership Type",
-                "membership_type": membership_type_name,
-                "amount": 25.0
-            })
-            membership_type.insert()
-            return membership_type
-        return frappe.get_doc("Membership Type", membership_type_name)
+    def _ensure_membership_type(self, membership_type_name=None):
+        """Create an active membership type via the factory and return it.
+
+        The factory generates a unique, active Membership Type (correct
+        ``membership_type_name`` + mandatory ``role_profile``/``minimum_amount``),
+        avoiding the "Membership Type Name is required" / "is inactive" errors
+        that hand-rolled fixed-name types hit against pre-existing inactive
+        masters on a polluted site.
+        """
+        return self.create_test_membership_type(membership_type_name=membership_type_name)
     
     def _create_test_sepa_mandate(self, member_name, status="Active"):
-        """Create a test SEPA mandate"""
-        mandate = frappe.get_doc({
-            "doctype": "SEPA Mandate",
-            "member": member_name,
-            "mandate_id": frappe.generate_hash(length=8),
-            "iban": "NL91ABNA0417164300",
-            "bic": "ABNANL2A",
-            "account_holder_name": "Test Account Holder",
-            "status": status,
-            "sign_date": frappe.utils.today()
-        })
-        mandate.insert()
-        return mandate
+        """Create a test SEPA mandate via the factory.
+
+        The factory sets the mandatory ``mandate_type``/``scheme`` (which are
+        not reliably defaulted on a dict-constructed doc in v16, causing
+        "mandate_type, scheme" MandatoryError) and a valid generated IBAN.
+        """
+        return self.create_test_sepa_mandate(
+            member_name=member_name,
+            iban="NL91ABNA0417164300",
+            status=status,
+        )
     
     def _add_member_to_chapter(self, member_name, chapter_name, status="Active"):
         """Add member to chapter using child table"""
@@ -323,20 +329,17 @@ class TestMemberUtils(EnhancedTestCase):
 
     def test_get_active_membership_for_member_success(self):
         """Test active membership lookup with field validation"""
-        # Create membership type first
-        self._ensure_membership_type("Regular")
-        
-        # Create active membership using enhanced factory pattern
+        # Create an active membership type via the factory
+        membership_type = self._ensure_membership_type("Regular")
+
+        # create_test_membership already inserts and submits the membership
         membership = self.create_test_membership(
             member_name=self.member.name,
-            membership_type_name="Regular"
+            membership_type_name=membership_type.name
         )
-        # Ensure the membership is active and submitted
-        membership.status = "Active"
-        membership.submit()  # Use submit() instead of setting docstatus manually
-        
+
         result = get_active_membership_for_member(self.member.name)
-        
+
         self.assertIsNotNone(result, f"Expected membership result but got None for member {self.member.name}")
         self.assertEqual(result['name'], membership.name)
         self.assertEqual(result['status'], "Active")
@@ -348,18 +351,15 @@ class TestMemberUtils(EnhancedTestCase):
 
     def test_get_active_membership_for_member_field_validation(self):
         """Test membership lookup with field validation"""
-        # Create membership type first
-        self._ensure_membership_type("Regular")
-        
-        # Create membership using enhanced factory pattern
+        # Create an active membership type via the factory
+        membership_type = self._ensure_membership_type("Regular")
+
+        # create_test_membership already inserts and submits the membership
         membership = self.create_test_membership(
             member_name=self.member.name,
-            membership_type_name="Regular"
+            membership_type_name=membership_type.name
         )
-        # Ensure the membership is active and submitted
-        membership.status = "Active"
-        membership.submit()  # Use submit() instead of setting docstatus manually
-        
+
         # Test successful lookup
         result = get_active_membership_for_member(self.member.name)
         
@@ -592,25 +592,21 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
         # This MUST be done AFTER creating the member but BEFORE creating any schedules
         self._cleanup_member_schedules()
 
-        # Create membership type for dues schedules
-        if not frappe.db.exists("Membership Type", "Standard"):
-            membership_type = frappe.get_doc({
-                "doctype": "Membership Type",
-                "membership_type_name": "Standard",
-                "amount": 50.0,
-                "billing_period": "Annual"
-            })
-            membership_type.insert()
+        # Create an active membership type via the factory. A literal "Standard"
+        # type may already exist on a polluted site with is_active=0, which makes
+        # create_test_membership fail with "Membership Type Standard is inactive";
+        # the factory always produces a unique, active type.
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="Standard", amount=50.0
+        )
 
-        # Create membership for linking to dues schedule
-        # Note: We create the membership but DON'T submit it, because submitting
-        # triggers automatic dues schedule creation. Tests will submit when needed.
+        # Create the membership for linking to dues schedule. The factory submits
+        # it (active + submitted); the dues-schedule helper queries by member, so
+        # the submit side effect is harmless for these lookups.
         self.membership = self.create_test_membership(
             member_name=self.member.name,
-            membership_type_name="Standard"
+            membership_type_name=self.membership_type.name
         )
-        self.membership.status = "Active"
-        # DON'T submit here - tests that need schedules will create them explicitly
 
         # Clean up any orphaned schedules for this membership too
         self._cleanup_membership_schedules()
@@ -667,7 +663,7 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
 
         schedule = self.create_test_dues_schedule(
             member=self.member.name,
-            membership_type="Standard",
+            membership_type=self.membership_type.name,
             amount=dues_rate,
             frequency="monthly",
             status=status,
@@ -675,6 +671,16 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
             payment_terms_template=None,  # Don't set payment terms for test simplicity
             schedule_name=schedule_name  # Required for autoname
         )
+
+        # The create_test_dues_schedule bridge drops the membership= kwarg
+        # (it predates the field existing on Membership Dues Schedule), so the
+        # link is not persisted. The get_dues_schedule_for_membership* lookups
+        # query by this field, so set it explicitly here.
+        if schedule.get("membership") != self.membership.name:
+            frappe.db.set_value(
+                "Membership Dues Schedule", schedule.name, "membership", self.membership.name
+            )
+            schedule.reload()
 
         # Set is_template flag if needed
         if is_template:

@@ -13,23 +13,84 @@ from frappe.utils import today, add_days, add_months, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestDuesValidation(VereningingenTestCase):
+class _ActiveMembershipMixin:
+    """Shared setUp helper for the dues-validation test classes.
+
+    Membership Dues Schedule.validate_member_membership requires the member to
+    have an ACTIVE, SUBMITTED Membership; otherwise every create_test_dues_schedule
+    raises "Member ... does not have an active membership". The core factory only
+    inserts the Membership (docstatus 0), so we submit it here.
+
+    Membership.on_submit auto-creates its own dues schedule; we suppress that with
+    skip_dues_schedule_creation so the tests (which create their own schedules)
+    don't trip the "already has an active dues schedule" uniqueness guard.
+    """
+
+    def create_test_dues_schedule(self, **kwargs):
+        """Wrap the base helper to make repeated per-member schedule creation work.
+
+        The base helper derives a fixed primary key (Test-<member>-<type>) and the
+        Membership Dues Schedule model enforces ONE active schedule per member.
+        These tests create several schedules per member to exercise different
+        rate/frequency/date values, so without intervention the 2nd+ call hits a
+        DuplicateEntryError (PK clash) or the "already has an active dues schedule"
+        guard. We therefore:
+          - cancel any existing Active schedule for the member, and
+          - inject a unique schedule_name when the caller didn't supply one.
+        """
+        member_name = kwargs.get("member")
+        if member_name and not kwargs.get("is_template"):
+            existing = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": member_name, "is_template": 0, "status": "Active"},
+                pluck="name",
+            )
+            for name in existing:
+                frappe.db.set_value("Membership Dues Schedule", name, "status", "Cancelled")
+
+        if "schedule_name" not in kwargs:
+            kwargs["schedule_name"] = f"Test-DV-{frappe.generate_hash(length=10)}"
+
+        return super().create_test_dues_schedule(**kwargs)
+
+    def _ensure_active_membership(self, member_name, membership_type=None):
+        # Create a membership type with minimum_amount=0 so the wide range of
+        # arbitrary dues_rate values these tests exercise (0.01 .. 99999.99,
+        # and the helper's 15.00 default) all clear validate_rate_boundaries,
+        # which rejects rates below the membership type minimum. Schedules that
+        # don't pass an explicit membership_type inherit it from this active
+        # membership, so the low minimum propagates.
+        if membership_type is None:
+            membership_type = self.create_test_membership_type(minimum_amount=0).name
+        membership = self.create_test_membership(
+            member=member_name,
+            membership_type=membership_type,
+        )
+        if membership.docstatus == 0:
+            membership.flags.skip_dues_schedule_creation = True
+            membership.submit()
+        return membership
+
+
+class TestDuesValidation(_ActiveMembershipMixin, VereningingenTestCase):
     """Tests for membership dues validation and calculation"""
 
     def setUp(self):
         super().setUp()
-        
+
         # Create test environment
         self.test_member = self.create_test_member()
+        # minimum_amount=0 so the assorted dues_rate values these tests use
+        # (25.00, 0.00, 500.00, ...) clear validate_rate_boundaries, which
+        # rejects rates below the membership type minimum. (amount /
+        # billing_frequency are not Membership Type fields — silent no-ops.)
         self.test_membership_type = self.create_test_membership_type(
             membership_type_name="Dues Validation Type",
-            amount=100.00,
-            billing_frequency="Annual"
+            minimum_amount=0,
         )
-        
-        self.test_membership = self.create_test_membership(
-            member=self.test_member.name,
-            membership_type=self.test_membership_type.name
+
+        self.test_membership = self._ensure_active_membership(
+            self.test_member.name, membership_type=self.test_membership_type.name
         )
 
     def test_dues_rate_validation(self):
@@ -215,12 +276,13 @@ class TestDuesValidation(VereningingenTestCase):
         self.assertEqual(single_decimal.dues_rate, flt(50.5))
 
 
-class TestDuesBusinessRuleValidation(VereningingenTestCase):
+class TestDuesBusinessRuleValidation(_ActiveMembershipMixin, VereningingenTestCase):
     """Business rule validation for membership dues"""
-    
+
     def setUp(self):
         super().setUp()
         self.test_member = self.create_test_member()
+        self.test_membership = self._ensure_active_membership(self.test_member.name)
     
     def test_multiple_dues_schedules_validation(self):
         """Test validation of multiple dues schedules per member"""
@@ -253,15 +315,17 @@ class TestDuesBusinessRuleValidation(VereningingenTestCase):
         )
         
         self.assertEqual(active_schedule.status, "Active")
-        
-        # Test inactive schedule
-        inactive_schedule = self.create_test_dues_schedule(
+
+        # Test a paused schedule. "Inactive" is not a valid Membership Dues
+        # Schedule status (valid: Active, Paused, Cancelled, Test), so use
+        # "Paused" to exercise the non-active status path.
+        paused_schedule = self.create_test_dues_schedule(
             member=self.test_member.name,
             dues_rate=40.00,
-            status="Inactive"
+            status="Paused"
         )
-        
-        self.assertEqual(inactive_schedule.status, "Inactive")
+
+        self.assertEqual(paused_schedule.status, "Paused")
     
     def test_dues_schedule_date_validation(self):
         """Test date validation for dues schedules"""
@@ -304,12 +368,13 @@ class TestDuesBusinessRuleValidation(VereningingenTestCase):
         self.assertEqual(manual_schedule.auto_generate, 0)
 
 
-class TestDuesCalculationEdgeCases(VereningingenTestCase):
+class TestDuesCalculationEdgeCases(_ActiveMembershipMixin, VereningingenTestCase):
     """Edge case tests for dues calculations"""
-    
+
     def setUp(self):
         super().setUp()
         self.test_member = self.create_test_member()
+        self.test_membership = self._ensure_active_membership(self.test_member.name)
     
     def test_dues_extreme_values(self):
         """Test dues with extreme values"""
@@ -387,23 +452,26 @@ class TestDuesCalculationEdgeCases(VereningingenTestCase):
         schedule.dues_rate = 110.00
         schedule.save()
         
-        # Second modification (should work with reload)
+        # Second modification (should work with reload).
+        # "Updated" is not a valid Membership Dues Schedule status — the allowed
+        # transition from Active is Paused/Cancelled — so use "Paused".
         schedule_copy.reload()
-        schedule_copy.status = "Updated"
+        schedule_copy.status = "Paused"
         schedule_copy.save()
-        
+
         # Verify both modifications
         schedule.reload()
         self.assertEqual(schedule.dues_rate, flt(110.00))
-        self.assertEqual(schedule.status, "Updated")
+        self.assertEqual(schedule.status, "Paused")
 
 
-class TestDuesIntegrationValidation(VereningingenTestCase):
+class TestDuesIntegrationValidation(_ActiveMembershipMixin, VereningingenTestCase):
     """Integration tests for dues with other system components"""
-    
+
     def setUp(self):
         super().setUp()
         self.test_member = self.create_test_member()
+        self.test_membership = self._ensure_active_membership(self.test_member.name)
         self.test_schedule = self.create_test_dues_schedule(
             member=self.test_member.name,
             dues_rate=75.00
@@ -453,32 +521,34 @@ class TestDuesIntegrationValidation(VereningingenTestCase):
     
     def test_dues_membership_renewal_validation(self):
         """Test dues validation during membership renewal"""
-        # Create membership
-        membership = self.create_test_membership(member=self.test_member.name)
-        
+        # The active membership created in setUp represents the existing
+        # membership being renewed; creating a second one would trip
+        # "Member already has an active membership".
+        membership = self.test_membership
+
         # Create renewal with updated dues
         renewal_dues = self.create_test_dues_schedule(
             member=self.test_member.name,
             dues_rate=85.00,  # Increased rate
             billing_frequency="Monthly"
         )
-        
+
         # Verify renewal dues validation
         self.assertEqual(renewal_dues.member, self.test_member.name)
         self.assertEqual(renewal_dues.dues_rate, flt(85.00))
-        
+
         # Original membership should still exist
         membership.reload()
         self.assertEqual(membership.member, self.test_member.name)
 
 
-class TestDuesReportingValidation(VereningingenTestCase):
+class TestDuesReportingValidation(_ActiveMembershipMixin, VereningingenTestCase):
     """Tests for dues reporting and analytics validation"""
-    
+
     def setUp(self):
         super().setUp()
         self.test_members = []
-        
+
         # Create multiple members with different dues
         for i in range(3):
             member = self.create_test_member(
@@ -486,7 +556,9 @@ class TestDuesReportingValidation(VereningingenTestCase):
                 last_name="TestMember",
                 email=f"reporting{i}@example.com"
             )
-            
+
+            self._ensure_active_membership(member.name)
+
             schedule = self.create_test_dues_schedule(
                 member=member.name,
                 dues_rate=50.00 + (i * 25.00),  # 50, 75, 100

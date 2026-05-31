@@ -133,13 +133,19 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         """Create member records linked to test users"""
         members = {}
 
-        # Full access member with payment setup
+        # Full access member with payment setup.
+        # payment_method="SEPA Direct Debit" requires iban + bank_account_name
+        # at Member.validate time, otherwise it throws "IBAN is required for SEPA
+        # Direct Debit payment method". The SEPA mandate created later reuses the
+        # same IBAN.
         members['member_full'] = self.create_test_member(
             first_name="Test",
             last_name="Member Full",
             email="member.full@test.verenigingen.invalid",
             birth_date=add_days(getdate(), -9000),  # 24+ years old
             payment_method="SEPA Direct Debit",
+            iban="NL91ABNA0417164300",
+            bank_account_name="Test Member Full",
             status="Active"
         )
 
@@ -199,11 +205,18 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
                 "status": "Active",
                 "is_active": 1,
                 "sign_date": getdate(),
-                "mandate_type": "RCUR"  # Recurring payment
+                "mandate_type": "RCUR",  # Recurring payment
+                # scheme is reqd=1; its DocType default ("SEPA") is not applied to
+                # a dict-constructed doc before validation, so set it explicitly.
+                "scheme": "SEPA"
             })
             sepa_mandate.insert()
 
-            # Update member with SEPA details
+            # Update member with SEPA details. Reload first: the member row was
+            # modified by customer-creation hooks and the mandate insert since
+            # this in-memory doc was built, so saving the stale copy raises
+            # TimestampMismatchError.
+            member.reload()
             member.iban = sepa_mandate.iban
             member.bic = sepa_mandate.bic
             member.bank_account_name = sepa_mandate.account_holder_name

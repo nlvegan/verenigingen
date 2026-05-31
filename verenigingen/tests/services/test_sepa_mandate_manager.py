@@ -472,6 +472,10 @@ class TestSEPAMandateManager(EnhancedTestCase):
                 "used_for_memberships": used_for_memberships,
                 "used_for_donations": used_for_donations,
                 "mandate_type": "RCUR",
+                # scheme is reqd=1; its DocType default ("SEPA") is not applied
+                # to a dict-constructed doc before validation, so set it
+                # explicitly to avoid "[SEPA Mandate]: scheme" MandatoryError.
+                "scheme": "SEPA",
             }
         )
 
