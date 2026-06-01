@@ -861,6 +861,12 @@ class EnhancedTestDataFactory:
 
         if not membership_type_name:
             membership_type_name = self.create_test_membership_type().name
+        else:
+            # A type name was supplied; ensure it resolves to a real Membership
+            # Type so the insert doesn't fail with "Could not find Membership
+            # Type: <name>" on a fresh site.
+            from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+            membership_type_name = ensure_membership_type_exists(membership_type_name)
 
         start_date = kwargs.pop("start_date", frappe.utils.today())
         membership = frappe.get_doc({
@@ -3571,6 +3577,12 @@ class EnhancedTestCase(FrappeTestCase):
         # frequently omit it, e.g. create_test_membership(member=...)).
         if not membership_type_name:
             membership_type_name = self.create_test_membership_type().name
+        else:
+            # A type name was supplied; ensure it resolves to a real Membership
+            # Type so the insert doesn't fail with "Could not find Membership
+            # Type: <name>" on a fresh site.
+            from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+            membership_type_name = ensure_membership_type_exists(membership_type_name)
 
         start_date = kwargs.pop("start_date", frappe.utils.today())
         sync_member_since = kwargs.pop("sync_member_since", True)

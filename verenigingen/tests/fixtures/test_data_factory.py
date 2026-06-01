@@ -408,7 +408,12 @@ class CoreTestDataFactory:
             member = self.create_test_member()
         if membership_type is None:
             membership_type = self.get_or_create_test_membership_type()
-        
+        elif not hasattr(membership_type, "name"):
+            # A bare type NAME was passed; ensure it resolves to a real Membership
+            # Type (get-or-create) so the insert doesn't fail with "Could not find
+            # Membership Type: <name>" on a fresh site.
+            membership_type = ensure_membership_type_exists(membership_type)
+
         defaults = {
             "member": member.name if hasattr(member, 'name') else member,
             "membership_type": membership_type.name if hasattr(membership_type, 'name') else membership_type,
@@ -1124,6 +1129,59 @@ class CoreTestDataFactory:
                 "non_volunteer_count": len(members) - len(volunteers)
             }
         }
+
+
+def _ensure_member_role_profile():
+    """Return a Role Profile name usable for a test Membership Type (reqd field).
+
+    Prefers the app's standard profiles; falls back to any existing profile;
+    creates a minimal one only if the site has none (fresh CI site).
+    """
+    for candidate in ("Verenigingen Member", "Verenigingen Staff"):
+        existing = frappe.db.get_value("Role Profile", {"name": candidate}, "name")
+        if existing:
+            return existing
+    existing = frappe.db.get_value("Role Profile", {}, "name")
+    if existing:
+        return existing
+    profile = frappe.new_doc("Role Profile")
+    profile.role_profile = "Test Member Profile"
+    if frappe.db.exists("Role", "Verenigingen Member"):
+        profile.append("roles", {"role": "Verenigingen Member"})
+    profile.insert(ignore_permissions=True)
+    return profile.name
+
+
+def ensure_membership_type_exists(name, *, amount=100.0):
+    """Get-or-create a Membership Type with the EXACT given name; return the name.
+
+    Many tests pass a membership_type_name (e.g. "Regular Member", "Daglid",
+    "Standard Member", "Monthly Membership") expecting it to already exist. On a
+    fresh CI site it doesn't, so the Membership insert fails with "Could not find
+    Membership Type: <name>" and the test's setUp crashes. Create a minimal active
+    type on first reference. The name is stable, so later tests in the run reuse
+    it (get-or-create -> no collision, no per-test cleanup; it behaves like a
+    bootstrap master, the same way the default Team Roles do).
+
+    Callers that need a type with *specific* properties (amount, billing period,
+    contribution mode) should still build it explicitly via
+    create_test_membership_type(); this helper only guarantees a referenced name
+    resolves to a valid, active Membership Type.
+    """
+    if not name:
+        raise ValueError("ensure_membership_type_exists() requires a non-empty name")
+    if frappe.db.exists("Membership Type", name):
+        return name
+
+    membership_type = frappe.new_doc("Membership Type")
+    membership_type.membership_type_name = name
+    membership_type.is_active = 1
+    membership_type.contribution_mode = "Fixed Amount"
+    membership_type.minimum_amount = amount
+    membership_type.billing_period = "Annual"
+    membership_type.role_profile = _ensure_member_role_profile()
+    membership_type.insert(ignore_permissions=True)
+    return membership_type.name
 
 
 # CONVENIENCE FUNCTIONS
