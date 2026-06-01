@@ -431,7 +431,7 @@ class TestSEPAInputValidation(VereningingenTestCase):
         }
         
         result = frappe.call(
-            "verenigingen.utils.sepa_input_validation.validate_sepa_batch_params",
+            "verenigingen.verenigingen_payments.utils.sepa_input_validation.validate_sepa_batch_params",
             **valid_params
         )
         
@@ -450,7 +450,7 @@ class TestSEPAInputValidation(VereningingenTestCase):
         }
         
         result = frappe.call(
-            "verenigingen.utils.sepa_input_validation.validate_single_sepa_invoice",
+            "verenigingen.verenigingen_payments.utils.sepa_input_validation.validate_single_sepa_invoice",
             invoice_data=valid_invoice
         )
         
@@ -461,7 +461,7 @@ class TestSEPAInputValidation(VereningingenTestCase):
         """Test API endpoint for getting validation rules"""
         
         result = frappe.call(
-            "verenigingen.utils.sepa_input_validation.get_sepa_validation_rules"
+            "verenigingen.verenigingen_payments.utils.sepa_input_validation.get_sepa_validation_rules"
         )
         
         self.assertIn("constraints", result)

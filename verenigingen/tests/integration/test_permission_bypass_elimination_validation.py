@@ -134,15 +134,22 @@ class TestPermissionBypassEliminationValidation(EnhancedTestCase):
         """Test that the code complies with test quality enforcer rules"""
         
         # Import the test quality enforcer to validate patterns
+        import os
         import sys
-        sys.path.append('/home/frappe/frappe-bench/apps/verenigingen/scripts/validation')
+
+        validation_dir = os.path.abspath(
+            os.path.join(frappe.get_app_path("verenigingen"), "..", "scripts", "validation")
+        )
+        sys.path.append(validation_dir)
         
         from test_quality_enforcer import TestQualityEnforcer
         
         enforcer = TestQualityEnforcer()
         
         # Test that employee_user_link.py would pass enforcement
-        file_path = "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/employee_user_link.py"
+        file_path = os.path.join(
+            frappe.get_app_path("verenigingen"), "utils", "employee_user_link.py"
+        )
         
         # Should pass permission bypass check
         with open(file_path, 'r', encoding='utf-8') as f:
