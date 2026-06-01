@@ -62,8 +62,9 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
 
         BulkTransactionImporter._validate_mollie_custom_fields() requires these
         9 fields and raises (swallowed -> returns None) if any are absent. They
-        are not part of the standard Bank Transaction schema nor installed by an
-        app fixture, so this integration test must provision them itself.
+        are installed in production via verenigingen/fixtures/custom_field.json
+        (synced on migrate). This helper is a defensive guard so the test stays
+        self-contained even on a DB where that fixture has not been synced.
         """
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
