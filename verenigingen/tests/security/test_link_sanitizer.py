@@ -55,22 +55,22 @@ class TestLinkSanitizerUnit(FrappeTestCase):
     def test_sanitize_clears_broken_member_link(self):
         """Broken member link should be cleared in auto-fix mode."""
         # Set a non-existent member reference
-        self.customer.db_set("custom_member", "NONEXISTENT-MEMBER-12345", update_modified=False)
+        self.customer.db_set("member", "NONEXISTENT-MEMBER-12345", update_modified=False)
         self.customer.reload()
 
         # Verify it's set
-        self.assertEqual(self.customer.custom_member, "NONEXISTENT-MEMBER-12345")
+        self.assertEqual(self.customer.member, "NONEXISTENT-MEMBER-12345")
 
         # Sanitize should clear it
         cleared = sanitize_member_links_on_customer(self.customer)
 
-        self.assertIn("custom_member", cleared)
-        self.assertIsNone(self.customer.custom_member)
+        self.assertIn("member", cleared)
+        self.assertIsNone(self.customer.member)
 
     def test_strict_mode_raises_exception(self):
         """Strict mode should raise BrokenLinkError instead of auto-fixing."""
         # Set a non-existent member reference
-        self.customer.db_set("custom_member", "NONEXISTENT-MEMBER-STRICT", update_modified=False)
+        self.customer.db_set("member", "NONEXISTENT-MEMBER-STRICT", update_modified=False)
         self.customer.reload()
 
         # Strict mode should raise exception
@@ -78,12 +78,12 @@ class TestLinkSanitizerUnit(FrappeTestCase):
             sanitize_member_links_on_customer(self.customer, strict=True)
 
         # Check error message contains field info
-        self.assertIn("custom_member", str(context.exception))
+        self.assertIn("member", str(context.exception))
         self.assertIn("NONEXISTENT-MEMBER-STRICT", str(context.exception))
 
         # Verify value was NOT cleared (strict mode doesn't auto-fix)
         self.customer.reload()
-        self.assertEqual(self.customer.custom_member, "NONEXISTENT-MEMBER-STRICT")
+        self.assertEqual(self.customer.member, "NONEXISTENT-MEMBER-STRICT")
 
     def test_strict_mode_passes_for_valid_links(self):
         """Strict mode should not raise exception for valid links."""
@@ -95,13 +95,13 @@ class TestLinkSanitizerUnit(FrappeTestCase):
 
     def test_sanitize_handles_none_values(self):
         """None values in link fields should not cause errors."""
-        self.customer.custom_member = None
+        self.customer.member = None
         cleared = sanitize_customer_links(self.customer)
         self.assertEqual(cleared, [])
 
     def test_sanitize_handles_empty_string(self):
         """Empty string values should not be treated as broken links."""
-        self.customer.db_set("custom_member", "", update_modified=False)
+        self.customer.db_set("member", "", update_modified=False)
         self.customer.reload()
         cleared = sanitize_customer_links(self.customer)
         self.assertEqual(cleared, [])
@@ -109,33 +109,31 @@ class TestLinkSanitizerUnit(FrappeTestCase):
     def test_multiple_broken_links_all_cleared(self):
         """Multiple broken links should all be cleared."""
         # Set multiple broken references
-        self.customer.db_set("custom_member", "BROKEN-MEMBER-1", update_modified=False)
+        self.customer.db_set("member", "BROKEN-MEMBER-1", update_modified=False)
         self.customer.db_set("customer_primary_contact", "BROKEN-CONTACT-1", update_modified=False)
         self.customer.reload()
 
         cleared = sanitize_customer_links(self.customer)
 
-        self.assertIn("custom_member", cleared)
+        self.assertIn("member", cleared)
         self.assertIn("customer_primary_contact", cleared)
-        self.assertIsNone(self.customer.custom_member)
+        self.assertIsNone(self.customer.member)
         self.assertIsNone(self.customer.customer_primary_contact)
 
     def test_fields_to_check_filter(self):
         """fields_to_check parameter should limit which fields are checked."""
         # Set broken references in multiple fields
-        self.customer.db_set("custom_member", "BROKEN-MEMBER-2", update_modified=False)
+        self.customer.db_set("member", "BROKEN-MEMBER-2", update_modified=False)
         self.customer.db_set("customer_primary_contact", "BROKEN-CONTACT-2", update_modified=False)
         self.customer.reload()
 
         # Only check member field
-        cleared = sanitize_document_link_fields(
-            self.customer, fields_to_check=["custom_member"]
-        )
+        cleared = sanitize_document_link_fields(self.customer, fields_to_check=["member"])
 
-        # Only custom_member should be cleared
-        self.assertIn("custom_member", cleared)
+        # Only member should be cleared
+        self.assertIn("member", cleared)
         self.assertNotIn("customer_primary_contact", cleared)
-        self.assertIsNone(self.customer.custom_member)
+        self.assertIsNone(self.customer.member)
         # Contact should still be broken (not checked)
         self.assertEqual(self.customer.customer_primary_contact, "BROKEN-CONTACT-2")
 
@@ -159,18 +157,24 @@ class TestLinkSanitizerIntegration(FrappeTestCase):
         member.insert(ignore_permissions=True)
         self.member_name = member.name  # Use actual auto-generated name
 
-        # Create customer linked to the member
-        self.customer_name = f"{self.test_prefix}_Customer"
-        customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": self.customer_name,
-                "customer_group": resolve_non_group_customer_group(),
-                "territory": "All Territories",
-                "custom_member": self.member_name,
-            }
-        )
-        customer.insert(ignore_permissions=True)
+        # The Customer.member field carries a UNIQUE constraint and member
+        # creation may auto-create a linked Customer. Reuse an existing linked
+        # Customer when present; otherwise create one.
+        existing_customer = frappe.db.get_value("Customer", {"member": self.member_name}, "name")
+        if existing_customer:
+            self.customer_name = existing_customer
+        else:
+            self.customer_name = f"{self.test_prefix}_Customer"
+            customer = frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": self.customer_name,
+                    "customer_group": resolve_non_group_customer_group(),
+                    "territory": "All Territories",
+                    "member": self.member_name,
+                }
+            )
+            customer.insert(ignore_permissions=True)
 
         frappe.db.commit()
 
@@ -189,55 +193,59 @@ class TestLinkSanitizerIntegration(FrappeTestCase):
         customer = frappe.get_doc("Customer", self.customer_name)
 
         # Verify link is valid
-        self.assertEqual(customer.custom_member, self.member_name)
+        self.assertEqual(customer.member, self.member_name)
         self.assertTrue(frappe.db.exists("Member", self.member_name))
 
         # Sanitize should not clear valid link
         cleared = sanitize_member_links_on_customer(customer)
         self.assertEqual(cleared, [])
-        self.assertEqual(customer.custom_member, self.member_name)
+        self.assertEqual(customer.member, self.member_name)
 
     def test_orphaned_link_after_delete(self):
         """Link becomes orphaned after target document is deleted."""
-        # First verify link is valid
+        # First verify link is valid - load customer into memory before the
+        # member is deleted (deleting the member may cascade to the linked
+        # Customer, so we must not re-fetch it afterwards).
         customer = frappe.get_doc("Customer", self.customer_name)
-        self.assertEqual(customer.custom_member, self.member_name)
+        self.assertEqual(customer.member, self.member_name)
 
-        # Delete the member (creating orphaned reference)
+        # Detach the customer from the member so deleting the member does not
+        # cascade-delete it, then delete the member (creating orphaned ref).
+        frappe.db.set_value("Customer", customer.name, "member", None, update_modified=False)
         frappe.delete_doc("Member", self.member_name, force=True)
         frappe.db.commit()
 
-        # Reload customer - link is now orphaned
-        customer.reload()
-        self.assertEqual(customer.custom_member, self.member_name)
+        # Re-point the in-memory doc at the now-orphaned member name
+        customer.member = self.member_name
+        self.assertEqual(customer.member, self.member_name)
         self.assertFalse(frappe.db.exists("Member", self.member_name))
 
         # Sanitize should detect and clear the orphaned link
         cleared = sanitize_member_links_on_customer(customer)
-        self.assertIn("custom_member", cleared)
-        self.assertIsNone(customer.custom_member)
+        self.assertIn("member", cleared)
+        self.assertIsNone(customer.member)
 
     def test_error_log_created_on_auto_clear(self):
         """Error Log entry should be created when link is auto-cleared."""
-        # Delete member to create orphan
+        # Load the customer before deleting the member (member deletion may
+        # cascade to the linked Customer). Detach first to avoid the cascade.
+        customer = frappe.get_doc("Customer", self.customer_name)
+        frappe.db.set_value("Customer", customer.name, "member", None, update_modified=False)
         frappe.delete_doc("Member", self.member_name, force=True)
         frappe.db.commit()
 
-        customer = frappe.get_doc("Customer", self.customer_name)
+        # Re-point the in-memory doc at the now-orphaned member name
+        customer.member = self.member_name
 
         # Clear any existing error logs
-        initial_count = frappe.db.count(
-            "Error Log", {"method": "Link Sanitization - Auto-Cleared"}
-        )
+        initial_count = frappe.db.count("Error Log", {"method": "Link Sanitization - Auto-Cleared"})
 
         # Sanitize
         sanitize_member_links_on_customer(customer)
         frappe.db.commit()
 
         # Check new error log was created
-        new_count = frappe.db.count(
-            "Error Log", {"method": "Link Sanitization - Auto-Cleared"}
-        )
+        new_count = frappe.db.count("Error Log", {"method": "Link Sanitization - Auto-Cleared"})
         self.assertGreater(new_count, initial_count)
 
     def test_get_broken_links_summary(self):

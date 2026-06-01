@@ -131,85 +131,82 @@ class TestPrimaryChapterDesignation(VereningingenTestCase):
         return chapters
 
     def assign_member_to_chapter(self, member_name, chapter_name):
-        """Assign member to chapter"""
-        # Check if already a member
-        existing = frappe.db.exists(
-            "Chapter Member",
-            {"member": member_name, "chapter": chapter_name}
-        )
-        if existing:
-            return existing
+        """Assign member to chapter.
 
-        # Create chapter membership
-        chapter_member = frappe.new_doc("Chapter Member")
-        chapter_member.member = member_name
-        chapter_member.chapter = chapter_name
-        chapter_member.chapter_join_date = today()
-        chapter_member.enabled = 1
-        chapter_member.save()
-        self.track_doc("Chapter Member", chapter_member.name)
-        return chapter_member.name
+        Chapter Member is a child table of Chapter (parent=chapter name,
+        parentfield='members'); there is no standalone 'chapter' column.
+        """
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name:
+                row.enabled = 1
+                row.status = "Active"
+                chapter.save()
+                return row.name
+        chapter.append(
+            "members",
+            {"member": member_name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
+        )
+        chapter.save()
+        return chapter.members[-1].name
 
     def remove_member_from_chapter(self, member_name, chapter_name):
-        """Remove member from chapter"""
-        chapter_member = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "chapter": chapter_name},
-            "name"
-        )
-        if chapter_member:
-            cm = frappe.get_doc("Chapter Member", chapter_member)
-            cm.enabled = 0
-            cm.chapter_leave_date = today()
-            cm.save()
+        """Remove member from chapter (mark child row disabled)."""
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name:
+                row.enabled = 0
+                row.status = "Inactive"
+        chapter.save()
 
     def get_member_chapters(self, member_name):
-        """Get all chapters for a member"""
-        return frappe.get_all(
+        """Get all chapters for a member (parent = chapter name)."""
+        rows = frappe.get_all(
             "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["chapter", "chapter_join_date", "is_primary"]
+            filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["parent as chapter", "chapter_join_date"],
         )
+        return rows
 
     def get_primary_chapter(self, member_name):
-        """Get primary chapter for member"""
-        # First try is_primary field
-        primary = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "enabled": 1, "is_primary": 1},
-            "chapter"
-        )
-        if primary:
-            return primary
+        """Get primary chapter for member.
 
-        # Fall back to first active chapter
-        chapters = self.get_member_chapters(member_name)
-        if chapters:
-            return chapters[0]["chapter"]
-        return None
+        Chapter Member has no 'is_primary' field; the primary chapter is
+        modelled as the member's first active chapter (lowest join date).
+        """
+        chapters = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["parent as chapter"],
+            order_by="chapter_join_date asc, creation asc",
+        )
+        return chapters[0]["chapter"] if chapters else None
 
     def set_primary_chapter(self, member_name, chapter_name):
-        """Set primary chapter for member"""
-        # Verify member is in this chapter
+        """Set primary chapter for member.
+
+        Modelled by giving the target chapter the earliest join date so that
+        get_primary_chapter() resolves to it.
+        """
         if not frappe.db.exists(
             "Chapter Member",
-            {"member": member_name, "chapter": chapter_name, "enabled": 1}
+            {"member": member_name, "parent": chapter_name, "enabled": 1, "parenttype": "Chapter"},
         ):
             frappe.throw(f"Member {member_name} is not in chapter {chapter_name}")
 
-        # Clear existing primary
-        frappe.db.sql("""
-            UPDATE `tabChapter Member`
-            SET is_primary = 0
-            WHERE member = %s
-        """, member_name)
-
-        # Set new primary
-        frappe.db.sql("""
-            UPDATE `tabChapter Member`
-            SET is_primary = 1
-            WHERE member = %s AND chapter = %s AND enabled = 1
-        """, (member_name, chapter_name))
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["parent", "chapter_join_date"],
+            order_by="chapter_join_date asc, creation asc",
+        )
+        earliest = rows[0]["chapter_join_date"] if rows else today()
+        # Push the target one day earlier than the current earliest.
+        target_chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in target_chapter.members:
+            if row.member == member_name and row.enabled:
+                row.chapter_join_date = add_days(earliest, -1)
+        target_chapter.save()
 
 
 class TestMultiChapterFinancialImpact(VereningingenTestCase):
@@ -249,14 +246,14 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
 
         # Create invoice 1 - should go to Amsterdam
         invoice1 = self.create_dues_invoice(member)
-        original_cost_center = invoice1.cost_center if hasattr(invoice1, 'cost_center') else None
+        original_cost_center = invoice1.cost_center if hasattr(invoice1, "cost_center") else None
 
         # Change primary to Rotterdam
         self.set_primary_chapter(member.name, rotterdam.name)
 
         # Create invoice 2 - should go to Rotterdam
         invoice2 = self.create_dues_invoice(member)
-        new_cost_center = invoice2.cost_center if hasattr(invoice2, 'cost_center') else None
+        new_cost_center = invoice2.cost_center if hasattr(invoice2, "cost_center") else None
 
         # Cost centers should be different (if both have cost centers)
         if original_cost_center and new_cost_center:
@@ -324,42 +321,42 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         return chapters
 
     def assign_member_to_chapter(self, member_name, chapter_name, is_primary=False):
-        """Assign member to chapter with primary flag"""
-        existing = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "chapter": chapter_name},
-            "name"
-        )
-        if existing:
-            cm = frappe.get_doc("Chapter Member", existing)
-            cm.is_primary = 1 if is_primary else 0
-            cm.enabled = 1
-            cm.save()
-            return existing
+        """Assign member to chapter.
 
-        chapter_member = frappe.new_doc("Chapter Member")
-        chapter_member.member = member_name
-        chapter_member.chapter = chapter_name
-        chapter_member.chapter_join_date = today()
-        chapter_member.enabled = 1
-        chapter_member.is_primary = 1 if is_primary else 0
-        chapter_member.save()
-        self.track_doc("Chapter Member", chapter_member.name)
-        return chapter_member.name
+        Chapter Member is a child of Chapter; 'is_primary' has no schema field.
+        is_primary is modelled by giving the row the earliest join date.
+        """
+        join_date = add_days(today(), -1) if is_primary else today()
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name:
+                row.enabled = 1
+                row.status = "Active"
+                if is_primary:
+                    row.chapter_join_date = join_date
+                chapter.save()
+                return row.name
+        chapter.append(
+            "members",
+            {"member": member_name, "chapter_join_date": join_date, "enabled": 1, "status": "Active"},
+        )
+        chapter.save()
+        return chapter.members[-1].name
 
     def set_primary_chapter(self, member_name, chapter_name):
-        """Set primary chapter"""
-        frappe.db.sql("""
-            UPDATE `tabChapter Member`
-            SET is_primary = 0
-            WHERE member = %s
-        """, member_name)
-
-        frappe.db.sql("""
-            UPDATE `tabChapter Member`
-            SET is_primary = 1
-            WHERE member = %s AND chapter = %s AND enabled = 1
-        """, (member_name, chapter_name))
+        """Set primary chapter (give target row the earliest join date)."""
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["chapter_join_date"],
+            order_by="chapter_join_date asc, creation asc",
+        )
+        earliest = rows[0]["chapter_join_date"] if rows else today()
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name and row.enabled:
+                row.chapter_join_date = add_days(earliest, -1)
+        chapter.save()
 
     def create_dues_invoice(self, member):
         """Create a mock dues invoice"""
@@ -372,11 +369,14 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = customer
         invoice.posting_date = today()
-        invoice.append("items", {
-            "item_code": item,
-            "qty": 1,
-            "rate": 25.00,
-        })
+        invoice.append(
+            "items",
+            {
+                "item_code": item,
+                "qty": 1,
+                "rate": 25.00,
+            },
+        )
         invoice.save()
         self.track_doc("Sales Invoice", invoice.name)
         return invoice
@@ -413,10 +413,10 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         return frappe.db.get_value("Chapter", chapter_name, "cost_center")
 
     def get_chapter_member_count(self, chapter_name):
-        """Get count of active members in chapter"""
+        """Get count of active members in chapter (parent = chapter name)."""
         return frappe.db.count(
             "Chapter Member",
-            filters={"chapter": chapter_name, "enabled": 1}
+            filters={"parent": chapter_name, "parenttype": "Chapter", "enabled": 1},
         )
 
 
@@ -440,22 +440,23 @@ class TestChapterTransferScenarios(VereningingenTestCase):
         # Full transfer to Rotterdam
         self.transfer_member_to_chapter(member.name, rotterdam.name, full_transfer=True)
 
-        # Should no longer be active in Amsterdam
+        # Should no longer be active in Amsterdam (Chapter Member has no
+        # leave-date column; departure is represented by enabled/status).
         amsterdam_membership = frappe.db.get_value(
             "Chapter Member",
-            {"member": member.name, "chapter": amsterdam.name},
-            ["enabled", "chapter_leave_date"],
-            as_dict=True
+            {"member": member.name, "parent": amsterdam.name, "parenttype": "Chapter"},
+            ["enabled", "status"],
+            as_dict=True,
         )
         if amsterdam_membership:
             self.assertEqual(amsterdam_membership.enabled, 0)
-            self.assertIsNotNone(amsterdam_membership.chapter_leave_date)
+            self.assertEqual(amsterdam_membership.status, "Inactive")
 
         # Should be active in Rotterdam
         rotterdam_membership = frappe.db.get_value(
             "Chapter Member",
-            {"member": member.name, "chapter": rotterdam.name},
-            "enabled"
+            {"member": member.name, "parent": rotterdam.name, "parenttype": "Chapter"},
+            "enabled",
         )
         self.assertEqual(rotterdam_membership, 1)
 
@@ -469,17 +470,12 @@ class TestChapterTransferScenarios(VereningingenTestCase):
         join_date = add_days(today(), -60)
 
         # Join Amsterdam
-        self.assign_member_to_chapter(
-            member.name, amsterdam.name,
-            join_date=join_date
-        )
+        self.assign_member_to_chapter(member.name, amsterdam.name, join_date=join_date)
 
         # Transfer to Rotterdam after 30 days
         transfer_date = add_days(join_date, 30)
         self.transfer_member_to_chapter(
-            member.name, rotterdam.name,
-            full_transfer=True,
-            transfer_date=transfer_date
+            member.name, rotterdam.name, full_transfer=True, transfer_date=transfer_date
         )
 
         # Verify history is preserved
@@ -489,12 +485,10 @@ class TestChapterTransferScenarios(VereningingenTestCase):
         self.assertGreaterEqual(len(history), 2)
 
         # Find Amsterdam record - should have leave date
-        amsterdam_record = next(
-            (h for h in history if h["chapter"] == amsterdam.name), None
-        )
+        amsterdam_record = next((h for h in history if h["chapter"] == amsterdam.name), None)
         self.assertIsNotNone(amsterdam_record)
         if amsterdam_record:
-            self.assertEqual(amsterdam_record["join_date"], join_date)
+            self.assertEqual(getdate(amsterdam_record["join_date"]), getdate(join_date))
 
     def test_partial_transfer_keeps_old_membership(self):
         """Test that partial transfer adds new chapter without removing old"""
@@ -524,11 +518,7 @@ class TestChapterTransferScenarios(VereningingenTestCase):
         self.assign_member_to_chapter(member.name, amsterdam.name, is_primary=True)
 
         # Transfer to Rotterdam with primary update
-        self.transfer_member_to_chapter(
-            member.name, rotterdam.name,
-            full_transfer=False,
-            make_primary=True
-        )
+        self.transfer_member_to_chapter(member.name, rotterdam.name, full_transfer=False, make_primary=True)
 
         # Rotterdam should now be primary
         primary = self.get_primary_chapter(member.name)
@@ -559,9 +549,7 @@ class TestChapterTransferScenarios(VereningingenTestCase):
 
         # Perform relocation transfer
         self.transfer_member_to_chapter(
-            member.name, rotterdam.name,
-            full_transfer=True,
-            transfer_reason="Member relocated"
+            member.name, rotterdam.name, full_transfer=True, transfer_reason="Member relocated"
         )
 
         # Verify final state
@@ -581,99 +569,98 @@ class TestChapterTransferScenarios(VereningingenTestCase):
         return chapters
 
     def assign_member_to_chapter(self, member_name, chapter_name, join_date=None, is_primary=False):
-        """Assign member to chapter"""
-        existing = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "chapter": chapter_name},
-            "name"
+        """Assign member to chapter (child row of Chapter)."""
+        if is_primary and join_date is None:
+            join_date = add_days(today(), -1)
+        join_date = join_date or today()
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name:
+                return row.name
+        chapter.append(
+            "members",
+            {"member": member_name, "chapter_join_date": join_date, "enabled": 1, "status": "Active"},
         )
-        if existing:
-            return existing
+        chapter.save()
+        return chapter.members[-1].name
 
-        chapter_member = frappe.new_doc("Chapter Member")
-        chapter_member.member = member_name
-        chapter_member.chapter = chapter_name
-        chapter_member.chapter_join_date = join_date or today()
-        chapter_member.enabled = 1
-        chapter_member.is_primary = 1 if is_primary else 0
-        chapter_member.save()
-        self.track_doc("Chapter Member", chapter_member.name)
-        return chapter_member.name
+    def transfer_member_to_chapter(
+        self,
+        member_name,
+        target_chapter,
+        full_transfer=True,
+        make_primary=False,
+        transfer_date=None,
+        transfer_reason=None,
+    ):
+        """Transfer member to new chapter.
 
-    def transfer_member_to_chapter(self, member_name, target_chapter, full_transfer=True,
-                                    make_primary=False, transfer_date=None, transfer_reason=None):
-        """Transfer member to new chapter"""
+        Chapter Member rows live on their parent Chapter; there is no
+        leave-date column, so departure uses enabled/status/leave_reason.
+        """
         transfer_date = transfer_date or today()
 
         if full_transfer:
-            # Disable all current chapter memberships
-            current_memberships = frappe.get_all(
+            # Disable membership rows on all OTHER chapters
+            current = frappe.get_all(
                 "Chapter Member",
-                filters={"member": member_name, "enabled": 1},
-                fields=["name", "chapter"]
+                filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+                fields=["parent"],
             )
-            for cm in current_memberships:
-                if cm["chapter"] != target_chapter:
-                    doc = frappe.get_doc("Chapter Member", cm["name"])
-                    doc.enabled = 0
-                    doc.chapter_leave_date = transfer_date
-                    doc.leave_reason = transfer_reason or "Transferred to another chapter"
-                    doc.save()
+            for cm in current:
+                if cm["parent"] != target_chapter:
+                    other = frappe.get_doc("Chapter", cm["parent"])
+                    for row in other.members:
+                        if row.member == member_name and row.enabled:
+                            row.enabled = 0
+                            row.status = "Inactive"
+                            row.leave_reason = transfer_reason or "Transferred to another chapter"
+                    other.save()
 
         # Create or update target chapter membership
-        existing = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "chapter": target_chapter},
-            "name"
-        )
-        if existing:
-            doc = frappe.get_doc("Chapter Member", existing)
-            doc.enabled = 1
-            doc.chapter_join_date = transfer_date
-            doc.chapter_leave_date = None
-            if make_primary:
-                # Clear other primaries
-                frappe.db.sql("UPDATE `tabChapter Member` SET is_primary=0 WHERE member=%s", member_name)
-                doc.is_primary = 1
-            doc.save()
+        target = frappe.get_doc("Chapter", target_chapter)
+        found = None
+        for row in target.members:
+            if row.member == member_name:
+                found = row
+                break
+        if found:
+            found.enabled = 1
+            found.status = "Active"
+            found.chapter_join_date = add_days(transfer_date, -1) if make_primary else transfer_date
+            target.save()
         else:
             self.assign_member_to_chapter(
-                member_name, target_chapter,
-                join_date=transfer_date,
-                is_primary=make_primary
+                member_name, target_chapter, join_date=transfer_date, is_primary=make_primary
             )
 
     def get_active_chapters(self, member_name):
-        """Get list of active chapter names for member"""
+        """Get list of active chapter names for member (parent = chapter)."""
         chapters = frappe.get_all(
             "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["chapter"]
+            filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["parent as chapter"],
         )
         return [c["chapter"] for c in chapters]
 
     def get_member_chapter_history(self, member_name):
-        """Get full chapter history for member"""
+        """Get full chapter history for member (no leave-date column)."""
         return frappe.get_all(
             "Chapter Member",
-            filters={"member": member_name},
-            fields=["chapter", "chapter_join_date as join_date", "chapter_leave_date as leave_date", "enabled"],
-            order_by="chapter_join_date desc"
+            filters={"member": member_name, "parenttype": "Chapter"},
+            fields=["parent as chapter", "chapter_join_date as join_date", "enabled", "status"],
+            order_by="chapter_join_date desc",
         )
 
     def get_primary_chapter(self, member_name):
-        """Get primary chapter"""
-        primary = frappe.db.get_value(
+        """Get primary chapter (earliest active chapter)."""
+        chapters = frappe.get_all(
             "Chapter Member",
-            {"member": member_name, "enabled": 1, "is_primary": 1},
-            "chapter"
+            filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["parent as chapter"],
+            order_by="chapter_join_date asc, creation asc",
         )
-        if primary:
-            return primary
-
-        # Fallback to first active
-        chapters = self.get_active_chapters(member_name)
-        return chapters[0] if chapters else None
+        return chapters[0]["chapter"] if chapters else None
 
     def get_chapter_for_postal_code(self, postal_code):
         """Get chapter matching postal code"""
@@ -699,13 +686,17 @@ class TestChapterHistoryTracking(VereningingenTestCase):
 
         recorded_date = frappe.db.get_value(
             "Chapter Member",
-            {"member": member.name, "chapter": chapter.name},
-            "chapter_join_date"
+            {"member": member.name, "parent": chapter.name, "parenttype": "Chapter"},
+            "chapter_join_date",
         )
         self.assertEqual(getdate(recorded_date), getdate(join_date))
 
-    def test_leave_date_is_recorded(self):
-        """Test that chapter leave date is recorded on departure"""
+    def test_leave_is_recorded(self):
+        """Test that leaving a chapter disables the membership row.
+
+        Chapter Member has no leave-date column; departure is represented by
+        enabled=0 / status='Inactive'.
+        """
         member = self.test_member
         chapter = self.chapters["amsterdam"]
 
@@ -713,15 +704,16 @@ class TestChapterHistoryTracking(VereningingenTestCase):
         self.assign_member_to_chapter(member.name, chapter.name)
 
         # Leave chapter
-        leave_date = today()
-        self.leave_chapter(member.name, chapter.name, leave_date)
+        self.leave_chapter(member.name, chapter.name, today())
 
-        recorded_date = frappe.db.get_value(
+        recorded = frappe.db.get_value(
             "Chapter Member",
-            {"member": member.name, "chapter": chapter.name},
-            "chapter_leave_date"
+            {"member": member.name, "parent": chapter.name, "parenttype": "Chapter"},
+            ["enabled", "status"],
+            as_dict=True,
         )
-        self.assertEqual(getdate(recorded_date), getdate(leave_date))
+        self.assertEqual(recorded.enabled, 0)
+        self.assertEqual(recorded.status, "Inactive")
 
     def test_history_tracks_multiple_stints(self):
         """Test tracking multiple join/leave cycles at same chapter"""
@@ -741,8 +733,8 @@ class TestChapterHistoryTracking(VereningingenTestCase):
         # Should have history of both stints
         history = frappe.get_all(
             "Chapter Member",
-            filters={"member": member.name, "chapter": chapter.name},
-            fields=["chapter_join_date", "chapter_leave_date", "enabled"]
+            filters={"member": member.name, "parent": chapter.name, "parenttype": "Chapter"},
+            fields=["chapter_join_date", "enabled", "status"],
         )
 
         # May have 1 or 2 records depending on implementation
@@ -775,60 +767,53 @@ class TestChapterHistoryTracking(VereningingenTestCase):
         return chapters
 
     def assign_member_to_chapter(self, member_name, chapter_name, join_date=None):
-        """Assign member to chapter"""
-        chapter_member = frappe.new_doc("Chapter Member")
-        chapter_member.member = member_name
-        chapter_member.chapter = chapter_name
-        chapter_member.chapter_join_date = join_date or today()
-        chapter_member.enabled = 1
-        chapter_member.save()
-        self.track_doc("Chapter Member", chapter_member.name)
-        return chapter_member.name
+        """Assign member to chapter (child row of Chapter)."""
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        chapter.append(
+            "members",
+            {
+                "member": member_name,
+                "chapter_join_date": join_date or today(),
+                "enabled": 1,
+                "status": "Active",
+            },
+        )
+        chapter.save()
+        return chapter.members[-1].name
 
     def leave_chapter(self, member_name, chapter_name, leave_date=None):
-        """Leave chapter"""
-        cm_name = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "chapter": chapter_name, "enabled": 1},
-            "name"
-        )
-        if cm_name:
-            cm = frappe.get_doc("Chapter Member", cm_name)
-            cm.enabled = 0
-            cm.chapter_leave_date = leave_date or today()
-            cm.save()
+        """Leave chapter (disable the active membership row)."""
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name and row.enabled:
+                row.enabled = 0
+                row.status = "Inactive"
+        chapter.save()
 
     def rejoin_chapter(self, member_name, chapter_name, join_date=None):
-        """Rejoin chapter (new record or reactivate)"""
-        # Find existing disabled record
-        existing = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "chapter": chapter_name, "enabled": 0},
-            "name"
-        )
-
-        if existing:
-            # Reactivate (simpler approach)
-            cm = frappe.get_doc("Chapter Member", existing)
-            cm.enabled = 1
-            cm.chapter_join_date = join_date or today()
-            cm.chapter_leave_date = None
-            cm.save()
-        else:
-            self.assign_member_to_chapter(member_name, chapter_name, join_date)
+        """Rejoin chapter (reactivate disabled row or add new one)."""
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name and not row.enabled:
+                row.enabled = 1
+                row.status = "Active"
+                row.chapter_join_date = join_date or today()
+                chapter.save()
+                return row.name
+        return self.assign_member_to_chapter(member_name, chapter_name, join_date)
 
     def calculate_membership_duration(self, member_name, chapter_name):
-        """Calculate total days of membership"""
+        """Calculate days of membership (no leave-date column in schema)."""
         cm = frappe.db.get_value(
             "Chapter Member",
-            {"member": member_name, "chapter": chapter_name},
-            ["chapter_join_date", "chapter_leave_date", "enabled"],
-            as_dict=True
+            {"member": member_name, "parent": chapter_name, "parenttype": "Chapter"},
+            ["chapter_join_date", "enabled"],
+            as_dict=True,
         )
         if not cm:
             return 0
 
-        end_date = getdate(cm.chapter_leave_date) if cm.chapter_leave_date else getdate(today())
+        end_date = getdate(today())
         start_date = getdate(cm.chapter_join_date)
 
         return (end_date - start_date).days
@@ -862,15 +847,16 @@ class TestChapterEdgeCases(VereningingenTestCase):
         self.assign_member_to_chapter(member1.name, chapter.name)
         self.assign_member_to_chapter(member2.name, chapter.name)
 
-        # Deactivate chapter
+        # Deactivate chapter (reload so member rows added above are not lost)
+        chapter.reload()
         chapter.status = "Inactive"
         chapter.save()
 
         # Members should still have history but may need reassignment
         history = frappe.get_all(
             "Chapter Member",
-            filters={"chapter": chapter.name},
-            fields=["member", "enabled"]
+            filters={"parent": chapter.name, "parenttype": "Chapter"},
+            fields=["member", "enabled"],
         )
 
         # History should be preserved
@@ -884,16 +870,18 @@ class TestChapterEdgeCases(VereningingenTestCase):
         member = self.create_test_member()
         self.assign_member_to_chapter(member.name, chapter.name)
 
-        # Deactivate then reactivate
+        # Deactivate then reactivate (reload to keep member rows)
+        chapter.reload()
         chapter.status = "Inactive"
         chapter.save()
+        chapter.reload()
         chapter.status = "Active"
         chapter.save()
 
         # Member association should be preserved
         is_member = frappe.db.exists(
             "Chapter Member",
-            {"member": member.name, "chapter": chapter.name}
+            {"member": member.name, "parent": chapter.name, "parenttype": "Chapter"},
         )
         self.assertTrue(is_member)
 
@@ -911,28 +899,22 @@ class TestChapterEdgeCases(VereningingenTestCase):
         # Verify member is in all chapters
         memberships = frappe.get_all(
             "Chapter Member",
-            filters={"member": member.name, "enabled": 1},
-            fields=["chapter"]
+            filters={"member": member.name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["parent as chapter"],
         )
 
         self.assertEqual(len(memberships), 5)
 
-        # Verify only one is primary
-        primary_count = frappe.db.count(
-            "Chapter Member",
-            filters={"member": member.name, "enabled": 1, "is_primary": 1}
-        )
-        self.assertLessEqual(primary_count, 1)
+        # Primary chapter is modelled as the single earliest active chapter.
+        primary = self.get_primary_chapter(member.name)
+        self.assertIn(primary, chapter_names)
 
     def test_member_with_no_chapter_scenario(self):
         """Test handling of member with no chapter assignment"""
         member = self.create_test_member()
 
         # Member with no chapter
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member.name, "enabled": 1}
-        )
+        chapters = frappe.get_all("Chapter Member", filters={"member": member.name, "enabled": 1})
 
         # Should have no chapters
         self.assertEqual(len(chapters), 0)
@@ -957,33 +939,17 @@ class TestChapterEdgeCases(VereningingenTestCase):
         )
 
     def assign_member_to_chapter(self, member_name, chapter_name, is_primary=None):
-        """Assign member to chapter"""
-        existing = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "chapter": chapter_name},
-            "name"
+        """Assign member to chapter (child row of Chapter)."""
+        chapter = frappe.get_doc("Chapter", chapter_name)
+        for row in chapter.members:
+            if row.member == member_name:
+                return row.name
+        chapter.append(
+            "members",
+            {"member": member_name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
         )
-        if existing:
-            return existing
-
-        # Determine if should be primary
-        if is_primary is None:
-            # Make primary if first chapter
-            existing_count = frappe.db.count(
-                "Chapter Member",
-                filters={"member": member_name, "enabled": 1}
-            )
-            is_primary = (existing_count == 0)
-
-        chapter_member = frappe.new_doc("Chapter Member")
-        chapter_member.member = member_name
-        chapter_member.chapter = chapter_name
-        chapter_member.chapter_join_date = today()
-        chapter_member.enabled = 1
-        chapter_member.is_primary = 1 if is_primary else 0
-        chapter_member.save()
-        self.track_doc("Chapter Member", chapter_member.name)
-        return chapter_member.name
+        chapter.save()
+        return chapter.members[-1].name
 
     def try_assign_to_chapter(self, member_name, chapter_name):
         """Try to assign member to chapter, returning result"""
@@ -998,20 +964,12 @@ class TestChapterEdgeCases(VereningingenTestCase):
             return {"failed": True, "error": str(e)}
 
     def get_primary_chapter(self, member_name):
-        """Get primary chapter for member"""
-        primary = frappe.db.get_value(
-            "Chapter Member",
-            {"member": member_name, "enabled": 1, "is_primary": 1},
-            "chapter"
-        )
-        if primary:
-            return primary
-
-        # Fallback to first active
+        """Get primary chapter (earliest active chapter; no is_primary field)."""
         chapters = frappe.get_all(
             "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["chapter"],
-            limit=1
+            filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+            fields=["parent as chapter"],
+            order_by="chapter_join_date asc, creation asc",
+            limit=1,
         )
         return chapters[0]["chapter"] if chapters else None

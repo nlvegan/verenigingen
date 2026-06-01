@@ -307,21 +307,30 @@ class TestPain002IngestionService(FrappeTestCase):
 
         Uses frappe.db.sql for direct insertion to bypass validation.
         """
-        # Create batch directly in database to bypass validation
+        # Create batch directly in database to bypass validation.
+        # Direct Debit Batch has no batch_name/collection_date columns; the real
+        # fields are batch_description / batch_date (plus required batch_type).
         batch_name = frappe.generate_hash(length=10)
-        frappe.db.sql("""
+        frappe.db.sql(
+            """
             INSERT INTO `tabDirect Debit Batch`
-            (name, batch_name, collection_date, status, docstatus, creation, modified, owner, modified_by)
-            VALUES (%s, %s, %s, %s, 0, NOW(), NOW(), 'Administrator', 'Administrator')
-        """, (batch_name, f"Test Batch {batch_name}", frappe.utils.today(), "Generated"))
+            (name, batch_description, batch_date, batch_type, status, docstatus,
+             creation, modified, owner, modified_by)
+            VALUES (%s, %s, %s, %s, %s, 0, NOW(), NOW(), 'Administrator', 'Administrator')
+        """,
+            (batch_name, f"Test Batch {batch_name}", frappe.utils.today(), "RCUR", "Generated"),
+        )
 
         # Create log entry
         log_name = frappe.generate_hash(length=10)
-        frappe.db.sql("""
+        frappe.db.sql(
+            """
             INSERT INTO `tabSEPA Batch Upload Log`
             (name, batch_name, batch_status, file_name, upload_time, uploaded_by, creation, modified, owner, modified_by)
             VALUES (%s, %s, %s, %s, NOW(), %s, NOW(), NOW(), 'Administrator', 'Administrator')
-        """, (log_name, batch_name, "Uploaded", file_name, "Administrator"))
+        """,
+            (log_name, batch_name, "Uploaded", file_name, "Administrator"),
+        )
 
         frappe.db.commit()
         return batch_name, log_name

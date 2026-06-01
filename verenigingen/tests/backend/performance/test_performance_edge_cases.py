@@ -66,7 +66,8 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
         self.performance_metrics[test_name] = {
             "duration": test_duration,
             "memory_used_mb": memory_used / (1024 * 1024),
-            "timestamp": datetime.now().isoformat()}
+            "timestamp": datetime.now().isoformat(),
+        }
 
     def measure_time(self, func, *args, **kwargs):
         """Measure execution time of a function"""
@@ -90,17 +91,16 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                 ("Simple filter", lambda: QueryBuilder.get_all_active_records("Member")),
                 (
                     "Complex filter",
-                    lambda: frappe.get_all(
-                        "Member", filters=[["status", "in", ["Active", "Suspended"]], ["chapter", "!=", ""]]
-                    ),
+                    lambda: frappe.get_all("Member", filters=[["status", "in", ["Active", "Suspended"]]]),
                 ),
                 (
                     "Join query",
                     lambda: frappe.db.sql(
                         """
-                    SELECT m.name, m.member_name, c.chapter_name
+                    SELECT m.name, m.full_name, cm.parent as chapter_name
                     FROM `tabMember` m
-                    LEFT JOIN `tabChapter` c ON m.chapter = c.name
+                    LEFT JOIN `tabChapter Member` cm
+                        ON cm.member = m.name AND cm.parenttype = 'Chapter' AND cm.enabled = 1
                     WHERE m.status = 'Active'
                     LIMIT 100
                 """,
@@ -111,9 +111,10 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                     "Aggregation",
                     lambda: frappe.db.sql(
                         """
-                    SELECT chapter, COUNT(*) as member_count
-                    FROM `tabMember`
-                    GROUP BY chapter
+                    SELECT cm.parent as chapter, COUNT(*) as member_count
+                    FROM `tabChapter Member` cm
+                    WHERE cm.parenttype = 'Chapter' AND cm.enabled = 1
+                    GROUP BY cm.parent
                 """,
                         as_dict=True,
                     ),
@@ -148,7 +149,8 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                     "last_name": "Performance",
                     "email": f"bulktest{i:04d}@performance.test",
                     "status": "Active",
-                    "chapter": chapter.name}
+                    "chapter": chapter.name,
+                }
             )
             member.insert()
             members_created.append(member)
@@ -177,7 +179,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
         with TestDataContext("performance", member_count=500) as data:
             # Test various reports
             report_tests = [
-                ("Member list", "SELECT name, member_name, status FROM `tabMember` LIMIT 100"),
+                ("Member list", "SELECT name, full_name, status FROM `tabMember` LIMIT 100"),
                 (
                     "Membership summary",
                     """
@@ -189,9 +191,10 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                 (
                     "Chapter statistics",
                     """
-                    SELECT c.chapter_name, COUNT(m.name) as member_count
+                    SELECT c.name as chapter_name, COUNT(cm.member) as member_count
                     FROM `tabChapter` c
-                    LEFT JOIN `tabMember` m ON c.name = m.chapter
+                    LEFT JOIN `tabChapter Member` cm
+                        ON c.name = cm.parent AND cm.parenttype = 'Chapter' AND cm.enabled = 1
                     GROUP BY c.name
                 """,
                 ),
@@ -312,7 +315,8 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                             "last_name": f"Member{i:02d}",
                             "email": f"concurrent{thread_id}.{i:02d}@performance.test",
                             "status": "Active",
-                            "chapter": chapter.name}
+                            "chapter": chapter.name,
+                        }
                     )
                     member.insert()
                     thread_members.append(member)
@@ -442,12 +446,13 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                 (
                     "Multi-table join",
                     """
-                    SELECT m.name, m.member_name, c.chapter_name, ms.status as membership_status
+                    SELECT m.name, m.full_name, cm.parent as chapter_name, ms.status as membership_status
                     FROM `tabMember` m
-                    LEFT JOIN `tabChapter` c ON m.chapter = c.name
+                    LEFT JOIN `tabChapter Member` cm
+                        ON cm.member = m.name AND cm.parenttype = 'Chapter' AND cm.enabled = 1
                     LEFT JOIN `tabMembership` ms ON m.name = ms.member
                     WHERE m.status = 'Active'
-                    ORDER BY c.chapter_name, m.member_name
+                    ORDER BY cm.parent, m.full_name
                     LIMIT 50
                 """,
                 ),
@@ -455,12 +460,13 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                     "Aggregation with grouping",
                     """
                     SELECT
-                        c.chapter_name,
+                        c.name as chapter_name,
                         COUNT(DISTINCT m.name) as member_count,
                         COUNT(DISTINCT v.name) as volunteer_count,
                         AVG(mt.minimum_amount) as avg_fee
                     FROM `tabChapter` c
-                    LEFT JOIN `tabChapter Member` cm ON c.name = cm.chapter AND cm.status = 'Active'
+                    LEFT JOIN `tabChapter Member` cm
+                        ON c.name = cm.parent AND cm.parenttype = 'Chapter' AND cm.status = 'Active'
                     LEFT JOIN `tabMember` m ON cm.member = m.name
                     LEFT JOIN `tabVolunteer` v ON m.name = v.member
                     LEFT JOIN `tabMembership` ms ON m.name = ms.member
@@ -472,7 +478,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                 (
                     "Subquery with exists",
                     """
-                    SELECT m.name, m.member_name
+                    SELECT m.name, m.full_name
                     FROM `tabMember` m
                     WHERE EXISTS (
                         SELECT 1 FROM `tabMembership` ms
@@ -556,7 +562,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                     if i % 3 == 0:
                         # Database query
                         result = frappe.get_all(
-                            "Member", filters={"status": "Active"}, fields=["name", "member_name", "email"]
+                            "Member", filters={"status": "Active"}, fields=["name", "full_name", "email"]
                         )
                         stress_operations.append(f"Query: {len(result)} results")
 
@@ -570,7 +576,8 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
                                 "last_name": "Test",
                                 "email": f"stress{i}@test.com",
                                 "status": "Active",
-                                "chapter": chapter.name}
+                                "chapter": chapter.name,
+                            }
                         )
                         member.insert()
                         stress_operations.append(f"Created: {member.name}")
