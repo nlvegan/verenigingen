@@ -324,9 +324,14 @@ class VereningingenTestCase(FrappeTestCase):
             )
             item_group.insert(ignore_permissions=True)
 
-        # Ensure test Region exists
-        # Check if region with code TR already exists (which is our test region)
-        existing_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name")
+        # Ensure test Region exists.
+        # The Region docname is the slugified region_name ("Test Region" -> "test-region").
+        # A prior run may have left a "test-region" doc with a uniquified region_code
+        # (e.g. "TR17"), so a region_code=="TR" check alone misses it and the re-insert
+        # below then collides on the primary key. Fall back to the docname to reuse it.
+        existing_region = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or (
+            "test-region" if frappe.db.exists("Region", "test-region") else None
+        )
         if not existing_region:
             region = frappe.get_doc(
                 {
