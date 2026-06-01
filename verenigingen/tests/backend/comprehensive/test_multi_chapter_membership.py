@@ -395,11 +395,9 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         return item.name
 
     def _create_customer_for_member(self, member):
-        """Create customer for member"""
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member.first_name} {member.last_name}"
-        customer.customer_type = "Individual"
-        customer.save()
+        """Reuse the Customer auto-created by create_test_member (idempotent helper;
+        a second same-named Customer would collide on the Customer PRIMARY key)."""
+        customer = self.link_member_to_customer(member)
         self.track_doc("Customer", customer.name)
         return customer.name
 
