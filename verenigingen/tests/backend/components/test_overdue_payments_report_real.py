@@ -16,7 +16,6 @@ This approach catches real SQL query issues, data type problems, and business lo
 that mocked report tests completely miss.
 """
 
-import frappe
 from frappe.utils import add_days, today, getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -47,7 +46,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             last_name="Overdue",
             email="moderate.overdue@test.example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         self.member_critical_overdue = self.create_test_member(
@@ -55,7 +54,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             last_name="Overdue",
             email="critical.overdue@test.example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         self.member_current = self.create_test_member(
@@ -63,7 +62,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             last_name="Member",
             email="current.member@test.example.com", 
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create overdue sales invoices using real database operations
@@ -259,7 +258,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             last_name="StatusTest",
             email="critical.status@test.example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         critical_invoice = self.create_test_sales_invoice(
@@ -292,57 +291,26 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
 
     def test_user_permission_filtering_real_access_control(self):
         """Test user permission filtering with real access control logic"""
-        
-        # Real permission testing - no mocking of frappe.get_roles
-        
-        # Test with admin-level user (should see all chapters)
-        frappe.set_user("Administrator")
-        admin_filter = get_user_accessible_chapters()
-        
-        # Admin should have unrestricted access (no filter)
-        self.assertIsNone(admin_filter)
-        
-        # Execute report as admin - should see all data
-        all_data = get_data({"chapter": self.test_chapter.name})
-        admin_data_count = len(all_data)
-        
-        # Test with limited access (create a test user)
-        try:
-            # Create test user with limited role
-            test_user_email = "limited.access@test.example.com"
-            if not frappe.db.exists("User", test_user_email):
-                test_user = frappe.get_doc({
-                    "doctype": "User",
-                    "email": test_user_email,
-                    "first_name": "Limited",
-                    "last_name": "Access",
-                    "enabled": 1,
-                    "new_password": "testpassword123",
-                    "roles": [{"role": "Employee"}]  # Limited role
-                })
-                test_user.insert()
-            
-            # Switch to limited user
-            frappe.set_user(test_user_email)
+
+        # Real permission testing - exercise the actual role-based access
+        # control in get_user_accessible_chapters(); no mocking of frappe.get_roles.
+
+        # An admin-tier role has unrestricted access (no filter -> None). Use the
+        # Verenigingen Administrator *role* rather than the Administrator *user*,
+        # which would bypass every DocPerm check and mask real permission bugs.
+        with self.as_admin_role():
+            admin_filter = get_user_accessible_chapters()
+            self.assertIsNone(admin_filter)
+
+            # As admin the report returns all data without error.
+            all_data = get_data({"chapter": self.test_chapter.name})
+            self.assertIsInstance(all_data, list)
+
+        # A user with only a non-admin role and no member/board record has no
+        # chapter access at all (the function returns an empty list).
+        with self.as_role("Employee"):
             limited_filter = get_user_accessible_chapters()
-            
-            # Limited user should have access restrictions
-            if limited_filter and limited_filter != "1=0":
-                # Should have some filter applied
-                self.assertIsInstance(limited_filter, str)
-                self.assertGreater(len(limited_filter), 0)
-            else:
-                # No access - should be blocked
-                self.assertEqual(limited_filter, "1=0")
-                
-        except Exception as e:
-            if "User" in str(e) or "permission" in str(e).lower():
-                self.skipTest("User permission testing not available")
-            else:
-                raise
-        finally:
-            # Restore admin user
-            frappe.set_user("Administrator")
+            self.assertEqual(limited_filter, [])
 
     def test_subscription_filtering_real_database_operations(self):
         """Test subscription-based invoice filtering with real database queries"""
@@ -353,7 +321,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             last_name="Member", 
             email="nonsubscription@test.example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create invoice without dues schedule connection
@@ -433,7 +401,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             last_name="Chapter",
             email="other.chapter@test.example.com",
             status="Active",
-            primary_chapter=other_chapter.name
+            chapter=other_chapter.name
         )
         
         other_chapter_invoice = self.create_test_sales_invoice(
@@ -483,7 +451,7 @@ class TestOverduePaymentsReportReal(EnhancedTestCase):
             last_name="Member",
             email="student.member@test.example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create membership record with specific type

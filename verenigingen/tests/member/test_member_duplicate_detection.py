@@ -473,26 +473,21 @@ class TestAPISecurity(EnhancedTestCase):
 
     def test_api_permission_check(self):
         """API should check user permissions"""
-        # Ensure we're authenticated first
-        frappe.set_user("Administrator")
-
-        # Create member
+        # Create the member as the default (System Manager) test user from setUp().
         member = self.create_test_member(
             first_name="Test",
             last_name="User",
             birth_date="1990-01-01"
         )
 
-        # Set as guest user (no permissions)
-        frappe.set_user("Guest")
-
-        # Should raise permission error (from the API security framework)
+        # As an unauthenticated guest the API must refuse with a permission error
+        # (raised by the API security framework). as_user() restores the original
+        # session user automatically on exit, so we don't leave Guest context
+        # leaking into later tests.
         from verenigingen.utils.error_handling import PermissionError as VPermissionError
-        with self.assertRaises((frappe.PermissionError, VPermissionError)):
-            check_duplicate_for_approval(member.name)
-
-        # Reset to administrator
-        frappe.set_user("Administrator")
+        with self.as_user("Guest"):
+            with self.assertRaises((frappe.PermissionError, VPermissionError)):
+                check_duplicate_for_approval(member.name)
 
     def test_api_sanitizes_error_messages(self):
         """API should not expose internal error details"""
