@@ -8,7 +8,10 @@ import unittest
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory as TestDataFactory
+from verenigingen.tests.fixtures.test_data_factory import (
+    CoreTestDataFactory as TestDataFactory,
+    ensure_membership_type_exists,
+)
 
 
 class TestMemberLifecycleIBAN(unittest.TestCase):
@@ -22,6 +25,9 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
     def setUp(self):
         """Set up test case"""
         frappe.set_user("Administrator")
+        # Tests reference the "Regular" Membership Type by literal name.
+        # Created per-test because tearDown rolls back the transaction.
+        ensure_membership_type_exists("Regular")
 
     def tearDown(self):
         """Clean up after test"""

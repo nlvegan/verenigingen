@@ -136,13 +136,28 @@ class TestChapterVolunteerIntegration(EnhancedTestCase):
         # Generate a unique name for the test chapter
         test_chapter_name = f"TestChapter{self.test_id[:8]}"
 
+        # Ensure the referenced Region master exists (idempotent). Region
+        # autoname is field:region_name (slugified), so match on the slugified
+        # docname to avoid a PRIMARY-key clash with a pre-existing Region.
+        region_docname = "testregion"
+        if not frappe.db.exists("Region", region_docname):
+            frappe.get_doc(
+                {
+                    "doctype": "Region",
+                    "region_name": "TestRegion",
+                    "region_code": "TSTR",
+                    "country": "Netherlands",
+                    "is_active": 1,
+                }
+            ).insert(ignore_permissions=True)
+
         # Create the chapter
         self.test_chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
                 "name": test_chapter_name,
                 "chapter_head": self.chapter_head_member.name,
-                "region": "TestRegion",
+                "region": region_docname,
                 "introduction": "Test chapter for integration tests",
             }
         )

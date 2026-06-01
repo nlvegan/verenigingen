@@ -64,6 +64,21 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
             chapter_role.insert(ignore_permissions=True)
             self._docs_to_delete.append(("Chapter Role", role_name))
 
+        # Ensure the referenced Region master exists (idempotent). Region
+        # autoname is field:region_name (slugified to "test-region"), so match
+        # on the slugified docname and link the Chapter to it.
+        region_docname = "test-region"
+        if not frappe.db.exists("Region", region_docname):
+            frappe.get_doc(
+                {
+                    "doctype": "Region",
+                    "region_name": "Test Region",
+                    "region_code": "TSTRG",
+                    "country": "Netherlands",
+                    "is_active": 1,
+                }
+            ).insert(ignore_permissions=True)
+
         # 3. Create a chapter with explicit name
         chapter_name = f"Test_Chapter_{unique_suffix}"
         self.test_chapter = frappe.get_doc(
@@ -71,7 +86,7 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
                 "doctype": "Chapter",
                 "name": chapter_name,  # Set explicit name to avoid auto-naming issues
                 "chapter_head": self.test_member.name,
-                "region": "Test Region",
+                "region": region_docname,
                 "introduction": "Test chapter for aggregated assignments",
             }
         )

@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 from frappe.utils import today, add_months, add_days
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 from verenigingen.services.billing.dues_schedule_health_manager import (
     DuesScheduleHealthManager,
     comprehensive_dues_schedule_health_check,
@@ -23,6 +24,8 @@ class TestDuesScheduleHealthManager(EnhancedTestCase):
     
     def setUp(self):
         super().setUp()
+        # Tests reference the "Monthly Membership" Membership Type by literal name
+        ensure_membership_type_exists("Monthly Membership")
         self.manager = DuesScheduleHealthManager()
     
     def test_priority_hierarchy_logic(self):
@@ -354,7 +357,12 @@ class TestDuesScheduleHealthManager(EnhancedTestCase):
 
 class TestDuesScheduleHealthManagerIntegration(EnhancedTestCase):
     """Integration tests for the health management system"""
-    
+
+    def setUp(self):
+        super().setUp()
+        # Tests reference the "Monthly Membership" Membership Type by literal name
+        ensure_membership_type_exists("Monthly Membership")
+
     def test_end_to_end_health_check(self):
         """Test complete end-to-end health check workflow"""
         # Create member with various issues

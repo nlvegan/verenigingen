@@ -7,6 +7,35 @@ from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
+def _ensure_region(region_name):
+    """Idempotently get-or-create a Region by region_name, returning its docname.
+
+    Region autoname is field:region_name (slugified), so the docname differs
+    from the title; callers must link to the returned docname. We match on the
+    slugified docname so a previously-created Region (possibly with a different
+    region_name casing) is reused instead of triggering a PRIMARY-key clash.
+    """
+    docname = scrub_region_name(region_name)
+    if frappe.db.exists("Region", docname):
+        return docname
+    region = frappe.get_doc(
+        {
+            "doctype": "Region",
+            "region_name": region_name,
+            "region_code": "TSTRG",
+            "country": "Netherlands",
+            "is_active": 1,
+        }
+    )
+    region.insert(ignore_permissions=True)
+    return region.name
+
+
+def scrub_region_name(region_name):
+    """Reproduce Frappe's docname slug for a Region (lowercase, spaces->hyphens)."""
+    return region_name.strip().lower().replace(" ", "-")
+
+
 class TestChapterHead(EnhancedTestCase):
     def setUp(self):
         # Generate a unique identifier using only alphanumeric characters
@@ -88,12 +117,18 @@ class TestChapterHead(EnhancedTestCase):
         )
         self.regular_volunteer.insert()  # EnhancedTestCase handles permissions
 
+        # Ensure the referenced Region master exists (idempotent) and resolve
+        # the actual docname. Region autoname is field:region_name, so the
+        # docname is slugified (e.g. "Test Region" -> "test-region"); the
+        # Chapter.region link must point at that resolved docname.
+        region_name = _ensure_region("Test Region")
+
         # Create test chapter
         self.chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
                 "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
+                "region": region_name,
                 "introduction": "Test Chapter for Head Tests",
                 "published": 1,
             }

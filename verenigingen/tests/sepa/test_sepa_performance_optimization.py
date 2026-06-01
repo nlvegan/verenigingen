@@ -4,6 +4,7 @@ Test SEPA performance optimizations - N+1 query elimination
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices, get_invoice_mandate_info, validate_invoice_mandate
 
 
@@ -12,6 +13,8 @@ class TestSEPAPerformanceOptimization(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        # Tests reference the "Monthly Standard" Membership Type by literal name
+        ensure_membership_type_exists("Monthly Standard")
         # Create minimal test data for performance testing
         self.chapter = self.create_test_chapter()
         self.members = []

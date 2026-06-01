@@ -15,6 +15,7 @@ Created: 2025-12-09
 import frappe
 from frappe.utils import today, add_days, add_months, now_datetime, random_string
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 
 
@@ -23,6 +24,10 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        # Ensure the literal-named Membership Types exist on a fresh site
+        ensure_membership_type_exists("Monthly Membership")
+        ensure_membership_type_exists("Quarterly Membership")
+        ensure_membership_type_exists("Annual Membership")
         # Get existing membership types from fixtures
         self.monthly_type = frappe.get_doc("Membership Type", "Monthly Membership")
         self.quarterly_type = frappe.get_doc("Membership Type", "Quarterly Membership")
@@ -400,6 +405,9 @@ class TestDuesScheduleRepositoryTypeChange(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.repo = DuesScheduleRepository()
+        # Ensure the literal-named Membership Types exist on a fresh site
+        ensure_membership_type_exists("Monthly Membership")
+        ensure_membership_type_exists("Quarterly Membership")
         self.monthly_type = frappe.get_doc("Membership Type", "Monthly Membership")
         self.quarterly_type = frappe.get_doc("Membership Type", "Quarterly Membership")
 

@@ -33,6 +33,7 @@ from datetime import datetime, timedelta
 import time
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 
 
 class TestDutchPostalCodeValidation(EnhancedTestCase):
@@ -434,7 +435,12 @@ class TestDutchAgeValidation(EnhancedTestCase):
 
 class TestDutchMembershipLifecycle(EnhancedTestCase):
     """Test Dutch membership lifecycle with real business rules"""
-    
+
+    def setUp(self):
+        super().setUp()
+        # Tests reference the "Standard Member" Membership Type by literal name
+        ensure_membership_type_exists("Standard Member")
+
     def test_membership_application_workflow_real_validation(self):
         """Test membership application workflow with real Dutch business rules"""
         
@@ -648,7 +654,12 @@ class TestDutchDataPrivacyCompliance(EnhancedTestCase):
 
 class TestDutchFinancialCompliance(EnhancedTestCase):
     """Test Dutch financial compliance with real business rules"""
-    
+
+    def setUp(self):
+        super().setUp()
+        # Tests reference the "Standard Member" Membership Type by literal name
+        ensure_membership_type_exists("Standard Member")
+
     def test_sepa_compliance_real_validation(self):
         """Test SEPA compliance with real Dutch banking rules"""
         
@@ -971,7 +982,10 @@ class TestComplexDutchBusinessWorkflows(EnhancedTestCase):
     def setUp(self):
         """Set up complex workflow testing environment"""
         super().setUp()
-        
+
+        # Some workflow paths reference the "Standard Member" Membership Type
+        ensure_membership_type_exists("Standard Member")
+
         # Create comprehensive test infrastructure
         self.test_chapter = self.factory.ensure_test_chapter("Complex Workflow Chapter", {
             "short_name": "CWC",
