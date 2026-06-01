@@ -869,14 +869,21 @@ class EnhancedTestDataFactory:
             membership_type_name = ensure_membership_type_exists(membership_type_name)
 
         start_date = kwargs.pop("start_date", frappe.utils.today())
+        requested_status = kwargs.pop("status", "Active")
         membership = frappe.get_doc({
             "doctype": "Membership",
             "member": member_name,
             "membership_type": membership_type_name,
             "start_date": start_date,
-            "status": kwargs.pop("status", "Active"),
+            "status": requested_status,
             **kwargs,
         })
+        # Keep backdated Active memberships Active (see the status-conditional
+        # _is_csv_import note in EnhancedTestCase.create_test_membership).
+        if requested_status == "Active" and frappe.utils.getdate(start_date) < frappe.utils.getdate(
+            frappe.utils.today()
+        ):
+            membership._is_csv_import = True
         membership.insert()
         self.track_document("Membership", membership.name, priority=5)
         membership.submit()
@@ -3597,6 +3604,19 @@ class EnhancedTestCase(FrappeTestCase):
         }
 
         membership = frappe.get_doc(membership_data)
+        # Backdated test start_dates (common in coverage/billing tests) would
+        # otherwise compute a past renewal_date, so Membership.set_status() marks
+        # the membership Expired and on_submit skips dues schedule creation. Mirror
+        # the production backdated-start path (membership_creation_service sets
+        # _is_csv_import): compute renewal_date from today so the membership stays
+        # Active. Only when the caller wants an Active membership — tests that
+        # explicitly request Expired/Cancelled keep their backdated dates so
+        # set_status() still derives the non-Active status they're exercising.
+        if (
+            membership_data.get("status", "Active") == "Active"
+            and frappe.utils.getdate(start_date) < frappe.utils.getdate(frappe.utils.today())
+        ):
+            membership._is_csv_import = True
         membership.insert()
 
         # Track for cleanup in tearDown

@@ -424,6 +424,15 @@ class CoreTestDataFactory:
         defaults.update(kwargs)
         
         membership = frappe.get_doc({"doctype": "Membership", **defaults})
+        # Keep backdated Active memberships Active: a past start_date computes a
+        # past renewal_date, so set_status() would mark the membership Expired and
+        # on_submit skips dues schedule creation. Mirror the production
+        # backdated-start path (_is_csv_import -> renewal from today). Skip when the
+        # caller explicitly wants a non-Active status (e.g. an Expired fixture).
+        if defaults.get("status", "Active") == "Active" and getdate(
+            defaults.get("start_date", today())
+        ) < getdate(today()):
+            membership._is_csv_import = True
         # Use proper admin context for test data creation
         original_user = frappe.session.user
         try:
