@@ -192,6 +192,17 @@ def before_tests():
     except Exception as e:
         frappe.logger().warning(f"MijnRood Sync Settings seeding failed: {e}")
 
+    # Seed the default Team Role master records (Team Leader, Team Member,
+    # Coordinator, Secretary, Treasurer, Verenigingen Auditor) once for the whole
+    # test run. Team / Team Member tests reference these by name; on a fresh CI
+    # site they don't exist, so several test modules created them ad-hoc in setUp.
+    # The production seeder (setup/__init__.py:create_default_team_roles) is
+    # idempotent (existence-checked per role), so this is safe to run every run.
+    try:
+        _seed_default_team_roles()
+    except Exception as e:
+        frappe.logger().warning(f"Team Role seeding failed: {e}")
+
 
 def _seed_verenigingen_test_system_user():
     """Create a test system user and wire it into Verenigingen Settings.
@@ -339,3 +350,25 @@ def _seed_mijnrood_sync_settings_dummy_credentials():
     settings.flags.ignore_mandatory = True
     settings.save(ignore_permissions=True)
     frappe.db.commit()
+
+
+def _seed_default_team_roles():
+    """Create the default Team Role master records for the test run.
+
+    Delegates to the production seeder
+    ``verenigingen.setup.create_default_team_roles``, which is idempotent (it
+    checks ``frappe.db.exists("Team Role", name)`` per role and commits once).
+    The production function prints progress to stdout; we suppress that here to
+    keep test output clean.
+    """
+    if not frappe.db.exists("DocType", "Team Role"):
+        # Team Role doctype not installed on this site; nothing to do.
+        return
+
+    import contextlib
+    import io
+
+    from verenigingen.setup import create_default_team_roles
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        create_default_team_roles()
