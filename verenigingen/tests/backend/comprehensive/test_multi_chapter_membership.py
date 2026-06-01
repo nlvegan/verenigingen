@@ -395,9 +395,16 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         return item.name
 
     def _create_customer_for_member(self, member):
-        """Reuse the Customer auto-created by create_test_member (idempotent helper;
-        a second same-named Customer would collide on the Customer PRIMARY key)."""
-        customer = self.link_member_to_customer(member)
+        """Create a uniquely-named Customer for the member.
+
+        The caller passes hardcoded member names and CoreTestDataFactory does not
+        uniquify them, so a plain '<first> <last>' Customer name collides with data
+        from an earlier run (DuplicateEntryError). Append a hash.
+        """
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"{member.first_name} {member.last_name} {frappe.generate_hash(length=6)}"
+        customer.customer_type = "Individual"
+        customer.save()
         self.track_doc("Customer", customer.name)
         return customer.name
 

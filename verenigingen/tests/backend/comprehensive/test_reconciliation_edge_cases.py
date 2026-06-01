@@ -129,12 +129,16 @@ class TestPartialPaymentReconciliation(VereningingenTestCase):
     # Helper methods
 
     def create_test_customer_for_member(self, member):
-        """Reuse the Customer auto-created by create_test_member.
+        """Create a uniquely-named Customer for the member.
 
-        Creating a second Customer with the same name collides on the Customer
-        PRIMARY key (DuplicateEntryError). link_member_to_customer is idempotent.
+        The caller passes hardcoded member names, so a plain '<first> <last>'
+        Customer name collides with data left by an earlier run on a persistent
+        DB (DuplicateEntryError). Append a hash for cross-run uniqueness.
         """
-        customer = self.link_member_to_customer(member)
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"{member.first_name} {member.last_name} {frappe.generate_hash(length=6)}"
+        customer.customer_type = "Individual"
+        customer.save()
         self.track_doc("Customer", customer.name)
         return customer
 

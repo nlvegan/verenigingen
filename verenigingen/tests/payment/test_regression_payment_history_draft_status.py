@@ -122,9 +122,16 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
             email="manual.refresh@example.com"
         )
         
-        # Reuse the Customer auto-created by create_test_member (idempotent helper;
-        # a second same-named Customer would collide on the PRIMARY key).
-        customer = self.link_member_to_customer(member)
+        # Create the member's Customer with a unique name. create_test_member here
+        # (VereningingenTestCase) does not auto-create a Customer nor uniquify the
+        # passed names, so a plain '<first> <last>' Customer name collides with data
+        # from an earlier run (DuplicateEntryError). Append a hash.
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"{member.first_name} {member.last_name} {frappe.generate_hash(length=6)}"
+        customer.customer_type = "Individual"
+        customer.save()
+        member.customer = customer.name
+        member.save()
         self.track_doc("Customer", customer.name)
         
         # Create an invoice (simulating one that was auto-generated)

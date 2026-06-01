@@ -37,10 +37,16 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         member.save()
         self.track_doc("Member", member.name)
         
-        # Link a Customer to the member (idempotent helper). The member was built
-        # raw above (no auto-Customer), so this creates the uniquely-named Customer.
-        customer = self.link_member_to_customer(member)
+        # Create the member's Customer. Its name is unique via the hashed last_name
+        # set above, so it won't collide with data from an earlier run.
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"{member.first_name} {member.last_name}"
+        customer.customer_type = "Individual"
+        customer.save()
         self.track_doc("Customer", customer.name)
+
+        member.customer = customer.name
+        member.save()
         
         # Create SEPA mandate
         mandate = frappe.new_doc("SEPA Mandate")

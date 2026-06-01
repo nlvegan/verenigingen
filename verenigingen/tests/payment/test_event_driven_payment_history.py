@@ -25,10 +25,17 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
             email="event.test@example.com"
         )
         
-        # Reuse the Customer auto-created by create_test_member. Creating a second
-        # Customer with the same name collides on the Customer PRIMARY key
-        # (DuplicateEntryError). link_member_to_customer is idempotent.
-        self.customer = self.link_member_to_customer(self.member)
+        # Create the member's Customer with a unique name. create_test_member here
+        # (VereningingenTestCase -> CoreTestDataFactory) does NOT auto-create a
+        # Customer and does not uniquify the passed names, so a plain
+        # '<first> <last>' Customer name collides with data left by an earlier run
+        # (DuplicateEntryError). Append a hash for cross-run uniqueness.
+        self.customer = frappe.new_doc("Customer")
+        self.customer.customer_name = f"{self.member.first_name} {self.member.last_name} {frappe.generate_hash(length=6)}"
+        self.customer.customer_type = "Individual"
+        self.customer.save()
+        self.member.customer = self.customer.name
+        self.member.save()
         self.track_doc("Customer", self.customer.name)
     
     def test_invoice_submission_not_blocked_by_payment_history_validation(self):
@@ -241,10 +248,14 @@ class TestEventSystemIntegration(VereningingenTestCase):
             email="integration.test@example.com"
         )
         
-        # Reuse the Customer auto-created by create_test_member. Creating a second
-        # Customer with the same name collides on the Customer PRIMARY key
-        # (DuplicateEntryError). link_member_to_customer is idempotent.
-        customer = self.link_member_to_customer(member)
+        # Create the member's Customer with a unique name (hardcoded member name
+        # would otherwise collide cross-run -> DuplicateEntryError).
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"{member.first_name} {member.last_name} {frappe.generate_hash(length=6)}"
+        customer.customer_type = "Individual"
+        customer.save()
+        member.customer = customer.name
+        member.save()
         self.track_doc("Customer", customer.name)
         
         # Create membership
