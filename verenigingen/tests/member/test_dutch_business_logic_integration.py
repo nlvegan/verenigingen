@@ -1209,11 +1209,10 @@ class TestComplexDutchBusinessWorkflows(EnhancedTestCase):
             selected_membership_type=self.complex_membership_type.name
         )
         
-        # Create Customer for payment processing
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = payment_member.full_name
-        customer.customer_type = "Individual"
-        customer.save()
+        # Reuse the Customer auto-created by create_test_member. Creating a second
+        # Customer with the same name collides on the Customer PRIMARY key
+        # (DuplicateEntryError). link_member_to_customer is idempotent.
+        customer = self.link_member_to_customer(payment_member)
         
         # Create Sales Invoice for membership dues
         # Skip complex item validation - focus on workflow integration

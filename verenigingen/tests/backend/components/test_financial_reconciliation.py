@@ -24,7 +24,9 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         """Create test member with complete financial setup"""
         member = frappe.new_doc("Member")
         member.first_name = "Financial"
-        member.last_name = "TestMember"
+        # Unique last_name so the derived Customer name doesn't collide with data
+        # left by an earlier run on a persistent DB (DuplicateEntryError).
+        member.last_name = f"TestMember{frappe.generate_hash(length=6)}"
         member.email = f"financial.{frappe.generate_hash(length=6)}@example.com"
         member.member_since = add_months(today(), -6)  # 6 months membership
         member.address_line1 = "123 Financial Street"
@@ -35,15 +37,10 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         member.save()
         self.track_doc("Member", member.name)
         
-        # Create customer
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member.first_name} {member.last_name}"
-        customer.customer_type = "Individual"
-        customer.save()
+        # Link a Customer to the member (idempotent helper). The member was built
+        # raw above (no auto-Customer), so this creates the uniquely-named Customer.
+        customer = self.link_member_to_customer(member)
         self.track_doc("Customer", customer.name)
-        
-        member.customer = customer.name
-        member.save()
         
         # Create SEPA mandate
         mandate = frappe.new_doc("SEPA Mandate")

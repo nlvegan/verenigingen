@@ -35,13 +35,9 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
             email="duedate.test@example.com"
         )
         
-        # Create customer
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member.first_name} {member.last_name}"
-        customer.customer_type = "Individual"
-        customer.save()
-        member.customer = customer.name
-        member.save()
+        # Reuse the Customer auto-created by create_test_member (idempotent helper;
+        # a second same-named Customer would collide on the PRIMARY key).
+        customer = self.link_member_to_customer(member)
         # Enhanced Test Factory handles cleanup automatically
         
         # Create dues schedule with next_invoice_date in the PAST
@@ -103,13 +99,9 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
             email="paymentterms.test@example.com"
         )
         
-        # Create customer
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member.first_name} {member.last_name}"
-        customer.customer_type = "Individual"
-        customer.save()
-        member.customer = customer.name
-        member.save()
+        # Reuse the Customer auto-created by create_test_member (idempotent helper;
+        # a second same-named Customer would collide on the PRIMARY key).
+        customer = self.link_member_to_customer(member)
         # Enhanced Test Factory handles cleanup automatically
         
         # Create a payment terms template (if it doesn't exist)
@@ -198,13 +190,9 @@ class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
                     email=f"scenario{len(scenarios)}.test@example.com"
                 )
                 
-                # Create customer
-                customer = frappe.new_doc("Customer")
-                customer.customer_name = f"{member.first_name} {member.last_name}"
-                customer.customer_type = "Individual"
-                customer.save()
-                member.customer = customer.name
-                member.save()
+                # Reuse the Customer auto-created by create_test_member (idempotent
+                # helper; a second same-named Customer would collide on the PRIMARY key).
+                customer = self.link_member_to_customer(member)
                 # Enhanced Test Factory handles cleanup automatically
                 
                 # Create dues schedule

@@ -122,13 +122,9 @@ class TestRegressionPaymentHistoryDraftStatus(VereningingenTestCase):
             email="manual.refresh@example.com"
         )
         
-        # Create customer
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member.first_name} {member.last_name}"
-        customer.customer_type = "Individual"
-        customer.save()
-        member.customer = customer.name
-        member.save()
+        # Reuse the Customer auto-created by create_test_member (idempotent helper;
+        # a second same-named Customer would collide on the PRIMARY key).
+        customer = self.link_member_to_customer(member)
         self.track_doc("Customer", customer.name)
         
         # Create an invoice (simulating one that was auto-generated)

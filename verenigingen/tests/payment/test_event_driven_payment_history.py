@@ -25,15 +25,10 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
             email="event.test@example.com"
         )
         
-        # Create customer
-        self.customer = frappe.new_doc("Customer")
-        self.customer.customer_name = f"{self.member.first_name} {self.member.last_name}"
-        self.customer.customer_type = "Individual"
-        self.customer.save()
-        
-        self.member.customer = self.customer.name
-        self.member.save()
-        
+        # Reuse the Customer auto-created by create_test_member. Creating a second
+        # Customer with the same name collides on the Customer PRIMARY key
+        # (DuplicateEntryError). link_member_to_customer is idempotent.
+        self.customer = self.link_member_to_customer(self.member)
         self.track_doc("Customer", self.customer.name)
     
     def test_invoice_submission_not_blocked_by_payment_history_validation(self):
@@ -187,9 +182,10 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
         # Don't set customer initially
         problem_member.save()
         
-        # Create customer
+        # Create customer (unique name so it doesn't collide with data left by an
+        # earlier run on a persistent DB -> DuplicateEntryError).
         problem_customer = frappe.new_doc("Customer")
-        problem_customer.customer_name = "Problem Customer"
+        problem_customer.customer_name = f"Problem Customer {frappe.generate_hash(length=6)}"
         problem_customer.customer_type = "Individual"
         problem_customer.save()
         self.track_doc("Customer", problem_customer.name)
@@ -245,15 +241,10 @@ class TestEventSystemIntegration(VereningingenTestCase):
             email="integration.test@example.com"
         )
         
-        # Create customer and link
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member.first_name} {member.last_name}"
-        customer.customer_type = "Individual"
-        customer.save()
-        
-        member.customer = customer.name
-        member.save()
-        
+        # Reuse the Customer auto-created by create_test_member. Creating a second
+        # Customer with the same name collides on the Customer PRIMARY key
+        # (DuplicateEntryError). link_member_to_customer is idempotent.
+        customer = self.link_member_to_customer(member)
         self.track_doc("Customer", customer.name)
         
         # Create membership

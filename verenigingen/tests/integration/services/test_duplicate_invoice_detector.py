@@ -60,17 +60,10 @@ class TestDuplicateInvoiceDetector(EnhancedTestCase):
             birth_date="1990-01-01"
         )
 
-        # Create customer for the member using Enhanced Test Factory
-        # The member needs a customer for invoice operations
-        self.customer_doc = frappe.new_doc("Customer")
-        self.customer_doc.customer_name = f"{self.member.first_name} {self.member.last_name}"
-        self.customer_doc.customer_type = "Individual"
-        self.customer_doc.insert()
-
-        # Link customer to member
-        self.member.customer = self.customer_doc.name
-        self.member.save()
-
+        # Reuse the Customer auto-created by create_test_member. Creating a second
+        # Customer with the same name collides on the Customer PRIMARY key
+        # (DuplicateEntryError). link_member_to_customer is idempotent.
+        self.customer_doc = self.link_member_to_customer(self.member)
         self.customer = self.member.customer
 
         # Create membership (which also creates dues schedule automatically)

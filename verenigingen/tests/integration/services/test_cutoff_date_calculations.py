@@ -242,13 +242,10 @@ class TestCoverageBasedEligibility(EnhancedTestCase):
             first_name="Eligibility", last_name="Test", birth_date="1985-05-15"
         )
 
-        self.customer_doc = frappe.new_doc("Customer")
-        self.customer_doc.customer_name = f"{self.member.first_name} {self.member.last_name}"
-        self.customer_doc.customer_type = "Individual"
-        self.customer_doc.insert()
-
-        self.member.customer = self.customer_doc.name
-        self.member.save()
+        # Reuse the Customer auto-created by create_test_member. Creating a second
+        # Customer with the same name collides on the Customer PRIMARY key
+        # (DuplicateEntryError). link_member_to_customer is idempotent.
+        self.customer_doc = self.link_member_to_customer(self.member)
 
         # Create membership and schedule (use Monthly Membership which exists)
         self.membership = self.create_test_membership(
@@ -383,13 +380,10 @@ class TestTimingCheckWithCoverageGaps(EnhancedTestCase):
             first_name="Timing", last_name="Test", birth_date="1985-05-15"
         )
 
-        self.customer_doc = frappe.new_doc("Customer")
-        self.customer_doc.customer_name = f"{self.member.first_name} {self.member.last_name}"
-        self.customer_doc.customer_type = "Individual"
-        self.customer_doc.insert()
-
-        self.member.customer = self.customer_doc.name
-        self.member.save()
+        # Reuse the Customer auto-created by create_test_member. Creating a second
+        # Customer with the same name collides on the Customer PRIMARY key
+        # (DuplicateEntryError). link_member_to_customer is idempotent.
+        self.customer_doc = self.link_member_to_customer(self.member)
 
         # Create membership and schedule (use Monthly Membership which exists)
         self.membership = self.create_test_membership(
