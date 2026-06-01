@@ -176,7 +176,11 @@ class SEPAMandateService:
                 sm.bic,
                 sm.mandate_id as mandate_reference
             FROM
-                `tabSales Invoice` si USE INDEX (idx_sepa_invoice_lookup)
+                -- No forced index hint: idx_sepa_invoice_lookup is created by the
+                -- v15_0 SEPA-performance patch, which fresh installs mark applied
+                -- without running, so a hard `USE INDEX` raised error 1176 and failed
+                -- the whole query. The optimizer still uses the index when present.
+                `tabSales Invoice` si
             JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
             JOIN `tabMember` mem ON mds.member = mem.name
             LEFT JOIN `tabMember` paying_member ON si.custom_paying_for_member = paying_member.name
