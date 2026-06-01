@@ -23,15 +23,31 @@ class TestVolunteerAPI(VereningingenTestCase):
         self.test_volunteer = self.factory.create_test_volunteer(
             volunteer_name="Test Volunteer", member=self.test_member.name, start_date=today()
         )
+        # TestDataFactory is stateless (no cleanup()), so register docs with the
+        # base test case for automatic teardown.
+        self.track_doc("Volunteer", self.test_volunteer.name)
+        self.track_doc("Member", self.test_member.name)
 
-        # Create a test user for API calls
+        # Create a test user for API calls. The volunteer activity endpoints
+        # (add_activity/end_activity) are @high_security_api AND insert/modify
+        # "Volunteer Activity" documents as the calling user (no ignore_permissions).
+        # Only "Verenigingen Administrator" has both the API HIGH/CRITICAL grant
+        # and DocPerm create/write on Volunteer Activity, so it is the realistic
+        # role for the admin path these JS-called endpoints exercise.
         self.test_user = self.factory.create_test_user(
-            email="test.volunteer@example.com", first_name="Test", last_name="Verenigingen Volunteer"
+            email="test.volunteer@example.com",
+            first_name="Test",
+            last_name="Verenigingen Volunteer",
+            roles=["Verenigingen Administrator"],
         )
+        # create_test_user returns an existing user (from a prior run) without
+        # re-applying roles, so ensure the required role is present.
+        if "Verenigingen Administrator" not in frappe.get_roles(self.test_user.name):
+            self.test_user.add_roles("Verenigingen Administrator")
 
     def tearDown(self):
-        # Clean up test data in reverse dependency order
-        self.factory.cleanup()
+        # Base class cleans up tracked docs (see track_doc calls in setUp);
+        # TestDataFactory has no cleanup() method of its own.
         super().tearDown()
 
     def test_add_activity_api(self):
@@ -72,7 +88,10 @@ class TestVolunteerAPI(VereningingenTestCase):
             end_date=end_date,
             reference_doctype="Chapter",
             # Get chapter through Chapter Member relationships instead of deprecated member.chapter field
-            reference_name=frappe.get_value("Chapter Member", {"member": self.test_member.name, "status": "Active"}, "chapter") or "Test Chapter",
+            reference_name=frappe.get_value(
+                "Chapter Member", {"member": self.test_member.name, "status": "Active"}, "chapter"
+            )
+            or "Test Chapter",
             estimated_hours=10,
             notes="Test activity notes",
         )
@@ -184,7 +203,8 @@ class TestVolunteerAPI(VereningingenTestCase):
             {
                 "skill": "Event Planning",
                 "skill_category": "Event Management",
-                "proficiency_level": "Beginner"},
+                "proficiency_level": "Beginner",
+            },
         )
         volunteer.save()
 
