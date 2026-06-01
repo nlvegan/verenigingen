@@ -111,7 +111,6 @@ class MemberMergeService(StatelessService):
         "dues_rate",
         "next_invoice_date",
         "cumulative_membership_duration",
-        "total_membership_days",
         # Application
         "application_id",
         "application_status",

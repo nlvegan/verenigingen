@@ -407,7 +407,7 @@ class BatchPerformanceOptimizer:
             SELECT
                 name, full_name, email, status, customer, member_id,
                 birth_date, contact_number, payment_method, dues_rate,
-                member_since, total_membership_days, permission_category
+                member_since, cumulative_membership_duration, permission_category
             FROM `tabMember`
             WHERE name IN %(member_names)s
         """,
