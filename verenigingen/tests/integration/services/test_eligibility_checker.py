@@ -35,15 +35,10 @@ class TestEligibilityChecker(EnhancedTestCase):
             birth_date="1985-05-15"
         )
 
-        # Create customer and link to member
-        self.customer_doc = frappe.new_doc("Customer")
-        self.customer_doc.customer_name = f"{self.member.first_name} {self.member.last_name}"
-        self.customer_doc.customer_type = "Individual"
-        self.customer_doc.insert()
-
-        self.member.customer = self.customer_doc.name
-        self.member.save()
-        self.member.reload()
+        # Reuse the Customer auto-created by create_test_member. Creating a second
+        # Customer with the same customer_name collides on the Customer PRIMARY key
+        # (DuplicateEntryError). link_member_to_customer is idempotent.
+        self.customer_doc = self.link_member_to_customer(self.member)
 
         # Create membership (which also creates dues schedule automatically)
         self.membership = self.create_test_membership(

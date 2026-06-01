@@ -183,6 +183,7 @@ Version History
 import itertools
 import json
 import random
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from faker import Faker
@@ -321,6 +322,16 @@ class EnhancedTestDataFactory:
     # within a shard process (shards use separate DBs, so no cross-shard concern).
     # See bucket B1 in docs/plans/2026-05-29-server-tests-red-baseline-triage.md.
     _global_unique_seq = itertools.count(1)
+
+    # Per-process run token (microsecond resolution, computed once when this class is
+    # first imported). The monotonic counter above only guarantees uniqueness *within*
+    # a single process; it resets to 1 every run, so deterministic names like
+    # "Coverage Test1" collide with any test data left behind by an earlier run on a
+    # persistent DB (committed test docs are not rolled back). Combining the counter
+    # with this run token makes auto-created Customer names unique *across* runs too,
+    # mirroring how generate_test_email()/generate_test_name() already append a
+    # timestamp component. Same DB pollution no longer causes DuplicateEntryError.
+    _process_run_token = str(int(time.time() * 1000000) % 100000000)
 
     def __init__(self, seed: int = 12345, use_faker: bool = True):
         """
@@ -629,9 +640,14 @@ class EnhancedTestDataFactory:
                 self.validate_field_exists("Member", field)
 
         # --- Enhanced pre-processing: unique naming for Customer collision prevention ---
-        # Use the process-global counter (NOT a per-instance one, which resets each
-        # setUp and re-collides — see _global_unique_seq above).
-        unique_suffix = str(next(EnhancedTestDataFactory._global_unique_seq))
+        # Combine the process-global counter (within-run uniqueness) with the
+        # per-process run token (cross-run uniqueness on persistent DBs) — see
+        # _global_unique_seq / _process_run_token above. Order is token-then-seq so
+        # the early-out check below still matches on the full suffix.
+        unique_suffix = (
+            f"{EnhancedTestDataFactory._process_run_token}"
+            f"{next(EnhancedTestDataFactory._global_unique_seq)}"
+        )
         if "last_name" in kwargs and unique_suffix not in kwargs["last_name"]:
             kwargs["last_name"] = f"{kwargs['last_name']}{unique_suffix}"
         if "email" in kwargs:
@@ -3606,10 +3622,23 @@ class EnhancedTestCase(FrappeTestCase):
             member = self.create_test_member(first_name="Test", last_name="User")
             customer = self.link_member_to_customer(member)
         """
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member_doc.first_name} {member_doc.last_name}"
-        customer.customer_type = "Individual"
-        customer.insert()
+        # Idempotent: create_test_member already auto-creates a Customer
+        # (auto_create_customer=True) named from the member's full name. Creating a
+        # second Customer with the same customer_name hits the Customer PRIMARY key
+        # -> DuplicateEntryError. Reuse the existing customer instead.
+        if member_doc.get("customer") and frappe.db.exists("Customer", member_doc.customer):
+            return frappe.get_doc("Customer", member_doc.customer)
+
+        customer_name = f"{member_doc.first_name} {member_doc.last_name}"
+        if frappe.db.exists("Customer", customer_name):
+            customer = frappe.get_doc("Customer", customer_name)
+        else:
+            customer = frappe.new_doc("Customer")
+            customer.customer_name = customer_name
+            customer.customer_type = "Individual"
+            if customer.meta.has_field("member"):
+                customer.member = member_doc.name
+            customer.insert()
 
         member_doc.customer = customer.name
         member_doc.save()
