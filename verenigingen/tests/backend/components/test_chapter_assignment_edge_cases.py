@@ -409,10 +409,11 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
         result = assign_member_to_chapter(self.test_member_name, special_chapter_name)
         self.assertTrue(result["success"], "Should handle special characters in chapter names")
 
-        # Verify assignment
-        member = frappe.get_doc("Member", self.test_member_name)
+        # Verify assignment (chapter linkage is via Chapter Member child rows)
         self.assertEqual(
-            member.primary_chapter, special_chapter_name, "Special character chapter name should be preserved"
+            get_member_primary_chapter(self.test_member_name),
+            special_chapter_name,
+            "Special character chapter name should be preserved",
         )
 
         # Verify roster entry
@@ -552,18 +553,18 @@ class TestChapterAssignmentEdgeCases(EnhancedTestCase):
         """Test that failed assignments don't leave partial data"""
         print("\n🧪 Testing database transaction rollback...")
 
-        # Get initial state
-        member = frappe.get_doc("Member", self.test_member_name)
-        initial_chapter = member.primary_chapter
+        # Get initial state (chapter linkage is via Chapter Member child rows)
+        initial_chapter = get_member_primary_chapter(self.test_member_name)
 
         # Attempt assignment to non-existent chapter (should fail)
         result = assign_member_to_chapter(self.test_member_name, "Non-Existent Chapter")
         self.assertFalse(result["success"])
 
         # Verify no partial changes
-        member.reload()
         self.assertEqual(
-            member.primary_chapter, initial_chapter, "Failed assignment should not change member data"
+            get_member_primary_chapter(self.test_member_name),
+            initial_chapter,
+            "Failed assignment should not change member data",
         )
 
         # Verify no roster entries were created

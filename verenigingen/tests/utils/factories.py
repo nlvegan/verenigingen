@@ -298,14 +298,10 @@ class TestDataBuilder:
             "status": "Active"}
         member_data.update(kwargs)
 
-        # Link to chapter if available
-        if "chapter" in self._data:
-            member_data["primary_chapter"] = self._data["chapter"].name
-
         member = frappe.get_doc(member_data)
         member.insert()
 
-        # Add to chapter if chapter exists
+        # Add to chapter if chapter exists (chapter linkage is via Chapter Member child rows)
         if "chapter" in self._data:
             try:
                 chapter = frappe.get_doc("Chapter", self._data["chapter"].name)
@@ -501,9 +497,12 @@ class TestDataBuilder:
             # Try to get chapter from volunteer's member record
             volunteer = self._data["volunteer"]
             if hasattr(volunteer, "member") and volunteer.member:
-                member = frappe.get_doc("Member", volunteer.member)
-                if hasattr(member, "primary_chapter") and member.primary_chapter:
-                    expense_data["chapter"] = member.primary_chapter
+                # Chapter linkage is via Chapter Member child rows, not a Member field
+                member_chapter = frappe.db.get_value(
+                    "Chapter Member", {"member": volunteer.member, "enabled": 1}, "parent"
+                )
+                if member_chapter:
+                    expense_data["chapter"] = member_chapter
 
         # Allow override from kwargs
         expense_data.update(kwargs)

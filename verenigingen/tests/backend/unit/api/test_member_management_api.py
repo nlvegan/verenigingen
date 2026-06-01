@@ -98,9 +98,11 @@ class TestMemberManagementAPI(VereningingenUnitTestCase):
         # Assign to chapter
         member_management.assign_member_to_chapter(member.name, chapter.name)
 
-        # Verify assignment
-        member.reload()
-        self.assertEqual(member.primary_chapter, chapter.name)
+        # Verify assignment (chapter linkage is via Chapter Member child rows)
+        member_chapter = frappe.db.get_value(
+            "Chapter Member", {"member": member.name, "enabled": 1}, "parent"
+        )
+        self.assertEqual(member_chapter, chapter.name)
 
         # Verify chapter_members updated
         chapter_doc = frappe.get_doc("Chapter", chapter.name)

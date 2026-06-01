@@ -124,9 +124,13 @@ class TestMemberLifecycleMockElimination(EnhancedTestCase):
             )
             
             # Test REAL chapter assignment logic (NO MOCKS)
-            if hasattr(member, 'primary_chapter') and member.primary_chapter:
+            # Chapter linkage is via Chapter Member child rows, not a Member field
+            member_chapter = frappe.db.get_value(
+                "Chapter Member", {"member": member.name, "enabled": 1}, "parent"
+            )
+            if member_chapter:
                 # Get the actual chapter assigned
-                chapter = frappe.get_doc("Chapter", member.primary_chapter)
+                chapter = frappe.get_doc("Chapter", member_chapter)
                 actual_region = chapter.region if hasattr(chapter, 'region') else None
                 
                 if actual_region == case["expected_region"]:

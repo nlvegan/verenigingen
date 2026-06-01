@@ -51,7 +51,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             last_name="TestMember",
             email="sepa.test@example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Phase 2: SEPA Mandate Creation
@@ -292,7 +292,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             last_name="Failure",
             email="payment.failure@example.com", 
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create SEPA mandate
@@ -458,7 +458,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
                 last_name=f"Member{i+1}",
                 email=f"batch.member{i+1}@example.com",
                 status="Active",
-                primary_chapter=self.test_chapter.name
+                chapter=self.test_chapter.name
             )
             batch_members.append(member)
             
@@ -594,7 +594,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             last_name="Member",
             email="migration@example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create old mandate
@@ -735,7 +735,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             last_name="Trail",
             email="audit.trail@example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create mandate with audit logging

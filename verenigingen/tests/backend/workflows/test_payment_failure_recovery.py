@@ -107,8 +107,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "payment_method": "SEPA Direct Debit",
                 "iban": "NL91ABNA0417164300",
                 "bank_account_name": f"PaymentTest Member-{unique_id}",
-                "status": "Active",
-                "primary_chapter": self.test_chapter.name}
+                "status": "Active"}
         )
         member.insert(ignore_permissions=True)
 

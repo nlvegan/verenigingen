@@ -194,8 +194,11 @@ class TestMemberController(VereningingenUnitTestCase):
         member = test_data["member"]
         chapter = test_data["chapter"]
 
-        # Verify chapter assignment
-        self.assertEqual(member.primary_chapter, chapter.name)
+        # Verify chapter assignment (chapter linkage is via Chapter Member child rows)
+        member_chapter = frappe.db.get_value(
+            "Chapter Member", {"member": member.name, "enabled": 1}, "parent"
+        )
+        self.assertEqual(member_chapter, chapter.name)
 
         # Verify members child table was updated
         chapter.reload()

@@ -217,11 +217,14 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
 
         result = membership_application.submit_application(application_data)
 
-        # Verify chapter assignment
+        # Verify chapter assignment (chapter linkage is via Chapter Member child rows)
         member = frappe.get_doc("Member", result["member_name"])
         self.track_doc("Member", member.name)
 
-        self.assertEqual(member.primary_chapter, "Amsterdam Chapter")
+        member_chapter = frappe.db.get_value(
+            "Chapter Member", {"member": member.name, "enabled": 1}, "parent"
+        )
+        self.assertEqual(member_chapter, "Amsterdam Chapter")
 
     def test_submit_application_with_sepa_details(self):
         """Test submitting application with SEPA payment details"""
