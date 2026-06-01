@@ -102,8 +102,13 @@ class TestCoverageCalculator(EnhancedTestCase):
         expected_start = date(2025, 11, 15)  # TEST_DATE_MID_Q4 as date
         self.assertEqual(self.member.member_since, expected_start)
 
-        # Act - calculate first invoice coverage
-        result = calculator.calculate_next_coverage_period(self.member)
+        # Act - calculate first invoice coverage. Pin the reference date with
+        # force_date so the test is deterministic regardless of the real calendar:
+        # without it the "current billing period" is derived from today(), so the
+        # 2025 assertions below only hold while today() is in 2025. Dec 1, 2025 is
+        # within the Annual period and after the Nov 15 join (mirrors the
+        # force_date pattern used by test_force_date_override).
+        result = calculator.calculate_next_coverage_period(self.member, force_date=TEST_FORCE_DATE_DEC)
 
         # Assert - coverage should start from membership start, not period start
         self.assertTrue(result.success)
@@ -137,8 +142,9 @@ class TestCoverageCalculator(EnhancedTestCase):
 
         calculator = CoverageCalculator(schedule_jan)
 
-        # Act
-        result = calculator.calculate_next_coverage_period(member_jan)
+        # Act - pin the reference date (see test_mid_period... for the rationale);
+        # Dec 1, 2025 keeps the billing period in 2025 so the assertions are stable.
+        result = calculator.calculate_next_coverage_period(member_jan, force_date=TEST_FORCE_DATE_DEC)
 
         # Assert - coverage starts from period start (which equals membership start)
         self.assertTrue(result.success)
