@@ -1181,6 +1181,28 @@ def ensure_membership_type_exists(name, *, amount=100.0):
     membership_type.billing_period = "Annual"
     membership_type.role_profile = _ensure_member_role_profile()
     membership_type.insert(ignore_permissions=True)
+
+    # Membership Type.after_insert auto-creates a dues schedule template with a
+    # default €15 rate. That is below our minimum_amount, so create_from_template
+    # (run on membership submit) fails with "Template dues rate (...) cannot be
+    # less than membership type minimum (...)" and no schedule is created — the
+    # caller then sees "No schedule was created with membership". Align the
+    # template's rate with the type so a schedule can actually be created (mirrors
+    # EnhancedTestCase.create_test_membership_type).
+    template = frappe.db.get_value(
+        "Membership Dues Schedule",
+        {"is_template": 1, "membership_type": membership_type.name},
+        "name",
+    )
+    if template:
+        template_doc = frappe.get_doc("Membership Dues Schedule", template)
+        template_doc.suggested_amount = amount
+        template_doc.dues_rate = amount
+        template_doc.minimum_amount = amount * 0.5
+        template_doc.save(ignore_permissions=True)
+        if membership_type.dues_schedule_template != template:
+            membership_type.dues_schedule_template = template
+            membership_type.save(ignore_permissions=True)
     return membership_type.name
 
 
