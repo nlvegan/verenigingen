@@ -75,9 +75,9 @@ class TestSuspensionAPI(EnhancedTestCase):
         self.test_member_1.reload()
         self.assertEqual(self.test_member_1.status, "Suspended")
         
-        # ASSERTION: Result must include actions taken
-        self.assertIn("actions_taken", result)
-        self.assertGreater(len(result["actions_taken"]), 0)
+        # ASSERTION: Result must include actions taken (payload nested under "data")
+        self.assertIn("actions_taken", result["data"])
+        self.assertGreater(len(result["data"]["actions_taken"]), 0)
 
     def test_suspend_member_api_permission_denied(self):
         """Non-privileged users MUST be denied suspension permission"""
@@ -119,17 +119,19 @@ class TestSuspensionAPI(EnhancedTestCase):
         # EnhancedTestCase handles permissions appropriately
         
         nonexistent_member = "MEMBER-DOES-NOT-EXIST-12345"
-        
-        # ASSERTION: API must handle nonexistent member appropriately
-        with self.assertRaises(Exception) as context:
-            suspend_member(nonexistent_member, self.test_suspension_reason)
-        
+
+        # ASSERTION: API must handle nonexistent member with a failure envelope
+        result = suspend_member(nonexistent_member, self.test_suspension_reason)
+        self.assertFalse(
+            result.get("success"), f"Nonexistent member suspension must fail. Result: {result}"
+        )
+
         # ASSERTION: Error must indicate member not found
-        error_msg = str(context.exception).lower()
+        error_msg = (result.get("error", {}).get("message") or "").lower()
         not_found_indicators = ["not found", "does not exist", "invalid", "missing"]
         self.assertTrue(
             any(indicator in error_msg for indicator in not_found_indicators),
-            f"Error must indicate member not found. Got: {context.exception}"
+            f"Error must indicate member not found. Got: {result}",
         )
 
     def test_unsuspend_member_api_success_workflow(self):
@@ -186,19 +188,22 @@ class TestSuspensionAPI(EnhancedTestCase):
         # ASSERTION: Must return valid status structure
         self.assertIsNotNone(result)
         self.assertIsInstance(result, dict)
-        
+
+        # Payload is nested under "data" in the OperationResult envelope
+        data = result["data"]
+
         # ASSERTION: Must include required fields
         required_fields = ["is_suspended", "member_status"]
         for field in required_fields:
-            self.assertIn(field, result)
-        
+            self.assertIn(field, data)
+
         # ASSERTION: Must accurately reflect database
         self.test_member_1.reload()
-        self.assertEqual(result["member_status"], self.test_member_1.status)
-        
+        self.assertEqual(data["member_status"], self.test_member_1.status)
+
         # ASSERTION: Active member must not be suspended
         if self.test_member_1.status == "Active":
-            self.assertFalse(result["is_suspended"])
+            self.assertFalse(data["is_suspended"])
 
     def test_get_suspension_status_api_suspended_member(self):
         """Status API MUST accurately report suspended member status"""
@@ -211,22 +216,25 @@ class TestSuspensionAPI(EnhancedTestCase):
         # Check status
         result = get_suspension_status(self.test_member_1.name)
         
-        # ASSERTION: Must show suspended status
+        # ASSERTION: Must show suspended status (payload nested under "data")
         self.assertIsNotNone(result)
-        self.assertTrue(result["is_suspended"])
-        self.assertEqual(result["member_status"], "Suspended")
+        self.assertTrue(result["data"]["is_suspended"])
+        self.assertEqual(result["data"]["member_status"], "Suspended")
 
     def test_can_suspend_member_api_administrator_permissions(self):
         """Permission check API MUST correctly identify Administrator permissions"""
         # EnhancedTestCase handles permissions appropriately
         
         result = can_suspend_member(self.test_member_1.name)
-        
+
+        # Permission flag is nested under "data" in the OperationResult envelope
+        can_suspend = result["data"]["can_suspend"]
+
         # ASSERTION: Must return boolean
-        self.assertIsInstance(result, bool)
-        
+        self.assertIsInstance(can_suspend, bool)
+
         # ASSERTION: Administrator must have suspension permissions
-        self.assertTrue(result, "Administrator must have suspension permissions")
+        self.assertTrue(can_suspend, "Administrator must have suspension permissions")
 
     def test_can_suspend_member_api_regular_user_permissions(self):
         """Permission check API MUST correctly deny regular user permissions"""
@@ -246,12 +254,15 @@ class TestSuspensionAPI(EnhancedTestCase):
         frappe.set_user(test_user_email)
         
         result = can_suspend_member(self.test_member_1.name)
-        
+
+        # Permission flag is nested under "data" in the OperationResult envelope
+        can_suspend = result["data"]["can_suspend"]
+
         # ASSERTION: Must return boolean
-        self.assertIsInstance(result, bool)
-        
+        self.assertIsInstance(can_suspend, bool)
+
         # ASSERTION: Regular user must NOT have suspension permissions
-        self.assertFalse(result, "Regular user must NOT have suspension permissions")
+        self.assertFalse(can_suspend, "Regular user must NOT have suspension permissions")
         
         # EnhancedTestCase handles permissions appropriately
 
@@ -265,10 +276,10 @@ class TestSuspensionAPI(EnhancedTestCase):
         self.assertIsNotNone(result)
         self.assertIsInstance(result, dict)
         
-        # ASSERTION: Must include preview information
+        # ASSERTION: Must include preview information (payload nested under "data")
         expected_fields = ["member_status", "has_user_account", "active_teams", "can_suspend"]
         for field in expected_fields:
-            self.assertIn(field, result, f"Preview must include {field}")
+            self.assertIn(field, result["data"], f"Preview must include {field}")
 
     def test_bulk_suspend_members_api_success(self):
         """Bulk suspension API MUST process multiple members correctly"""
@@ -282,15 +293,18 @@ class TestSuspensionAPI(EnhancedTestCase):
         self.assertIsNotNone(result)
         self.assertIsInstance(result, dict)
         
+        # Payload is nested under "data" on success and under "meta.data" on failure
+        data = result.get("data") or result.get("meta", {}).get("data", {})
+
         # ASSERTION: Must process all members
-        if "processed" in result:
-            self.assertGreaterEqual(result["processed"], 0)
-        
+        if "processed" in data:
+            self.assertGreaterEqual(data["processed"], 0)
+
         # ASSERTION: Must provide summary information
         summary_fields = ["total", "successful", "failed"]
         for field in summary_fields:
-            if field in result:
-                self.assertIsInstance(result[field], int)
+            if field in data:
+                self.assertIsInstance(data[field], int)
 
     def test_bulk_suspend_empty_list_handled(self):
         """Bulk suspension MUST handle empty member list appropriately"""
@@ -302,21 +316,22 @@ class TestSuspensionAPI(EnhancedTestCase):
         self.assertIsNotNone(result)
         self.assertTrue(result.get("success"), "Empty list bulk suspension should succeed")
         
-        # ASSERTION: Processed count must be zero for empty list
-        self.assertEqual(result.get("processed", 0), 0)
+        # ASSERTION: Processed count must be zero for empty list (payload under "data")
+        self.assertEqual(result.get("data", {}).get("processed", 0), 0)
 
     def test_suspension_reason_required(self):
         """Suspension API MUST require suspension reason"""
         # EnhancedTestCase handles permissions appropriately
         
-        # ASSERTION: Empty reason must be rejected with ValueError
-        with self.assertRaises(ValueError) as context:
-            suspend_member(self.test_member_1.name, "")
-        
+        # ASSERTION: Empty reason must be rejected (API returns a failure envelope)
+        result = suspend_member(self.test_member_1.name, "")
+
+        self.assertFalse(result.get("success"), f"Empty reason must be rejected. Result: {result}")
+
         # Verify error indicates missing reason
-        error_msg = str(context.exception).lower()
+        error_msg = (result.get("error", {}).get("message") or "").lower()
         reason_indicators = ["reason", "required", "empty", "missing"]
         self.assertTrue(
             any(indicator in error_msg for indicator in reason_indicators),
-            f"Error must indicate missing reason. Got: {context.exception}"
+            f"Error must indicate missing reason. Got: {result}",
         )

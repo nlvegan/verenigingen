@@ -285,9 +285,11 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
                     filters=frappe.as_json({"chapter": "Amsterdam"})
                 )
         
-        # Verify real chapter notification was processed
+        # Verify real chapter notification was processed. The endpoint returns a
+        # flat {"success", "count", "message"} shape (count = reminders processed);
+        # chapter delivery is verified via the SMTP call assertions below.
         self.assertTrue(result["success"])
-        self.assertGreater(result["chapter_notifications"], 0)
+        self.assertGreater(result["count"], 0)
         
         # Verify SMTP was called for both member and chapter
         self.assertGreater(mock_smtp.call_count, 1)

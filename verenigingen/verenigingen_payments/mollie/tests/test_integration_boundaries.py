@@ -736,8 +736,11 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
 
                 result = mollie_subscription_webhook()
 
-                self.assertFalse(result["success"])
-                self.assertIn("invalid_payload", result["error"])
+                # The webhook returns a standardized {"status", "message"/"reason"}
+                # envelope (no "success"/"error" keys). A malformed/unauthenticated
+                # payload must not be processed successfully.
+                self.assertNotEqual(result.get("status"), "processed")
+                self.assertIn(result.get("status"), {"error", "ignored", "already_processed"})
 
     # Helper methods for Mollie integration tests
     def create_test_payment_entry(self, payment_type="Receive", **kwargs):

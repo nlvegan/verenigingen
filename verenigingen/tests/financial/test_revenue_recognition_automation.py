@@ -98,12 +98,12 @@ class TestRevenueRecognitionAutomation(BaseTestCase):
         
         # CRITICAL VALIDATIONS:
         # Total recognized revenue equals paid amount
-        total_recognized = sum(item["amount"] for item in revenue_schedule)
+        total_recognized = sum(item["minimum_amount"] for item in revenue_schedule)
         self.assertEqual(total_recognized, annual_amount)
-        
+
         # Each month recognizes equal amount
         for item in revenue_schedule:
-            self.assertEqual(item["amount"], Decimal('20.00'))
+            self.assertEqual(item["minimum_amount"], Decimal('20.00'))
         
         # Final cumulative equals total
         final_cumulative = revenue_schedule[-1]["cumulative"]
@@ -215,12 +215,12 @@ class TestRevenueRecognitionAutomation(BaseTestCase):
         
         # CRITICAL VALIDATIONS:
         # Total recognition equals quarterly payment
-        total_recognized = sum(entry["amount"] for entry in recognition_schedule)
+        total_recognized = sum(entry["minimum_amount"] for entry in recognition_schedule)
         self.assertEqual(total_recognized, quarterly_amount)
         
         # Each month recognizes €25
         for entry in recognition_schedule:
-            self.assertEqual(entry["amount"], Decimal('25.00'))
+            self.assertEqual(entry["minimum_amount"], Decimal('25.00'))
         
         # Deferred revenue calculation
         deferred_amounts = []
@@ -236,7 +236,7 @@ class TestRevenueRecognitionAutomation(BaseTestCase):
         print(f"   Quarterly payment: €{quarterly_amount}")
         print(f"   Monthly recognition: €{monthly_recognition}")
         for i, entry in enumerate(recognition_schedule):
-            print(f"   Month {entry['month']}: €{entry['amount']} recognized, "
+            print(f"   Month {entry['month']}: €{entry['minimum_amount']} recognized, "
                   f"€{deferred_amounts[i]} deferred")
     
     def test_membership_cancellation_revenue_reversal(self):

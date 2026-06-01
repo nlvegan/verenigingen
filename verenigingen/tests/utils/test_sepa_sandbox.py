@@ -26,8 +26,8 @@ class TestSEPASandbox(FrappeTestCase):
         """Restore original sandbox mode setting."""
         if self.original_setting is not None:
             frappe.conf.sepa_sandbox_mode = self.original_setting
-        elif hasattr(frappe.conf, "sepa_sandbox_mode"):
-            delattr(frappe.conf, "sepa_sandbox_mode")
+        elif "sepa_sandbox_mode" in frappe.conf:
+            del frappe.conf["sepa_sandbox_mode"]
 
     def test_sandbox_mode_disabled_by_default(self):
         """Sandbox mode should be disabled by default."""
@@ -41,8 +41,8 @@ class TestSEPASandbox(FrappeTestCase):
 
     def test_sandbox_mode_disabled_when_not_set(self):
         """Sandbox mode should be disabled when not configured at all."""
-        if hasattr(frappe.conf, "sepa_sandbox_mode"):
-            delattr(frappe.conf, "sepa_sandbox_mode")
+        if "sepa_sandbox_mode" in frappe.conf:
+            del frappe.conf["sepa_sandbox_mode"]
         self.assertFalse(self.sandbox.is_sandbox_mode())
 
     def test_msg_id_prefixed_in_sandbox_mode(self):

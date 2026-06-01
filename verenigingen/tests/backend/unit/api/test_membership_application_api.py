@@ -51,13 +51,16 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         # Submit application
         result = membership_application.submit_application(application_data)
 
-        # Verify result
-        self.assertIn("member_name", result)
-        self.assertIn("application_id", result)
-        self.assertEqual(result["status"], "success")
+        # Verify result. submit_application returns an OperationResult envelope:
+        # {"success": True, "data": {"member_record", "application_id", "status"}, ...}
+        self.assertTrue(result["success"])
+        data = result["data"]
+        self.assertIn("member_record", data)
+        self.assertIn("application_id", data)
+        self.assertEqual(data["status"], "pending_review")
 
         # Verify member created
-        member = frappe.get_doc("Member", result["member_name"])
+        member = frappe.get_doc("Member", data["member_record"])
         self.track_doc("Member", member.name)
 
         self.assertEqual(member.first_name, application_data["first_name"])
@@ -112,7 +115,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         result = membership_application.submit_application(application_data)
 
         # Verify special characters handled correctly
-        member = frappe.get_doc("Member", result["member_name"])
+        member = frappe.get_doc("Member", result["data"]["member_record"])
         self.track_doc("Member", member.name)
 
         self.assertEqual(member.first_name, "José")
@@ -218,7 +221,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         result = membership_application.submit_application(application_data)
 
         # Verify chapter assignment (chapter linkage is via Chapter Member child rows)
-        member = frappe.get_doc("Member", result["member_name"])
+        member = frappe.get_doc("Member", result["data"]["member_record"])
         self.track_doc("Member", member.name)
 
         member_chapter = frappe.db.get_value(
@@ -248,7 +251,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         result = membership_application.submit_application(application_data)
 
         # Verify SEPA details stored
-        member = frappe.get_doc("Member", result["member_name"])
+        member = frappe.get_doc("Member", result["data"]["member_record"])
         self.track_doc("Member", member.name)
 
         self.assertEqual(member.payment_method, "SEPA Direct Debit")
@@ -275,7 +278,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         # This might require parental consent or special handling
         result = membership_application.submit_application(application_data)
 
-        member = frappe.get_doc("Member", result["member_name"])
+        member = frappe.get_doc("Member", result["data"]["member_record"])
         self.track_doc("Member", member.name)
 
         # Verify age calculated
