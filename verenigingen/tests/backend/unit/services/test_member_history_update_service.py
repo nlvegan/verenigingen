@@ -17,6 +17,7 @@ import frappe
 from frappe.utils import random_string, today, add_days
 from verenigingen.services.member.history.member_history_update_service import MemberHistoryUpdateService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils import determine_payment_status
 import unittest
 
 
@@ -389,32 +390,32 @@ class TestInvoiceHistoryHelpers(EnhancedTestCase):
 
     def test_determine_payment_status_draft(self):
         invoice = frappe._dict(docstatus=0, status="Draft", outstanding_amount=100, grand_total=100)
-        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Draft")
+        self.assertEqual(determine_payment_status(invoice, 0), "Draft")
 
     def test_determine_payment_status_paid_by_status(self):
         invoice = frappe._dict(docstatus=1, status="Paid", outstanding_amount=0, grand_total=100)
-        self.assertEqual(self.service._determine_payment_status(invoice, 100), "Paid")
+        self.assertEqual(determine_payment_status(invoice, 100), "Paid")
 
     def test_determine_payment_status_paid_by_outstanding(self):
         """outstanding_amount <= 0 should return Paid even if status is not 'Paid'"""
         invoice = frappe._dict(docstatus=1, status="Submitted", outstanding_amount=0, grand_total=100)
-        self.assertEqual(self.service._determine_payment_status(invoice, 100), "Paid")
+        self.assertEqual(determine_payment_status(invoice, 100), "Paid")
 
     def test_determine_payment_status_overdue(self):
         invoice = frappe._dict(docstatus=1, status="Overdue", outstanding_amount=100, grand_total=100)
-        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Overdue")
+        self.assertEqual(determine_payment_status(invoice, 0), "Overdue")
 
     def test_determine_payment_status_cancelled(self):
         invoice = frappe._dict(docstatus=1, status="Cancelled", outstanding_amount=100, grand_total=100)
-        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Cancelled")
+        self.assertEqual(determine_payment_status(invoice, 0), "Cancelled")
 
     def test_determine_payment_status_partially_paid(self):
         invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=50, grand_total=100)
-        self.assertEqual(self.service._determine_payment_status(invoice, 50), "Partially Paid")
+        self.assertEqual(determine_payment_status(invoice, 50), "Partially Paid")
 
     def test_determine_payment_status_unpaid(self):
         invoice = frappe._dict(docstatus=1, status="Unpaid", outstanding_amount=100, grand_total=100)
-        self.assertEqual(self.service._determine_payment_status(invoice, 0), "Unpaid")
+        self.assertEqual(determine_payment_status(invoice, 0), "Unpaid")
 
     # -- _resolve_payment_entry --
 

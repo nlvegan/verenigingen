@@ -37,6 +37,7 @@ class TestMemberLookupService(FrappeTestCase):
                 "doctype": "Member",
                 "first_name": "Lookup",
                 "last_name": "Test",
+                "full_name": "Lookup Test",
                 "email": self.test_email,
                 "member_id": self.test_member_id,
                 "status": "Pending",

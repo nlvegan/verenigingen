@@ -13,13 +13,46 @@ Key Performance Targets:
 """
 
 import time
+from contextlib import contextmanager
+
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
+class _QueryCounter:
+    """Simple holder exposing the captured queries to the test body."""
+
+    def __init__(self):
+        self.queries = []
+
+
 class TestMemberPerformanceOptimization(EnhancedTestCase):
     """Test member operations performance optimizations"""
-    
+
+    @contextmanager
+    def _count_queries(self, max_queries):
+        """Count SQL queries executed in the block and assert an upper bound.
+
+        Frappe v16's assertQueryCount no longer yields an object exposing the
+        executed queries, so this local helper restores the ``ctx.queries``
+        access these performance tests rely on while keeping the upper-bound
+        assertion behaviour.
+        """
+        counter = _QueryCounter()
+        orig_sql = frappe.db.__class__.sql
+
+        def _sql_with_count(*args, **kwargs):
+            ret = orig_sql(*args, **kwargs)
+            counter.queries.append(str(args[0]) if args else "")
+            return ret
+
+        try:
+            frappe.db.__class__.sql = _sql_with_count
+            yield counter
+        finally:
+            frappe.db.__class__.sql = orig_sql
+        self.assertLessEqual(len(counter.queries), max_queries)
+
     def setUp(self):
         super().setUp()
         # Clear any existing cache
@@ -33,7 +66,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         
         # Test 1: Standard member creation (baseline)
         print("\n1. Testing Standard Member Creation:")
-        with self.assertQueryCount(1000) as standard_context:  # Realistic baseline
+        with self._count_queries(1000) as standard_context:
             standard_member = self.create_test_member(
                 first_name="Standard",
                 last_name="Creation", 
@@ -46,7 +79,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         
         # Test 2: Optimized member creation
         print("\n2. Testing Optimized Member Creation:")
-        with self.assertQueryCount(150) as optimized_context:  # Optimized target
+        with self._count_queries(150) as optimized_context:
             optimized_member = self.create_test_member_optimized(
                 first_name="Optimized",
                 last_name="Creation",
@@ -89,7 +122,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         
         # Test optimized search
         print("\n1. Testing Optimized Member Search:")
-        with self.assertQueryCount(10) as search_context:  # Optimized search target
+        with self._count_queries(10) as search_context:
             search_results = member_optimizer.bulk_load_members_optimized(
                 filters={'search_term': 'SearchTest'},
                 limit=10
@@ -127,7 +160,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         
         # Test 1: First dashboard load (no cache)
         print("\n1. Testing Initial Dashboard Load:")
-        with self.assertQueryCount(5) as first_load_context:  # Should be minimal queries
+        with self._count_queries(5) as first_load_context:
             dashboard_data_1 = member_optimizer.get_member_dashboard_cached(member.name)
         
         first_load_queries = len(first_load_context.queries)
@@ -135,7 +168,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         
         # Test 2: Second dashboard load (cached)
         print("\n2. Testing Cached Dashboard Load:")
-        with self.assertQueryCount(1) as cached_load_context:  # Cache retrieval only
+        with self._count_queries(1) as cached_load_context:
             dashboard_data_2 = member_optimizer.get_member_dashboard_cached(member.name)
         
         cached_load_queries = len(cached_load_context.queries)
@@ -163,7 +196,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         print("\n1. Testing Bulk Member Creation:")
         member_names = []
         
-        with self.assertQueryCount(300) as bulk_creation_context:  # 5 members × ~60 queries each
+        with self._count_queries(300) as bulk_creation_context:
             for i in range(5):
                 member_data = {
                     'first_name': f'Bulk{i}',
@@ -186,7 +219,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         
         # Test bulk loading
         print("\n2. Testing Bulk Member Loading:")
-        with self.assertQueryCount(2) as bulk_load_context:  # Single JOIN query
+        with self._count_queries(2) as bulk_load_context:
             bulk_results = member_optimizer.bulk_load_members_optimized(
                 filters={'search_term': 'Bulk'},
                 limit=10
@@ -210,7 +243,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         start_time = time.time()
         
         # Complete workflow: Create → Search → Dashboard → Bulk operations
-        with self.assertQueryCount(400) as complete_workflow_context:
+        with self._count_queries(400) as complete_workflow_context:
             
             # 1. Create optimized member
             member = self.create_test_member_optimized(

@@ -17,6 +17,7 @@ Test Coverage:
 """
 
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 from datetime import date, timedelta
 
@@ -32,6 +33,22 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         """Set up test environment and service instance"""
         super().setUp()
         self.service = SEPAMandateMemberIntegrationService()
+
+    @contextmanager
+    def _in_test_flag(self, value):
+        """Temporarily set frappe.flags.in_test, restoring the original after.
+
+        frappe.flags is a frappe._dict, so unittest.mock.patch.object cannot be
+        used on it (it inspects __dict__, not the dict items). Setting the flag
+        directly and restoring it keeps frappe.flags.current_date intact, which
+        Frappe's now() relies on.
+        """
+        original = frappe.flags.in_test
+        frappe.flags.in_test = value
+        try:
+            yield
+        finally:
+            frappe.flags.in_test = original
 
     def tearDown(self):
         """Clean up after each test"""
@@ -80,8 +97,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
 
         # Set test flag to skip audit logging for cleaner tests
         # Mock justified: Infrastructure - audit logging, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
 
             result = self.service.update_member_mandate_relationship(mandate)
 
@@ -122,10 +138,24 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         """Test relationship update when field validation fails"""
         mandate = self._create_test_mandate()
 
-        # Mock meta to simulate missing fields
+        # Mock meta to simulate missing fields on the link DocType only.
+        # Capture the real get_meta first so other DocTypes (e.g. Error Log used
+        # by frappe.log_error) still resolve correctly and don't break internals.
         # Mock justified: Infrastructure - DocType metadata simulation, not business logic
-        with patch('frappe.get_meta') as mock_meta:
-            mock_meta.return_value.fields = []  # No fields available
+        from unittest.mock import Mock
+
+        real_get_meta = frappe.get_meta
+        empty_meta = Mock()
+        empty_meta.fields = []
+
+        with patch('frappe.get_meta') as mock_get_meta:
+            def side_effect(*args, **kwargs):
+                doctype = args[0] if args else kwargs.get("doctype")
+                if doctype == "Member SEPA Mandate Link":
+                    return empty_meta
+                return real_get_meta(*args, **kwargs)
+
+            mock_get_meta.side_effect = side_effect
 
             result = self.service.update_member_mandate_relationship(mandate)
 
@@ -137,8 +167,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         mandate = self._create_test_mandate()
 
         # Mock justified: Infrastructure - audit logging, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
 
             # First processing
             result1 = self.service.update_member_mandate_relationship(mandate)
@@ -258,14 +287,18 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
             mock_fields.append(field_mock)
         mock_meta.fields = mock_fields
 
+        # Capture the real get_meta BEFORE patching so the fallback branch does
+        # not recurse into the mock (frappe.log_error internally calls get_meta).
+        real_get_meta = frappe.get_meta
+
         # Ensure the mock doesn't break Frappe's document internals
         with patch('frappe.get_meta') as mock_get_meta:
-            def side_effect(doctype):
+            def side_effect(*args, **kwargs):
+                doctype = args[0] if args else kwargs.get("doctype")
                 if doctype == "Member SEPA Mandate Link":
                     return mock_meta
-                else:
-                    # Return real meta for other DocTypes to avoid breaking Frappe internals
-                    return frappe.get_meta(doctype)
+                # Return real meta for other DocTypes to avoid breaking Frappe internals
+                return real_get_meta(*args, **kwargs)
 
             mock_get_meta.side_effect = side_effect
 
@@ -291,8 +324,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         mandate = self._create_test_mandate()
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
             with patch('frappe.cache') as mock_cache:
                 mock_cache.return_value.delete_key.return_value = None
                 with patch.object(self.service, '_get_audit_context_data', return_value={}):
@@ -320,8 +352,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         mandate = self._create_test_mandate()
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
             with patch('frappe.cache') as mock_cache:
                 mock_cache.return_value.delete_key.return_value = None
                 with patch.object(self.service, '_get_audit_context_data', return_value={}):
@@ -342,8 +373,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         mandate = self._create_test_mandate(status='Cancelled', is_active=0)
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
             with patch('frappe.cache') as mock_cache:
                 mock_cache.return_value.delete_key.return_value = None
                 with patch.object(self.service, '_get_audit_context_data', return_value={}):
@@ -371,8 +401,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         mandate = self._create_test_mandate(member=member.name)
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
             with patch('frappe.cache') as mock_cache:
                 mock_cache.return_value.delete_key.return_value = None
                 with patch.object(self.service, '_get_audit_context_data', return_value={}):
@@ -434,8 +463,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         }
 
         # Test with real audit log creation (not in test mode)
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = False  # Enable audit logging
+        with self._in_test_flag(False):
 
             # Should not raise exception when creating real audit log
             try:
@@ -450,8 +478,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
     def test_create_sepa_audit_log_test_environment(self):
         """Test that audit logging is skipped in test environment"""
         # Mock justified: Infrastructure - test environment flag simulation, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
 
             audit_data = {'operation': 'test'}
 
@@ -470,8 +497,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
 
         # Mock justified: Infrastructure - test environment flag and error logging, not business logic
         with patch('frappe.log_error') as mock_log_error:
-            with patch('frappe.flags') as mock_flags:
-                mock_flags.in_test = False  # Enable audit logging to test failure path
+            with self._in_test_flag(False):
 
                 # Should not raise exception but should log error when validation fails
                 self.service._create_sepa_audit_log(audit_data)
@@ -564,8 +590,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         )
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
             with patch('frappe.cache') as mock_cache:
                 mock_cache.return_value.delete_key.return_value = None
                 with patch.object(self.service, '_get_audit_context_data', return_value={}):
@@ -609,8 +634,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         )
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
             with patch('frappe.cache') as mock_cache:
                 mock_cache.return_value.delete_key.return_value = None
                 with patch.object(self.service, '_get_audit_context_data', return_value={}):
@@ -654,8 +678,7 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         mandate = self._create_test_mandate(status='Draft')
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
-        with patch('frappe.flags') as mock_flags:
-            mock_flags.in_test = True
+        with self._in_test_flag(True):
             with patch('frappe.cache') as mock_cache:
                 mock_cache.return_value.delete_key.return_value = None
                 with patch.object(self.service, '_get_audit_context_data', return_value={}):

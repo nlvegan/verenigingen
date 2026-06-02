@@ -40,9 +40,7 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
 
         # Create test chapter for member context
         self.test_chapter = self.create_test_chapter(
-            name="API Test Chapter",
-            postal_codes="1000-1099",
-            region="Noord-Holland"
+            chapter_name="API Test Chapter", postal_codes="1000-1099", region="Noord-Holland"
         )
 
     def test_member_creation_api_comprehensive_validation(self):
@@ -59,13 +57,10 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
             "birth_date": "1985-03-15",
             "email": "api.test@verenigingen.nl",
             "phone": "+31612345678",
-            "chapter": self.test_chapter.name
+            "chapter": self.test_chapter.name,
         }
 
-        result = self.call_api_method(
-            "verenigingen.api.member_management.create_member",
-            **valid_member_data
-        )
+        result = self.call_api_method("verenigingen.api.member_management.create_member", **valid_member_data)
 
         self.assertTrue(result["success"])
         self.assertIsNotNone(result["member_name"])
@@ -80,34 +75,27 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
         invalid_scenarios = [
             {
                 "data": {**valid_member_data, "email": "invalid-email"},
-                "expected_error": "Invalid email format"
+                "expected_error": "Invalid email format",
             },
             {
                 "data": {**valid_member_data, "birth_date": "2010-01-01"},
-                "expected_error": "Member must be at least 16 years old"
+                "expected_error": "Member must be at least 16 years old",
             },
             {
                 "data": {**valid_member_data, "email": "invalid-email"},
-                "expected_error": "Invalid email format"
+                "expected_error": "Invalid email format",
             },
-            {
-                "data": {**valid_member_data, "phone": "123"},
-                "expected_error": "Invalid phone number format"
-            }
+            {"data": {**valid_member_data, "phone": "123"}, "expected_error": "Invalid phone number format"},
         ]
 
         for scenario in invalid_scenarios:
             with self.subTest(error_case=scenario["expected_error"]):
                 result = self.call_api_method(
-                    "verenigingen.api.member_management.create_member",
-                    **scenario["data"]
+                    "verenigingen.api.member_management.create_member", **scenario["data"]
                 )
 
                 self.assertFalse(result["success"])
-                self.assertIn(
-                    scenario["expected_error"].lower(),
-                    result["error"].lower()
-                )
+                self.assertIn(scenario["expected_error"].lower(), result["error"].lower())
 
     def test_member_status_transition_api_validation(self):
         """
@@ -118,23 +106,17 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
         """
         # Create test member
         member = self.create_test_member(
-            first_name="Status",
-            last_name="Transition Test",
-            birth_date="1980-01-01"
+            first_name="Status", last_name="Transition Test", birth_date="1980-01-01"
         )
 
         # Create dues schedule for business rule testing
-        dues_schedule = self.create_test_dues_schedule(
-            member=member.name,
-            amount=25.00,
-            frequency="monthly"
-        )
+        dues_schedule = self.create_test_dues_schedule(member=member.name, amount=25.00, frequency="monthly")
 
         # Test valid status transitions
         valid_transitions = [
             ("Active", "Suspended", "Temporary suspension"),
             ("Suspended", "Active", "Reactivation after suspension"),
-            ("Active", "Quit", "Voluntary termination")
+            ("Active", "Quit", "Voluntary termination"),
         ]
 
         for from_status, to_status, reason in valid_transitions:
@@ -148,7 +130,7 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
                     "verenigingen.api.member_management.update_member_status",
                     member_name=member.name,
                     new_status=to_status,
-                    reason=reason
+                    reason=reason,
                 )
 
                 self.assertTrue(result["success"])
@@ -168,7 +150,7 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
         # Test invalid transitions
         invalid_transitions = [
             ("Quit", "Active", "Cannot reactivate terminated member"),
-            ("Quit", "Suspended", "Cannot suspend terminated member")
+            ("Quit", "Suspended", "Cannot suspend terminated member"),
         ]
 
         for from_status, to_status, expected_error in invalid_transitions:
@@ -181,7 +163,7 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
                     "verenigingen.api.member_management.update_member_status",
                     member_name=member.name,
                     new_status=to_status,
-                    reason="Invalid transition test"
+                    reason="Invalid transition test",
                 )
 
                 self.assertFalse(result["success"])
@@ -200,16 +182,13 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
             ("Maria", "de Jong", "maria.dejong@test.nl"),
             ("Piet", "van den Heuvel", "piet.vandenheuvel@test.nl"),
             ("Anna", "ter Beek", "anna.terbeek@test.nl"),
-            ("Johannes", "Jansen", "johannes.jansen@test.nl")
+            ("Johannes", "Jansen", "johannes.jansen@test.nl"),
         ]
 
         created_members = []
         for first_name, last_name, email in test_members:
             member = self.create_test_member(
-                first_name=first_name,
-                last_name=last_name,
-                birth_date="1980-01-01",
-                email=email
+                first_name=first_name, last_name=last_name, birth_date="1980-01-01", email=email
             )
             created_members.append(member)
 
@@ -218,23 +197,23 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
             {
                 "query": "Jan",
                 "expected_count": 2,  # Jan and Johannes
-                "description": "First name partial match"
+                "description": "First name partial match",
             },
             {
                 "query": "van der",
                 "expected_count": 1,  # Jan van der Berg
-                "description": "Tussenvoegsel search"
+                "description": "Tussenvoegsel search",
             },
             {
                 "query": "dejong@test.nl",
                 "expected_count": 1,  # Maria de Jong
-                "description": "Email search"
+                "description": "Email search",
             },
             {
                 "query": "ter",
                 "expected_count": 1,  # Anna ter Beek
-                "description": "Tussenvoegsel partial"
-            }
+                "description": "Tussenvoegsel partial",
+            },
         ]
 
         for scenario in search_scenarios:
@@ -242,16 +221,11 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
                 # Monitor query performance
                 with self.assertQueryCount(10):  # Reasonable query limit
                     result = self.call_api_method(
-                        "verenigingen.api.member_management.search_members",
-                        query=scenario["query"],
-                        limit=20
+                        "verenigingen.api.member_management.search_members", query=scenario["query"], limit=20
                     )
 
                 self.assertTrue(result["success"])
-                self.assertGreaterEqual(
-                    len(result["members"]),
-                    scenario["expected_count"]
-                )
+                self.assertGreaterEqual(len(result["members"]), scenario["expected_count"])
 
                 # Verify search relevance
                 for member_data in result["members"]:
@@ -272,9 +246,7 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
         super().setUp()
 
         self.test_member = self.create_test_member(
-            first_name="Payment",
-            last_name="API Test",
-            birth_date="1985-01-01"
+            first_name="Payment", last_name="API Test", birth_date="1985-01-01"
         )
 
     def test_sepa_mandate_creation_api_comprehensive(self):
@@ -290,13 +262,10 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
             "iban": "NL91ABNA0417164300",
             "account_holder_name": "Payment API Test",
             "bic": "ABNANL2A",
-            "sign_date": today()
+            "sign_date": today(),
         }
 
-        result = self.call_api_method(
-            "verenigingen.api.sepa_mandate.create_mandate",
-            **valid_mandate_data
-        )
+        result = self.call_api_method("verenigingen.api.sepa_mandate.create_mandate", **valid_mandate_data)
 
         self.assertTrue(result["success"])
         self.assertIsNotNone(result["mandate_id"])
@@ -311,36 +280,30 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
         invalid_iban_scenarios = [
             {
                 "iban": "NL91ABNA041716430",  # Too short
-                "expected_error": "Invalid IBAN length"
+                "expected_error": "Invalid IBAN length",
             },
             {
                 "iban": "DE91ABNA0417164300",  # German IBAN
-                "expected_error": "Only Dutch IBANs are supported"
+                "expected_error": "Only Dutch IBANs are supported",
             },
             {
                 "iban": "NL00ABNA0417164300",  # Invalid checksum
-                "expected_error": "Invalid IBAN checksum"
+                "expected_error": "Invalid IBAN checksum",
             },
             {
                 "iban": "NL91XXXX0417164300",  # Invalid bank code
-                "expected_error": "Unknown bank code"
-            }
+                "expected_error": "Unknown bank code",
+            },
         ]
 
         for scenario in invalid_iban_scenarios:
             with self.subTest(iban_test=scenario["iban"]):
                 invalid_data = {**valid_mandate_data, "iban": scenario["iban"]}
 
-                result = self.call_api_method(
-                    "verenigingen.api.sepa_mandate.create_mandate",
-                    **invalid_data
-                )
+                result = self.call_api_method("verenigingen.api.sepa_mandate.create_mandate", **invalid_data)
 
                 self.assertFalse(result["success"])
-                self.assertIn(
-                    scenario["expected_error"].lower(),
-                    result["error"].lower()
-                )
+                self.assertIn(scenario["expected_error"].lower(), result["error"].lower())
 
     def test_payment_processing_api_workflow_validation(self):
         """
@@ -351,16 +314,12 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
         """
         # Create SEPA mandate for payment processing
         mandate = self.create_test_sepa_mandate(
-            self.test_member.name,
-            iban="NL91ABNA0417164300",
-            account_holder_name="Payment API Test"
+            self.test_member.name, iban="NL91ABNA0417164300", account_holder_name="Payment API Test"
         )
 
         # Create dues schedule for payment generation
         dues_schedule = self.create_test_dues_schedule(
-            member=self.test_member.name,
-            amount=25.00,
-            frequency="monthly"
+            member=self.test_member.name, amount=25.00, frequency="monthly"
         )
 
         # Test payment processing API
@@ -369,7 +328,7 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
             member_name=self.test_member.name,
             amount=25.00,
             payment_method="SEPA",
-            reference="TEST_PAYMENT_001"
+            reference="TEST_PAYMENT_001",
         )
 
         self.assertTrue(result["success"])
@@ -382,20 +341,17 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
 
         # Test payment failure scenarios
         failure_scenarios = [
-            {
-                "member_name": "NON_EXISTENT_MEMBER",
-                "expected_error": "Member not found"
-            },
+            {"member_name": "NON_EXISTENT_MEMBER", "expected_error": "Member not found"},
             {
                 "member_name": self.test_member.name,
                 "amount": -10.00,
-                "expected_error": "Amount must be positive"
+                "expected_error": "Amount must be positive",
             },
             {
                 "member_name": self.test_member.name,
                 "amount": 10000.00,
-                "expected_error": "Amount exceeds maximum limit"
-            }
+                "expected_error": "Amount exceeds maximum limit",
+            },
         ]
 
         for scenario in failure_scenarios:
@@ -405,14 +361,11 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
                     member_name=scenario.get("member_name", self.test_member.name),
                     amount=scenario.get("amount", 25.00),
                     payment_method="SEPA",
-                    reference="TEST_FAILURE"
+                    reference="TEST_FAILURE",
                 )
 
                 self.assertFalse(result["success"])
-                self.assertIn(
-                    scenario["expected_error"].lower(),
-                    result["error"].lower()
-                )
+                self.assertIn(scenario["expected_error"].lower(), result["error"].lower())
 
 
 class TestChapterManagementAPIEndpoints(EnhancedTestCase):
@@ -432,16 +385,8 @@ class TestChapterManagementAPIEndpoints(EnhancedTestCase):
         """
         # Create test chapters with postal code ranges
         chapters = [
-            {
-                "name": "Amsterdam Central API",
-                "postal_codes": "1000-1099",
-                "region": "Noord-Holland"
-            },
-            {
-                "name": "The Hague API",
-                "postal_codes": "2500-2599",
-                "region": "Zuid-Holland"
-            }
+            {"chapter_name": "Amsterdam Central API", "postal_codes": "1000-1099", "region": "Noord-Holland"},
+            {"chapter_name": "The Hague API", "postal_codes": "2500-2599", "region": "Zuid-Holland"},
         ]
 
         created_chapters = []
@@ -451,16 +396,14 @@ class TestChapterManagementAPIEndpoints(EnhancedTestCase):
 
         # Create test member for assignment
         member = self.create_test_member(
-            first_name="Chapter",
-            last_name="Assignment Test",
-            birth_date="1985-01-01"
+            first_name="Chapter", last_name="Assignment Test", birth_date="1985-01-01"
         )
 
         # Test automatic chapter assignment API
         result = self.call_api_method(
             "verenigingen.api.chapter_management.assign_member_to_chapter",
             member_name=member.name,
-            postal_code="1012 AB"
+            postal_code="1012 AB",
         )
 
         self.assertTrue(result["success"])
@@ -468,9 +411,7 @@ class TestChapterManagementAPIEndpoints(EnhancedTestCase):
 
         # Verify chapter assignment
         chapter_member = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member.name, "chapter": created_chapters[0].name},
-            limit=1
+            "Chapter Member", filters={"member": member.name, "chapter": created_chapters[0].name}, limit=1
         )
         self.assertEqual(len(chapter_member), 1)
 
@@ -478,16 +419,16 @@ class TestChapterManagementAPIEndpoints(EnhancedTestCase):
         edge_cases = [
             {
                 "postal_code": "1099 ZZ",  # Border case
-                "expected_chapter": "Amsterdam Central API"
+                "expected_chapter": "Amsterdam Central API",
             },
             {
                 "postal_code": "2599 AA",  # Border case
-                "expected_chapter": "The Hague API"
+                "expected_chapter": "The Hague API",
             },
             {
                 "postal_code": "3000 AA",  # No matching chapter
-                "expected_error": "No chapter found for postal code"
-            }
+                "expected_error": "No chapter found for postal code",
+            },
         ]
 
         for case in edge_cases:
@@ -495,7 +436,7 @@ class TestChapterManagementAPIEndpoints(EnhancedTestCase):
                 result = self.call_api_method(
                     "verenigingen.api.chapter_management.assign_member_to_chapter",
                     member_name=member.name,
-                    postal_code=case["postal_code"]
+                    postal_code=case["postal_code"],
                 )
 
                 if "expected_error" in case:
@@ -525,14 +466,14 @@ class TestVolunteerOperationsAPIEndpoints(EnhancedTestCase):
         valid_member = self.create_test_member(
             first_name="Volunteer",
             last_name="Valid Age",
-            birth_date="2000-01-01"  # 24 years old
+            birth_date="2000-01-01",  # 24 years old
         )
 
         result = self.call_api_method(
             "verenigingen.api.volunteer_management.register_volunteer",
             member_name=valid_member.name,
             skills=["Communication", "Event Management"],
-            availability="Weekends"
+            availability="Weekends",
         )
 
         self.assertTrue(result["success"])
@@ -547,14 +488,14 @@ class TestVolunteerOperationsAPIEndpoints(EnhancedTestCase):
         underage_member = self.create_test_member(
             first_name="Volunteer",
             last_name="Underage",
-            birth_date="2010-01-01"  # 14 years old
+            birth_date="2010-01-01",  # 14 years old
         )
 
         result = self.call_api_method(
             "verenigingen.api.volunteer_management.register_volunteer",
             member_name=underage_member.name,
             skills=["Communication"],
-            availability="Weekends"
+            availability="Weekends",
         )
 
         self.assertFalse(result["success"])
@@ -564,14 +505,14 @@ class TestVolunteerOperationsAPIEndpoints(EnhancedTestCase):
         edge_case_member = self.create_test_member(
             first_name="Volunteer",
             last_name="Edge Case",
-            birth_date="2008-01-01"  # Exactly 16 years old
+            birth_date="2008-01-01",  # Exactly 16 years old
         )
 
         result = self.call_api_method(
             "verenigingen.api.volunteer_management.register_volunteer",
             member_name=edge_case_member.name,
             skills=["Data Entry"],
-            availability="Evenings"
+            availability="Evenings",
         )
 
         self.assertTrue(result["success"])
@@ -599,12 +540,12 @@ class TestSecurityAndAccessControlValidation(EnhancedTestCase):
                 "email": "member@test.nl",
                 "allowed_endpoints": [
                     "verenigingen.api.member_management.get_member_profile",
-                    "verenigingen.api.member_management.update_member_profile"
+                    "verenigingen.api.member_management.update_member_profile",
                 ],
                 "forbidden_endpoints": [
                     "verenigingen.api.member_management.delete_member",
-                    "verenigingen.api.payment_processing.process_refund"
-                ]
+                    "verenigingen.api.payment_processing.process_refund",
+                ],
             },
             {
                 "role": "Verenigingen Staff",
@@ -612,30 +553,23 @@ class TestSecurityAndAccessControlValidation(EnhancedTestCase):
                 "allowed_endpoints": [
                     "verenigingen.api.member_management.create_member",
                     "verenigingen.api.payment_processing.process_member_payment",
-                    "verenigingen.api.chapter_management.assign_member_to_chapter"
+                    "verenigingen.api.chapter_management.assign_member_to_chapter",
                 ],
                 "forbidden_endpoints": [
                     "verenigingen.api.system_management.export_member_data",
-                    "verenigingen.api.system_management.delete_all_test_data"
-                ]
-            }
+                    "verenigingen.api.system_management.delete_all_test_data",
+                ],
+            },
         ]
 
         for user_config in test_users:
             with self.subTest(role=user_config["role"]):
                 # Create test user
-                test_user = self.create_test_user(
-                    email=user_config["email"],
-                    roles=[user_config["role"]]
-                )
+                test_user = self.create_test_user(email=user_config["email"], roles=[user_config["role"]])
 
                 # Test allowed endpoints
                 for endpoint in user_config["allowed_endpoints"]:
-                    result = self.call_api_method_as_user(
-                        endpoint,
-                        user=test_user,
-                        test_params={}
-                    )
+                    result = self.call_api_method_as_user(endpoint, user=test_user, test_params={})
 
                     # Should not fail due to permissions
                     if not result["success"]:
@@ -643,11 +577,7 @@ class TestSecurityAndAccessControlValidation(EnhancedTestCase):
 
                 # Test forbidden endpoints
                 for endpoint in user_config["forbidden_endpoints"]:
-                    result = self.call_api_method_as_user(
-                        endpoint,
-                        user=test_user,
-                        test_params={}
-                    )
+                    result = self.call_api_method_as_user(endpoint, user=test_user, test_params={})
 
                     self.assertFalse(result["success"])
                     self.assertIn("permission", result.get("error", "").lower())
@@ -660,11 +590,7 @@ class TestSecurityAndAccessControlValidation(EnhancedTestCase):
         Must enforce reasonable usage limits.
         """
         # Create test member for API calls
-        member = self.create_test_member(
-            first_name="Rate",
-            last_name="Limit Test",
-            birth_date="1985-01-01"
-        )
+        member = self.create_test_member(first_name="Rate", last_name="Limit Test", birth_date="1985-01-01")
 
         # Test rate limiting on member search API
         successful_calls = 0
@@ -673,9 +599,7 @@ class TestSecurityAndAccessControlValidation(EnhancedTestCase):
         # Make rapid API calls
         for i in range(100):
             result = self.call_api_method(
-                "verenigingen.api.member_management.search_members",
-                query="Rate",
-                limit=10
+                "verenigingen.api.member_management.search_members", query="Rate", limit=10
             )
 
             if result["success"]:

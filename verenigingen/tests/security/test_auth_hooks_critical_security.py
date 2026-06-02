@@ -6,6 +6,7 @@ and other critical security issues in authentication hooks without complex setup
 """
 
 import frappe
+from contextlib import contextmanager
 from unittest.mock import patch, MagicMock
 from verenigingen import auth_hooks
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -18,19 +19,34 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
     def setUp(self):
         """Minimal setup for critical tests"""
         self.original_user = frappe.session.user
-        
+
     def tearDown(self):
         """Clean up after tests"""
         frappe.session.user = self.original_user
+
+    @contextmanager
+    def session_user(self, value):
+        """Temporarily set frappe.session.user.
+
+        frappe.session is a frappe._dict, so its attributes cannot be patched
+        via mock.patch (mock.get_original looks in __dict__, not the dict
+        items). Assign directly and restore instead.
+        """
+        previous = frappe.session.user
+        frappe.session.user = value
+        try:
+            yield value
+        finally:
+            frappe.session.user = previous
 
     # ===== CRITICAL SESSION VALIDATION TESTS =====
 
     def test_on_session_creation_with_none_user(self):
         """CRITICAL: Test session creation handles None user without breaking"""
         # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.session.user', None):
+        with self.session_user(None):
             login_manager = MagicMock()
-            
+
             try:
                 auth_hooks.on_session_creation(login_manager)
                 print("✅ PASS: None user handled without exception")
@@ -40,9 +56,9 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
     def test_on_session_creation_with_empty_user(self):
         """CRITICAL: Test session creation handles empty string user"""
         # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.session.user', ""):
+        with self.session_user(""):
             login_manager = MagicMock()
-            
+
             try:
                 auth_hooks.on_session_creation(login_manager)
                 print("✅ PASS: Empty user handled without exception")
@@ -52,11 +68,11 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
     def test_on_session_creation_database_error(self):
         """CRITICAL: Test session creation handles database failures"""
         # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.session.user', 'test@example.com'):
+        with self.session_user("test@example.com"):
             # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch('frappe.db.get_value', side_effect=Exception("Database connection failed")):
+            with patch("frappe.db.get_value", side_effect=Exception("Database connection failed")):
                 login_manager = MagicMock()
-                
+
                 try:
                     auth_hooks.on_session_creation(login_manager)
                     print("✅ PASS: Database error handled gracefully")
@@ -72,7 +88,7 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
             print("✅ PASS: has_member_role handles None user")
         except Exception as e:
             self.fail(f"❌ CRITICAL: has_member_role failed with None user: {e}")
-        
+
         # Test with empty string
         try:
             result = auth_hooks.has_member_role("")
@@ -109,29 +125,30 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
             self.fail(f"❌ CRITICAL: get_default_home_page failed with None user: {e}")
 
     def test_before_request_with_none_user(self):
-        """CRITICAL: Test before_request handles None user in session"""
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.session.user', None):
+        """CRITICAL: Test before-request portal access handles None user in session"""
+        # before_request() was removed; enforce_member_portal_access() is the
+        # current pre-request portal access hook.
+        with self.session_user(None):
+            # frappe.local is a werkzeug Local without a `request` attribute in the
+            # test context, so create=True is required for patch.object to bind it.
             # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch('frappe.local.request') as mock_request:
-                mock_request.path = "/app/Member"
-                
+            with patch.object(frappe.local, "request", MagicMock(path="/app/Member"), create=True):
                 try:
-                    auth_hooks.before_request()
-                    print("✅ PASS: before_request handles None user")
+                    auth_hooks.enforce_member_portal_access()
+                    print("✅ PASS: portal access enforcement handles None user")
                 except Exception as e:
-                    self.fail(f"❌ CRITICAL: before_request failed with None user: {e}")
+                    self.fail(f"❌ CRITICAL: portal access enforcement failed with None user: {e}")
 
     def test_session_creation_response_manipulation_safety(self):
         """CRITICAL: Test response manipulation doesn't corrupt session"""
         # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.session.user', 'test@example.com'):
+        with self.session_user("test@example.com"):
             # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch('frappe.local.response', {}) as mock_response:
+            with patch("frappe.local.response", {}) as mock_response:
                 # Mock justified: Infrastructure - external dependency, not the boundary under test
-                with patch('frappe.db.get_value', return_value='test_member'):
+                with patch("frappe.db.get_value", return_value="test_member"):
                     login_manager = MagicMock()
-                    
+
                     try:
                         auth_hooks.on_session_creation(login_manager)
                         # Should set home page without corruption
@@ -143,9 +160,9 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
     def test_frappe_get_roles_error_handling(self):
         """CRITICAL: Test role functions handle frappe.get_roles failures"""
         # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.get_roles', side_effect=Exception("Role fetch failed")):
+        with patch("frappe.get_roles", side_effect=Exception("Role fetch failed")):
             try:
-                result = auth_hooks.has_member_role('test@example.com')
+                result = auth_hooks.has_member_role("test@example.com")
                 self.assertFalse(result, "Should return False when role fetch fails")
                 print("✅ PASS: Role function handles get_roles failure")
             except Exception as e:
@@ -154,9 +171,9 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
     def test_guest_user_early_return(self):
         """CRITICAL: Test Guest user is handled correctly"""
         # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.session.user', 'Guest'):
+        with self.session_user("Guest"):
             login_manager = MagicMock()
-            
+
             try:
                 auth_hooks.on_session_creation(login_manager)
                 print("✅ PASS: Guest user handled with early return")
@@ -166,12 +183,12 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
     def test_session_user_validation_edge_cases(self):
         """CRITICAL: Test various edge cases for session user validation"""
         edge_cases = [None, "", "None", "null", False, 0]
-        
+
         for case in edge_cases:
             # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch('frappe.session.user', case):
+            with self.session_user(case):
                 login_manager = MagicMock()
-                
+
                 try:
                     auth_hooks.on_session_creation(login_manager)
                     print(f"✅ PASS: Edge case {repr(case)} handled")
@@ -184,27 +201,27 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
         """Test role checking under concurrent access doesn't fail"""
         import threading
         import time
-        
+
         errors = []
-        
+
         def check_roles():
             try:
                 # Test with existing user to simulate real scenario
-                auth_hooks.has_member_role('Administrator')
+                auth_hooks.has_member_role("Administrator")
             except Exception as e:
                 errors.append(str(e))
-        
+
         # Simulate concurrent access
         threads = []
         for i in range(3):  # Reduced from 5 to avoid overwhelming
             t = threading.Thread(target=check_roles)
             threads.append(t)
             t.start()
-        
+
         # Wait for completion
         for t in threads:
             t.join(timeout=5)
-        
+
         if errors:
             self.fail(f"❌ CRITICAL: Concurrent role checking failed: {errors}")
         else:
@@ -215,11 +232,11 @@ def run_critical_auth_tests():
     """Run critical authentication tests"""
     print("🔥 Running CRITICAL Authentication Security Tests...")
     print("=" * 60)
-    
+
     suite = unittest.TestLoader().loadTestsFromTestCase(TestAuthHooksCriticalSecurity)
-    runner = unittest.TextTestRunner(verbosity=1, stream=open('/dev/null', 'w'))
+    runner = unittest.TextTestRunner(verbosity=1, stream=open("/dev/null", "w"))
     result = runner.run(suite)
-    
+
     print("=" * 60)
     if result.wasSuccessful():
         print("✅ ALL CRITICAL TESTS PASSED!")
@@ -228,17 +245,17 @@ def run_critical_auth_tests():
         print(f"❌ CRITICAL FAILURES DETECTED:")
         print(f"   {len(result.failures)} test(s) failed")
         print(f"   {len(result.errors)} error(s) occurred")
-        
+
         print("\n🚨 DETAILED FAILURE ANALYSIS:")
         for test, traceback in result.failures + result.errors:
             print(f"\nFAILED: {test}")
             # Show just the critical error message, not full traceback
-            lines = traceback.split('\n')
+            lines = traceback.split("\n")
             for line in lines:
-                if 'CRITICAL' in line or 'fail(' in line:
+                if "CRITICAL" in line or "fail(" in line:
                     print(f"   {line.strip()}")
         return False
-    
+
     return True
 
 

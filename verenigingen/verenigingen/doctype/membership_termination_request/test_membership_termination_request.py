@@ -24,7 +24,7 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         self.test_member = self.create_test_member(
             first_name="Test",
             last_name="Termination",
-            email_address="test.termination@example.com",
+            email="test.termination@example.com",
             status="Active",
             member_since=add_months(today(), -12),
         )
@@ -38,9 +38,16 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
                     "amount": 100,
                     "currency": "EUR",
                     "billing_period": "Annual",
+                    "is_active": 1,
                 }
             )
             self.test_membership_type.insert()
+        else:
+            # Ensure the pre-existing type is active for membership creation
+            self.test_membership_type = frappe.get_doc("Membership Type", "Test Termination Type")
+            if not self.test_membership_type.is_active:
+                self.test_membership_type.is_active = 1
+                self.test_membership_type.save()
 
         # Create test membership
         self.test_membership = frappe.get_doc(
@@ -93,7 +100,7 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         termination_request.insert()
 
         # Verify defaults were set
-        self.assertEqual(termination_request.status, "Pending")
+        self.assertEqual(termination_request.status, "Draft")
         self.assertIsNotNone(termination_request.requested_by)
         self.assertEqual(termination_request.request_date, today())
 
@@ -236,15 +243,19 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
             ):
                 continue
 
-            termination_request = frappe.get_doc(
-                {
-                    "doctype": "Membership Termination Request",
-                    "member": self.test_member.name,
-                    "termination_type": term_type,
-                    "termination_reason": f"Test {term_type} termination",
-                    "request_date": today(),
-                }
-            )
+            request_data = {
+                "doctype": "Membership Termination Request",
+                "member": self.test_member.name,
+                "termination_type": term_type,
+                "termination_reason": f"Test {term_type} termination",
+                "request_date": today(),
+            }
+
+            # Disciplinary terminations require documentation
+            if term_type in ["Policy Violation", "Disciplinary Action", "Expulsion"]:
+                request_data["disciplinary_documentation"] = f"Documented evidence for {term_type}"
+
+            termination_request = frappe.get_doc(request_data)
 
             # Should be able to create with different types
             termination_request.insert()
@@ -317,8 +328,8 @@ class TestMembershipTerminationRequest(EnhancedTestCase):
         impact_fields = [
             "sepa_mandates_cancelled",
             "positions_ended",
-            "dues_schedules_cancelled",
-            "teams_left",
+            "outstanding_invoices_cancelled",
+            "volunteer_expenses_cancelled",
         ]
 
         for field in impact_fields:

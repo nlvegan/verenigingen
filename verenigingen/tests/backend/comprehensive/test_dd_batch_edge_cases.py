@@ -11,14 +11,24 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 # dd_security_enhancements was deleted (zero production callers).
-# Tests that depend on these classes are effectively dead (will be skipped via None checks).
+# Tests that depend on these classes are effectively dead. The classes resolve to
+# None, so the whole file is skipped via the module-level guard below.
 DDConflictResolutionManager = None
 DDSecurityAuditLogger = None
 MemberIdentityValidator = None
 
+# These tests exercise the removed dd_security_enhancements module. Skip the entire
+# module until/unless that production code is reinstated.
+_DD_SECURITY_AVAILABLE = MemberIdentityValidator is not None
+_skip_dd_security = unittest.skipUnless(
+    _DD_SECURITY_AVAILABLE,
+    "dd_security_enhancements module was removed (zero production callers); tests are dead",
+)
+
 from verenigingen.tests.utils.test_setup import setup_test_environment
 
 
+@_skip_dd_security
 class TestDDMemberIdentityEdgeCases(FrappeTestCase):
     """Test edge cases around member identity confusion and validation"""
 
@@ -79,7 +89,8 @@ class TestDDMemberIdentityEdgeCases(FrappeTestCase):
             "first_name": "John",
             "last_name": "Smith",
             "email": f"john.smith.utrecht.{self.unique_id}@test.com",
-            "iban": "NL43RABO1122334455"}
+            "iban": "NL43RABO1122334455",
+        }
 
         results = self.validator.detect_potential_duplicates(new_john_data)
 
@@ -115,7 +126,8 @@ class TestDDMemberIdentityEdgeCases(FrappeTestCase):
             "first_name": "Johny",  # Misspelling
             "last_name": "Smith",
             "email": f"johny.smith.{self.unique_id}@test.com",
-            "iban": "NL43INGB9999888877"}
+            "iban": "NL43INGB9999888877",
+        }
 
         results = self.validator.detect_potential_duplicates(new_member_data)
 
@@ -183,22 +195,26 @@ class TestDDMemberIdentityEdgeCases(FrappeTestCase):
                 "member_name": "Normal Member",
                 "iban": "NL43INGB1111111111",
                 "amount": 50.00,  # Normal amount
-                "invoice": "INV-001"},
+                "invoice": "INV-001",
+            },
             {
                 "member_name": "Zero Amount Member",
                 "iban": "NL43INGB2222222222",
                 "amount": 0.00,  # Anomaly: zero amount
-                "invoice": "INV-002"},
+                "invoice": "INV-002",
+            },
             {
                 "member_name": "High Amount Member",
                 "iban": "NL43INGB3333333333",
                 "amount": 999.99,  # Anomaly: very high amount
-                "invoice": "INV-003"},
+                "invoice": "INV-003",
+            },
             {
                 "member_name": "Negative Amount Member",
                 "iban": "NL43INGB4444444444",
                 "amount": -25.00,  # Anomaly: negative amount
-                "invoice": "INV-004"},
+                "invoice": "INV-004",
+            },
         ]
 
         results = self.validator.detect_payment_anomalies(batch_data)
@@ -270,7 +286,8 @@ class TestDDMemberIdentityEdgeCases(FrappeTestCase):
             "first_name": "Jose",  # Should match José
             "last_name": "Garcia",  # Should match García
             "email": f"jose.garcia.new.{self.unique_id}@test.com",
-            "iban": "NL43RABO1234567890"}
+            "iban": "NL43RABO1234567890",
+        }
 
         results = self.validator.detect_potential_duplicates(new_member_data)
 
@@ -281,6 +298,7 @@ class TestDDMemberIdentityEdgeCases(FrappeTestCase):
         self.assertNotIn("error", results, "Should not have errors with special characters")
 
 
+@_skip_dd_security
 class TestDDBatchSecurityValidation(FrappeTestCase):
     """Test security validations and audit logging"""
 
@@ -349,7 +367,8 @@ class TestDDBatchSecurityValidation(FrappeTestCase):
                 "first_name": malicious_name,
                 "last_name": "TestUser",
                 "email": f"test.{self.unique_id}@example.com",
-                "iban": "NL43INGB1234567890"}
+                "iban": "NL43INGB1234567890",
+            }
 
             try:
                 results = self.validator.detect_potential_duplicates(member_data)
@@ -459,6 +478,7 @@ class TestDDBatchSecurityValidation(FrappeTestCase):
             frappe.delete_doc("DD Security Audit Log", log["name"], force=True)
 
 
+@_skip_dd_security
 class TestDDConflictResolution(FrappeTestCase):
     """Test conflict resolution workflows and reporting"""
 
@@ -493,15 +513,18 @@ class TestDDConflictResolution(FrappeTestCase):
                     "existing_member": "Member-001",
                     "existing_name": "John Smith",
                     "risk_score": 0.75,
-                    "match_reasons": ["Similar names", "Same city"]}
+                    "match_reasons": ["Similar names", "Same city"],
+                }
             ],
             "high_risk_matches": [
                 {
                     "existing_member": "Member-002",
                     "existing_name": "John Smith",
                     "risk_score": 0.95,
-                    "match_reasons": ["Identical names", "Same IBAN"]}
-            ]}
+                    "match_reasons": ["Identical names", "Same IBAN"],
+                }
+            ],
+        }
 
         batch_id = f"BATCH-CONFLICT-{self.unique_id}"
 
@@ -527,11 +550,13 @@ class TestDDConflictResolution(FrappeTestCase):
                 {
                     "existing_member": "Member-001",
                     "risk_score": 0.45,  # Low risk - should auto-resolve
-                    "match_reasons": ["Slightly similar names"]},
+                    "match_reasons": ["Slightly similar names"],
+                },
                 {
                     "existing_member": "Member-002",
                     "risk_score": 0.85,  # High risk - should require manual review
-                    "match_reasons": ["Very similar names", "Same postal code"]},
+                    "match_reasons": ["Very similar names", "Same postal code"],
+                },
             ]
         }
 
@@ -563,7 +588,8 @@ class TestDDConflictResolution(FrappeTestCase):
         strict_rules = {
             "auto_resolve_low_risk": True,
             "max_auto_resolve_score": 0.5,  # Very strict
-            "require_manual_review_above": 0.6}
+            "require_manual_review_above": 0.6,
+        }
 
         strict_results = self.conflict_manager.auto_resolve_conflicts(test_conflicts, strict_rules)
 
@@ -576,7 +602,8 @@ class TestDDConflictResolution(FrappeTestCase):
         lenient_rules = {
             "auto_resolve_low_risk": True,
             "max_auto_resolve_score": 0.8,  # Very lenient
-            "require_manual_review_above": 0.9}
+            "require_manual_review_above": 0.9,
+        }
 
         lenient_results = self.conflict_manager.auto_resolve_conflicts(test_conflicts, lenient_rules)
 
@@ -586,6 +613,7 @@ class TestDDConflictResolution(FrappeTestCase):
         )
 
 
+@_skip_dd_security
 class TestDDPerformanceEdgeCases(FrappeTestCase):
     """Test performance and scalability edge cases"""
 
@@ -642,7 +670,8 @@ class TestDDPerformanceEdgeCases(FrappeTestCase):
             "first_name": "TestMember25",  # Should match existing
             "last_name": "LastName5",
             "email": f"new.testmember.{self.unique_id}@test.com",
-            "iban": "NL99INGB9999999999"}
+            "iban": "NL99INGB9999999999",
+        }
 
         detection_start = time.time()
         results = self.validator.detect_potential_duplicates(test_member_data)
@@ -682,7 +711,8 @@ class TestDDPerformanceEdgeCases(FrappeTestCase):
                 "member_name": f"Member {i}",
                 "iban": f"NL{(43 + i % 20):02d}INGB{(1000000000 + i):010d}",
                 "amount": 50.00 + (i % 10) * 5,  # Varying amounts
-                "invoice": f"INV-{i:04d}"}
+                "invoice": f"INV-{i:04d}",
+            }
             batch_data.append(payment)
 
         # Add some anomalies
@@ -691,7 +721,8 @@ class TestDDPerformanceEdgeCases(FrappeTestCase):
                 "member_name": "Anomaly Member 1",
                 "iban": "NL43INGB0000000001",
                 "amount": 0.00,  # Zero amount anomaly
-                "invoice": "INV-ANOM-001"}
+                "invoice": "INV-ANOM-001",
+            }
         )
 
         batch_data.append(
@@ -699,7 +730,8 @@ class TestDDPerformanceEdgeCases(FrappeTestCase):
                 "member_name": "Anomaly Member 2",
                 "iban": "NL43INGB0000000002",
                 "amount": 999.99,  # High amount anomaly
-                "invoice": "INV-ANOM-002"}
+                "invoice": "INV-ANOM-002",
+            }
         )
 
         # Test performance

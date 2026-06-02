@@ -39,7 +39,7 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
         self.test_membership_name = self.test_membership.name
         
         # Create initial dues schedule for testing
-        self.test_dues_schedule = self.create_test_membership_dues_schedule(
+        self.test_dues_schedule = self.create_test_dues_schedule(
             member=self.test_member_name,
             membership=self.test_membership_name,
             amount=50.0,

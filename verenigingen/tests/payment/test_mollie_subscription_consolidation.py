@@ -51,8 +51,7 @@ class _Recorder:
 
 
 class _FakeMandate:
-    def __init__(self, mandate_id="mdt_FAKE", status="valid", method="directdebit",
-                 consumer_account=None):
+    def __init__(self, mandate_id="mdt_FAKE", status="valid", method="directdebit", consumer_account=None):
         self.id = mandate_id
         self.status = status
         self.method = method
@@ -82,13 +81,12 @@ class _FakePaginationList:
         return iter(self._items[: self._page_size])
 
     def get_next(self):
-        rest = self._items[self._page_size:]
+        rest = self._items[self._page_size :]
         return _FakePaginationList(rest, self._page_size) if rest else None
 
 
 class _FakeSubscription:
-    def __init__(self, subscription_id="sub_FAKE", status="active",
-                 next_payment_date="2026-06-01"):
+    def __init__(self, subscription_id="sub_FAKE", status="active", next_payment_date="2026-06-01"):
         self.id = subscription_id
         self.status = status
         self.next_payment_date = next_payment_date
@@ -141,19 +139,23 @@ class _FakeSubscriptions:
 
 
 class _FakeCustomer:
-    def __init__(self, recorder, customer_id, sub_status, mandate_raises,
-                 existing_mandates, mandate_list_raises):
+    def __init__(
+        self, recorder, customer_id, sub_status, mandate_raises, existing_mandates, mandate_list_raises
+    ):
         self.id = customer_id
         self.mandates = _FakeMandates(
-            recorder, raises=mandate_raises, existing=existing_mandates,
+            recorder,
+            raises=mandate_raises,
+            existing=existing_mandates,
             list_raises=mandate_list_raises,
         )
         self.subscriptions = _FakeSubscriptions(recorder, sub_status)
 
 
 class _FakeCustomers:
-    def __init__(self, recorder, sub_status, mandate_raises, stale_customer_id,
-                 existing_mandates, mandate_list_raises):
+    def __init__(
+        self, recorder, sub_status, mandate_raises, stale_customer_id, existing_mandates, mandate_list_raises
+    ):
         self._recorder = recorder
         self._sub_status = sub_status
         self._mandate_raises = mandate_raises
@@ -169,8 +171,12 @@ class _FakeCustomers:
         # customer, so this is harmless; a future multi-customer test must
         # not rely on a created customer starting mandate-free.
         return _FakeCustomer(
-            self._recorder, customer_id, self._sub_status, self._mandate_raises,
-            self._existing_mandates, self._mandate_list_raises,
+            self._recorder,
+            customer_id,
+            self._sub_status,
+            self._mandate_raises,
+            self._existing_mandates,
+            self._mandate_list_raises,
         )
 
     def create(self, data=None):
@@ -190,12 +196,22 @@ class _FakeCustomers:
 class FakeSDKClient:
     """Stand-in for ``mollie.api.client.Client``."""
 
-    def __init__(self, sub_status="active", mandate_raises=False, stale_customer_id=None,
-                 existing_mandates=None, mandate_list_raises=False):
+    def __init__(
+        self,
+        sub_status="active",
+        mandate_raises=False,
+        stale_customer_id=None,
+        existing_mandates=None,
+        mandate_list_raises=False,
+    ):
         self.recorder = _Recorder()
         self.customers = _FakeCustomers(
-            self.recorder, sub_status, mandate_raises, stale_customer_id,
-            existing_mandates, mandate_list_raises,
+            self.recorder,
+            sub_status,
+            mandate_raises,
+            stale_customer_id,
+            existing_mandates,
+            mandate_list_raises,
         )
 
 
@@ -237,6 +253,19 @@ class AlreadyCancelledSDKClient:
 
     def __init__(self):
         self.customers = _AlreadyCancelledCustomers()
+
+
+def _enable_mollie_subscriptions():
+    """Enable the ``enable_subscriptions`` gate on the Mollie Settings Single.
+
+    Both ``CompletePaymentService.create_customer_subscription`` and
+    ``MollieGateway.create_subscription`` refuse to provision a subscription
+    unless this flag is set. A freshly reset test site has it off, so the
+    business-logic tests below turn it on in setUp. The flag only governs the
+    in-app gate - the Mollie SDK itself is always the faked boundary, so no
+    live credentials are needed.
+    """
+    frappe.db.set_single_value("Mollie Settings", "enable_subscriptions", 1)
 
 
 def _make_mollie_client(sdk):
@@ -300,6 +329,10 @@ class TestMollieClient(EnhancedTestCase):
 
 class TestCompletePaymentServiceSubscription(EnhancedTestCase):
     """Phase 1, step 2 - CompletePaymentService.create_customer_subscription."""
+
+    def setUp(self):
+        super().setUp()
+        _enable_mollie_subscriptions()
 
     def test_create_customer_subscription_accepts_mollie_amount_dict_no_mandate(self):
         """A {"value","currency"} amount (the shape Mollie's API requires) must
@@ -378,9 +411,7 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         gets no second mandate provisioned - the subscription reuses it."""
         iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
-            existing_mandates=[
-                _FakeMandate(status="valid", method="directdebit", consumer_account=iban)
-            ]
+            existing_mandates=[_FakeMandate(status="valid", method="directdebit", consumer_account=iban)]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
 
@@ -405,7 +436,8 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         sdk = FakeSDKClient(
             existing_mandates=[
                 _FakeMandate(
-                    status="valid", method="directdebit",
+                    status="valid",
+                    method="directdebit",
                     consumer_account="NL39RABO0300065264",
                 )
             ]
@@ -430,7 +462,8 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         sdk = FakeSDKClient(
             existing_mandates=[
                 _FakeMandate(
-                    status="valid", method="directdebit",
+                    status="valid",
+                    method="directdebit",
                     consumer_account="NL11INGB0001111111",
                 )
             ]
@@ -454,9 +487,7 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         not count - a fresh mandate is provisioned."""
         iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
-            existing_mandates=[
-                _FakeMandate(status="invalid", method="directdebit", consumer_account=iban)
-            ]
+            existing_mandates=[_FakeMandate(status="invalid", method="directdebit", consumer_account=iban)]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
 
@@ -497,9 +528,7 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         counts as usable - provisioning a second one would duplicate it."""
         iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
-            existing_mandates=[
-                _FakeMandate(status="pending", method="directdebit", consumer_account=iban)
-            ]
+            existing_mandates=[_FakeMandate(status="pending", method="directdebit", consumer_account=iban)]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
 
@@ -520,9 +549,7 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         count - a SEPA directdebit mandate is still provisioned."""
         iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
-            existing_mandates=[
-                _FakeMandate(status="valid", method="creditcard", consumer_account=iban)
-            ]
+            existing_mandates=[_FakeMandate(status="valid", method="creditcard", consumer_account=iban)]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
 
@@ -546,10 +573,13 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         sdk = FakeSDKClient(
             existing_mandates=[
                 _FakeMandate(mandate_id="mdt_1", status="invalid", method="directdebit"),
-                _FakeMandate(mandate_id="mdt_2", status="valid", method="directdebit",
-                             consumer_account="NL11INGB0001111111"),
-                _FakeMandate(mandate_id="mdt_3", status="valid", method="directdebit",
-                             consumer_account=iban),
+                _FakeMandate(
+                    mandate_id="mdt_2",
+                    status="valid",
+                    method="directdebit",
+                    consumer_account="NL11INGB0001111111",
+                ),
+                _FakeMandate(mandate_id="mdt_3", status="valid", method="directdebit", consumer_account=iban),
             ]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
@@ -572,8 +602,9 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
             existing_mandates=[
-                _FakeMandate(mandate_id="mdt_EXISTING", status="valid",
-                             method="directdebit", consumer_account=iban)
+                _FakeMandate(
+                    mandate_id="mdt_EXISTING", status="valid", method="directdebit", consumer_account=iban
+                )
             ]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
@@ -616,8 +647,12 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         the new IBAN, never auto-select onto the old account."""
         sdk = FakeSDKClient(
             existing_mandates=[
-                _FakeMandate(mandate_id="mdt_OLD", status="valid",
-                             method="directdebit", consumer_account="NL11INGB0001111111")
+                _FakeMandate(
+                    mandate_id="mdt_OLD",
+                    status="valid",
+                    method="directdebit",
+                    consumer_account="NL11INGB0001111111",
+                )
             ]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
@@ -646,8 +681,9 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
             existing_mandates=[
-                _FakeMandate(mandate_id="mdt_PENDING", status="pending",
-                             method="directdebit", consumer_account=iban)
+                _FakeMandate(
+                    mandate_id="mdt_PENDING", status="pending", method="directdebit", consumer_account=iban
+                )
             ]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
@@ -663,9 +699,7 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         )
 
         self.assertEqual(sdk.recorder.mandates_created, [])
-        self.assertEqual(
-            sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_PENDING"
-        )
+        self.assertEqual(sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_PENDING")
 
     def test_create_subscription_pins_pending_when_stale_valid_for_other_iban_exists(self):
         """The bank-change failure mode that motivated pinning: a stale
@@ -677,10 +711,18 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         new_iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
             existing_mandates=[
-                _FakeMandate(mandate_id="mdt_OLD_VALID", status="valid",
-                             method="directdebit", consumer_account="NL11INGB0001111111"),
-                _FakeMandate(mandate_id="mdt_NEW_PENDING", status="pending",
-                             method="directdebit", consumer_account=new_iban),
+                _FakeMandate(
+                    mandate_id="mdt_OLD_VALID",
+                    status="valid",
+                    method="directdebit",
+                    consumer_account="NL11INGB0001111111",
+                ),
+                _FakeMandate(
+                    mandate_id="mdt_NEW_PENDING",
+                    status="pending",
+                    method="directdebit",
+                    consumer_account=new_iban,
+                ),
             ]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
@@ -707,8 +749,9 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         iban = "NL39RABO0300065264"
         sdk = FakeSDKClient(
             existing_mandates=[
-                _FakeMandate(mandate_id="mdt_RESOLVED", status="valid",
-                             method="directdebit", consumer_account=iban)
+                _FakeMandate(
+                    mandate_id="mdt_RESOLVED", status="valid", method="directdebit", consumer_account=iban
+                )
             ]
         )
         service = CompletePaymentService(client=_make_mollie_client(sdk))
@@ -724,9 +767,7 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
             },
         )
 
-        self.assertEqual(
-            sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_CALLER_OVERRIDE"
-        )
+        self.assertEqual(sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_CALLER_OVERRIDE")
 
     def test_create_subscription_pins_freshly_provisioned_mandate_after_list_fails(self):
         """Fail-open path: when list_mandates raises, a fresh mandate is
@@ -749,9 +790,7 @@ class TestCompletePaymentServiceSubscription(EnhancedTestCase):
         )
 
         self.assertEqual(len(sdk.recorder.mandates_created), 1)
-        self.assertEqual(
-            sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_FAKE"
-        )
+        self.assertEqual(sdk.recorder.subscriptions_created[0]["mandateId"], "mdt_FAKE")
 
     def test_create_customer_subscription_propagates_mandate_failure(self):
         """If mandate provisioning fails, the original mandate error must
@@ -822,6 +861,10 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
     path before the Phase 1 refactor, and required to stay green after it.
     """
 
+    def setUp(self):
+        super().setUp()
+        _enable_mollie_subscriptions()
+
     def _make_member(self, **kwargs):
         token = frappe.generate_hash(length=8)
         return self.create_test_member(
@@ -840,30 +883,20 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
             from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
 
             gateway = MollieGateway()
-            result = gateway.create_subscription(
-                member, {"amount": 15.0, "interval": "1 month"}
-            )
+            result = gateway.create_subscription(member, {"amount": 15.0, "interval": "1 month"})
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["subscription_status"], "active")
         self.assertEqual(sdk.recorder.mandates_created, [])
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
-        )
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE")
         # Customer metadata must reach Mollie (legacy parity - the old path
         # passed the whole customer_data dict, including metadata, to the SDK).
-        self.assertEqual(
-            sdk.recorder.customers_created[0]["metadata"]["member_id"], member.name
-        )
+        self.assertEqual(sdk.recorder.customers_created[0]["metadata"]["member_id"], member.name)
 
     def test_create_subscription_with_iban_provisions_mandate(self):
         member = self._make_member()
-        frappe.db.set_value(
-            "Member", member.name, "iban", "NL39RABO0300065264", update_modified=False
-        )
+        frappe.db.set_value("Member", member.name, "iban", "NL39RABO0300065264", update_modified=False)
         member.reload()
         sdk = FakeSDKClient()
 
@@ -871,18 +904,12 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
             from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
 
             gateway = MollieGateway()
-            result = gateway.create_subscription(
-                member, {"amount": 15.0, "interval": "1 month"}
-            )
+            result = gateway.create_subscription(member, {"amount": 15.0, "interval": "1 month"})
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(len(sdk.recorder.mandates_created), 1)
-        self.assertEqual(
-            sdk.recorder.mandates_created[0]["consumerAccount"], "NL39RABO0300065264"
-        )
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
-        )
+        self.assertEqual(sdk.recorder.mandates_created[0]["consumerAccount"], "NL39RABO0300065264")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
 
     def test_cancel_subscription_cancels_at_mollie_and_updates_member(self):
         member = self._make_member()
@@ -904,9 +931,7 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["subscription_id"], "sub_LIVE")
         self.assertEqual(sdk.recorder.subscriptions_deleted, ["sub_LIVE"])
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "canceled"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "canceled")
 
     def test_create_subscription_failure_returns_error_and_leaves_member_untouched(self):
         member = self._make_member()
@@ -915,17 +940,11 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
             from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
 
             gateway = MollieGateway()
-            result = gateway.create_subscription(
-                member, {"amount": 15.0, "interval": "1 month"}
-            )
+            result = gateway.create_subscription(member, {"amount": 15.0, "interval": "1 month"})
 
         self.assertEqual(result["status"], "error")
-        self.assertFalse(
-            frappe.db.get_value("Member", member.name, "mollie_subscription_id")
-        )
-        self.assertFalse(
-            frappe.db.get_value("Member", member.name, "subscription_status")
-        )
+        self.assertFalse(frappe.db.get_value("Member", member.name, "mollie_subscription_id"))
+        self.assertFalse(frappe.db.get_value("Member", member.name, "subscription_status"))
 
     def test_cancel_subscription_failure_returns_error_and_leaves_member_untouched(self):
         member = self._make_member()
@@ -949,9 +968,7 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
 
         self.assertEqual(result["status"], "error")
         # The cancel failed at Mollie, so the member status must NOT flip.
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
 
     def test_create_member_subscription_routes_through_gateway(self):
         """Phase 3 - the create_member_subscription endpoint delegates to
@@ -960,9 +977,7 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
         MollieDebugService path never set. payment_method is not part of the
         contract the service owns, so the endpoint still sets it itself."""
         member = self._make_member()
-        frappe.db.set_value(
-            "Member", member.name, "mollie_customer_id", "cst_MEMBER", update_modified=False
-        )
+        frappe.db.set_value("Member", member.name, "mollie_customer_id", "cst_MEMBER", update_modified=False)
         sdk = FakeSDKClient()
 
         with _patch_sdk(sdk):
@@ -974,16 +989,10 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
 
         self.assertEqual(result["status"], "success")
         # The service owns the Member update - subscription_status is set.
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
-        )
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE")
         # payment_method is still set by create_member_subscription itself.
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "payment_method"), "Mollie"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "payment_method"), "Mollie")
 
     def test_create_member_subscription_blocks_existing_active_subscription(self):
         """The early guard must fire for a member who already has a live
@@ -1014,9 +1023,7 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
         """An interval the gateway does not support is rejected outright,
         rather than being silently coerced to monthly billing."""
         member = self._make_member()
-        frappe.db.set_value(
-            "Member", member.name, "mollie_customer_id", "cst_MEMBER", update_modified=False
-        )
+        frappe.db.set_value("Member", member.name, "mollie_customer_id", "cst_MEMBER", update_modified=False)
 
         from verenigingen.verenigingen_payments.utils.payment_gateways import (
             create_member_subscription,
@@ -1030,6 +1037,10 @@ class TestMollieGatewaySubscription(EnhancedTestCase):
 
 class TestMollieSubscriptionContract(EnhancedTestCase):
     """Phase 2 - standardised mid-level create/cancel contract."""
+
+    def setUp(self):
+        super().setUp()
+        _enable_mollie_subscriptions()
 
     def test_create_customer_subscription_rejected_when_subscriptions_disabled(self):
         """The enable_subscriptions gate is enforced inside the service, so no
@@ -1125,15 +1136,9 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
             )
 
         self.assertEqual(result["status"], "success")
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE"
-        )
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
-        )
-        self.assertEqual(
-            str(frappe.db.get_value("Member", member.name, "next_payment_date")), "2026-06-01"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_FAKE")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
+        self.assertEqual(str(frappe.db.get_value("Member", member.name, "next_payment_date")), "2026-06-01")
 
     def test_update_owner_record_skips_fields_a_doctype_lacks(self):
         """_update_owner_record writes every applicable field to a Member but
@@ -1157,17 +1162,11 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         service._update_owner_record("Donor", donor.name, values)
 
         # Member defines all three fields.
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_REC"
-        )
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "active"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "mollie_subscription_id"), "sub_REC")
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
         # Donor defines mollie_subscription_id but not the status fields - the
         # absent fields are skipped without error.
-        self.assertEqual(
-            frappe.db.get_value("Donor", donor.name, "mollie_subscription_id"), "sub_REC"
-        )
+        self.assertEqual(frappe.db.get_value("Donor", donor.name, "mollie_subscription_id"), "sub_REC")
 
     def test_cancel_subscription_updates_owning_member(self):
         """cancel_subscription finds the owning Member by mollie_subscription_id
@@ -1198,9 +1197,7 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
         # Standard cancel result shape - exactly these keys.
         self.assertEqual(set(result), {"status", "subscription_id", "message"})
         self.assertEqual(result["subscription_id"], "sub_C")
-        self.assertEqual(
-            frappe.db.get_value("Member", member.name, "subscription_status"), "canceled"
-        )
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "canceled")
         self.assertTrue(frappe.db.get_value("Member", member.name, "subscription_cancelled_date"))
 
     def test_subscription_service_cancel_returns_standard_dict(self):
@@ -1306,9 +1303,7 @@ class TestMollieSubscriptionContract(EnhancedTestCase):
             email=f"stale-cust-{token}@example.com",
             birth_date="1990-01-01",
         )
-        frappe.db.set_value(
-            "Member", member.name, "mollie_customer_id", "cst_STALE", update_modified=False
-        )
+        frappe.db.set_value("Member", member.name, "mollie_customer_id", "cst_STALE", update_modified=False)
 
         with patch("frappe.db.begin"), patch("frappe.db.commit"), patch("frappe.db.rollback"):
             result = service.create_customer_subscription(
@@ -1365,6 +1360,10 @@ class _DelegationSpy:
 class TestMollieDebugServiceSubscription(EnhancedTestCase):
     """Phase 3 - MollieDebugService subscription create/cancel route through
     MollieClient instead of the raw SDK."""
+
+    def setUp(self):
+        super().setUp()
+        _enable_mollie_subscriptions()
 
     def test_create_subscription_delegates_to_mollie_client(self):
         sdk = FakeSDKClient()
@@ -1446,9 +1445,10 @@ class TestMollieDebugServiceSubscription(EnhancedTestCase):
         """An already-cancelled subscription is tolerated (status 'warning'),
         even though MollieClient.cancel_subscription raises - the wrapped
         MolliePaymentError keeps the SDK's 'not found' phrasing."""
-        with _patch_sdk(AlreadyCancelledSDKClient()), _DelegationSpy(
-            MollieClient, "cancel_subscription"
-        ) as spy:
+        with (
+            _patch_sdk(AlreadyCancelledSDKClient()),
+            _DelegationSpy(MollieClient, "cancel_subscription") as spy,
+        ):
             from verenigingen.services.mollie_debug_service import MollieDebugService
 
             service = MollieDebugService()

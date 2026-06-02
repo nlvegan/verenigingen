@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 # -*- coding: utf-8 -*-
 """
 Comprehensive Tests for Payment History Validator
@@ -26,16 +27,16 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.test_start_time = now_datetime()
-        
+
         # Create multiple test members for comprehensive validation testing
         self.test_members = []
         for i in range(5):
             member = self.create_test_member(
                 first_name=f"Validator{i:02d}",
                 last_name="TestMember",
-                email=f"validator.test.{i:02d}@example.com"
+                email=f"validator.test.{i:02d}@example.com",
             )
-            
+
             # Ensure customer exists
             if not member.customer:
                 customer = frappe.new_doc("Customer")
@@ -46,7 +47,7 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
                 member.customer = customer.name
                 member.save()
                 self.track_doc("Customer", customer.name)
-            
+
             self.test_members.append(member)
 
     def test_validation_with_complete_payment_history(self):
@@ -56,18 +57,17 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         for member in self.test_members[:3]:  # Use first 3 members
             # Create invoice
             invoice = self.create_test_sales_invoice(
-                customer=member.customer,
-                is_membership_invoice=1,
-                posting_date=add_days(today(), -2)
+                customer=member.customer, is_membership_invoice=1, posting_date=add_days(today(), -2)
             )
+            invoice.submit()
             test_invoices.append(invoice)
-            
+
             # Add to payment history using the atomic method
             member.add_invoice_to_payment_history(invoice.name)
-        
+
         # Run validation
         result = validate_and_repair_payment_history()
-        
+
         # Verify successful validation
         self.assertTrue(result["success"], "Validation should succeed")
         self.assertEqual(result["missing_found"], 0, "No missing entries should be found")
@@ -81,111 +81,116 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         missing_invoices = []
         for member in self.test_members[:2]:  # Use first 2 members
             invoice = self.create_test_sales_invoice(
-                customer=member.customer,
-                is_membership_invoice=1,
-                posting_date=add_days(today(), -1)
+                customer=member.customer, is_membership_invoice=1, posting_date=add_days(today(), -1)
             )
+            invoice.submit()
             missing_invoices.append(invoice)
-            
+
             # Deliberately skip adding to payment history to simulate missing entries
             # member.add_invoice_to_payment_history(invoice.name)  # SKIP THIS
-        
+
         # Run validation
         result = validate_and_repair_payment_history()
-        
+
         # Verify missing entries were detected
         self.assertTrue(result["success"], "Validation should succeed")
         self.assertGreater(result["missing_found"], 0, "Missing entries should be detected")
-        self.assertEqual(result["missing_found"], len(missing_invoices), 
-                        f"Should detect {len(missing_invoices)} missing entries")
+        self.assertEqual(
+            result["missing_found"],
+            len(missing_invoices),
+            f"Should detect {len(missing_invoices)} missing entries",
+        )
 
     def test_automatic_repair_of_missing_entries(self):
         """Test automatic repair of missing payment history entries"""
         # Create invoices without payment history entries
         repair_test_member = self.test_members[0]
         missing_invoices = []
-        
+
         for i in range(3):
             invoice = self.create_test_sales_invoice(
                 customer=repair_test_member.customer,
                 is_membership_invoice=1,
-                posting_date=add_days(today(), -i-1)
+                posting_date=add_days(today(), -i - 1),
             )
+            invoice.submit()
             missing_invoices.append(invoice)
-        
+
         # Verify payment history is initially empty or doesn't contain our invoices
         initial_payment_history = [entry.invoice for entry in repair_test_member.payment_history]
         for invoice in missing_invoices:
-            self.assertNotIn(invoice.name, initial_payment_history, 
-                           f"Invoice {invoice.name} should not be in payment history initially")
-        
+            self.assertNotIn(
+                invoice.name,
+                initial_payment_history,
+                f"Invoice {invoice.name} should not be in payment history initially",
+            )
+
         # Run validation and repair
         result = validate_and_repair_payment_history()
-        
+
         # Verify repair was successful
         self.assertTrue(result["success"], "Validation and repair should succeed")
         self.assertGreater(result["repaired"], 0, "Some entries should be repaired")
         self.assertEqual(result["errors"], 0, "No repair errors should occur")
-        
+
         # Reload member and verify repairs
         repair_test_member.reload()
         final_payment_history = [entry.invoice for entry in repair_test_member.payment_history]
-        
+
         for invoice in missing_invoices:
-            self.assertIn(invoice.name, final_payment_history, 
-                         f"Invoice {invoice.name} should be in payment history after repair")
+            self.assertIn(
+                invoice.name,
+                final_payment_history,
+                f"Invoice {invoice.name} should be in payment history after repair",
+            )
 
     def test_validation_with_mixed_scenarios(self):
         """Test validation with mix of complete, missing, and error scenarios"""
         # Member 1: Complete payment history (should validate)
         complete_member = self.test_members[0]
         complete_invoice = self.create_test_sales_invoice(
-            customer=complete_member.customer,
-            is_membership_invoice=1,
-            posting_date=add_days(today(), -1)
+            customer=complete_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -1)
         )
+        complete_invoice.submit()
         complete_member.add_invoice_to_payment_history(complete_invoice.name)
-        
+
         # Member 2: Missing payment history (should be repaired)
         missing_member = self.test_members[1]
         missing_invoice = self.create_test_sales_invoice(
-            customer=missing_member.customer,
-            is_membership_invoice=1,
-            posting_date=add_days(today(), -2)
+            customer=missing_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -2)
         )
+        missing_invoice.submit()
         # Don't add to payment history
-        
+
         # Member 3: Multiple invoices with partial payment history
         partial_member = self.test_members[2]
         partial_invoice1 = self.create_test_sales_invoice(
-            customer=partial_member.customer,
-            is_membership_invoice=1,
-            posting_date=add_days(today(), -3)
+            customer=partial_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -3)
         )
+        partial_invoice1.submit()
         partial_invoice2 = self.create_test_sales_invoice(
-            customer=partial_member.customer,
-            is_membership_invoice=1,
-            posting_date=add_days(today(), -4)
+            customer=partial_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -4)
         )
+        partial_invoice2.submit()
         # Add only first invoice to payment history
         partial_member.add_invoice_to_payment_history(partial_invoice1.name)
-        
+
         # Run validation
         result = validate_and_repair_payment_history()
-        
+
         # Verify mixed scenario results
         self.assertTrue(result["success"], "Mixed scenario validation should succeed")
         self.assertGreater(result["validated"], 0, "Some valid entries should be found")
         self.assertGreater(result["missing_found"], 0, "Some missing entries should be found")
         self.assertGreater(result["repaired"], 0, "Some entries should be repaired")
-        
+
         # Verify specific repairs
         missing_member.reload()
         partial_member.reload()
-        
+
         missing_history = [entry.invoice for entry in missing_member.payment_history]
         partial_history = [entry.invoice for entry in partial_member.payment_history]
-        
+
         self.assertIn(missing_invoice.name, missing_history, "Missing invoice should be repaired")
         self.assertIn(partial_invoice2.name, partial_history, "Partial missing invoice should be repaired")
 
@@ -193,19 +198,20 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         """Test generation of payment history validation statistics"""
         # Create test data for statistics
         stats_member = self.test_members[3]
-        
+
         # Create invoices with payment history
         for i in range(3):
             invoice = self.create_test_sales_invoice(
                 customer=stats_member.customer,
                 is_membership_invoice=1,
-                posting_date=add_days(today(), -i-1)
+                posting_date=add_days(today(), -i - 1),
             )
+            invoice.submit()
             stats_member.add_invoice_to_payment_history(invoice.name)
-        
+
         # Get validation statistics
         stats_result = get_payment_history_validation_stats()
-        
+
         # Verify statistics structure
         self.assertTrue(stats_result["success"], "Statistics generation should succeed")
         self.assertIn("total_invoices", stats_result, "Should include total invoices count")
@@ -213,7 +219,7 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         self.assertIn("payment_history_entries", stats_result, "Should include payment history count")
         self.assertIn("sync_rate", stats_result, "Should include sync rate percentage")
         self.assertEqual(stats_result["period_days"], 7, "Should cover 7-day period")
-        
+
         # Verify reasonable values
         self.assertGreaterEqual(stats_result["total_invoices"], 0, "Total invoices should be non-negative")
         self.assertGreaterEqual(stats_result["sync_rate"], 0, "Sync rate should be non-negative")
@@ -224,64 +230,64 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         # Create many missing entries to trigger alert threshold
         alert_test_members = self.test_members[:4]  # Use 4 members
         missing_invoices = []
-        
+
         # Create 3 invoices per member (12 total) to exceed alert threshold of 10
         for member in alert_test_members:
             for i in range(3):
                 invoice = self.create_test_sales_invoice(
-                    customer=member.customer,
-                    is_membership_invoice=1,
-                    posting_date=add_days(today(), -i-1)
+                    customer=member.customer, is_membership_invoice=1, posting_date=add_days(today(), -i - 1)
                 )
+                invoice.submit()
                 missing_invoices.append(invoice)
                 # Don't add to payment history to create missing entries
-        
+
         # Check if System Alert doctype exists (may not in all installations)
         system_alert_exists = DocumentExistenceValidator.check_document_exists("DocType", "System Alert")
-        
+
         # Run validation
         result = validate_and_repair_payment_history()
-        
+
         # Verify large number of missing entries triggers appropriate handling
         self.assertTrue(result["success"], "Validation should succeed even with many missing entries")
         self.assertGreaterEqual(result["missing_found"], 10, "Should find at least 10 missing entries")
-        
+
         if system_alert_exists:
             # Check if alert was created (if System Alert doctype exists)
-            recent_alerts = frappe.get_all("System Alert", 
+            recent_alerts = frappe.get_all(
+                "System Alert",
                 filters={
                     "creation": (">=", self.test_start_time),
-                    "message": ("like", "%Payment History Sync Issues%")
+                    "message": ("like", "%Payment History Sync Issues%"),
                 },
-                limit=1
+                limit=1,
             )
-            
+
             if result["missing_found"] > 10:
                 # Alert should have been created for significant issues
-                self.assertGreater(len(recent_alerts), 0, 
-                                 "Alert should be created for significant payment history issues")
+                self.assertGreater(
+                    len(recent_alerts), 0, "Alert should be created for significant payment history issues"
+                )
 
     def test_validation_error_handling(self):
         """Test error handling during validation process"""
         # Create a member with customer but then break the relationship
         error_test_member = self.test_members[4]
-        
+
         # Create invoice
         invoice = self.create_test_sales_invoice(
-            customer=error_test_member.customer,
-            is_membership_invoice=1,
-            posting_date=add_days(today(), -1)
+            customer=error_test_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -1)
         )
-        
+        invoice.submit()
+
         # Break the customer relationship to cause repair errors
         frappe.db.set_value("Member", error_test_member.name, "customer", "NON_EXISTENT_CUSTOMER")
-        
+
         # Run validation (should handle errors gracefully)
         result = validate_and_repair_payment_history()
-        
+
         # Verification: should complete but may have errors
         self.assertTrue(result["success"], "Validation should succeed even with some errors")
-        
+
         # If errors occurred, they should be properly counted
         if result["errors"] > 0:
             self.assertGreater(result["errors"], 0, "Errors should be properly counted")
@@ -291,11 +297,10 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         # Create test data
         scheduled_member = self.test_members[0]
         invoice = self.create_test_sales_invoice(
-            customer=scheduled_member.customer,
-            is_membership_invoice=1,
-            posting_date=add_days(today(), -1)
+            customer=scheduled_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -1)
         )
-        
+        invoice.submit()
+
         # Run scheduled task wrapper (should not raise exceptions)
         try:
             validate_payment_history_integrity()
@@ -303,35 +308,36 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         except Exception as e:
             wrapper_success = False
             print(f"Scheduled task wrapper failed: {e}")
-        
+
         self.assertTrue(wrapper_success, "Scheduled task wrapper should complete without exceptions")
 
     def test_performance_with_large_dataset(self):
         """Test validator performance with larger dataset"""
         import time
-        
+
         # Create larger dataset for performance testing
         performance_member = self.test_members[0]
-        
+
         # Create 10 invoices for performance testing
         performance_invoices = []
         for i in range(10):
             invoice = self.create_test_sales_invoice(
                 customer=performance_member.customer,
                 is_membership_invoice=1,
-                posting_date=add_days(today(), -i-1)
+                posting_date=add_days(today(), -i - 1),
             )
+            invoice.submit()
             performance_invoices.append(invoice)
-            
+
             # Add only half to payment history to create validation work
             if i % 2 == 0:
                 performance_member.add_invoice_to_payment_history(invoice.name)
-        
+
         # Measure validation performance
         start_time = time.time()
         result = validate_and_repair_payment_history()
         execution_time = time.time() - start_time
-        
+
         # Verify performance and results
         self.assertTrue(result["success"], "Performance test validation should succeed")
         self.assertLess(execution_time, 30.0, f"Validation should complete within 30s: {execution_time:.2f}s")
@@ -344,27 +350,29 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         old_invoice = self.create_test_sales_invoice(
             customer=self.test_members[0].customer,
             is_membership_invoice=1,
-            posting_date=add_days(today(), -10)  # 10 days old
+            posting_date=add_days(today(), -10),  # 10 days old
         )
-        
+        old_invoice.submit()
+
         # Manually set creation date to be old
         frappe.db.set_value("Sales Invoice", old_invoice.name, "creation", add_days(now_datetime(), -10))
-        
+
         # Create recent invoice (within 7-day cutoff)
         recent_invoice = self.create_test_sales_invoice(
             customer=self.test_members[1].customer,
             is_membership_invoice=1,
-            posting_date=add_days(today(), -2)  # 2 days old
+            posting_date=add_days(today(), -2),  # 2 days old
         )
-        
+        recent_invoice.submit()
+
         # Don't add either to payment history
-        
+
         # Run validation
         result = validate_and_repair_payment_history()
-        
+
         # Verify only recent invoices are processed
         self.assertTrue(result["success"], "Cutoff date filtering should work correctly")
-        
+
         # The old invoice should not be in the repair count
         # (This test verifies the 7-day cutoff is working)
         self.assertGreater(result["missing_found"], 0, "Should find the recent missing invoice")
@@ -372,18 +380,22 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
     def tearDown(self):
         """Clean up test data and verify validator performance"""
         # Check for validator-related errors during test
-        validator_errors = frappe.db.sql('''
-            SELECT error, creation 
-            FROM `tabError Log` 
+        validator_errors = frappe.db.sql(
+            """
+            SELECT error, creation
+            FROM `tabError Log`
             WHERE creation >= %s
-            AND (error LIKE '%payment_history_validator%' OR error LIKE '%Payment History Validator%')
+            AND (error LIKE '%%payment_history_validator%%' OR error LIKE '%%Payment History Validator%%')
             ORDER BY creation DESC
             LIMIT 5
-        ''', (self.test_start_time,), as_dict=True)
-        
+        """,
+            (self.test_start_time,),
+            as_dict=True,
+        )
+
         if validator_errors:
             print("Payment history validator errors found during test:")
             for error in validator_errors:
                 print(f"  - {error.creation}: {error.error[:200]}...")
-        
+
         super().tearDown()

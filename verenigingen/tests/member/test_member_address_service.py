@@ -21,32 +21,37 @@ from verenigingen.services.member.core.member_address_service import member_addr
 class TestMemberAddressService(VereningingenTestCase):
     """Test Member Address Service functionality"""
 
+    # The service returns OperationResult dataclass objects (success/data/errors/metadata)
+    # rather than plain dicts: result.success, result.data, result.errors,
+    # result.metadata[...] replace the legacy dict-key access these tests used.
+
     def setUp(self):
         """Set up test environment"""
         super().setUp()
 
         # Create test member for address operations
         self.test_member = self.create_test_member(
-            first_name="Jan",
-            last_name="de Vries",
-            birth_date="1985-03-15"
+            first_name="Jan", last_name="de Vries", birth_date="1985-03-15"
         )
 
         # Create test address with unique street number to avoid collisions
         # Use frappe.generate_hash to create unique address for each test
         import hashlib
         import time
+
         unique_id = hashlib.md5(f"{time.time()}{self.test_member.name}".encode()).hexdigest()[:8]
 
-        self.test_address = frappe.get_doc({
-            "doctype": "Address",
-            "address_title": f"Test Address {unique_id}",
-            "address_line1": f"Kalverstraat {unique_id}",
-            "city": "Amsterdam",
-            "pincode": "1012 NX",
-            "country": "Netherlands",
-            "address_type": "Personal"
-        })
+        self.test_address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": f"Test Address {unique_id}",
+                "address_line1": f"Kalverstraat {unique_id}",
+                "city": "Amsterdam",
+                "pincode": "1012 NX",
+                "country": "Netherlands",
+                "address_type": "Personal",
+            }
+        )
         self.test_address.insert()
 
         # Link address to member with proper reload to avoid timestamp mismatch
@@ -67,12 +72,12 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.update_member_address_fields(self.test_member)
 
         # Verify success
-        self.assertTrue(result["success"])
-        self.assertIsNotNone(result["fingerprint"])
-        self.assertEqual(len(result["errors"]), 0)
+        self.assertTrue(result.success)
+        self.assertIsNotNone(result.data)
+        self.assertEqual(len(result.errors), 0)
 
         # Verify updated fields
-        updated_fields = result["updated_fields"]
+        updated_fields = result.metadata.get("updated_fields", {})
         self.assertIn("address_fingerprint", updated_fields)
         self.assertIn("normalized_address_line", updated_fields)
         self.assertIn("normalized_city", updated_fields)
@@ -94,8 +99,8 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.update_member_address_fields(self.test_member)
 
         # Verify success but fields are cleared
-        self.assertTrue(result["success"])
-        self.assertIsNone(result["fingerprint"])
+        self.assertTrue(result.success)
+        self.assertIsNone(result.data)
 
         # Verify member fields were cleared
         self.assertIsNone(self.test_member.address_fingerprint)
@@ -110,15 +115,16 @@ class TestMemberAddressService(VereningingenTestCase):
         self.test_member.address_fingerprint = "existing_fingerprint"
 
         # Mock the change detection to return False
-        with patch.object(self.test_member, 'is_new', return_value=False), \
-             patch.object(self.test_member, 'has_value_changed', return_value=False):
-
+        with (
+            patch.object(self.test_member, "is_new", return_value=False),
+            patch.object(self.test_member, "has_value_changed", return_value=False),
+        ):
             result = member_address_service.update_member_address_fields(self.test_member)
 
             # Verify success with existing fingerprint
-            self.assertTrue(result["success"])
-            self.assertEqual(result["fingerprint"], "existing_fingerprint")
-            self.assertEqual(len(result["updated_fields"]), 0)
+            self.assertTrue(result.success)
+            self.assertEqual(result.data, "existing_fingerprint")
+            self.assertEqual(len(result.metadata.get("updated_fields", {})), 0)
 
     def test_update_member_address_fields_error_handling(self):
         """Test error handling in address field updates"""
@@ -130,9 +136,9 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.update_member_address_fields(self.test_member)
 
         # Verify failure
-        self.assertFalse(result["success"])
-        self.assertGreater(len(result["errors"]), 0)
-        self.assertIsNone(result["fingerprint"])
+        self.assertFalse(result.success)
+        self.assertGreater(len(result.errors), 0)
+        self.assertIsNone(result.data)
 
         # Verify fields were cleared on error
         self.assertIsNone(self.test_member.address_fingerprint)
@@ -145,9 +151,7 @@ class TestMemberAddressService(VereningingenTestCase):
 
         # Create additional member at same address
         other_member = self.create_test_member(
-            first_name="Maria",
-            last_name="de Vries",
-            birth_date="1987-05-20"
+            first_name="Maria", last_name="de Vries", birth_date="1987-05-20"
         )
         other_member.reload()
         other_member.primary_address = self.test_address.name
@@ -161,14 +165,14 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.get_colocated_members(self.test_member)
 
         # Verify success
-        self.assertTrue(result["success"])
-        self.assertGreaterEqual(result["count"], 1)
-        self.assertIsInstance(result["members"], list)
-        self.assertEqual(len(result["errors"]), 0)
+        self.assertTrue(result.success)
+        self.assertGreaterEqual(result.metadata.get("count", 0), 1)
+        self.assertIsInstance((result.data or []), list)
+        self.assertEqual(len(result.errors), 0)
 
         # Verify member data structure
-        if result["members"]:
-            member_data = result["members"][0]
+        if result.data or []:
+            member_data = (result.data or [])[0]
             required_fields = ["name", "full_name", "email", "status", "age_text"]
             for field in required_fields:
                 self.assertIn(field, member_data)
@@ -183,33 +187,32 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.get_colocated_members(self.test_member)
 
         # Verify success but no members found
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 0)
-        self.assertEqual(len(result["members"]), 0)
+        self.assertTrue(result.success)
+        self.assertEqual(result.metadata.get("count", 0), 0)
+        self.assertEqual(len((result.data or [])), 0)
 
     def test_get_colocated_members_error_handling(self):
         """Test error handling in co-located member discovery"""
 
         # Mock the address matcher to raise an exception
-        with patch('verenigingen.utils.address_matching.simple_optimized_matcher.SimpleOptimizedAddressMatcher.get_other_members_at_address_simple',
-                   side_effect=Exception("Address matching error")):
-
+        with patch(
+            "verenigingen.utils.address_matching.simple_optimized_matcher.SimpleOptimizedAddressMatcher.get_other_members_at_address_simple",
+            side_effect=Exception("Address matching error"),
+        ):
             result = member_address_service.get_colocated_members(self.test_member)
 
-            # Verify failure
-            self.assertFalse(result["success"])
-            self.assertGreater(len(result["errors"]), 0)
-            self.assertEqual(result["count"], 0)
-            self.assertEqual(len(result["members"]), 0)
+            # Verify failure (single message lands in error_message, not errors list)
+            self.assertFalse(result.success)
+            self.assertTrue(result.error_message or result.errors)
+            self.assertEqual(result.metadata.get("count", 0), 0)
+            self.assertEqual(len((result.data or [])), 0)
 
     def test_generate_address_display_html_success(self):
         """Test successful HTML display generation"""
 
         # Create additional member at same address
         other_member = self.create_test_member(
-            first_name="Maria",
-            last_name="de Vries",
-            birth_date="1987-05-20"
+            first_name="Maria", last_name="de Vries", birth_date="1987-05-20"
         )
         other_member.reload()
         other_member.primary_address = self.test_address.name
@@ -223,14 +226,14 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.generate_address_display_html(self.test_member)
 
         # Verify success
-        self.assertTrue(result["success"])
-        self.assertIsInstance(result["html_content"], str)
-        self.assertGreaterEqual(result["member_count"], 1)
-        self.assertEqual(len(result["errors"]), 0)
+        self.assertTrue(result.success)
+        self.assertIsInstance((result.data or ""), str)
+        self.assertGreaterEqual(result.metadata.get("member_count", 0), 1)
+        self.assertEqual(len(result.errors), 0)
 
         # Verify HTML contains expected elements
-        if result["member_count"] > 0:
-            html = result["html_content"]
+        if result.metadata.get("member_count", 0) > 0:
+            html = result.data or ""
             self.assertIn("other-members-container", html)
             self.assertIn("Other Members at Same Address", html)
             self.assertIn(other_member.full_name, html)
@@ -242,18 +245,16 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.generate_address_display_html(self.test_member)
 
         # Verify success but empty content
-        self.assertTrue(result["success"])
-        self.assertEqual(result["html_content"], "")
-        self.assertEqual(result["member_count"], 0)
+        self.assertTrue(result.success)
+        self.assertEqual((result.data or ""), "")
+        self.assertEqual(result.metadata.get("member_count", 0), 0)
 
     def test_generate_address_display_html_save_to_db(self):
         """Test HTML display generation with database save"""
 
         # Create additional member at same address
         other_member = self.create_test_member(
-            first_name="Maria",
-            last_name="de Vries",
-            birth_date="1987-05-20"
+            first_name="Maria", last_name="de Vries", birth_date="1987-05-20"
         )
         other_member.reload()
         other_member.primary_address = self.test_address.name
@@ -270,35 +271,37 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.generate_address_display_html(self.test_member, save_to_db=True)
 
         # Verify success
-        self.assertTrue(result["success"])
-        self.assertGreaterEqual(result["member_count"], 1)
+        self.assertTrue(result.success)
+        self.assertGreaterEqual(result.metadata.get("member_count", 0), 1)
 
         # Verify member field was updated
-        self.assertEqual(self.test_member.other_members_at_address, result["html_content"])
+        self.assertEqual(self.test_member.other_members_at_address, (result.data or ""))
 
     def test_generate_address_display_html_error_handling(self):
         """Test error handling in HTML display generation"""
 
         # Mock the colocated members method to fail
-        with patch.object(member_address_service, 'get_colocated_members',
-                         return_value={"success": False, "errors": ["Test error"], "members": [], "count": 0}):
+        from verenigingen.utils.operation_result import OperationResult
 
+        with patch.object(
+            member_address_service,
+            "get_colocated_members",
+            return_value=OperationResult.fail("Test error", errors=["Test error"], count=0),
+        ):
             result = member_address_service.generate_address_display_html(self.test_member)
 
             # Verify failure
-            self.assertFalse(result["success"])
-            self.assertGreater(len(result["errors"]), 0)
-            self.assertEqual(result["html_content"], "")
-            self.assertEqual(result["member_count"], 0)
+            self.assertFalse(result.success)
+            self.assertGreater(len(result.errors), 0)
+            self.assertEqual((result.data or ""), "")
+            self.assertEqual(result.metadata.get("member_count", 0), 0)
 
     def test_service_integration_workflow(self):
         """Test complete workflow using all service methods"""
 
         # Create additional member at same address
         other_member = self.create_test_member(
-            first_name="Maria",
-            last_name="de Vries",
-            birth_date="1987-05-20"
+            first_name="Maria", last_name="de Vries", birth_date="1987-05-20"
         )
         other_member.reload()
         other_member.primary_address = self.test_address.name
@@ -308,24 +311,26 @@ class TestMemberAddressService(VereningingenTestCase):
         result1 = member_address_service.update_member_address_fields(self.test_member)
         result2 = member_address_service.update_member_address_fields(other_member)
 
-        self.assertTrue(result1["success"])
-        self.assertTrue(result2["success"])
+        self.assertTrue(result1.success)
+        self.assertTrue(result2.success)
 
         # Step 2: Find co-located members
         colocated_result = member_address_service.get_colocated_members(self.test_member)
 
-        self.assertTrue(colocated_result["success"])
-        self.assertGreaterEqual(colocated_result["count"], 1)
+        self.assertTrue(colocated_result.success)
+        self.assertGreaterEqual(colocated_result.metadata.get("count", 0), 1)
 
         # Step 3: Generate HTML display
-        display_result = member_address_service.generate_address_display_html(self.test_member, save_to_db=True)
+        display_result = member_address_service.generate_address_display_html(
+            self.test_member, save_to_db=True
+        )
 
-        self.assertTrue(display_result["success"])
-        self.assertGreaterEqual(display_result["member_count"], 1)
-        self.assertIn("other-members-container", display_result["html_content"])
+        self.assertTrue(display_result.success)
+        self.assertGreaterEqual(display_result.metadata.get("member_count", 0), 1)
+        self.assertIn("other-members-container", (display_result.data or ""))
 
         # Verify member field was updated
-        self.assertEqual(self.test_member.other_members_at_address, display_result["html_content"])
+        self.assertEqual(self.test_member.other_members_at_address, (display_result.data or ""))
 
     def test_service_performance_with_multiple_members(self):
         """Test service performance with multiple members"""
@@ -334,9 +339,7 @@ class TestMemberAddressService(VereningingenTestCase):
         members = []
         for i in range(3):
             member = self.create_test_member(
-                first_name=f"Test{i}",
-                last_name="User",
-                birth_date=f"198{i}-01-01"
+                first_name=f"Test{i}", last_name="User", birth_date=f"198{i}-01-01"
             )
             member.reload()
             member.primary_address = self.test_address.name
@@ -345,11 +348,12 @@ class TestMemberAddressService(VereningingenTestCase):
 
         # Update address fields for all members
         import time
+
         start_time = time.time()
 
         for member in members:
             result = member_address_service.update_member_address_fields(member)
-            self.assertTrue(result["success"])
+            self.assertTrue(result.success)
 
         # Test co-located member discovery performance
         colocated_result = member_address_service.get_colocated_members(self.test_member)
@@ -358,22 +362,24 @@ class TestMemberAddressService(VereningingenTestCase):
 
         # Should complete quickly
         self.assertLess(processing_time, 2.0)  # Less than 2 seconds
-        self.assertTrue(colocated_result["success"])
-        self.assertGreaterEqual(colocated_result["count"], 3)
+        self.assertTrue(colocated_result.success)
+        self.assertGreaterEqual(colocated_result.metadata.get("count", 0), 3)
 
     def test_dutch_address_normalization_integration(self):
         """Test Dutch address normalization integration"""
 
         # Create address with Dutch street patterns
-        dutch_address = frappe.get_doc({
-            "doctype": "Address",
-            "address_title": "Dutch Test Address",
-            "address_line1": "Nieuwe Prinsengracht 123",
-            "city": "Amsterdam",
-            "pincode": "1018 VZ",
-            "country": "Netherlands",
-            "address_type": "Personal"
-        })
+        dutch_address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": "Dutch Test Address",
+                "address_line1": "Nieuwe Prinsengracht 123",
+                "city": "Amsterdam",
+                "pincode": "1018 VZ",
+                "country": "Netherlands",
+                "address_type": "Personal",
+            }
+        )
         dutch_address.insert()
 
         self.test_member.primary_address = dutch_address.name
@@ -383,8 +389,8 @@ class TestMemberAddressService(VereningingenTestCase):
         result = member_address_service.update_member_address_fields(self.test_member)
 
         # Verify success
-        self.assertTrue(result["success"])
-        self.assertIsNotNone(result["fingerprint"])
+        self.assertTrue(result.success)
+        self.assertIsNotNone(result.data)
 
         # Verify normalized fields contain Dutch-specific patterns
         self.assertIsNotNone(self.test_member.normalized_address_line)
@@ -397,18 +403,10 @@ class TestMemberAddressService(VereningingenTestCase):
     def test_relationship_guessing_same_last_name_similar_age(self):
         """Test relationship guessing for same last name, similar age"""
         # Create primary member
-        member1 = self.create_test_member(
-            first_name="John",
-            last_name="Smith",
-            birth_date="1990-01-01"
-        )
+        member1 = self.create_test_member(first_name="John", last_name="Smith", birth_date="1990-01-01")
 
         # Create partner with same last name, similar age (2 years difference)
-        member2 = self.create_test_member(
-            first_name="Jane",
-            last_name="Smith",
-            birth_date="1992-01-01"
-        )
+        member2 = self.create_test_member(first_name="Jane", last_name="Smith", birth_date="1992-01-01")
 
         # Link both to same address
         member1.reload()
@@ -420,6 +418,7 @@ class TestMemberAddressService(VereningingenTestCase):
 
         # Test relationship guessing - should suggest Spouse/Partner
         from verenigingen.services.member.core.member_address_service import MemberAddressService
+
         address_service = MemberAddressService()
 
         # Use the actual member document for guessing
@@ -430,18 +429,10 @@ class TestMemberAddressService(VereningingenTestCase):
     def test_relationship_guessing_same_last_name_large_age_difference(self):
         """Test relationship guessing for same last name, large age difference"""
         # Create primary member
-        member1 = self.create_test_member(
-            first_name="John",
-            last_name="Smith",
-            birth_date="1990-01-01"
-        )
+        member1 = self.create_test_member(first_name="John", last_name="Smith", birth_date="1990-01-01")
 
         # Create parent with same last name, 30 years older
-        member2 = self.create_test_member(
-            first_name="Bob",
-            last_name="Smith",
-            birth_date="1960-01-01"
-        )
+        member2 = self.create_test_member(first_name="Bob", last_name="Smith", birth_date="1960-01-01")
 
         # Link both to same address
         member1.reload()
@@ -453,6 +444,7 @@ class TestMemberAddressService(VereningingenTestCase):
 
         # Test relationship guessing - should suggest Parent/Child or Family Member
         from verenigingen.services.member.core.member_address_service import MemberAddressService
+
         address_service = MemberAddressService()
 
         relationship = address_service.guess_relationship(member1, member2)
@@ -462,18 +454,10 @@ class TestMemberAddressService(VereningingenTestCase):
     def test_relationship_guessing_different_last_name_similar_age(self):
         """Test relationship guessing for different last name, similar age"""
         # Create primary member
-        member1 = self.create_test_member(
-            first_name="John",
-            last_name="Smith",
-            birth_date="1990-01-01"
-        )
+        member1 = self.create_test_member(first_name="John", last_name="Smith", birth_date="1990-01-01")
 
         # Create partner with different last name, similar age
-        member2 = self.create_test_member(
-            first_name="Alice",
-            last_name="Johnson",
-            birth_date="1990-06-01"
-        )
+        member2 = self.create_test_member(first_name="Alice", last_name="Johnson", birth_date="1990-06-01")
 
         # Link both to same address
         member1.reload()
@@ -485,6 +469,7 @@ class TestMemberAddressService(VereningingenTestCase):
 
         # Test relationship guessing - could be Household Member or Partner/Spouse
         from verenigingen.services.member.core.member_address_service import MemberAddressService
+
         address_service = MemberAddressService()
 
         relationship = address_service.guess_relationship(member1, member2)
