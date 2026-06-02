@@ -41,27 +41,25 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         ]
         
     def generate_test_iban(self, bank_bic: str = None) -> str:
-        """Generate valid Dutch test IBAN"""
+        """Generate a checksum-valid Dutch test IBAN.
+
+        Delegates to the canonical generator (verenigingen.utils.validation.
+        iban_validator.generate_test_iban) so the MOD-97 check digits are correct.
+        The previous implementation concatenated a base + suffix without valid
+        check digits, so every IBAN it produced failed the production validator.
+        """
+        from verenigingen.utils.validation.iban_validator import generate_test_iban as _generate
+
         if bank_bic:
-            # Find bank by BIC
             bank = next((b for b in self.dutch_banks if b["bic"] == bank_bic), None)
-            if bank:
-                base = bank["test_iban_base"]
-            else:
-                # Default to ING if BIC not found
-                base = self.dutch_banks[0]["test_iban_base"]
+            bic = bank["bic"] if bank else self.dutch_banks[0]["bic"]
         else:
-            # Random Dutch bank
-            bank = random.choice(self.dutch_banks)
-            base = bank["test_iban_base"]
-        
-        # Generate unique account number suffix
-        seq = self.get_next_sequence('iban')
-        suffix = f"{seq:03d}"
-        
-        # Construct IBAN with check digits (simplified - real IBANs have complex validation)
-        iban = f"{base}{suffix}"
-        return iban
+            bic = random.choice(self.dutch_banks)["bic"]
+
+        bank_code = bic[:4]  # e.g. "INGBNL2A" -> "INGB" (all in the validator's bank set)
+        # Unique 10-digit account number from the factory sequence
+        seq = self.get_next_sequence("iban")
+        return _generate(bank_code=bank_code, account_number=f"{seq:010d}")
     
     def generate_mandate_id(self) -> str:
         """Generate test mandate ID following Dutch conventions with timestamp uniqueness"""

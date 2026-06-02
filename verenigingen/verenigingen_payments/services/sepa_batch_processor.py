@@ -995,11 +995,18 @@ class SEPABatchProcessor:
             if schedule.payment_terms_template:
                 invoice.payment_terms_template = schedule.payment_terms_template
 
+            # Compute the coverage period THIS invoice covers, BEFORE generating the
+            # line description (which must show this period). The schedule's
+            # last_invoice_coverage_* fields describe the PREVIOUS invoice (and are
+            # None for the first one). update_schedule_after_invoice persists these
+            # same dates onto the schedule afterwards.
+            coverage_start, coverage_end = schedule.calculate_next_coverage_period()
+
             # Add membership dues item
             item_code = self.get_or_create_dues_item(schedule)
 
             # Generate description based on contribution mode
-            description = self.generate_invoice_description(schedule)
+            description = self.generate_invoice_description(schedule, coverage_start, coverage_end)
 
             invoice.append(
                 "items",
@@ -1012,13 +1019,6 @@ class SEPABatchProcessor:
                     "amount": schedule.dues_rate,
                 },
             )
-
-            # Compute the coverage period THIS invoice covers. The schedule's
-            # last_invoice_coverage_* fields describe the PREVIOUS invoice (and are
-            # None for the first one), so reading them here left the invoice's
-            # coverage dates empty. update_schedule_after_invoice persists these
-            # same dates onto the schedule afterwards.
-            coverage_start, coverage_end = schedule.calculate_next_coverage_period()
 
             # Add custom fields for tracking
             invoice.membership_dues_schedule_display = schedule.name
@@ -1056,8 +1056,13 @@ class SEPABatchProcessor:
             )
             raise
 
-    def generate_invoice_description(self, schedule):
-        """Generate invoice description based on contribution mode"""
+    def generate_invoice_description(self, schedule, coverage_start=None, coverage_end=None):
+        """Generate invoice description based on contribution mode.
+
+        coverage_start/coverage_end describe the period THIS invoice covers; pass
+        them in from create_dues_invoice. They default to the schedule's stored
+        last_invoice_coverage_* (the previous period) only as a fallback.
+        """
         base_desc = f"Membership dues - {schedule.billing_frequency}"
 
         # The Membership Dues Schedule field is `default_multiplier`; there is no
@@ -1071,9 +1076,9 @@ class SEPABatchProcessor:
         elif schedule.contribution_mode == "Flexible":
             base_desc += f"\nFlexible contribution"
 
-        base_desc += (
-            f"\nCoverage: {schedule.last_invoice_coverage_start} to {schedule.last_invoice_coverage_end}"
-        )
+        period_start = coverage_start if coverage_start is not None else schedule.last_invoice_coverage_start
+        period_end = coverage_end if coverage_end is not None else schedule.last_invoice_coverage_end
+        base_desc += f"\nCoverage: {period_start} to {period_end}"
 
         return base_desc
 
