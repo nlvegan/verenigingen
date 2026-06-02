@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import frappe
 from frappe.utils import flt, today, add_days
 
+from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.test_factory import MollieTestCase, MollieTestDataFactory
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
     _process_subscription_payment,
@@ -55,16 +56,48 @@ class TestMollieFinancialSafeguards(MollieTestCase):
         # (member.customer). Reuse it instead of inserting a second Customer with
         # the same derived name, which collided on the Customer primary key.
         self.customer = frappe.get_doc("Customer", self.member.customer)
-        
+
+        # ERPNext's Sales Invoice (and the downstream Payment Entry party-account
+        # lookup) require an explicit `company`; without it ERPNext throws
+        # "Please select a Company". Mollie is a EUR flow, so prefer the EUR test
+        # company, falling back to a company with a current Fiscal Year on sites
+        # that don't have the app's EUR company provisioned.
+        self.company = self._resolve_test_company()
+
         # Create test invoice
         self.test_invoice = self._create_test_invoice(50.00)
+
+    def _resolve_test_company(self) -> str:
+        """Return a EUR company with a current Fiscal Year, or a safe fallback."""
+        try:
+            return get_eur_test_company()
+        except Exception:
+            # Fall back to any company whose Fiscal Year covers today so the
+            # Sales Invoice / GL postings save (EUR is not required for the
+            # mocked Mollie path - it does not run SEPA invoice validation).
+            from erpnext.accounts.utils import get_fiscal_year
+
+            for company in frappe.get_all("Company", pluck="name"):
+                try:
+                    get_fiscal_year(date=today(), company=company, as_dict=True)
+                    return company
+                except Exception:
+                    continue
+            return "_Test Company"
         
     def _create_test_invoice(self, amount: float) -> str:
         """Create a test invoice for safeguard testing"""
         self.mollie_factory._ensure_test_item()
-        
+
+        # Match the invoice currency to the company's default currency so the
+        # party (Debtors) account currency check passes. On a fully provisioned
+        # EUR test company this is EUR; on a fallback company it tracks that
+        # company's currency. The mocked Mollie path does not assert EUR.
+        company_currency = frappe.db.get_value("Company", self.company, "default_currency")
+
         invoice = frappe.get_doc({
             "doctype": "Sales Invoice",
+            "company": self.company,
             "customer": self.customer.name,
             "customer_name": self.member.full_name,
             "posting_date": today(),
@@ -77,7 +110,16 @@ class TestMollieFinancialSafeguards(MollieTestCase):
                 "rate": amount,
                 "amount": amount
             }],
-            "currency": "EUR",
+            "currency": company_currency,
+            # Set price-list fields explicitly so the invoice does not depend on
+            # the company having a default selling Price List configured (the
+            # fallback test company on some sites has none in the invoice
+            # currency).
+            "selling_price_list": "Standard Selling",
+            "price_list_currency": company_currency,
+            "plc_conversion_rate": 1.0,
+            "conversion_rate": 1.0,
+            "ignore_pricing_rule": 1,
             "remarks": f"Safeguard test invoice - amount: {amount}"
         })
         invoice.insert()
