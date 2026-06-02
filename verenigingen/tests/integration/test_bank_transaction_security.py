@@ -95,12 +95,17 @@ class TestBankTransactionSecurity(EnhancedTestCase):
             bank = frappe.get_doc({"doctype": "Bank", "bank_name": "Test Bank"})
             bank.insert(ignore_permissions=True)
 
+        # A Bank Account must link to a GL Account of type "Bank" or the Bank
+        # Transaction raises "Company Account is mandatory".
+        gl_account = self._ensure_bank_gl_account()
+
         # Create Bank Account
         bank_account = frappe.get_doc(
             {
                 "doctype": "Bank Account",
                 "account_name": "Test Bank Account",
                 "bank": "Test Bank",
+                "account": gl_account,
                 "company": self.company_name,
                 "is_default": 0,
                 "is_company_account": 1,
@@ -108,6 +113,47 @@ class TestBankTransactionSecurity(EnhancedTestCase):
         )
         bank_account.insert(ignore_permissions=True, ignore_if_duplicate=True)
         return bank_account.name
+
+    def _ensure_bank_gl_account(self):
+        """Return a non-group EUR GL Account of type Bank for the test company.
+
+        The Bank Transaction creator defaults the transaction currency to EUR,
+        so the linked GL account must also be EUR to avoid a currency mismatch.
+        """
+        existing = frappe.db.get_value(
+            "Account",
+            {
+                "account_type": "Bank",
+                "is_group": 0,
+                "company": self.company_name,
+                "account_currency": "EUR",
+            },
+            "name",
+        )
+        if existing:
+            return existing
+        parent = frappe.db.get_value(
+            "Account",
+            {"account_type": "Bank", "is_group": 1, "company": self.company_name},
+            "name",
+        ) or frappe.db.get_value(
+            "Account",
+            {"root_type": "Asset", "is_group": 1, "company": self.company_name},
+            "name",
+            order_by="lft",
+        )
+        account = frappe.get_doc(
+            {
+                "doctype": "Account",
+                "account_name": "Test Bank GL EUR",
+                "account_type": "Bank",
+                "account_currency": "EUR",
+                "parent_account": parent,
+                "company": self.company_name,
+            }
+        )
+        account.insert(ignore_permissions=True)
+        return account.name
 
     def test_admin_can_create_and_submit(self):
         """Administrator can create and submit Bank Transactions"""

@@ -41,13 +41,26 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         
     def tearDown(self):
         """Clean up after each test"""
-        # Restore original settings
+        # The persona and individual tests save Verenigingen Settings, so the
+        # cached handle is stale; reload before restoring to avoid a conflict.
+        self.settings.reload()
         for key, value in self.original_settings.items():
             setattr(self.settings, key, value)
         self.settings.save()
-        
+
         super().tearDown()
-    
+
+    def run_donor_auto_creation_job(self, doc):
+        """Run the donor auto-creation background job synchronously.
+
+        Production wires Payment Entry ``on_submit`` to a queued background job
+        rather than running donor creation inline; in tests the worker never
+        runs, so we invoke the exact executor the job would call.
+        """
+        from verenigingen.utils.background_jobs import execute_donor_auto_creation
+
+        execute_donor_auto_creation(payment_doc_name=doc.name)
+
     def test_payment_entry_auto_creation_success(self):
         """Test successful donor creation from Payment Entry"""
         # Create customer without existing donor
@@ -60,6 +73,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         
         # Submit to trigger auto-creation
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Verify donor was created
         donor = frappe.db.get_value("Donor", {"customer": customer.name}, "*", as_dict=True)
@@ -80,19 +94,19 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         """Test successful donor creation from Journal Entry"""
         customer = self.test_persona.create_eligible_customer(self)
         
-        # Create Journal Entry with customer debit and donations credit
+        # Create Journal Entry above the configured minimum (100.0)
         journal_entry = self.test_persona.create_donation_journal_entry(
-            self, customer.name, 75.0, 
+            self, customer.name, 150.0,
             self.test_data['donations_account'],
             self.test_data['receivable_account']
         )
-        
+
         journal_entry.submit()
-        
+
         # Verify donor creation
         donor = frappe.db.get_value("Donor", {"customer": customer.name}, "*", as_dict=True)
         self.assertIsNotNone(donor, "Donor should be auto-created from journal entry")
-        self.assertEqual(flt(donor['creation_trigger_amount']), 75.0)
+        self.assertEqual(flt(donor['creation_trigger_amount']), 150.0)
         self.assertEqual(donor['created_from_payment'], journal_entry.name)
         
         self.track_doc("Donor", donor['name'])
@@ -106,6 +120,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 50.0, self.test_data['donations_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Verify NO donor was created
         donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
@@ -121,6 +136,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 200.0, self.test_data['donations_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Verify NO donor was created
         donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
@@ -141,6 +157,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 200.0, self.test_data['donations_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Verify no additional donor was created
         final_count = frappe.db.count("Donor", {"customer": customer.name})
@@ -148,7 +165,8 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
     
     def test_disabled_auto_creation_blocks_creation(self):
         """Test that disabled auto-creation prevents donor creation"""
-        # Disable auto-creation
+        # Disable auto-creation (reload first: persona already saved settings)
+        self.settings.reload()
         self.settings.auto_create_donors = 0
         self.settings.save()
         
@@ -159,6 +177,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 200.0, self.test_data['donations_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Verify NO donor was created
         donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
@@ -173,6 +192,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 200.0, self.test_data['other_income_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Verify NO donor was created
         donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
@@ -180,7 +200,8 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
     
     def test_empty_customer_groups_allows_all(self):
         """Test that empty customer groups configuration allows all groups"""
-        # Clear customer groups restriction
+        # Clear customer groups restriction (reload: persona already saved settings)
+        self.settings.reload()
         self.settings.donor_customer_groups = ""
         self.settings.save()
         
@@ -192,6 +213,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 200.0, self.test_data['donations_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Verify donor WAS created (any group allowed)
         donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
@@ -210,20 +232,24 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 200.0, self.test_data['donations_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Get created donor
         donor_name = frappe.db.get_value("Donor", {"customer": customer.name}, "name")
         self.track_doc("Donor", donor_name)
         
-        # Update customer info
+        # Auto-creation linked a donor onto the customer, bumping its
+        # timestamp; reload before editing to avoid a stale-doc conflict.
+        customer.reload()
         customer.customer_name = "Updated Test Customer"
-        customer.email_id = "updated.customer@example.com"
+        # NOTE: Customer.email_id is a read-only field fetched from the primary
+        # contact (fetch_from=customer_primary_contact.email_id) and cannot be
+        # set directly; only the editable name is updated here.
         customer.save()
-        
-        # Verify donor was updated through sync
+
+        # Verify donor was updated through the customer->donor sync hook
         donor = frappe.get_doc("Donor", donor_name)
         self.assertEqual(donor.donor_name, "Updated Test Customer")
-        self.assertEqual(donor.donor_email, "updated.customer@example.com")
     
     def test_api_get_auto_creation_settings(self):
         """Test the get_auto_creation_settings API endpoint"""
@@ -252,6 +278,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
             self, customer.name, 150.0, self.test_data['donations_account']
         )
         payment.submit()
+        self.run_donor_auto_creation_job(payment)
         
         # Track created donor
         donor_name = frappe.db.get_value("Donor", {"customer": customer.name}, "name")
@@ -302,7 +329,10 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         from verenigingen.api.donor_auto_creation_management import get_auto_creation_dashboard
         
         dashboard = get_auto_creation_dashboard()
-        
+        # @standard_api wraps the payload in a {success, data, meta} envelope
+        if isinstance(dashboard, dict) and "data" in dashboard:
+            dashboard = dashboard["data"]
+
         self.assertIsInstance(dashboard, dict)
         self.assertIn('settings', dashboard)
         self.assertIn('statistics', dashboard)
@@ -329,8 +359,10 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         
         self.assertIsInstance(result, dict)
         self.assertTrue(result.get('success'))
-        self.assertIn('settings', result)
-        
+        # @standard_api returns the updated settings under the "data" envelope key
+        self.assertIn('data', result)
+        self.assertIn('enabled', result['data'])
+
         # Verify settings were actually updated
         updated_settings = frappe.get_single("Verenigingen Settings")
         self.assertTrue(updated_settings.auto_create_donors)
@@ -343,34 +375,44 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         customer2 = self.test_persona.create_eligible_customer(self, suffix="2")
         
         # Create Journal Entry with multiple customer debits
+        company = self.test_data['company']
+        cost_center = self.test_persona.get_default_cost_center(company)
         journal_entry = frappe.new_doc("Journal Entry")
         journal_entry.voucher_type = "Journal Entry"
-        
+        journal_entry.company = company
+        journal_entry.posting_date = frappe.utils.today()
+
         # Customer 1 debit
         journal_entry.append("accounts", {
             'account': self.test_data['receivable_account'],
             'party_type': 'Customer',
             'party': customer1.name,
+            'cost_center': cost_center,
             'debit': 120.0,
+            'debit_in_account_currency': 120.0,
             'credit': 0.0
         })
-        
-        # Customer 2 debit  
+
+        # Customer 2 debit
         journal_entry.append("accounts", {
             'account': self.test_data['receivable_account'],
-            'party_type': 'Customer', 
+            'party_type': 'Customer',
             'party': customer2.name,
+            'cost_center': cost_center,
             'debit': 180.0,
+            'debit_in_account_currency': 180.0,
             'credit': 0.0
         })
-        
+
         # Donations account credit
         journal_entry.append("accounts", {
             'account': self.test_data['donations_account'],
+            'cost_center': cost_center,
             'debit': 0.0,
-            'credit': 300.0
+            'credit': 300.0,
+            'credit_in_account_currency': 300.0
         })
-        
+
         journal_entry.insert()
         self.track_doc("Journal Entry", journal_entry.name)
         
@@ -426,13 +468,21 @@ class DonorAutoCreationTestPersona:
     
     def get_existing_account(self, account_type, company, different_from=None):
         """Get existing account of specified type"""
+        # Map shorthand types to valid ERPNext Account "account_type" values
+        account_type_alias = {"Income": "Income Account"}
+        resolved_account_type = account_type_alias.get(account_type, account_type)
         filters = {
-            "account_type": account_type,
+            "account_type": resolved_account_type,
             "is_group": 0,
             "company": company,
             "disabled": 0
         }
-        
+        # Restrict to the company's base currency so single-currency test
+        # vouchers don't trip the multi-currency validation.
+        company_currency = frappe.db.get_value("Company", company, "default_currency")
+        if company_currency:
+            filters["account_currency"] = company_currency
+
         # If we need a different account, exclude the specified one
         if different_from:
             accounts = frappe.db.get_all("Account", filters=filters, fields=["name"], limit=2)
@@ -482,10 +532,13 @@ class DonorAutoCreationTestPersona:
         
         customer = frappe.new_doc("Customer")
         customer.customer_name = customer_name
+        customer.customer_type = "Individual"
         customer.customer_group = group_name
         customer.territory = "All Territories"
         customer.email_id = f"eligible.customer{suffix}@example.com"
-        customer.mobile_no = "0123456789"
+        # Use a full international number; Donor.phone validation requires a
+        # country code, and this mobile_no is copied onto the auto-created donor.
+        customer.mobile_no = "+31612345678"
         customer.insert()
         
         test_case.track_doc("Customer", customer.name)
@@ -548,44 +601,66 @@ class DonorAutoCreationTestPersona:
     
     def create_donation_payment_entry(self, test_case, customer_name, amount, donations_account):
         """Create Payment Entry for donation to specified account"""
-        # Get cash account for proper Payment Entry structure
         company = self.get_default_company()
-        cash_account = self.get_existing_account("Cash", company)
-        
+        # For a "Receive" payment the paid_from account must be the party's
+        # Receivable account; funds are deposited to the donations account.
+        receivable_account = self.get_existing_account("Receivable", company)
+
         payment = frappe.new_doc("Payment Entry")
         payment.payment_type = "Receive"
+        payment.company = company
         payment.party_type = "Customer"
         payment.party = customer_name
         payment.paid_amount = amount
         payment.received_amount = amount
-        payment.paid_from = cash_account  # From cash account
+        payment.paid_from = receivable_account
         payment.paid_to = donations_account  # To donations account
+        payment.source_exchange_rate = 1
+        payment.target_exchange_rate = 1
+        payment.cost_center = self.get_default_cost_center(company)
         payment.insert()
-        
+
         test_case.track_doc("Payment Entry", payment.name)
         return payment
+
+    def get_default_cost_center(self, company):
+        """Get a non-group cost center for the company."""
+        cost_center = frappe.db.get_value("Company", company, "cost_center")
+        if cost_center:
+            return cost_center
+        return frappe.db.get_value(
+            "Cost Center", {"company": company, "is_group": 0}, "name"
+        )
     
     def create_donation_journal_entry(self, test_case, customer_name, amount, donations_account, receivable_account):
         """Create Journal Entry for donation allocation"""
+        company = self.get_default_company()
+        cost_center = self.get_default_cost_center(company)
         journal_entry = frappe.new_doc("Journal Entry")
         journal_entry.voucher_type = "Journal Entry"
-        
+        journal_entry.company = company
+        journal_entry.posting_date = frappe.utils.today()
+
         # Customer debit
         journal_entry.append("accounts", {
             'account': receivable_account,
             'party_type': 'Customer',
             'party': customer_name,
+            'cost_center': cost_center,
             'debit': amount,
+            'debit_in_account_currency': amount,
             'credit': 0.0
         })
-        
+
         # Donations account credit
         journal_entry.append("accounts", {
             'account': donations_account,
+            'cost_center': cost_center,
             'debit': 0.0,
-            'credit': amount
+            'credit': amount,
+            'credit_in_account_currency': amount
         })
-        
+
         journal_entry.insert()
         test_case.track_doc("Journal Entry", journal_entry.name)
         return journal_entry

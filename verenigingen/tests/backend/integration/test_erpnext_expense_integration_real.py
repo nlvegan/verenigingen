@@ -43,28 +43,30 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         """Set up real test data using Enhanced Test Factory"""
         super().setUp()
         
-        # Create test volunteer with real database operations
+        # Create test volunteer with real database operations.
+        # No hardcoded email: the factory generates a unique address. A literal
+        # email collides across tests because the Enhanced factory uses a fixed
+        # seed (so test_run_id is constant) and the per-test email sequence
+        # resets, producing the same deterministic address every test.
         self.test_volunteer = self.create_test_volunteer(
             volunteer_name="ERPNext Test Volunteer",
-            email="erpnext.test@example.com",
             status="Active"
         )
         
         # Create associated member for volunteer
         self.test_member = frappe.get_doc("Member", self.test_volunteer.member)
         
-        # Ensure test company exists for real operations
-        if not frappe.db.exists("Company", "Test Company"):
-            company = frappe.get_doc({
-                "doctype": "Company",
-                "company_name": "Test Company",
-                "default_currency": "EUR",
-                "country": "Netherlands"
-            })
-            company.insert()
-            
-        # Set as default for real operations
-        frappe.db.set_default("company", "Test Company")
+        # Use ERPNext's fully-provisioned standard test company rather than
+        # hand-building one (a minimal Company doc fails on mandatory
+        # accounting defaults like valuation_method). Fall back to any
+        # existing company if the standard fixture is absent.
+        self.test_company = (
+            "_Test Company"
+            if frappe.db.exists("Company", "_Test Company")
+            else (frappe.get_all("Company", limit=1, pluck="name") or [None])[0]
+        )
+        if self.test_company:
+            frappe.db.set_default("company", self.test_company)
         
         # Create expense test data
         self.test_expense_data = {

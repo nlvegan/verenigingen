@@ -61,7 +61,8 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "company_name": "Integration Test Company",
                     "abbr": "ITC",
                     "default_currency": "EUR",
-                    "country": "Netherlands"}
+                    "country": "Netherlands",
+                    "valuation_method": "FIFO"}
             )
             company.insert()
             self.company = company.name
@@ -74,8 +75,10 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         self.board_member_email = "integration.board@test.com"
         self.admin_email = "integration.admin@test.com"
 
+        # The expense submission/approval APIs run at the "medium" security level,
+        # which requires the Verenigingen Volunteer role on the acting user.
         for email, name, roles in [
-            (self.volunteer_email, "Integration Volunteer", []),
+            (self.volunteer_email, "Integration Volunteer", ["Verenigingen Volunteer"]),
             (self.board_member_email, "Integration Board Member", ["Verenigingen Chapter Board Member"]),
             (self.admin_email, "Integration Admin", ["System Manager"]),
         ]:
@@ -91,11 +94,13 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                 )
                 user.insert()
                 self.track_doc("User", user.name)
+            else:
+                user = frappe.get_doc("User", email)
 
-                # Add roles
-                for role in roles:
-                    if frappe.db.exists("Role", role):
-                        user.add_roles(role)
+            # Ensure roles are present (also for pre-existing users)
+            for role in roles:
+                if frappe.db.exists("Role", role):
+                    user.add_roles(role)
 
         # Create test chapter with board structure
         # Note: Chapter uses autoname:"prompt", so name is set directly via factory
@@ -115,6 +120,22 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             last_name="BoardMember",
             email=self.board_member_email
         )
+
+        # Self-service expense operations resolve the Member by its email (and
+        # user link). The factory uniquifies member emails, so force them back to
+        # the exact portal addresses the tests act as.
+        frappe.db.set_value(
+            "Member",
+            self.volunteer_member.name,
+            {"email": self.volunteer_email, "user": self.volunteer_email},
+        )
+        frappe.db.set_value(
+            "Member",
+            self.board_member_member.name,
+            {"email": self.board_member_email, "user": self.board_member_email},
+        )
+        self.volunteer_member.reload()
+        self.board_member_member.reload()
 
         # Create volunteers with _exact_email=True to use static emails for assertions
         self.test_volunteer = self.create_test_volunteer(
@@ -274,41 +295,32 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             chapter_doc.save()
 
     def create_expense_categories(self):
-        """Get existing Expense Claim Types for testing
+        """Create custom "Expense Category" records for testing.
 
-        Note: ERPNext Expense Claims require "Expense Claim Type" records, not
-        our custom "Expense Category" DocType. This method returns existing
-        Expense Claim Types that can be used in expense submission tests.
+        The volunteer expense submission flow validates against the custom
+        "Expense Category" DocType (each needs an expense_account), not ERPNext's
+        "Expense Claim Type". Create the categories the tests submit against.
         """
-        # Use existing ERPNext Expense Claim Types
-        # Available types: Calls, Food, Medical, Others, Reiskosten, Materiaalkosten, Travel
-        existing_types = frappe.get_all("Expense Claim Type", pluck="name")
+        # Find a usable expense GL account for the test company.
+        company = self._get_test_company()
+        expense_account = frappe.db.get_value(
+            "Account",
+            {"root_type": "Expense", "is_group": 0, "company": company},
+            "name",
+        )
 
-        if not existing_types:
-            # If no expense claim types exist, create one
-            expense_account = frappe.db.get_value("Account", {"account_type": "Expense"}, "name")
-            if not expense_account:
-                expense_account = frappe.db.get_value(
-                    "Account", {"account_type": "Expense Account"}, "name"
-                )
+        category_names = ["Travel", "Food", "Reiskosten"]
+        for name in category_names:
+            if not frappe.db.exists("Expense Category", name):
+                frappe.get_doc(
+                    {
+                        "doctype": "Expense Category",
+                        "category_name": name,
+                        "expense_account": expense_account,
+                    }
+                ).insert(ignore_permissions=True)
 
-            expense_type = frappe.get_doc({
-                "doctype": "Expense Claim Type",
-                "expense_type": "Test Travel",
-                "default_account": expense_account
-            })
-            expense_type.insert()
-            return ["Test Travel"]
-
-        # Return a few common types for testing
-        preferred_types = ["Travel", "Food", "Reiskosten"]
-        categories = [t for t in preferred_types if t in existing_types]
-
-        # Fallback to whatever exists if none of preferred types are found
-        if not categories:
-            categories = existing_types[:3]
-
-        return categories
+        return category_names
 
     def setup_employee_records(self):
         """Create Employee records for test volunteers

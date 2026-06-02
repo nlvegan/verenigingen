@@ -20,6 +20,7 @@ Production Issues Caught:
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -143,6 +144,7 @@ class TestMemberPermissions(EnhancedTestCase):
         board_member = chapter1_doc.append("board_members", {
             "volunteer": volunteer.name,
             "chapter_role": chapter_role.name,
+            "from_date": today(),
             "is_active": 1
         })
         chapter1_doc.save()
@@ -270,6 +272,7 @@ class TestMemberPermissions(EnhancedTestCase):
         board_member = chapter1_doc.append("board_members", {
             "volunteer": volunteer.name,
             "chapter_role": chapter_role.name,
+            "from_date": today(),
             "is_active": 1
         })
         chapter1_doc.save()

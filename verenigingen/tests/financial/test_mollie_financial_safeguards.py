@@ -51,16 +51,10 @@ class TestMollieFinancialSafeguards(MollieTestCase):
             email="safeguard.test@example.com"
         )
         
-        # Create customer
-        self.customer = frappe.get_doc({
-            "doctype": "Customer",
-            "customer_name": f"{self.member.first_name} {self.member.last_name}",
-            "customer_type": "Individual",
-            "territory": "Netherlands"
-        })
-        self.customer.insert()
-        self.member.customer = self.customer.name
-        self.member.save()
+        # The factory already auto-creates and links a Customer for the member
+        # (member.customer). Reuse it instead of inserting a second Customer with
+        # the same derived name, which collided on the Customer primary key.
+        self.customer = frappe.get_doc("Customer", self.member.customer)
         
         # Create test invoice
         self.test_invoice = self._create_test_invoice(50.00)

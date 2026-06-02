@@ -77,16 +77,25 @@ class ChapterBoardTestFactory:
             self.test_case.track_doc("Expense Category", category.name)
         return category_name
     
-    def create_test_region(self, region_name="Test Region", region_code=None):
+    def create_test_region(self, region_name=None, region_code=None):
         """Create test region with validation"""
+        # Region autonames field:region_name, which Frappe scrubs to a slug
+        # (e.g. "Test Region" -> "test-region"). The clean snapshot already
+        # ships a region whose name slugs to "test-region", so a fixed default
+        # label collides on the PRIMARY key. Default to a per-run-unique label.
+        if not region_name:
+            region_name = f"Test Region {frappe.generate_hash(length=6)}"
         if not region_code:
             region_code = f"TR{frappe.generate_hash(length=2)}"
-        
-        # Check if region with this name or code exists
-        if frappe.db.exists("Region", region_name):
-            return frappe.get_doc("Region", region_name)
-        if frappe.db.exists("Region", {"region_code": region_code}):
-            return frappe.get_doc("Region", {"region_code": region_code})
+
+        # Honour explicit callers via get-or-create by the region_name field
+        # (not the raw label, which may differ from the autonamed slug).
+        existing = frappe.db.exists("Region", {"region_name": region_name})
+        if existing:
+            return frappe.get_doc("Region", existing)
+        existing_by_code = frappe.db.exists("Region", {"region_code": region_code})
+        if existing_by_code:
+            return frappe.get_doc("Region", existing_by_code)
         
         region = frappe.get_doc({
             "doctype": "Region",

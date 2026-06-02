@@ -23,7 +23,13 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
     def setUp(self):
         """Set up test data using Enhanced Test Factory and proper permissions"""
         super().setUp()
-        
+
+        # create_member_from_application runs member.insert() under
+        # secure_user_context as a background system user. On a clean site that
+        # user has System Manager but Customer "create" is only granted to
+        # "Verenigingen Staff", so grant that role first.
+        self._ensure_system_user_can_create_customers()
+
         # Use Enhanced Test Factory for test data creation
         # Store chapter NAME (string), not the document object
         # Functions like create_pending_chapter_membership expect chapter_name string
@@ -32,11 +38,33 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         self.test_chapter = chapter_doc.name  # Store the name, not the document
             
         self.test_member_email = f"test-unit-{int(now_datetime().timestamp())}@example.com"
+        # Unique last name so the auto-created Customer (named after full_name)
+        # does not collide across tests now that customer creation succeeds.
+        self.unique_last_name = f"TestUser{frappe.generate_hash(length=6)}"
         self.test_member_name = None
 
         # Get test membership type
         membership_types = frappe.get_all("Membership Type", limit=1)
         self.test_membership_type = membership_types[0]["name"] if membership_types else "Kwartaallid"
+
+    def _ensure_system_user_can_create_customers(self):
+        """Grant the background member-creation system user the Staff role."""
+        from verenigingen.utils.secure_operations import get_system_user_for_operation
+
+        system_user = get_system_user_for_operation("member_creation_during_application")
+        if not frappe.db.exists("Has Role", {"parent": system_user, "role": "Verenigingen Staff"}):
+            # Raw insert (not user.add_roles) to avoid the User on_update hooks that
+            # enqueue work during tests. Idempotency is guarded above; include the
+            # standard audit columns so the row isn't malformed (NULL creation/owner).
+            now = frappe.utils.now()
+            frappe.db.sql(
+                """INSERT INTO `tabHas Role`
+                    (name, parent, parenttype, parentfield, role, creation, modified, modified_by, owner)
+                VALUES (%s, %s, 'User', 'roles', 'Verenigingen Staff', %s, %s, 'Administrator', 'Administrator')""",
+                (frappe.generate_hash(length=10), system_user, now, now),
+            )
+            frappe.db.commit()
+            frappe.clear_cache(user=system_user)
 
     def tearDown(self):
         """Clean up test data after each test"""
@@ -79,7 +107,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
 
         application_data = {
             "first_name": "Unit",
-            "last_name": "TestUser",
+            "last_name": self.unique_last_name,
             "email": self.test_member_email,
             "birth_date": "1990-01-01",
             "address_line1": "Test Street 123",
@@ -97,8 +125,9 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
 
         # Test member creation
         application_id = f"TEST-{int(now_datetime().timestamp())}"
+        # create_member_from_application already inserts the member (under
+        # secure_user_context); do not insert again.
         member = create_member_from_application(application_data, application_id, None)
-        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         self.assertEqual(member.email, self.test_member_email, "Member email should match")
@@ -115,7 +144,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Unit",
-                "last_name": "TestUser",
+                "last_name": self.unique_last_name,
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
@@ -151,7 +180,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Unit",
-                "last_name": "TestUser",
+                "last_name": self.unique_last_name,
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
@@ -185,7 +214,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Unit",
-                "last_name": "TestUser",
+                "last_name": self.unique_last_name,
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
@@ -240,7 +269,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Unit",
-                "last_name": "TestUser",
+                "last_name": self.unique_last_name,
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
@@ -254,10 +283,14 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         chapter_member = create_pending_chapter_membership(member, self.test_chapter)
         self.assertIsNotNone(chapter_member, "Pending chapter member should be created")
 
-        # Mock admin user roles
-        with patch("frappe.get_roles", return_value=["System Manager"]):
-            with patch("frappe.session.user", "Administrator"):
-                columns, data = chapter_members_report({"chapter": self.test_chapter})
+        # Run the report as a real admin user (patching frappe.session.user
+        # directly breaks the report's own session access).
+        original_user = frappe.session.user
+        frappe.set_user("Administrator")
+        try:
+            columns, data = chapter_members_report({"chapter": self.test_chapter})
+        finally:
+            frappe.set_user(original_user)
 
         # Find our test member in results
         test_member_row = next((row for row in data if row.get("member") == member.name), None)
@@ -275,7 +308,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Unit",
-                "last_name": "TestUser",
+                "last_name": self.unique_last_name,
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
@@ -289,22 +322,40 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
         chapter_member = create_pending_chapter_membership(member, self.test_chapter)
         self.assertIsNotNone(chapter_member, "Pending chapter member should be created")
 
-        # Mock regular user without special privileges
-        with patch("frappe.get_roles", return_value=["Verenigingen Member"]):
-            with patch("frappe.session.user", "regular@user.com"):
-                with patch("frappe.db.get_value", return_value=None):  # No member/volunteer found
-                    try:
-                        columns, data = chapter_members_report({"chapter": self.test_chapter})
-                        # If it doesn't throw, check that pending member is not visible
-                        test_member_row = next(
-                            (row for row in data if row.get("member") == member.name), None
-                        )
-                        self.assertIsNone(
-                            test_member_row, "Pending member should not be visible to regular users"
-                        )
-                    except frappe.exceptions.ValidationError:
-                        # Expected - regular users can't access report without proper permissions
-                        pass
+        # Run the report as a real regular (non-admin) member user. Heavy mocking
+        # of frappe.session/get_value breaks the report internals, so act as the
+        # actual target role instead.
+        original_user = frappe.session.user
+        regular_email = f"regular-{frappe.generate_hash(length=6)}@user.com"
+        if not frappe.db.exists("User", regular_email):
+            regular_user = frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": regular_email,
+                    "first_name": "Regular",
+                    "last_name": "User",
+                    "enabled": 1,
+                }
+            )
+            regular_user.insert(ignore_permissions=True)
+            if frappe.db.exists("Role", "Verenigingen Member"):
+                regular_user.add_roles("Verenigingen Member")
+
+        frappe.set_user(regular_email)
+        try:
+            columns, data = chapter_members_report({"chapter": self.test_chapter})
+            # Pending members should not be visible to a regular user
+            test_member_row = next(
+                (row for row in data if row.get("member") == member.name), None
+            )
+            self.assertIsNone(
+                test_member_row, "Pending member should not be visible to regular users"
+            )
+        except frappe.exceptions.ValidationError:
+            # Acceptable - regular users may be denied access to the report
+            pass
+        finally:
+            frappe.set_user(original_user)
 
     def test_duplicate_pending_membership_prevention(self):
         """Test that duplicate pending memberships are prevented"""
@@ -315,7 +366,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Unit",
-                "last_name": "TestUser",
+                "last_name": self.unique_last_name,
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01"}
         )
@@ -343,7 +394,7 @@ class TestChapterMembershipWorkflow(EnhancedTestCase):
             {
                 "doctype": "Member",
                 "first_name": "Unit",
-                "last_name": "TestUser",
+                "last_name": self.unique_last_name,
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01"}
         )

@@ -18,13 +18,16 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         """Set up test data for member lifecycle tests"""
         super().setUp()
 
-        # Create test chapters for transfers
+        # Create test chapters for transfers. chapter_name is the Chapter
+        # primary key, so uniquify per run to avoid PRIMARY collisions; tests
+        # reference self.chapter_north/south.name, not the literals.
+        suffix = frappe.generate_hash(length=6)
         self.chapter_north = self.factory.create_test_chapter(
-            chapter_name="North Chapter",
+            chapter_name=f"North Chapter {suffix}",
             postal_codes="1000-1999"
         )
         self.chapter_south = self.factory.create_test_chapter(
-            chapter_name="South Chapter",
+            chapter_name=f"South Chapter {suffix}",
             postal_codes="2000-2999"
         )
 

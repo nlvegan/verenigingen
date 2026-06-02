@@ -49,12 +49,10 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             birth_date="1990-01-01"
         )
 
-        # Create customer (required for Sales Invoice)
-        self.test_customer = frappe.get_doc({
-            "doctype": "Customer",
-            "customer_name": f"{self.test_member.first_name} {self.test_member.last_name}",
-            "customer_type": "Individual"
-        }).insert()
+        # The factory already auto-creates and links a Customer for the member
+        # (member.customer). Reuse it instead of inserting a second Customer with
+        # the same derived name, which collided on the Customer primary key.
+        self.test_customer = frappe.get_doc("Customer", self.test_member.customer)
 
         # Ensure test item exists (CodeRabbit suggestion - avoid hardcoded item dependency)
         if not frappe.db.exists("Item", "Test Payment Service Item"):
@@ -63,6 +61,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 "item_code": "Test Payment Service Item",
                 "item_name": "Test Payment Service Item",
                 "item_group": "Services",
+                "stock_uom": "Nos",
                 "is_stock_item": 0,
                 "is_sales_item": 1,
             })

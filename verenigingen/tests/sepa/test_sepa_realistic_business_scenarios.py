@@ -39,6 +39,39 @@ from verenigingen.verenigingen_payments.utils.sepa_performance_monitor import (
 )
 
 
+def _prepare_sepa_test_invoice(invoice, item_code, rate, member_field=None, member_name=None):
+    """Set company, item and GL accounts on a test Sales Invoice.
+
+    On the clean test sites no default company is configured, so the company,
+    income account and cost center must be set explicitly or the invoice fails
+    with "Please select a Company" / "Cost Center is required".
+    """
+    company = frappe.db.get_single_value("Global Defaults", "default_company") or frappe.db.get_all(
+        "Company", limit=1
+    )[0].name
+    income_account = frappe.db.get_value(
+        "Account", {"account_type": "Income Account", "is_group": 0, "company": company}, "name"
+    )
+    cost_center = frappe.db.get_value("Company", company, "cost_center") or frappe.db.get_value(
+        "Cost Center", {"company": company, "is_group": 0}, "name"
+    )
+
+    invoice.company = company
+    if member_field and member_name:
+        setattr(invoice, member_field, member_name)
+    invoice.append(
+        "items",
+        {
+            "item_code": item_code,
+            "qty": 1,
+            "rate": rate,
+            "income_account": income_account,
+            "cost_center": cost_center,
+        },
+    )
+    return invoice
+
+
 def is_potentially_closed_account(iban: str) -> bool:
     """Real SEPA validation for closed account detection"""
     try:
@@ -211,7 +244,7 @@ class TestSEPAFieldValidation(EnhancedTestCase):
         invoice.customer = customer.name
         invoice.posting_date = today()
         invoice.due_date = add_days(today(), 14)
-        
+
         # Test different possible field names
         if self.validate_field_exists("Sales Invoice", "custom_paying_for_member"):
             invoice.custom_paying_for_member = member.name
@@ -219,14 +252,9 @@ class TestSEPAFieldValidation(EnhancedTestCase):
             invoice.custom_member = member.name
         elif self.validate_field_exists("Sales Invoice", "member"):
             invoice.member = member.name
-        
-        # Add basic item
-        invoice.append("items", {
-            "item_code": "TEST",
-            "qty": 1,
-            "rate": 25.0
-        })
-        
+
+        _prepare_sepa_test_invoice(invoice, "TEST", 25.0)
+
         invoice.insert()
         invoice.submit()
         
@@ -488,11 +516,7 @@ class TestSEPAMemoryEfficiency(EnhancedTestCase):
                 invoice.customer = customer.name
                 invoice.posting_date = today()
                 invoice.due_date = add_days(today(), 14)
-                invoice.append("items", {
-                    "item_code": "MEMBERSHIP-DUES",
-                    "qty": 1,
-                    "rate": 25.0
-                })
+                _prepare_sepa_test_invoice(invoice, "MEMBERSHIP-DUES", 25.0)
                 invoice.insert()
                 invoice.submit()
                 test_invoices.append(invoice)
@@ -550,11 +574,7 @@ class TestSEPAMemoryEfficiency(EnhancedTestCase):
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = customer.name
             invoice.posting_date = today()
-            invoice.append("items", {
-                "item_code": "TEST",
-                "qty": 1,
-                "rate": 25.0
-            })
+            _prepare_sepa_test_invoice(invoice, "TEST", 25.0)
             invoice.insert()
             invoice.submit()
             test_invoices.append(invoice)
@@ -669,11 +689,7 @@ class TestSEPAPartialBatchFailures(EnhancedTestCase):
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = customer.name
         invoice.posting_date = today()
-        invoice.append("items", {
-            "item_code": "TEST",
-            "qty": 1,
-            "rate": 25.0
-        })
+        _prepare_sepa_test_invoice(invoice, "TEST", 25.0)
         invoice.insert()
         invoice.submit()
         valid_invoices.append(invoice)
@@ -696,11 +712,7 @@ class TestSEPAPartialBatchFailures(EnhancedTestCase):
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = customer.name
         invoice.posting_date = today()
-        invoice.append("items", {
-            "item_code": "TEST",
-            "qty": 1,
-            "rate": 25.0
-        })
+        _prepare_sepa_test_invoice(invoice, "TEST", 25.0)
         invoice.insert()
         invoice.submit()
         invalid_invoices.append(invoice)

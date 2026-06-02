@@ -24,9 +24,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
     def test_commitment_end_date_set_on_new_membership(self):
         """Test that commitment_end_date is automatically set to 1 year from start"""
         # Create a test member
-        member = self.create_test_member(
-            first_name="Test", last_name="Commitment", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="Test", last_name="Commitment", birth_date="1990-01-01")
 
         # Create membership type
         membership_type = frappe.get_doc(
@@ -36,6 +34,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
             }
         ).insert()
 
@@ -50,19 +49,16 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
             }
         )
         membership.insert()
+        membership.reload()
 
         # Verify commitment_end_date is set to 1 year from start
         expected_commitment_end = add_to_date(start_date, months=12)
-        self.assertEqual(
-            getdate(membership.commitment_end_date), getdate(expected_commitment_end)
-        )
+        self.assertEqual(getdate(membership.commitment_end_date), getdate(expected_commitment_end))
 
     def test_commitment_end_date_historic_import(self):
         """Test that historic CSV imports calculate commitment from original start date"""
         # Create a test member
-        member = self.create_test_member(
-            first_name="Historic", last_name="Import", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="Historic", last_name="Import", birth_date="1990-01-01")
 
         # Create membership type with enforce_minimum_period=True (default)
         membership_type = frappe.get_doc(
@@ -72,6 +68,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
                 "enforce_minimum_period": 1,
             }
         ).insert()
@@ -92,16 +89,12 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         # Verify commitment_end_date is calculated from original start_date
         # (not from import date - that was the bug we fixed)
         expected_commitment_end = add_to_date(historic_start, months=12)
-        self.assertEqual(
-            getdate(membership.commitment_end_date), getdate(expected_commitment_end)
-        )
+        self.assertEqual(getdate(membership.commitment_end_date), getdate(expected_commitment_end))
 
     def test_commitment_end_date_not_set_when_enforce_minimum_disabled(self):
         """Test that commitment_end_date is NOT set when enforce_minimum_period is disabled"""
         # Create a test member
-        member = self.create_test_member(
-            first_name="No", last_name="Minimum", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="No", last_name="Minimum", birth_date="1990-01-01")
 
         # Create membership type with enforce_minimum_period DISABLED
         membership_type = frappe.get_doc(
@@ -111,6 +104,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
                 "enforce_minimum_period": 0,  # Disabled!
             }
         ).insert()
@@ -133,9 +127,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
     def test_commitment_end_date_not_overwritten(self):
         """Test that commitment_end_date is not overwritten if already set"""
         # Create a test member
-        member = self.create_test_member(
-            first_name="Keep", last_name="Existing", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="Keep", last_name="Existing", birth_date="1990-01-01")
 
         # Create membership type
         membership_type = frappe.get_doc(
@@ -145,6 +137,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
             }
         ).insert()
 
@@ -162,9 +155,7 @@ class TestMembershipCommitmentPeriod(EnhancedTestCase):
         membership.insert()
 
         # Verify the custom commitment date was preserved
-        self.assertEqual(
-            getdate(membership.commitment_end_date), getdate(custom_commitment_date)
-        )
+        self.assertEqual(getdate(membership.commitment_end_date), getdate(custom_commitment_date))
 
 
 class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
@@ -178,9 +169,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
     def test_voluntary_termination_blocked_before_commitment_end(self):
         """Test that voluntary terminations are blocked before commitment period ends"""
         # Create member with active membership
-        member = self.create_test_member(
-            first_name="Early", last_name="Quitter", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="Early", last_name="Quitter", birth_date="1990-01-01")
 
         # Create membership type
         membership_type = frappe.get_doc(
@@ -190,6 +179,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
             }
         ).insert()
 
@@ -207,6 +197,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         membership.submit()
 
         # Link membership to member
+        member.reload()
         member.current_membership_plan = membership.name
         member.save()
 
@@ -218,7 +209,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "member": member.name,
                 "termination_type": "Voluntary",
                 "termination_date": termination_date,
-                "reason": "Want to quit early",
+                "termination_reason": "Want to quit early",
             }
         )
 
@@ -231,9 +222,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
     def test_voluntary_termination_allowed_after_commitment_end(self):
         """Test that voluntary terminations are allowed after commitment period"""
         # Create member with active membership
-        member = self.create_test_member(
-            first_name="Patient", last_name="Member", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="Patient", last_name="Member", birth_date="1990-01-01")
 
         # Create membership type
         membership_type = frappe.get_doc(
@@ -243,6 +232,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
             }
         ).insert()
 
@@ -260,6 +250,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         membership.submit()
 
         # Link membership to member
+        member.reload()
         member.current_membership_plan = membership.name
         member.save()
 
@@ -270,7 +261,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "member": member.name,
                 "termination_type": "Voluntary",
                 "termination_date": today(),
-                "reason": "Completed commitment, now leaving",
+                "termination_reason": "Completed commitment, now leaving",
             }
         )
 
@@ -281,9 +272,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
     def test_disciplinary_termination_bypasses_commitment_check(self):
         """Test that disciplinary terminations bypass commitment period validation"""
         # Create member with active membership
-        member = self.create_test_member(
-            first_name="Discipline", last_name="Case", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="Discipline", last_name="Case", birth_date="1990-01-01")
 
         # Create membership type
         membership_type = frappe.get_doc(
@@ -293,6 +282,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
             }
         ).insert()
 
@@ -310,6 +300,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         membership.submit()
 
         # Link membership to member
+        member.reload()
         member.current_membership_plan = membership.name
         member.save()
 
@@ -320,7 +311,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "member": member.name,
                 "termination_type": "Policy Violation",
                 "termination_date": today(),
-                "reason": "Violated code of conduct",
+                "termination_reason": "Violated code of conduct",
                 "disciplinary_documentation": "Evidence of policy violation",
                 "secondary_approver": frappe.session.user,
             }
@@ -333,9 +324,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
     def test_termination_allowed_if_no_commitment_set(self):
         """Test that termination is allowed if no commitment_end_date is set"""
         # Create member with active membership
-        member = self.create_test_member(
-            first_name="No", last_name="Commitment", birth_date="1990-01-01"
-        )
+        member = self.create_test_member(first_name="No", last_name="Commitment", birth_date="1990-01-01")
 
         # Create membership type
         membership_type = frappe.get_doc(
@@ -345,6 +334,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "billing_period": "Annual",
                 "minimum_amount": 50.0,
                 "role_profile": "Verenigingen Staff",
+                "is_active": 1,
             }
         ).insert()
 
@@ -370,6 +360,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
         )
 
         # Link membership to member
+        member.reload()
         member.current_membership_plan = membership.name
         member.save()
 
@@ -380,7 +371,7 @@ class TestMembershipTerminationCommitmentValidation(EnhancedTestCase):
                 "member": member.name,
                 "termination_type": "Voluntary",
                 "termination_date": today(),
-                "reason": "No commitment to check",
+                "termination_reason": "No commitment to check",
             }
         )
 

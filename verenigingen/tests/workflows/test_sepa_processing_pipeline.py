@@ -19,14 +19,17 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         """Set up test data for SEPA processing tests"""
         super().setUp()
 
-        # Create test organization
+        # Create test organization. chapter_name and membership_type_name are
+        # primary keys, so uniquify them per run to avoid PRIMARY collisions;
+        # tests reference the returned .name, not these literals.
+        suffix = frappe.generate_hash(length=6)
         self.chapter = self.factory.create_test_chapter(
-            chapter_name="SEPA Test Chapter"
+            chapter_name=f"SEPA Test Chapter {suffix}"
         )
 
         # Create membership type for testing
         self.membership_type = self.factory.create_test_membership_type(
-            membership_type_name="SEPA Test Membership",
+            membership_type_name=f"SEPA Test Membership {suffix}",
             minimum_amount=25.00,
             billing_period="Monthly"
         )

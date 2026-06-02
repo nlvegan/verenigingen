@@ -16,9 +16,16 @@ class TestSecurityComprehensive(VereningingenTestCase):
         """Set up test data for security tests"""
         super().setUp()
 
-        # Create test organizations (chapters) using factory
-        self.chapter1 = self.factory.create_test_chapter(chapter_name="Security Test Chapter 1")
-        self.chapter2 = self.factory.create_test_chapter(chapter_name="Security Test Chapter 2")
+        # Create test organizations (chapters) using factory.
+        # chapter_name is the Chapter primary key, so it must be unique per
+        # run; tests reference self.chapterN.name rather than the literal.
+        suffix = frappe.generate_hash(length=6)
+        self.chapter1 = self.factory.create_test_chapter(
+            chapter_name=f"Security Test Chapter 1 {suffix}"
+        )
+        self.chapter2 = self.factory.create_test_chapter(
+            chapter_name=f"Security Test Chapter 2 {suffix}"
+        )
 
         # Create test users with different permissions
         self.admin_user = "admin@test.com"

@@ -31,13 +31,15 @@ def _ensure_named_membership_type(type_name):
     role_profile = frappe.db.get_value(
         "Role Profile", {"name": ["like", "%Member%"]}, "name"
     ) or frappe.db.get_value("Role Profile", {}, "name")
-    doc = frappe.get_doc({
-        "doctype": "Membership Type",
-        "membership_type_name": type_name,
-        "is_active": 1,
-        "role_profile": role_profile,
-        "minimum_amount": 15.00,
-    })
+    doc = frappe.get_doc(
+        {
+            "doctype": "Membership Type",
+            "membership_type_name": type_name,
+            "is_active": 1,
+            "role_profile": role_profile,
+            "minimum_amount": 15.00,
+        }
+    )
     doc.insert(ignore_permissions=True)
     return doc.name
 
@@ -64,19 +66,39 @@ class TestDuesScheduleRepository(EnhancedTestCase):
 
     def _create_simple_schedule(self, member_name, amount=25.0, status="Active", **kwargs):
         """Helper to create a simple dues schedule bypassing complex validations"""
-        schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "member": member_name,
-            "schedule_name": kwargs.get("schedule_name", f"Test Schedule {frappe.generate_hash(length=8)}"),
-            "dues_rate": amount,
-            "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
-            "membership_type": kwargs.get("membership_type", "Regular"),  # Required field
-            "status": status,
-            "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1)) if status == "Active" else None,
-            "contribution_mode": kwargs.get("contribution_mode", "Tier"),
-            "docstatus": 0,  # Draft status to ensure it's not filtered out
-            **{k: v for k, v in kwargs.items() if k not in ["schedule_name", "billing_frequency", "next_invoice_date", "contribution_mode", "membership_type", "docstatus"]}
-        })
+        schedule = frappe.get_doc(
+            {
+                "doctype": "Membership Dues Schedule",
+                "member": member_name,
+                "schedule_name": kwargs.get(
+                    "schedule_name", f"Test Schedule {frappe.generate_hash(length=8)}"
+                ),
+                "dues_rate": amount,
+                "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
+                "membership_type": kwargs.get("membership_type", "Regular"),  # Required field
+                "status": status,
+                "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1))
+                if status == "Active"
+                else None,
+                "contribution_mode": kwargs.get("contribution_mode", "Tier"),
+                "currency": kwargs.get("currency", "EUR"),  # Mandatory field
+                "docstatus": 0,  # Draft status to ensure it's not filtered out
+                **{
+                    k: v
+                    for k, v in kwargs.items()
+                    if k
+                    not in [
+                        "schedule_name",
+                        "billing_frequency",
+                        "next_invoice_date",
+                        "contribution_mode",
+                        "membership_type",
+                        "currency",
+                        "docstatus",
+                    ]
+                },
+            }
+        )
         schedule.flags.ignore_validate = True  # Skip business rule validation for tests
         schedule.insert(ignore_permissions=True)
         frappe.db.commit()  # Commit immediately so other queries can see it
@@ -97,20 +119,12 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         # Check BASIC_FIELDS
         for field in self.repo.BASIC_FIELDS:
             if field != "name":  # 'name' is always valid
-                self.assertIn(
-                    field,
-                    valid_fields,
-                    f"BASIC_FIELDS contains invalid field: {field}"
-                )
+                self.assertIn(field, valid_fields, f"BASIC_FIELDS contains invalid field: {field}")
 
         # Check FULL_FIELDS
         for field in self.repo.FULL_FIELDS:
             if field != "name":
-                self.assertIn(
-                    field,
-                    valid_fields,
-                    f"FULL_FIELDS contains invalid field: {field}"
-                )
+                self.assertIn(field, valid_fields, f"FULL_FIELDS contains invalid field: {field}")
 
     def test_schedule_info_dataclass_field_mapping(self):
         """Test ScheduleInfo dataclass correctly maps to DocType fields"""
@@ -151,10 +165,16 @@ class TestDuesScheduleRepository(EnhancedTestCase):
     def test_get_schedules_filters_by_status(self):
         """Test get_schedules_for_members only returns active schedules"""
         # Create schedules with different statuses
-        self._create_simple_schedule(self.test_member.name, status="Active", schedule_name="Active Schedule 1")
-        self._create_simple_schedule(self.test_member.name, status="Active", schedule_name="Active Schedule 2")
+        self._create_simple_schedule(
+            self.test_member.name, status="Active", schedule_name="Active Schedule 1"
+        )
+        self._create_simple_schedule(
+            self.test_member.name, status="Active", schedule_name="Active Schedule 2"
+        )
         self._create_simple_schedule(self.test_member.name, status="Paused", schedule_name="Paused Schedule")
-        self._create_simple_schedule(self.test_member.name, status="Cancelled", schedule_name="Cancelled Schedule")
+        self._create_simple_schedule(
+            self.test_member.name, status="Cancelled", schedule_name="Cancelled Schedule"
+        )
 
         # Get schedules using batch method - should only return Active ones
         schedules = self.repo.get_schedules_for_members([self.test_member.name])
@@ -182,15 +202,16 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         self.assertEqual(schedule_doc.status, "Cancelled")
 
         # Verify comment was added (repository uses comments for audit trail, not fields)
-        comments = frappe.get_all("Comment",
+        comments = frappe.get_all(
+            "Comment",
             filters={
                 "reference_doctype": "Membership Dues Schedule",
                 "reference_name": schedule_doc.name,
-                "comment_type": "Comment"
+                "comment_type": "Comment",
             },
             fields=["content"],
             order_by="creation desc",
-            limit=1
+            limit=1,
         )
         self.assertEqual(len(comments), 1)
         self.assertIn(reason, comments[0].content)
@@ -225,15 +246,16 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         self.assertEqual(schedule_doc.status, "Paused")
 
         # Verify comment was added (repository uses comments for audit trail)
-        comments = frappe.get_all("Comment",
+        comments = frappe.get_all(
+            "Comment",
             filters={
                 "reference_doctype": "Membership Dues Schedule",
                 "reference_name": schedule_doc.name,
-                "comment_type": "Comment"
+                "comment_type": "Comment",
             },
             fields=["content"],
             order_by="creation desc",
-            limit=1
+            limit=1,
         )
         self.assertEqual(len(comments), 1)
         self.assertIn(reason, comments[0].content)
@@ -268,9 +290,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         self._create_simple_schedule(member2.name)
 
         # Batch retrieve active schedules
-        schedules = self.repo.get_schedules_for_members(
-            [self.test_member.name, member2.name]
-        )
+        schedules = self.repo.get_schedules_for_members([self.test_member.name, member2.name])
 
         # Should get both active schedules in single query
         self.assertEqual(len(schedules), 2)
@@ -287,8 +307,7 @@ class TestDuesScheduleRepository(EnhancedTestCase):
         schedule_names = []
         for i in range(3):
             schedule_doc = self._create_simple_schedule(
-                self.test_member.name,
-                schedule_name=f"Batch Cancel {i}"
+                self.test_member.name, schedule_name=f"Batch Cancel {i}"
             )
             schedule_names.append(schedule_doc.name)
 
@@ -353,9 +372,12 @@ class TestUpdateScheduleRate(EnhancedTestCase):
             email="rate.update@example.com",
             birth_date="1990-01-01",
         )
-        # Resolve a real Membership Type to avoid LinkValidationError on save().
-        # On a fresh CI-mirror site no types are seeded, so ensure one exists.
-        self._membership_type = frappe.db.get_value("Membership Type", {}, "name") or _ensure_named_membership_type("Regular")
+        # Create a dedicated Membership Type whose auto-created template rate is
+        # aligned with its (absent) minimum. Grabbing an arbitrary existing type
+        # can pick one whose minimum_amount (e.g. €25) exceeds its template rate
+        # (€15), which makes schedule .save() throw "Template dues rate cannot be
+        # less than membership type minimum".
+        self._membership_type = self.create_test_membership_type(minimum_amount=5.0).name
         # Create a submitted Membership so schedule validate() passes
         self._membership = self._create_active_membership(self.test_member.name)
         # Deactivate any auto-created schedules from membership submission
@@ -364,13 +386,15 @@ class TestUpdateScheduleRate(EnhancedTestCase):
 
     def _create_active_membership(self, member_name):
         """Create a minimal submitted Membership to satisfy schedule validation."""
-        membership = frappe.get_doc({
-            "doctype": "Membership",
-            "member": member_name,
-            "membership_type": self._membership_type,
-            "start_date": today(),
-            "status": "Active",
-        })
+        membership = frappe.get_doc(
+            {
+                "doctype": "Membership",
+                "member": member_name,
+                "membership_type": self._membership_type,
+                "start_date": today(),
+                "status": "Active",
+            }
+        )
         membership.flags.ignore_validate = True
         membership.flags.ignore_links = True
         membership.flags.ignore_mandatory = True
@@ -393,23 +417,39 @@ class TestUpdateScheduleRate(EnhancedTestCase):
 
     def _create_simple_schedule(self, member_name, amount=25.0, status="Active", **kwargs):
         """Helper to create a simple dues schedule bypassing complex validations."""
-        schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "member": member_name,
-            "schedule_name": kwargs.get("schedule_name", f"Test Schedule {frappe.generate_hash(length=8)}"),
-            "dues_rate": amount,
-            "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
-            "membership_type": kwargs.get("membership_type", self._membership_type),
-            "currency": kwargs.get("currency", "EUR"),
-            "status": status,
-            "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1)) if status == "Active" else None,
-            "contribution_mode": kwargs.get("contribution_mode", "Tier"),
-            "docstatus": 0,
-            **{k: v for k, v in kwargs.items() if k not in [
-                "schedule_name", "billing_frequency", "next_invoice_date",
-                "contribution_mode", "membership_type", "currency", "docstatus",
-            ]}
-        })
+        schedule = frappe.get_doc(
+            {
+                "doctype": "Membership Dues Schedule",
+                "member": member_name,
+                "schedule_name": kwargs.get(
+                    "schedule_name", f"Test Schedule {frappe.generate_hash(length=8)}"
+                ),
+                "dues_rate": amount,
+                "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
+                "membership_type": kwargs.get("membership_type", self._membership_type),
+                "currency": kwargs.get("currency", "EUR"),
+                "status": status,
+                "next_invoice_date": kwargs.get("next_invoice_date", add_months(today(), 1))
+                if status == "Active"
+                else None,
+                "contribution_mode": kwargs.get("contribution_mode", "Tier"),
+                "docstatus": 0,
+                **{
+                    k: v
+                    for k, v in kwargs.items()
+                    if k
+                    not in [
+                        "schedule_name",
+                        "billing_frequency",
+                        "next_invoice_date",
+                        "contribution_mode",
+                        "membership_type",
+                        "currency",
+                        "docstatus",
+                    ]
+                },
+            }
+        )
         schedule.flags.ignore_validate = True
         schedule.flags.ignore_links = True
         schedule.flags.ignore_mandatory = True
@@ -473,10 +513,14 @@ class TestUpdateScheduleRate(EnhancedTestCase):
     def test_appends_custom_amount_reason_preserving_history(self):
         """custom_amount_reason is appended, not replaced, on successive updates."""
         schedule = self._create_simple_schedule(self.test_member.name, amount=25.0)
-        frappe.db.set_value("Membership Dues Schedule", schedule.name, {
-            "custom_amount_reason": "First amendment: rate 20.0 → 25.0",
-            "uses_custom_amount": 1,
-        })
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            schedule.name,
+            {
+                "custom_amount_reason": "First amendment: rate 20.0 → 25.0",
+                "uses_custom_amount": 1,
+            },
+        )
         frappe.db.commit()
 
         self.repo.update_schedule_rate(schedule.name, 30.0, "Second amendment")

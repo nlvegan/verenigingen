@@ -163,11 +163,15 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
             ("Member", ["Test Member"])
         ]
 
+        # Delete in the listed order (children before masters they link to).
+        # These records use hardcoded primary keys that the factory does not
+        # uniquify, so they must be explicitly removed to avoid PRIMARY-key
+        # collisions between tests in this class and across re-runs.
         for doctype, names in test_items:
             for name in names:
                 if DocumentExistenceValidator.check_document_exists(doctype, name):
-                    # EnhancedTestCase handles cleanup automatically
-                    pass
+                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
 
     def create_test_data(self):
         """Create test data for team role profile testing"""
@@ -248,6 +252,7 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         test_volunteer = frappe.get_doc({
             "doctype": "Volunteer",
             "name": "Test Volunteer",
+            "volunteer_name": "Test Volunteer",
             "member": "Test Member"
         })
         test_volunteer.insert()

@@ -185,7 +185,8 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
                 "doctype": "Company",
                 "company_name": f"Test Company {self.test_run_id}",
                 "default_currency": "EUR",
-                "country": "Netherlands"
+                "country": "Netherlands",
+                "valuation_method": "FIFO"
             })
             # Use proper permissions context for test data creation
             original_user = frappe.session.user

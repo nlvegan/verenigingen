@@ -63,13 +63,23 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             membership_type=self.membership_type.name
         )
         
-        # Create active dues schedule
-        self.dues_schedule = self.create_dues_schedule(
-            member=self.member.name,
-            membership=self.membership.name,
-            membership_type=self.membership_type.name,
-            amount=self.membership_type.minimum_amount
+        # Submitting the membership auto-creates an active dues schedule.
+        # Reuse it instead of creating a second active one (which the
+        # "already has an active dues schedule" guard rejects).
+        existing_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": self.member.name, "status": "Active"},
+            "name",
         )
+        if existing_schedule:
+            self.dues_schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+        else:
+            self.dues_schedule = self.create_dues_schedule(
+                member=self.member.name,
+                membership=self.membership.name,
+                membership_type=self.membership_type.name,
+                amount=self.membership_type.minimum_amount
+            )
     
     def test_fee_increase_without_approval(self):
         """Test that fee increases within limits don't require approval"""
@@ -445,16 +455,19 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
     
     def create_membership_type(self, name, amount):
         """Create a test membership type"""
+        # Membership Type is autonamed field:membership_type_name, so the
+        # *name* field is the primary key — it must be uniquified, not the
+        # (non-naming) membership_type field. Tests reference .name and
+        # .minimum_amount, never the literal display name.
         test_name = f"TEST-{name}-{frappe.utils.random_string(10)}"
-        
-        # Check if it already exists (shouldn't happen with random string, but be safe)
+
         if frappe.db.exists("Membership Type", test_name):
             test_name = f"TEST-{name}-{frappe.utils.random_string(15)}"
-        
+
         membership_type = frappe.get_doc({
             "doctype": "Membership Type",
             "membership_type": test_name,
-            "membership_type_name": name,
+            "membership_type_name": test_name,
             "amount": amount,
             "is_published": 1
         })

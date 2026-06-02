@@ -22,6 +22,7 @@ Production Issues Caught:
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -61,10 +62,12 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         # Create volunteer and board position
         self.volunteer = self.create_test_volunteer(member=self.board_member.name)
 
-        # Create chapter role with Financial permissions
+        # Create chapter role with Financial permissions. role_name is the
+        # Chapter Role primary key, so uniquify it per run to avoid PRIMARY
+        # collisions; the test references self.chapter_role.name, not the literal.
         self.chapter_role = frappe.get_doc({
             "doctype": "Chapter Role",
-            "role_name": "Test Financial Role",
+            "role_name": f"Test Financial Role {frappe.generate_hash(length=6)}",
             "permissions_level": "Financial"
         })
         self.chapter_role.insert()
@@ -74,6 +77,7 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         self.board_position = chapter1_doc.append("board_members", {
             "volunteer": self.volunteer.name,
             "chapter_role": self.chapter_role.name,
+            "from_date": today(),
             "is_active": 1
         })
         chapter1_doc.save()
@@ -186,10 +190,11 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
 
         volunteer2 = self.create_test_volunteer(member=non_financial_member.name)
 
-        # Create role with Operations level (not Financial)
+        # Create role with Operations level (not Financial). role_name is the
+        # primary key; uniquify per run to avoid PRIMARY collisions.
         ops_role = frappe.get_doc({
             "doctype": "Chapter Role",
-            "role_name": "Test Operations Role",
+            "role_name": f"Test Operations Role {frappe.generate_hash(length=6)}",
             "permissions_level": "Operations"
         })
         ops_role.insert()
@@ -198,6 +203,7 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         board_pos2 = chapter1_doc.append("board_members", {
             "volunteer": volunteer2.name,
             "chapter_role": ops_role.name,
+            "from_date": today(),
             "is_active": 1
         })
         chapter1_doc.save()

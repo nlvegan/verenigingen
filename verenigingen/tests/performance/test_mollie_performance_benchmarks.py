@@ -140,17 +140,12 @@ class TestMolliePerformanceBenchmarks(MollieTestCase):
                 email=f"perf.test.{i:02d}@example.com"
             )
             
-            # Create customer for each member
-            customer = frappe.get_doc({
-                "doctype": "Customer",
-                "customer_name": f"{member.first_name} {member.last_name}",
-                "customer_type": "Individual",
-                "territory": "Netherlands"
-            })
-            customer.insert()
-            member.customer = customer.name
-            member.save()
-            
+            # The factory already auto-creates and links a Customer for each
+            # member (member.customer). Reuse it instead of inserting a second
+            # Customer with the same derived name, which collided on the
+            # Customer primary key.
+            customer = frappe.get_doc("Customer", member.customer)
+
             self.test_members.append((member, customer))
             
     def _create_mock_gateway(self, processing_delay_ms: int = 100) -> MagicMock:

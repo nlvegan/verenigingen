@@ -31,6 +31,9 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
         """Set up test data using Enhanced Test Factory"""
         super().setUp()
         
+        # Track created volunteer names for assertions and cleanup
+        self.test_volunteers = []
+
         # Create test volunteers with skills using Enhanced Test Factory
         self.create_test_volunteer_data()
 
@@ -88,15 +91,19 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
             }
         ]
         
+        # Uniquify names/emails per test run to avoid cross-test and
+        # cross-run UniqueValidationError collisions while preserving the
+        # "Test Volunteer Skills API" prefix that the search assertions check.
         for vol_data in volunteers_data:
+            local = vol_data["email"].split("@")[0]
             volunteer = frappe.get_doc({
                 "doctype": "Volunteer",
-                "volunteer_name": vol_data["name"],
-                "email": vol_data["email"],
+                "volunteer_name": f"{vol_data['name']} {self.uid}",
+                "email": f"{local}_{self.uid}@example.com",
                 "status": "Active",
                 "start_date": today()
             })
-            
+
             # Add skills
             for skill_data in vol_data["skills"]:
                 skill_row = volunteer.append('skills_and_qualifications', {})
@@ -104,7 +111,7 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
                 skill_row.volunteer_skill = skill_data["skill"]
                 skill_row.proficiency_level = skill_data["level"]
                 skill_row.experience_years = skill_data["years"]
-            
+
             volunteer.insert()
             self.test_volunteers.append(volunteer.name)
 
@@ -277,8 +284,8 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
         # Test with volunteer that has no skills
         volunteer_no_skills = frappe.get_doc({
             "doctype": "Volunteer",
-            "volunteer_name": "Test Volunteer No Skills",
-            "email": "test_no_skills@example.com",
+            "volunteer_name": f"Test Volunteer No Skills {self.uid}",
+            "email": f"test_no_skills_{self.uid}@example.com",
             "status": "Active"
         })
         volunteer_no_skills.insert()
@@ -389,8 +396,8 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
         # Create volunteer with specific skill level
         test_vol = frappe.get_doc({
             "doctype": "Volunteer",
-            "volunteer_name": "Test Volunteer Filter Logic",
-            "email": "test_filter@example.com",
+            "volunteer_name": f"Test Volunteer Filter Logic {self.uid}",
+            "email": f"test_filter_{self.uid}@example.com",
             "status": "Active"
         })
         

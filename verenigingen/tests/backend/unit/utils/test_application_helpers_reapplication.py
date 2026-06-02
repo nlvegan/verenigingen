@@ -77,8 +77,17 @@ class TestUpdateMemberFromReapplication(FrappeTestCase):
     """Characterize update_member_from_reapplication() behavior."""
 
     def setUp(self):
+        # Member creation runs member.insert() under secure_user_context as a
+        # background system user. On a clean site that user has System Manager
+        # but Customer "create" is only granted to "Verenigingen Staff"/"Webhook
+        # User", so grant the Staff role before creating the member.
+        self._staff_role_added = _ensure_system_user_has_staff_role()
         self.member = _create_test_member()
         self.member_name = self.member.name
+
+    def tearDown(self):
+        if getattr(self, "_staff_role_added", False):
+            _remove_system_user_staff_role()
 
     def test_basic_field_update(self):
         """Core fields are updated from reapplication data."""

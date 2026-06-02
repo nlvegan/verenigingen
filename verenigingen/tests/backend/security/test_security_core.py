@@ -16,8 +16,12 @@ class TestSecurityCore(VereningingenTestCase):
         """Set up minimal test data for security tests"""
         super().setUp()
 
-        # Create test chapters using factory
-        self.chapter1 = self.factory.create_test_chapter(chapter_name="Security Test Chapter 1")
+        # Create test chapter using factory. chapter_name is the Chapter
+        # primary key, so uniquify it per run to avoid PRIMARY collisions;
+        # tests reference self.chapter1.name, not the literal.
+        self.chapter1 = self.factory.create_test_chapter(
+            chapter_name=f"Security Test Chapter 1 {frappe.generate_hash(length=6)}"
+        )
 
         # Create test users with different permissions
         self.admin_user = "Administrator"
