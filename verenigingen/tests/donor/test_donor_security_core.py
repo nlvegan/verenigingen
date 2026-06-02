@@ -21,7 +21,14 @@ class TestDonorSecurityCore(VereningingenTestCase):
     def setUp(self):
         """Set up realistic test data"""
         super().setUp()
-        
+
+        # Start from a known Administrator context. These are access-control tests
+        # that switch users in their bodies; if a prior test in the shard leaked a
+        # non-Administrator session (intermittent, ordering-dependent), the setup
+        # below would run as that user and the assertions would see spurious
+        # "Access denied ... roles: Guest". Mirrors TestDonorPermissionsSecurity.setUp.
+        frappe.set_user("Administrator")
+
         # Create test users and members
         self.member_user_email = f"security_member_{random_string(5)}@example.com"
         
