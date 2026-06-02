@@ -20,7 +20,6 @@ correctly in production-like conditions.
 
 import json
 import time
-import unittest
 from contextlib import contextmanager
 
 import frappe
@@ -41,23 +40,8 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     get_security_framework,
     high_security_api,
+    self_service_api,
     standard_api,
-)
-
-
-# These tests encode an OUTDATED authorization model where a plain "Verenigingen
-# Member" (or a Volunteer/Staff) could reach MEDIUM/HIGH/CRITICAL `@standard_api` /
-# `@high_security_api` / `@critical_api` endpoints for their own data via ownership.
-# The current, intentional authorization contract (ROLE_PROFILE_SECURITY_MAPPING in
-# verenigingen/utils/security/authorization_policy.py, a documented 7-rule decision
-# table) grants Member -> LOW, Volunteer -> MEDIUM, Staff -> HIGH; member self-access
-# to elevated endpoints is now expressed via `self_service_only=True`, not via raw
-# role membership. Re-aligning these expectations would change a public authorization
-# contract, so they are skipped pending a product decision. See flagged_for_followup.
-_AUTHZ_CONTRACT_SKIP = (
-    "Outdated authorization expectation: current ROLE_PROFILE_SECURITY_MAPPING grants "
-    "Member->LOW / Volunteer->MEDIUM / Staff->HIGH and uses self_service_only for member "
-    "self-access; rewriting would change a public authorization contract (needs product decision)."
 )
 
 
@@ -437,113 +421,162 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
 
     # ===== API AUTHENTICATION WITH SECURITY DECORATORS TESTS =====
 
-    @unittest.skip(_AUTHZ_CONTRACT_SKIP)
     def test_api_security_decorators_member_data_access(self):
-        """Test API security decorators for member data access"""
+        """Test @high_security_api (HIGH) gates elevated member-data access by role.
+
+        Elevated member-data lookups (an admin/staff viewing arbitrary member
+        records) require HIGH. Under the current contract Staff and Verenigingen
+        Administrator pass HIGH; a plain Verenigingen Member and a Volunteer
+        (MEDIUM max) are denied with frappe.PermissionError before the function
+        body runs. Guest is rejected at authentication.
+        """
 
         @high_security_api(operation_type=OperationType.MEMBER_DATA)
-        def test_member_data_api():
-            member_name = get_current_user_member_name()
-            if not member_name:
-                frappe.throw("No member record found", frappe.DoesNotExistError)
-            return {"member": member_name, "access": "granted"}
+        def admin_member_data_api(target_member):
+            # HIGH-level lookup of an arbitrary member's data
+            return {"member": target_member, "access": "granted"}
 
-        # Test successful access with proper member
-        with self.as_user(self.test_users['member_full'].email):
-            result = test_member_data_api()
+        target = self.test_members['member_full'].name
+
+        # POSITIVE: Staff (HIGH) and Admin (CRITICAL ⊃ HIGH) are entitled.
+        with self.as_user(self.test_users['staff'].email):
+            result = admin_member_data_api(target)
             self.assertEqual(result["access"], "granted")
-            self.assertEqual(result["member"], self.test_members['member_full'].name)
+            self.assertEqual(result["member"], target)
 
-        # Test access denied for orphaned user
-        with self.as_user(self.test_users['orphaned'].email):
-            with self.assertRaises(frappe.DoesNotExistError):
-                test_member_data_api()
+        with self.as_user(self.test_users['admin'].email):
+            result = admin_member_data_api(target)
+            self.assertEqual(result["access"], "granted")
 
-        # Test access denied for guest
+        # NEGATIVE: a plain Member (LOW) cannot reach a HIGH endpoint.
+        with self.as_user(self.test_users['member_full'].email):
+            with self.assertRaises(frappe.PermissionError):
+                admin_member_data_api(target)
+
+        # NEGATIVE: a Volunteer (MEDIUM) still cannot reach a HIGH endpoint.
+        with self.as_user(self.test_users['volunteer'].email):
+            with self.assertRaises(frappe.PermissionError):
+                admin_member_data_api(target)
+
+        # NEGATIVE: Guest is rejected at authentication (also PermissionError).
         with self.as_user("Guest"):
-            with self.assertRaises(Exception):  # Should raise permission error
-                test_member_data_api()
+            with self.assertRaises(frappe.PermissionError):
+                admin_member_data_api(target)
 
-    @unittest.skip(_AUTHZ_CONTRACT_SKIP)
     def test_api_security_decorators_financial_operations(self):
-        """Test API security decorators for financial operations"""
+        """Test @critical_api (CRITICAL) gates financial operations by role.
+
+        Financial operations require CRITICAL. Under the current contract only
+        Treasurer / National Board / Verenigingen Administrator / System
+        Administrator pass CRITICAL. A plain Member (LOW), a Volunteer (MEDIUM)
+        and even Staff (HIGH, not CRITICAL) are all denied with
+        frappe.PermissionError before the function body runs.
+        """
 
         @critical_api(operation_type=OperationType.FINANCIAL)
-        def test_financial_api():
-            # Require member with SEPA mandate
-            member_name = get_current_user_member_name()
-            if not member_name:
-                frappe.throw("No member record found")
+        def financial_api(target_member):
+            # CRITICAL-level financial data lookup (ownership not the concern here)
+            sepa_mandate = get_member_sepa_mandate(target_member)
+            return {
+                "financial_access": "granted",
+                "mandate": sepa_mandate["name"] if sepa_mandate else None,
+            }
 
-            sepa_mandate = get_member_sepa_mandate(member_name)
-            if not sepa_mandate:
-                frappe.throw("No SEPA mandate found")
+        target = self.test_members['member_full'].name
 
-            return {"financial_access": "granted", "mandate": sepa_mandate["name"]}
-
-        # Test successful access with admin user and proper member setup
+        # POSITIVE: Verenigingen Administrator is entitled to CRITICAL.
         with self.as_user(self.test_users['admin'].email):
-            # Admin can access financial operations but needs proper setup
-            try:
-                result = test_financial_api()
-                # If admin has member record with SEPA mandate, should work
-            except frappe.DoesNotExistError:
-                # Expected if admin doesn't have member record
-                pass
-
-        # Test with member who has SEPA mandate
-        with self.as_user(self.test_users['member_full'].email):
-            result = test_financial_api()
+            result = financial_api(target)
             self.assertEqual(result["financial_access"], "granted")
             self.assertIn("mandate", result)
+            # The member_full SEPA mandate set up in setUp is reachable.
+            self.assertIsNotNone(result["mandate"])
 
-    @unittest.skip(_AUTHZ_CONTRACT_SKIP)
+        # NEGATIVE: Staff has HIGH but NOT CRITICAL.
+        with self.as_user(self.test_users['staff'].email):
+            with self.assertRaises(frappe.PermissionError):
+                financial_api(target)
+
+        # NEGATIVE: a Volunteer (MEDIUM) cannot reach CRITICAL.
+        with self.as_user(self.test_users['volunteer'].email):
+            with self.assertRaises(frappe.PermissionError):
+                financial_api(target)
+
+        # NEGATIVE: a plain Member (LOW) cannot reach CRITICAL.
+        with self.as_user(self.test_users['member_full'].email):
+            with self.assertRaises(frappe.PermissionError):
+                financial_api(target)
+
     def test_api_member_ownership_validation_security(self):
-        """Test API member ownership validation in security contexts"""
+        """Test @self_service_api (LOW + ownership) member-data self-access.
 
-        @standard_api(operation_type=OperationType.MEMBER_DATA)
-        def test_ownership_api(target_member):
-            # Validate caller owns the target member
-            validate_member_ownership(target_member)
-            return {"ownership": "validated", "target": target_member}
+        Member self-access to their own record is expressed via
+        @self_service_api: LOW level (any authenticated member passes the level
+        check) PLUS an ownership gate. A Verenigingen Member SUCCEEDS on their
+        OWN record and is DENIED (frappe.PermissionError) on another member's
+        record — the ownership gate is enforced by SelfServiceAccessController
+        before the function body runs.
+        """
+
+        @self_service_api(operation_type=OperationType.MEMBER_DATA)
+        def ownership_api(member):
+            # The framework's self-service gate already verified ownership of
+            # `member`; the body just confirms the call reached business logic.
+            validate_member_ownership(member)
+            return {"ownership": "validated", "target": member}
 
         member_full = self.test_members['member_full']
         member_limited = self.test_members['member_limited']
 
-        # Test valid ownership
+        # POSITIVE: member acts on OWN record.
         with self.as_user(self.test_users['member_full'].email):
-            result = test_ownership_api(member_full.name)
+            result = ownership_api(member=member_full.name)
             self.assertEqual(result["ownership"], "validated")
             self.assertEqual(result["target"], member_full.name)
 
-        # Test invalid ownership
+        # NEGATIVE: member attempts to act on ANOTHER member's record.
         with self.as_user(self.test_users['member_full'].email):
             with self.assertRaises(frappe.PermissionError):
-                test_ownership_api(member_limited.name)
+                ownership_api(member=member_limited.name)
 
-    @unittest.skip(_AUTHZ_CONTRACT_SKIP)
     def test_api_rate_limiting_with_authentication(self):
-        """Test API rate limiting behavior with authentication"""
+        """Test rate limiting plays nicely with auth on a reachable endpoint.
 
-        @standard_api(operation_type=OperationType.REPORTING)
-        def test_rate_limited_api():
-            return {"timestamp": now_datetime(), "user": frappe.session.user}
+        A plain Member is LOW-only, so the rate-limit interaction is exercised
+        on a @self_service_api (LOW + ownership) endpoint the member can
+        actually reach. Repeated calls on the member's OWN data all succeed
+        under the limit, while the authorization contract still holds: the same
+        member is denied (frappe.PermissionError) when targeting another
+        member's data. (Rate limiting is intentionally skipped in the test
+        execution context, so calls under the limit must not be rejected.)
+        """
 
-        # Test rate limiting doesn't interfere with authentication
+        @self_service_api(operation_type=OperationType.MEMBER_DATA)
+        def rate_limited_self_service_api(member):
+            return {
+                "timestamp": now_datetime(),
+                "user": frappe.session.user,
+                "member": member,
+            }
+
+        member_full = self.test_members['member_full']
+        member_limited = self.test_members['member_limited']
+
+        # POSITIVE: several authenticated, owned-data calls succeed under the limit.
         successful_calls = 0
         with self.as_user(self.test_users['member_full'].email):
-            for i in range(5):  # Make several calls
-                try:
-                    result = test_rate_limited_api()
-                    self.assertEqual(result["user"], self.test_users['member_full'].email)
-                    successful_calls += 1
-                except Exception as e:
-                    if "rate limit" in str(e).lower():
-                        break  # Expected rate limiting
-                    else:
-                        raise  # Unexpected error
+            for _ in range(5):
+                result = rate_limited_self_service_api(member=member_full.name)
+                self.assertEqual(result["user"], self.test_users['member_full'].email)
+                self.assertEqual(result["member"], member_full.name)
+                successful_calls += 1
 
-        self.assertGreater(successful_calls, 0, "Some calls should succeed before rate limiting")
+        self.assertEqual(successful_calls, 5, "All under-limit owned-data calls should succeed")
+
+        # NEGATIVE: the contract still denies cross-member access for the same user.
+        with self.as_user(self.test_users['member_full'].email):
+            with self.assertRaises(frappe.PermissionError):
+                rate_limited_self_service_api(member=member_limited.name)
 
     # ===== SEPA MANDATE AUTHENTICATION TESTS =====
 
@@ -680,59 +713,64 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         result = get_member_name_for_user(None)
         self.assertIsNone(result)
 
-    @unittest.skip(_AUTHZ_CONTRACT_SKIP)
     def test_role_based_api_access_matrix(self):
-        """Test comprehensive role-based API access matrix"""
+        """Test the full role -> security-level access matrix.
+
+        Asserts the current contract end-to-end across three level tiers:
+          - @critical_api  (CRITICAL)
+          - @high_security_api (HIGH)
+          - @standard_api  (MEDIUM)
+
+        Expected matrix:
+          admin    (Verenigingen Administrator): CRITICAL + HIGH + MEDIUM
+          staff    (Verenigingen Staff)        : HIGH + MEDIUM, NOT CRITICAL
+          volunteer(Verenigingen Volunteer)    : MEDIUM, NOT HIGH/CRITICAL
+          member   (Verenigingen Member)       : LOW only -> denied at MEDIUM/HIGH/CRITICAL
+
+        Denials surface as frappe.PermissionError (VPermissionError subclass).
+        """
 
         @critical_api(operation_type=OperationType.ADMIN)
-        def admin_only_api():
-            return {"admin": "access_granted"}
+        def critical_level_api():
+            return {"level": "critical", "access": "granted"}
 
         @high_security_api(operation_type=OperationType.MEMBER_DATA)
-        def member_data_api():
-            return {"member_data": "access_granted"}
+        def high_level_api():
+            return {"level": "high", "access": "granted"}
 
         @standard_api(operation_type=OperationType.REPORTING)
-        def reporting_api():
-            return {"reporting": "access_granted"}
+        def medium_level_api():
+            return {"level": "medium", "access": "granted"}
 
-        # Test admin user access levels
+        # ----- admin: CRITICAL + HIGH + MEDIUM all granted -----
         with self.as_user(self.test_users['admin'].email):
-            admin_result = admin_only_api()
-            self.assertEqual(admin_result["admin"], "access_granted")
+            self.assertEqual(critical_level_api()["access"], "granted")
+            self.assertEqual(high_level_api()["access"], "granted")
+            self.assertEqual(medium_level_api()["access"], "granted")
 
-            member_result = member_data_api()
-            self.assertEqual(member_result["member_data"], "access_granted")
-
-            reporting_result = reporting_api()
-            self.assertEqual(reporting_result["reporting"], "access_granted")
-
-        # Test staff user access levels
+        # ----- staff: HIGH + MEDIUM granted, CRITICAL denied -----
         with self.as_user(self.test_users['staff'].email):
-            # Admin API should be denied
-            with self.assertRaises(Exception):
-                admin_only_api()
+            with self.assertRaises(frappe.PermissionError):
+                critical_level_api()
+            self.assertEqual(high_level_api()["access"], "granted")
+            self.assertEqual(medium_level_api()["access"], "granted")
 
-            # Member data and reporting should be allowed
-            member_result = member_data_api()
-            self.assertEqual(member_result["member_data"], "access_granted")
+        # ----- volunteer: MEDIUM granted, HIGH + CRITICAL denied -----
+        with self.as_user(self.test_users['volunteer'].email):
+            with self.assertRaises(frappe.PermissionError):
+                critical_level_api()
+            with self.assertRaises(frappe.PermissionError):
+                high_level_api()
+            self.assertEqual(medium_level_api()["access"], "granted")
 
-            reporting_result = reporting_api()
-            self.assertEqual(reporting_result["reporting"], "access_granted")
-
-        # Test regular member access levels
+        # ----- member: LOW only -> denied at MEDIUM, HIGH and CRITICAL -----
         with self.as_user(self.test_users['member_full'].email):
-            # Admin API should be denied
-            with self.assertRaises(Exception):
-                admin_only_api()
-
-            # High security API should be denied
-            with self.assertRaises(Exception):
-                member_data_api()
-
-            # Standard API should be allowed
-            reporting_result = reporting_api()
-            self.assertEqual(reporting_result["reporting"], "access_granted")
+            with self.assertRaises(frappe.PermissionError):
+                critical_level_api()
+            with self.assertRaises(frappe.PermissionError):
+                high_level_api()
+            with self.assertRaises(frappe.PermissionError):
+                medium_level_api()
 
     # ===== CONTEXT MANAGERS AND UTILITIES =====
 
