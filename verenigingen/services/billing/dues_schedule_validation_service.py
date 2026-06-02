@@ -130,7 +130,7 @@ class DuesScheduleValidationService(StatelessService):
 
         Business Logic:
             - Fixed mode: Uses template dues_rate directly
-            - Income-Based mode: Multiplies suggested_amount by base_multiplier
+            - Income-Based mode: Multiplies suggested_amount by default_multiplier
             - Flexible mode: Uses user selection, falls back to suggested_amount
             - Templates skip calculation (may have incomplete configuration)
         """
@@ -157,7 +157,9 @@ class DuesScheduleValidationService(StatelessService):
                 suggested_amount = template_values.get("suggested_amount", 0)
                 base_amount = suggested_amount or template_values.get("minimum_amount", 0)
 
-                multiplier = schedule_doc.base_multiplier if schedule_doc.base_multiplier is not None else 1.0
+                multiplier = (
+                    schedule_doc.default_multiplier if schedule_doc.default_multiplier is not None else 1.0
+                )
                 schedule_doc.dues_rate = base_amount * multiplier
             elif schedule_doc.contribution_mode == "Flexible":
                 # Flexible: dues_rate should be set from user selection

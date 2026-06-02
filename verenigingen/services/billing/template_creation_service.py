@@ -239,7 +239,7 @@ class TemplateCreationService(StatelessService):
             "custom_frequency_number",
             "custom_frequency_unit",
             "contribution_mode",
-            "base_multiplier",
+            "default_multiplier",
             "minimum_amount",
             "suggested_amount",
             "invoice_days_before",

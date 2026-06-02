@@ -1289,7 +1289,9 @@ def update_member_contribution(schedule_name: str, updates: str):
     allowed_updates = {
         "contribution_mode": updates.get("contribution_mode"),
         "selected_tier": updates.get("selected_tier"),
-        "base_multiplier": updates.get("base_multiplier"),
+        # The field is default_multiplier; accept the legacy "base_multiplier" payload
+        # key too (the membership application form posts that name).
+        "default_multiplier": updates.get("default_multiplier", updates.get("base_multiplier")),
         "uses_custom_amount": updates.get("uses_custom_amount"),
         "custom_amount_reason": updates.get("custom_amount_reason"),
         "dues_rate": updates.get("dues_rate"),

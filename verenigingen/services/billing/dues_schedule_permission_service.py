@@ -195,7 +195,7 @@ class DuesSchedulePermissionService(StatelessService):
         """
         allowed_fields = [
             "dues_rate",
-            "base_multiplier",
+            "default_multiplier",
             "contribution_mode",
             "selected_tier",
             "uses_custom_amount",

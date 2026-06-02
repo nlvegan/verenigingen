@@ -723,7 +723,7 @@ class Membership(Document):
 
         # Set contribution mode
         dues_schedule.contribution_mode = "Income-Based"
-        dues_schedule.base_multiplier = 1.0
+        dues_schedule.default_multiplier = 1.0
 
         # Set status
         dues_schedule.status = "Active"
