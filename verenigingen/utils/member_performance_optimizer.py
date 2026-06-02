@@ -85,6 +85,12 @@ class MemberPerformanceOptimizer:
             member.update(member_data)
             member.flags.ignore_validate = True  # Skip expensive validations initially
             member.flags.ignore_permissions = False  # Maintain security
+            # Compute full_name explicitly: validate() (which normally derives it)
+            # is skipped above, but the after_insert hook creates a Customer named
+            # after member.full_name and crashes if it is still None.
+            from verenigingen.utils.dutch_name_service import update_member_full_name
+
+            update_member_full_name(member)
             member.insert(ignore_permissions=False)
 
             # 3. Create related records in bulk (optimized)

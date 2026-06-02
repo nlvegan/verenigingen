@@ -218,7 +218,7 @@ class ChapterBoardMember(Document):
         """Send notification when a volunteer is added to the board."""
         from verenigingen.utils.notification_helpers import send_volunteer_email
 
-        chapter_name = frappe.db.get_value("Chapter", self.chapter, "name") or self.chapter
+        chapter_name = self.parent
 
         send_volunteer_email(
             volunteer=self.volunteer,
@@ -238,7 +238,7 @@ class ChapterBoardMember(Document):
         """Send notification when a volunteer is removed from the board."""
         from verenigingen.utils.notification_helpers import send_volunteer_email
 
-        chapter_name = frappe.db.get_value("Chapter", self.chapter, "name") or self.chapter
+        chapter_name = self.parent
 
         send_volunteer_email(
             volunteer=self.volunteer,
