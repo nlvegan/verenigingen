@@ -212,15 +212,24 @@ def _seed_verenigingen_test_system_user():
     gates on user-exists + enabled), and uses a non-routable email domain
     so any test email leak is harmless.
 
-    Deliberately does NOT add the ``Verenigingen Administrator`` role:
-    it is a custom-fixture role loaded by ``bench migrate`` / ``bench
-    import-fixtures``, neither of which runs on fresh CI sites created
-    via ``bench new-site``. Appending a non-existent role link would make
-    ``user.insert()`` throw and the outer ``try/except`` would silently
-    log — leaving ``creation_user`` empty and reproducing the very B1
-    failure this helper exists to fix.
+    Roles: System Manager (for ``get_system_user_for_operation``) PLUS
+    ``Verenigingen Staff`` — the latter grants Customer create/write, which
+    ``Member.after_insert`` -> ``create_customer_for_member`` needs when an
+    application is submitted as this user (without it, submit_application fails
+    with "Insufficient permissions to create Customer" and the whole
+    membership-application test cohort errors).
+
+    ``Verenigingen Staff`` is a custom-fixture role loaded by ``bench migrate`` /
+    ``bench import-fixtures``, which do NOT run on fresh CI sites created via
+    ``bench new-site``. Appending a non-existent role link would make
+    ``user.insert()`` throw, so it is added only when the Role actually exists.
+    (We must NOT add ``Verenigingen Administrator`` — same fixture-role caveat.)
     """
     test_user_email = "verenigingen-test-system@example.invalid"
+    desired_roles = ["System Manager"]
+    if frappe.db.exists("Role", "Verenigingen Staff"):
+        desired_roles.append("Verenigingen Staff")
+
     if not frappe.db.exists("User", test_user_email):
         user = frappe.new_doc("User")
         user.email = test_user_email
@@ -229,9 +238,21 @@ def _seed_verenigingen_test_system_user():
         user.enabled = 1
         user.user_type = "System User"
         user.send_welcome_email = 0
-        user.append("roles", {"role": "System Manager"})
+        for role in desired_roles:
+            user.append("roles", {"role": role})
         user.insert(ignore_permissions=True)
         frappe.db.commit()
+    else:
+        # Roles aren't re-applied to an already-existing (reused) user above, so
+        # ensure the desired roles are present.
+        user = frappe.get_doc("User", test_user_email)
+        existing_roles = {r.role for r in user.roles}
+        missing = [r for r in desired_roles if r not in existing_roles]
+        if missing:
+            for role in missing:
+                user.append("roles", {"role": role})
+            user.save(ignore_permissions=True)
+            frappe.db.commit()
 
     current = frappe.db.get_single_value("Verenigingen Settings", "creation_user")
     if current != test_user_email:
