@@ -18,12 +18,15 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
         """Set up test data for each test using factory methods"""
         super().setUp()
 
-        # Create test member using Enhanced Test Factory
+        # Create test member using Enhanced Test Factory. A contact_number is set
+        # so the "Phone" preferred-contact-method path (test_portal_form_submission)
+        # passes validate_contact_preferences (phone required when phone preferred).
         self.test_member = self.create_test_member(
             first_name="John",
             last_name="Doe",
             email="john.doe.test@example.com",
-            status="Active"
+            status="Active",
+            contact_number="+31612345678",
         )
 
         # CRITICAL: Member Contact Request validates membership_status (not status)
@@ -66,19 +69,45 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
         self.assertEqual(contact_request.email, self.test_member.email)
         self.assertTrue(contact_request.created_by_portal)
 
+    def test_required_fields_default_on_raw_insert(self):
+        """Regression: required fields with JSON defaults are applied by the controller.
+
+        Frappe v16 stopped applying a field's JSON `default` on a raw
+        frappe.get_doc({...}).insert(); MemberContactRequest.set_field_defaults()
+        restores them so programmatic creation that omits request_type /
+        preferred_contact_method / status / request_date no longer raises
+        MandatoryError.
+        """
+        contact_request = frappe.get_doc(
+            {
+                "doctype": "Member Contact Request",
+                "member": self.test_member.name,
+                "subject": "Defaults Regression",
+                "message": "Created without the defaulted required fields",
+            }
+        )
+        contact_request.insert()
+
+        self.assertEqual(contact_request.request_type, "General Inquiry")
+        self.assertEqual(contact_request.preferred_contact_method, "Email")
+        self.assertEqual(contact_request.status, "Open")
+        self.assertEqual(str(contact_request.request_date), today())
+
     def test_contact_request_integration_workflow(self):
         """Test the complete contact request workflow without inappropriate mocking"""
         # Create contact request using real database operations
-        contact_request = frappe.get_doc({
-            "doctype": "Member Contact Request",
-            "member": self.test_member.name,
-            "subject": "Integration Test Request",
-            "message": "Testing complete workflow",
-            "request_type": "Volunteer Opportunity",
-            "preferred_contact_method": "Email",
-            "urgency": "Normal",  # Valid options: Low, Normal, High, Urgent
-            "created_by_portal": 1
-        })
+        contact_request = frappe.get_doc(
+            {
+                "doctype": "Member Contact Request",
+                "member": self.test_member.name,
+                "subject": "Integration Test Request",
+                "message": "Testing complete workflow",
+                "request_type": "Volunteer Opportunity",
+                "preferred_contact_method": "Email",
+                "urgency": "Normal",  # Valid options: Low, Normal, High, Urgent
+                "created_by_portal": 1,
+            }
+        )
         contact_request.insert()
 
         # Verify the contact request was created properly
@@ -91,7 +120,7 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
         contact_request.status = "In Progress"
         contact_request.save()
         self.assertEqual(contact_request.status, "In Progress")
-        
+
         # Test completion
         contact_request.status = "Resolved"
         contact_request.resolution_notes = "Request handled successfully"
@@ -109,7 +138,8 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
                 "subject": "Status Transition Test",
                 "message": "Testing status transitions",
                 "request_type": "Technical Support",
-                "status": "Open"}
+                "status": "Open",
+            }
         )
         contact_request.insert()
         # Note: contact_request cleanup is handled by tearDown via member relationship
@@ -140,7 +170,8 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
                 "subject": "Assignment Test",
                 "message": "Testing assignment workflow",
                 "request_type": "Complaint",
-                "urgency": "High"}
+                "urgency": "High",
+            }
         )
         contact_request.insert()
         # Note: contact_request cleanup is handled by tearDown via member relationship
@@ -169,7 +200,8 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
                     "subject": f"Test Request {i + 1}",
                     "message": f"Test message {i + 1}",
                     "request_type": "General Inquiry",
-                    "status": "Open" if i % 2 == 0 else "Resolved"}
+                    "status": "Open" if i % 2 == 0 else "Resolved",
+                }
             )
             contact_request.insert()
 
@@ -192,7 +224,7 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
             "request_type": "Event Information",
             "preferred_contact_method": "Phone",
             "urgency": "Normal",
-            "preferred_time": "Weekdays 9-17"
+            "preferred_time": "Weekdays 9-17",
         }
 
         from verenigingen.verenigingen.doctype.member_contact_request.member_contact_request import (
@@ -244,7 +276,8 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
                 "status": "Open",
                 "request_date": add_days(today(), -2),  # 2 days ago
                 "follow_up_date": today(),  # Due today
-                "assigned_to": "Administrator"}
+                "assigned_to": "Administrator",
+            }
         )
         overdue_request.insert()
 
@@ -317,7 +350,8 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
                     "message": "Test for analytics",
                     "request_type": req_data["request_type"],
                     "status": req_data["status"],
-                    "response_date": today() if req_data["status"] != "Open" else None}
+                    "response_date": today() if req_data["status"] != "Open" else None,
+                }
             )
             contact_request.insert()
             # Note: contact_request cleanup is handled by tearDown via member relationship
@@ -336,4 +370,5 @@ if __name__ == "__main__":
     # Can be run via:
     # bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.integration.test_member_contact_request_integration
     import unittest
+
     unittest.main()

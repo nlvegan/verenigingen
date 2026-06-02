@@ -9,7 +9,8 @@ Focus on SEPA direct debit invoice validation, batch processing, and compliance
 """
 
 import frappe
-from frappe.utils import today, add_days, add_months, flt
+from frappe.utils import today, add_days, add_months, flt, getdate, date_diff
+from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -18,24 +19,46 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        
+
+        # SEPA invoice validation rejects any non-EUR currency, so invoices in
+        # this module must be created under the app's EUR test company.
+        self.eur_company = get_eur_test_company()
+
         # Create test environment
         self.test_member = self.create_test_member()
         self.test_membership = self.create_test_membership(member=self.test_member.name)
-        
+
         # Create SEPA mandate
         self.test_mandate = self.create_test_sepa_mandate(
             member=self.test_member.name,
             scenario="normal",
             bank_code="TEST"
         )
-        
-        # Create invoice
+
+        # Create invoice and submit it so it is eligible for SEPA batch
+        # processing (the batch only accepts submitted, unpaid invoices).
         self.test_invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             is_membership_invoice=1,
-            membership=self.test_membership.name
+            membership=self.test_membership.name,
+            company=self.eur_company,
+            currency="EUR",
         )
+        self.test_invoice.submit()
+
+    def _new_batch(self, **kwargs):
+        """Build an unsaved Direct Debit Batch (append invoices before save)."""
+        defaults = {
+            "batch_date": today(),
+            "batch_description": f"Test DD Batch {frappe.generate_hash(length=6)}",
+            "batch_type": "CORE",
+            "currency": "EUR",
+        }
+        defaults.update(kwargs)
+        batch = frappe.new_doc("Direct Debit Batch")
+        for key, value in defaults.items():
+            setattr(batch, key, value)
+        return batch
 
     def test_sepa_invoice_mandate_validation(self):
         """Test SEPA invoice validation against mandate"""
@@ -106,27 +129,31 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
         """Test SEPA invoice due date validation"""
         # SEPA invoices should have appropriate due dates
         self.assertIsNotNone(self.test_invoice.due_date)
-        
+
         # Due date should be in the future or today
-        self.assertGreaterEqual(self.test_invoice.due_date, today())
-        
-        # Test past due date scenario
+        self.assertGreaterEqual(getdate(self.test_invoice.due_date), getdate(today()))
+
+        # Test past due date scenario. The due date may not precede the posting
+        # date (ERPNext validation), so back-date the posting date too;
+        # set_posting_time=1 keeps ERPNext from resetting posting_date to today.
         past_due_invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             is_membership_invoice=1,
+            company=self.eur_company,
+            currency="EUR",
+            set_posting_time=1,
+            posting_date=add_days(today(), -30),
             due_date=add_days(today(), -30)
         )
-        
+
         # Past due dates should be handled
-        self.assertEqual(past_due_invoice.due_date, add_days(today(), -30))
+        self.assertEqual(getdate(past_due_invoice.due_date), getdate(add_days(today(), -30)))
 
     def test_sepa_invoice_batch_eligibility(self):
         """Test SEPA invoice eligibility for batch processing"""
         # Create direct debit batch
-        dd_batch = self.create_test_direct_debit_batch(
-            skip_invoice_creation=True
-        )
-        
+        dd_batch = self._new_batch()
+
         # Add invoice to batch
         dd_batch.append("invoices", {
             "invoice": self.test_invoice.name,
@@ -138,8 +165,9 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
             "iban": self.test_mandate.iban,
             "mandate_reference": self.test_mandate.mandate_id
         })
-        
+
         dd_batch.save()
+        self.track_doc("Direct Debit Batch", dd_batch.name)
         
         # Verify batch processing eligibility
         self.assertEqual(len(dd_batch.invoices), 1)
@@ -234,13 +262,16 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
         
         self.assertLess(valid_invoice.posting_date, expiring_mandate.expiry_date)
         
-        # Test expired mandate scenario
+        # Test expired mandate scenario. The "expired" scenario sets expiry_date
+        # 30 days ago; sign_date must precede expiry, so set it explicitly
+        # (the factory's default sign_date is today, which would post-date expiry).
         expired_mandate = self.create_test_sepa_mandate(
             member=self.test_member.name,
             scenario="expired",
-            bank_code="TEST"
+            bank_code="TEST",
+            sign_date=add_days(today(), -60),
         )
-        
+
         self.assertEqual(expired_mandate.status, "Expired")
 
     def test_sepa_invoice_iban_validation(self):
@@ -249,12 +280,14 @@ class TestSEPAInvoiceValidation(VereningingenTestCase):
         self.assertIsNotNone(self.test_mandate.iban)
         self.assertTrue(self.test_mandate.iban.startswith("NL"))
         
-        # Test IBAN format validation
-        self.assertEqual(len(self.test_mandate.iban), 18)  # Dutch IBAN length
-        
+        # The SEPA Mandate stores the IBAN in its human-readable grouped form
+        # ("NL13 TEST 0123 4567 89"), so strip spaces before validating the
+        # compact Dutch IBAN length (18 chars).
+        compact_iban = self.test_mandate.iban.replace(" ", "")
+        self.assertEqual(len(compact_iban), 18)  # Dutch IBAN length
+
         # Verify IBAN checksum (basic validation)
-        iban = self.test_mandate.iban
-        self.assertTrue(iban[2:4].isdigit())  # Check digits should be numeric
+        self.assertTrue(compact_iban[2:4].isdigit())  # Check digits should be numeric
 
 
 class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
@@ -263,6 +296,9 @@ class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         
+        # SEPA invoice validation rejects any non-EUR currency.
+        self.eur_company = get_eur_test_company()
+
         # Create multiple members with mandates for batch testing
         self.batch_members = []
         for i in range(3):
@@ -271,35 +307,61 @@ class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
                 last_name="TestMember",
                 email=f"batch{i}@example.com"
             )
-            
+
+            membership = self.create_test_membership(member=member.name)
+
             mandate = self.create_test_sepa_mandate(
                 member=member.name,
                 scenario="normal",
                 bank_code="TEST"
             )
-            
+
             invoice = self.create_test_sales_invoice(
                 customer=member.customer,
-                is_membership_invoice=1
+                is_membership_invoice=1,
+                membership=membership.name,
+                company=self.eur_company,
+                currency="EUR",
             )
-            
+            invoice.submit()
+
             self.batch_members.append({
                 "member": member,
+                "membership": membership,
                 "mandate": mandate,
                 "invoice": invoice
             })
     
+    def _new_batch(self, **kwargs):
+        """Build an unsaved Direct Debit Batch (append invoices before save).
+
+        ``create_test_direct_debit_batch`` saves immediately, but a batch with
+        no invoices fails validation ("No invoices added to batch"), so tests
+        that append their own rows must build the batch document directly and
+        save only after appending.
+        """
+        defaults = {
+            "batch_date": today(),
+            "batch_description": f"Test DD Batch {frappe.generate_hash(length=6)}",
+            "batch_type": "CORE",
+            "currency": "EUR",
+        }
+        defaults.update(kwargs)
+        batch = frappe.new_doc("Direct Debit Batch")
+        for key, value in defaults.items():
+            setattr(batch, key, value)
+        return batch
+
     def test_sepa_batch_invoice_validation(self):
         """Test validation of invoices in SEPA batch"""
         # Create batch
-        batch = self.create_test_direct_debit_batch(
-            skip_invoice_creation=True
-        )
-        
+        batch = self._new_batch()
+
         # Add all invoices to batch
         for member_data in self.batch_members:
             batch.append("invoices", {
                 "invoice": member_data["invoice"].name,
+                "membership": member_data["membership"].name,
                 "member": member_data["member"].name,
                 "member_name": f"{member_data['member'].first_name} {member_data['member'].last_name}",
                 "amount": member_data["invoice"].grand_total,
@@ -307,8 +369,9 @@ class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
                 "iban": member_data["mandate"].iban,
                 "mandate_reference": member_data["mandate"].mandate_id
             })
-        
+
         batch.save()
+        self.track_doc("Direct Debit Batch", batch.name)
         
         # Verify batch validation
         self.assertEqual(len(batch.invoices), 3)
@@ -322,14 +385,13 @@ class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
     
     def test_sepa_batch_amount_validation(self):
         """Test batch amount validation"""
-        batch = self.create_test_direct_debit_batch(
-            skip_invoice_creation=True
-        )
-        
+        batch = self._new_batch()
+
         total_amount = 0
         for member_data in self.batch_members:
             batch.append("invoices", {
                 "invoice": member_data["invoice"].name,
+                "membership": member_data["membership"].name,
                 "member": member_data["member"].name,
                 "member_name": f"{member_data['member'].first_name} {member_data['member'].last_name}",
                 "amount": member_data["invoice"].grand_total,
@@ -338,26 +400,25 @@ class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
                 "mandate_reference": member_data["mandate"].mandate_id
             })
             total_amount += member_data["invoice"].grand_total
-        
+
         batch.save()
-        
+        self.track_doc("Direct Debit Batch", batch.name)
+
         # Calculate batch total
         batch_total = sum(inv.amount for inv in batch.invoices)
         self.assertEqual(batch_total, total_amount)
     
     def test_sepa_batch_currency_validation(self):
         """Test batch currency consistency validation"""
-        batch = self.create_test_direct_debit_batch(
-            currency="EUR",
-            skip_invoice_creation=True
-        )
-        
+        batch = self._new_batch(currency="EUR")
+
         # All invoices should be in EUR
         for member_data in self.batch_members:
             self.assertEqual(member_data["invoice"].currency, "EUR")
             
             batch.append("invoices", {
                 "invoice": member_data["invoice"].name,
+                "membership": member_data["membership"].name,
                 "member": member_data["member"].name,
                 "member_name": f"{member_data['member'].first_name} {member_data['member'].last_name}",
                 "amount": member_data["invoice"].grand_total,
@@ -365,9 +426,10 @@ class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
                 "iban": member_data["mandate"].iban,
                 "mandate_reference": member_data["mandate"].mandate_id
             })
-        
+
         batch.save()
-        
+        self.track_doc("Direct Debit Batch", batch.name)
+
         # Verify batch currency consistency
         self.assertEqual(batch.currency, "EUR")
         for batch_invoice in batch.invoices:
@@ -376,15 +438,31 @@ class TestSEPAInvoiceBatchValidation(VereningingenTestCase):
 
 class TestSEPAInvoiceEdgeCases(VereningingenTestCase):
     """Edge case tests for SEPA invoice processing"""
-    
+
     def setUp(self):
         super().setUp()
+        self.eur_company = get_eur_test_company()
         self.test_member = self.create_test_member()
+        self.test_membership = self.create_test_membership(member=self.test_member.name)
         self.test_mandate = self.create_test_sepa_mandate(
             member=self.test_member.name,
             scenario="normal"
         )
-    
+
+    def _new_batch(self, **kwargs):
+        """Build an unsaved Direct Debit Batch (append invoices before save)."""
+        defaults = {
+            "batch_date": today(),
+            "batch_description": f"Test DD Batch {frappe.generate_hash(length=6)}",
+            "batch_type": "CORE",
+            "currency": "EUR",
+        }
+        defaults.update(kwargs)
+        batch = frappe.new_doc("Direct Debit Batch")
+        for key, value in defaults.items():
+            setattr(batch, key, value)
+        return batch
+
     def test_sepa_invoice_zero_amount_edge_case(self):
         """Test SEPA processing with zero amount invoices"""
         # Create zero amount invoice
@@ -392,12 +470,15 @@ class TestSEPAInvoiceEdgeCases(VereningingenTestCase):
             customer=self.test_member.customer,
             is_membership_invoice=1
         )
-        
-        # Set zero amount
+
+        # Set zero amount. price_list_rate must also be cleared, otherwise
+        # ERPNext repopulates the item rate from the price list on recalculation.
+        zero_invoice.ignore_pricing_rule = 1
         for item in zero_invoice.items:
+            item.price_list_rate = 0.00
             item.rate = 0.00
             item.amount = 0.00
-        
+
         zero_invoice.calculate_taxes_and_totals()
         zero_invoice.save()
         
@@ -444,16 +525,18 @@ class TestSEPAInvoiceEdgeCases(VereningingenTestCase):
         """Test handling of duplicate invoice processing"""
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
-            is_membership_invoice=1
+            is_membership_invoice=1,
+            company=self.eur_company,
+            currency="EUR",
         )
-        
+        invoice.submit()
+
         # Create first batch with invoice
-        batch1 = self.create_test_direct_debit_batch(
-            skip_invoice_creation=True
-        )
-        
+        batch1 = self._new_batch()
+
         batch1.append("invoices", {
             "invoice": invoice.name,
+            "membership": self.test_membership.name,
             "member": self.test_member.name,
             "member_name": f"{self.test_member.first_name} {self.test_member.last_name}",
             "amount": invoice.grand_total,
@@ -462,14 +545,14 @@ class TestSEPAInvoiceEdgeCases(VereningingenTestCase):
             "mandate_reference": self.test_mandate.mandate_id
         })
         batch1.save()
-        
+        self.track_doc("Direct Debit Batch", batch1.name)
+
         # Create second batch with same invoice
-        batch2 = self.create_test_direct_debit_batch(
-            skip_invoice_creation=True
-        )
-        
+        batch2 = self._new_batch()
+
         batch2.append("invoices", {
             "invoice": invoice.name,
+            "membership": self.test_membership.name,
             "member": self.test_member.name,
             "member_name": f"{self.test_member.first_name} {self.test_member.last_name}",
             "amount": invoice.grand_total,
@@ -478,7 +561,8 @@ class TestSEPAInvoiceEdgeCases(VereningingenTestCase):
             "mandate_reference": self.test_mandate.mandate_id
         })
         batch2.save()
-        
+        self.track_doc("Direct Debit Batch", batch2.name)
+
         # Both batches should be created (duplicate prevention is business logic)
         self.assertNotEqual(batch1.name, batch2.name)
     
@@ -486,17 +570,19 @@ class TestSEPAInvoiceEdgeCases(VereningingenTestCase):
         """Test SEPA invoice partial collection scenarios"""
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
-            is_membership_invoice=1
+            is_membership_invoice=1,
+            company=self.eur_company,
+            currency="EUR",
         )
-        
+        invoice.submit()
+
         # Create batch with partial amount
-        partial_batch = self.create_test_direct_debit_batch(
-            skip_invoice_creation=True
-        )
-        
+        partial_batch = self._new_batch()
+
         partial_amount = invoice.grand_total * 0.5
         partial_batch.append("invoices", {
             "invoice": invoice.name,
+            "membership": self.test_membership.name,
             "member": self.test_member.name,
             "member_name": f"{self.test_member.first_name} {self.test_member.last_name}",
             "amount": partial_amount,  # Only 50% of invoice
@@ -505,7 +591,8 @@ class TestSEPAInvoiceEdgeCases(VereningingenTestCase):
             "mandate_reference": self.test_mandate.mandate_id
         })
         partial_batch.save()
-        
+        self.track_doc("Direct Debit Batch", partial_batch.name)
+
         # Verify partial collection setup
         batch_invoice = partial_batch.invoices[0]
         self.assertEqual(batch_invoice.amount, partial_amount)
@@ -517,22 +604,41 @@ class TestSEPAInvoiceComplianceValidation(VereningingenTestCase):
     
     def setUp(self):
         super().setUp()
+        self.eur_company = get_eur_test_company()
         self.test_member = self.create_test_member()
+        self.test_membership = self.create_test_membership(member=self.test_member.name)
         self.test_mandate = self.create_test_sepa_mandate(
             member=self.test_member.name,
             scenario="normal"
         )
-    
+
+    def _new_batch(self, **kwargs):
+        """Build an unsaved Direct Debit Batch (append invoices before save)."""
+        defaults = {
+            "batch_date": today(),
+            "batch_description": f"Test DD Batch {frappe.generate_hash(length=6)}",
+            "batch_type": "CORE",
+            "currency": "EUR",
+        }
+        defaults.update(kwargs)
+        batch = frappe.new_doc("Direct Debit Batch")
+        for key, value in defaults.items():
+            setattr(batch, key, value)
+        return batch
+
     def test_sepa_invoice_pre_notification_compliance(self):
         """Test SEPA pre-notification compliance"""
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             is_membership_invoice=1,
+            company=self.eur_company,
+            currency="EUR",
             due_date=add_days(today(), 14)  # 14 days notice
         )
-        
-        # SEPA requires pre-notification (usually 14 days)
-        notification_period = (invoice.due_date - today()).days
+
+        # SEPA requires pre-notification (usually 14 days). invoice.due_date is a
+        # date string when read back from the DB, so use date_diff for the math.
+        notification_period = date_diff(invoice.due_date, today())
         self.assertEqual(notification_period, 14)
     
     def test_sepa_invoice_mandate_reference_compliance(self):
@@ -552,8 +658,28 @@ class TestSEPAInvoiceComplianceValidation(VereningingenTestCase):
     
     def test_sepa_invoice_creditor_identifier_compliance(self):
         """Test SEPA creditor identifier compliance"""
-        batch = self.create_test_direct_debit_batch()
-        
+        invoice = self.create_test_sales_invoice(
+            customer=self.test_member.customer,
+            is_membership_invoice=1,
+            company=self.eur_company,
+            currency="EUR",
+        )
+        invoice.submit()
+
+        batch = self._new_batch()
+        batch.append("invoices", {
+            "invoice": invoice.name,
+            "membership": self.test_membership.name,
+            "member": self.test_member.name,
+            "member_name": f"{self.test_member.first_name} {self.test_member.last_name}",
+            "amount": invoice.grand_total,
+            "currency": "EUR",
+            "iban": self.test_mandate.iban,
+            "mandate_reference": self.test_mandate.mandate_id
+        })
+        batch.save()
+        self.track_doc("Direct Debit Batch", batch.name)
+
         # Batch should have creditor identifier (if configured)
         if hasattr(batch, 'creditor_identifier'):
             self.assertIsNotNone(batch.creditor_identifier)
@@ -563,13 +689,16 @@ class TestSEPAInvoiceComplianceValidation(VereningingenTestCase):
         invoice = self.create_test_sales_invoice(
             customer=self.test_member.customer,
             is_membership_invoice=1,
+            company=self.eur_company,
+            currency="EUR",
             due_date=add_days(today(), 5)
         )
-        
-        # Collection date should respect banking days
-        collection_date = invoice.due_date
-        self.assertGreaterEqual(collection_date, today())
-        
+
+        # Collection date should respect banking days. invoice.due_date is a
+        # date string when read back from the DB, so normalise with getdate.
+        collection_date = getdate(invoice.due_date)
+        self.assertGreaterEqual(collection_date, getdate(today()))
+
         # Should not be weekend (basic check)
         # In real implementation, would check banking calendar
         weekday = collection_date.weekday()
