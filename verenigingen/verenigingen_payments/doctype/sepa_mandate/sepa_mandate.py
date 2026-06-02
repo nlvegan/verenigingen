@@ -28,6 +28,7 @@ from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
 
 class SEPAMandate(Document):
     def validate(self):
+        self.set_scheme_default()
         self.auto_generate_mandate_id()
         self.validate_dates()
         self.validate_iban()
@@ -35,6 +36,17 @@ class SEPAMandate(Document):
 
         # Also synchronize status and is_active flag during validation
         self.sync_status_is_active()
+
+    def set_scheme_default(self):
+        """Apply the JSON 'SEPA' default for the mandatory scheme field.
+
+        Frappe v16 no longer applies a field's JSON default on a raw
+        get_doc({...}).insert() (only at the form layer), so a mandate created
+        without an explicit scheme hits a MandatoryError. Mirror the same
+        controller-level default pattern used for status/mandate_id.
+        """
+        if not self.scheme:
+            self.scheme = "SEPA"
 
     def auto_generate_mandate_id(self):
         """Auto-generate mandate_id using identity service"""

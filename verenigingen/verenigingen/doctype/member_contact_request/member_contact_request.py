@@ -10,9 +10,28 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 class MemberContactRequest(Document):
     def validate(self):
         """Validate member contact request data"""
+        self.set_field_defaults()
         self.validate_member_exists()
         self.set_member_details()
         self.validate_contact_preferences()
+
+    def set_field_defaults(self):
+        """Apply the JSON field defaults for required fields.
+
+        Frappe v16 no longer applies a field's JSON `default` on a raw
+        frappe.get_doc({...}).insert() (only at the form layer), so programmatic
+        creation that omits these required fields would raise MandatoryError.
+        These defaults mirror the values the form applies, so defaulting them
+        here keeps API/background creation consistent with UI creation.
+        """
+        if not self.request_type:
+            self.request_type = "General Inquiry"
+        if not self.preferred_contact_method:
+            self.preferred_contact_method = "Email"
+        if not self.status:
+            self.status = "Open"
+        if not self.request_date:
+            self.request_date = frappe.utils.today()
 
     def validate_member_exists(self):
         """Ensure the member exists and is active"""
@@ -142,7 +161,7 @@ class MemberContactRequest(Document):
                 message += f"<p><strong>Phone:</strong> {self.phone}</p>"
 
             message += f"""
-            <p><strong>CRM Lead:</strong> {self.crm_lead or 'Not created'}</p>
+            <p><strong>CRM Lead:</strong> {self.crm_lead or "Not created"}</p>
             <hr>
             <p><a href="/app/member-contact-request/{self.name}">View Contact Request</a></p>
             """
