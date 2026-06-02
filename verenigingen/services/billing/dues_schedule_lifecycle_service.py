@@ -40,12 +40,18 @@ class DuesScheduleLifecycleService(StatelessService):
         service.resume_schedule(schedule_doc, new_next_date="2025-02-01")
     """
 
-    # Define allowed status transitions
+    # Define allowed status transitions.
+    # Grace Period / Suspended are the SEPA payment-failure dunning states
+    # (sepa_batch_processor.handle_failed_payment): Active -> Grace Period on a
+    # failed collection, Grace Period -> Suspended after repeated failures, and
+    # either can recover to Active or be Cancelled.
     ALLOWED_TRANSITIONS = {
-        "Active": ["Paused", "Cancelled"],
+        "Active": ["Paused", "Cancelled", "Grace Period", "Suspended"],
         "Paused": ["Active", "Cancelled"],
         "Cancelled": [],  # No transitions from cancelled
         "Test": ["Active", "Cancelled"],
+        "Grace Period": ["Active", "Suspended", "Cancelled"],
+        "Suspended": ["Active", "Cancelled"],
     }
 
     def __init__(self):

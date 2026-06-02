@@ -15,6 +15,8 @@
   "template_reference",
   "column_break_1",
   "status",
+  "grace_period_until",
+  "consecutive_failures",
   "billing_frequency",
   "custom_frequency_number",
   "custom_frequency_unit",
@@ -140,8 +142,21 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Active\nPaused\nCancelled\nTest",
+   "options": "Active\nPaused\nGrace Period\nSuspended\nCancelled\nTest",
    "reqd": 1
+  },
+  {
+   "fieldname": "grace_period_until",
+   "fieldtype": "Date",
+   "label": "Grace Period Until",
+   "depends_on": "eval:doc.status=='Grace Period'"
+  },
+  {
+   "default": "0",
+   "fieldname": "consecutive_failures",
+   "fieldtype": "Int",
+   "label": "Consecutive Payment Failures",
+   "non_negative": 1
   },
   {
    "default": "Annual",
