@@ -22,7 +22,7 @@ financial validation was completely mocked, missing real format errors.
 """
 
 import frappe
-from frappe.utils import today, add_days, now_datetime
+from frappe.utils import today, add_days, now_datetime, get_datetime
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
 
@@ -67,6 +67,8 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         # Create SEPA mandate with real validation
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
             "iban": valid_iban,  # Will be validated and formatted
             "account_holder_name": account_holder,
@@ -77,7 +79,7 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         
         # Insert should trigger real IBAN validation
         mandate.insert()
-        self.track_doc("SEPA Mandate", mandate.name)
+        self.track_test_record("SEPA Mandate", mandate.name)
         
         # Validate real IBAN formatting occurred
         mandate.reload()
@@ -85,9 +87,11 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         self.assertEqual(mandate.status, "Draft")
         self.assertEqual(mandate.member, self.member.name)
         
-        # Validate mandate reference generation
-        self.assertIsNotNone(mandate.mandate_reference)
-        self.assertTrue(mandate.mandate_reference.startswith("MAND-"))
+        # Validate mandate id generation. The field is mandate_id (auto-generated
+        # via the identity service with the default "MANDATE-.YY.-.MM.-.####"
+        # pattern); there is no mandate_reference field.
+        self.assertIsNotNone(mandate.mandate_id)
+        self.assertTrue(mandate.mandate_id.startswith("MAND"))
 
     def test_sepa_mandate_iban_validation_errors(self):
         """Test that invalid IBANs are properly rejected"""
@@ -106,6 +110,8 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
             with self.subTest(iban=invalid_iban):
                 mandate = frappe.get_doc({
                     "doctype": "SEPA Mandate",
+                    "scheme": "SEPA",
+                    "sign_date": today(),
                     "member": self.member.name,
                     "iban": invalid_iban,
                     "account_holder_name": "Test Member",
@@ -124,15 +130,17 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         # Stage 1: Create mandate in Draft status
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
-            "iban": "NL56INGB0000000000",  # Test IBAN for ING Bank
+            "iban": "NL55INGB0000000000",  # Test IBAN for ING Bank
             "account_holder_name": "Lifecycle Test Member",
             "mandate_type": "RCUR",
             "sequence_type": "FRST",
             "status": "Draft"
         })
         mandate.insert()
-        self.track_doc("SEPA Mandate", mandate.name)
+        self.track_test_record("SEPA Mandate", mandate.name)
         
         # Stage 2: Activate mandate (real status transition)
         with self.as_user(self.admin_user.email):
@@ -179,8 +187,10 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         # Test 1: Member can only have one active mandate
         mandate1 = frappe.get_doc({
             "doctype": "SEPA Mandate",
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
-            "iban": "NL56INGB0000000001",
+            "iban": "NL28INGB0000000001",
             "account_holder_name": "First Mandate",
             "mandate_type": "RCUR",
             "sequence_type": "FRST",
@@ -188,13 +198,15 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
             "signed_date": today()
         })
         mandate1.insert()
-        self.track_doc("SEPA Mandate", mandate1.name)
+        self.track_test_record("SEPA Mandate", mandate1.name)
         
         # Attempting to create second active mandate should fail
         mandate2 = frappe.get_doc({
             "doctype": "SEPA Mandate", 
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
-            "iban": "NL56INGB0000000002",
+            "iban": "NL98INGB0000000002",
             "account_holder_name": "Second Mandate",
             "mandate_type": "RCUR",
             "sequence_type": "FRST",
@@ -214,15 +226,17 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         # Test Dutch bank IBANs and validation
         dutch_bank_ibans = [
             ("NL91ABNA0417164300", "ABN AMRO"),    # ABN AMRO
-            ("NL56INGB0000000000", "ING Bank"),    # ING Bank  
-            ("NL43RABO0000000001", "Rabobank"),    # Rabobank
-            ("NL32TRIO0000000002", "Triodos Bank") # Triodos Bank
+            ("NL55INGB0000000000", "ING Bank"),    # ING Bank  
+            ("NL03RABO0000000001", "Rabobank"),    # Rabobank
+            ("NL02TRIO0000000002", "Triodos Bank") # Triodos Bank
         ]
         
         for iban, bank_name in dutch_bank_ibans:
             with self.subTest(iban=iban, bank=bank_name):
                 mandate = frappe.get_doc({
                     "doctype": "SEPA Mandate",
+                    "scheme": "SEPA",
+                    "sign_date": today(),
                     "member": self.member.name,
                     "iban": iban,
                     "account_holder_name": f"Test Member {bank_name}",
@@ -233,7 +247,7 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
                 
                 # Should successfully validate Dutch bank IBANs
                 mandate.insert()
-                self.track_doc("SEPA Mandate", mandate.name)
+                self.track_test_record("SEPA Mandate", mandate.name)
                 
                 # Verify IBAN formatting
                 mandate.reload()
@@ -249,6 +263,8 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         # Create active SEPA mandate
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
             "iban": "NL02ABNA0123456789",
             "account_holder_name": f"{self.member.first_name} {self.member.last_name}",
@@ -258,7 +274,7 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
             "signed_date": today()
         })
         mandate.insert()
-        self.track_doc("SEPA Mandate", mandate.name)
+        self.track_test_record("SEPA Mandate", mandate.name)
         
         # Test member payment method integration
         self.member.reload()
@@ -267,7 +283,7 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         mandates = frappe.get_all(
             "SEPA Mandate",
             filters={"member": self.member.name, "status": "Active"},
-            fields=["iban", "account_holder_name", "mandate_reference"]
+            fields=["iban", "account_holder_name", "mandate_id"]
         )
         
         self.assertEqual(len(mandates), 1)
@@ -284,8 +300,10 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
-            "iban": "NL39TRIO0000000003",
+            "iban": "NL72TRIO0000000003",
             "account_holder_name": "Sequence Test Member",
             "mandate_type": "RCUR",
             "sequence_type": "FRST",  # First collection
@@ -293,7 +311,7 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
             "signed_date": today()
         })
         mandate.insert()
-        self.track_doc("SEPA Mandate", mandate.name)
+        self.track_test_record("SEPA Mandate", mandate.name)
         
         # Test first collection
         self.assertEqual(mandate.sequence_type, "FRST")
@@ -320,6 +338,8 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         with self.assertRaises((frappe.DoesNotExistError, frappe.ValidationError)):
             mandate = frappe.get_doc({
                 "doctype": "SEPA Mandate",
+                "scheme": "SEPA",
+                "sign_date": today(),
                 "member": "NON-EXISTENT-MEMBER",
                 "iban": "NL91ABNA0417164300",
                 "account_holder_name": "Non Existent Member",
@@ -332,6 +352,8 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         # Test mandate with missing required fields
         incomplete_mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
             # Missing iban
             "account_holder_name": "Incomplete Mandate",
@@ -347,28 +369,39 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         
         mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
+            "scheme": "SEPA",
+            "sign_date": today(),
             "member": self.member.name,
-            "iban": "NL20INGB0000000004",
+            "iban": "NL44INGB0000000004",
             "account_holder_name": "Audit Trail Test",
             "mandate_type": "RCUR",
             "sequence_type": "FRST",
             "status": "Draft"
         })
         mandate.insert()
-        self.track_doc("SEPA Mandate", mandate.name)
+        self.track_test_record("SEPA Mandate", mandate.name)
         
-        original_modified = mandate.modified
-        
-        # Make status change
-        with self.as_user(self.admin_user.email):
-            mandate.status = "Active"
-            mandate.signed_date = today()
-            mandate.save()
-        
+        original_modified = get_datetime(mandate.modified)
+
+        # Make status change. EnhancedTestCase.setUp sets frappe.flags.in_import
+        # = True (to bypass user-creation throttling), which also suppresses
+        # Version (audit trail) creation. Temporarily clear it so the status
+        # change is recorded in the version history asserted below.
+        original_in_import = frappe.flags.in_import
+        frappe.flags.in_import = False
+        try:
+            with self.as_user(self.admin_user.email):
+                mandate.status = "Active"
+                mandate.signed_date = today()
+                mandate.save()
+        finally:
+            frappe.flags.in_import = original_in_import
+
         mandate.reload()
-        
-        # Verify audit trail information
-        self.assertGreater(mandate.modified, original_modified)
+
+        # Verify audit trail information. Normalise both sides with get_datetime:
+        # mandate.modified may be a str after reload and a datetime in memory.
+        self.assertGreater(get_datetime(mandate.modified), original_modified)
         self.assertEqual(mandate.modified_by, self.admin_user.email)
         self.assertEqual(mandate.status, "Active")
         

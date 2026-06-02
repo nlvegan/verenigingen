@@ -23,39 +23,40 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
     def create_test_chapters(self):
         """Create test chapters for assignment testing using factory methods"""
         self.chapters = {}
-        
+        suffix = frappe.generate_hash(length=6)
+
         # Amsterdam Chapter
         amsterdam = self.create_test_chapter(
-            chapter_name="Amsterdam Chapter",
+            chapter_name=f"Amsterdam Chapter {suffix}",
             city="Amsterdam",
-            postal_codes="1000AB-1099ZZ",
+            postal_codes="1000-1099",
             status="Active"
         )
         self.chapters["amsterdam"] = amsterdam
-        
-        # Rotterdam Chapter  
+
+        # Rotterdam Chapter
         rotterdam = self.create_test_chapter(
-            chapter_name="Rotterdam Chapter",
+            chapter_name=f"Rotterdam Chapter {suffix}",
             city="Rotterdam",
-            postal_codes="3000AA-3099ZZ",
+            postal_codes="3000-3099",
             status="Active"
         )
         self.chapters["rotterdam"] = rotterdam
-        
+
         # Utrecht Chapter
         utrecht = self.create_test_chapter(
-            chapter_name="Utrecht Chapter",
-            city="Utrecht", 
-            postal_codes="3500AA-3599ZZ",
+            chapter_name=f"Utrecht Chapter {suffix}",
+            city="Utrecht",
+            postal_codes="3500-3599",
             status="Active"
         )
         self.chapters["utrecht"] = utrecht
-        
+
         # Inactive Chapter for testing
         inactive = self.create_test_chapter(
-            chapter_name="Inactive Chapter",
+            chapter_name=f"Inactive Chapter {suffix}",
             city="Inactive City",
-            postal_codes="9999AA-9999ZZ",
+            postal_codes="9999-9999",
             status="Inactive"
         )
         self.chapters["inactive"] = inactive
@@ -67,7 +68,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
             last_name="TestMember",
             email=f"chapter.{frappe.generate_hash(length=6)}@example.com",
             address_line1="123 Amsterdam Street",
-            postal_code="1012AB",  # Amsterdam postal code
+            postal_code="1012",  # Amsterdam postal code
             city="Amsterdam",
             status="Active",
             chapter=self.chapters["amsterdam"].name
@@ -82,7 +83,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
             first_name="Auto",
             last_name="Amsterdam",
             email=f"auto.ams.{frappe.generate_hash(length=6)}@example.com",
-            postal_code="1055AB",  # Amsterdam range
+            postal_code="1055",  # Amsterdam range
             city="Amsterdam"
         )
         
@@ -95,7 +96,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
             first_name="Auto",
             last_name="Rotterdam",
             email=f"auto.rtm.{frappe.generate_hash(length=6)}@example.com",
-            postal_code="3011AA",  # Rotterdam range
+            postal_code="3011",  # Rotterdam range
             city="Rotterdam"
         )
         
@@ -107,7 +108,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
             first_name="Auto",
             last_name="Unassigned",
             email=f"auto.una.{frappe.generate_hash(length=6)}@example.com",
-            postal_code="2000AB",  # No chapter covers this
+            postal_code="2000",  # No chapter covers this
             city="Unassigned City"
         )
         
@@ -325,7 +326,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
                 first_name=f"ChapterMember{i}",
                 last_name="Test",
                 email=f"chaptermember{i}.{frappe.generate_hash(length=4)}@example.com",
-                postal_code="1055AB",  # Amsterdam postal code
+                postal_code="1055",  # Amsterdam postal code
                 city="Amsterdam",
                 chapter=amsterdam_chapter.name,
                 status="Active"
@@ -393,13 +394,13 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
             first_name="Boundary",
             last_name="Member",
             email=f"boundary.{frappe.generate_hash(length=6)}@example.com",
-            postal_code="1099ZZ",  # At edge of Amsterdam range
+            postal_code="1099",  # At edge of Amsterdam range
             city="Amsterdam",
             chapter=amsterdam_chapter.name
         )
         
         # Update chapter boundaries (reduce range)
-        amsterdam_chapter.postal_code_ranges = "1000AB-1050ZZ"  # Excludes 1099ZZ
+        amsterdam_chapter.postal_code_ranges = "1000-1050"  # Excludes 1099
         amsterdam_chapter.save()
         
         # Check boundary violations
@@ -425,9 +426,9 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         """Test handling of members when chapter becomes inactive"""
         # Create active chapter with members using factory method
         temp_chapter = self.create_test_chapter(
-            chapter_name="Temporary Chapter",
+            chapter_name=f"Temporary Chapter {frappe.generate_hash(length=6)}",
             city="Temp City",
-            postal_codes="8000AA-8099ZZ",
+            postal_codes="8000-8099",
             status="Active"
         )
         
@@ -436,7 +437,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
             first_name="Temp",
             last_name="Member",
             email=f"temp.{frappe.generate_hash(length=6)}@example.com",
-            postal_code="8055AB",
+            postal_code="8055",
             city="Temp City",
             chapter=temp_chapter.name,
             status="Active"
@@ -487,7 +488,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
                 first_name=f"Utrecht{i}",
                 last_name="Member",
                 email=f"utrecht{i}.{frappe.generate_hash(length=4)}@example.com",
-                postal_code="3511AB",
+                postal_code="3511",
                 city="Utrecht",
                 chapter=source_chapter.name,
                 status="Active"
@@ -685,8 +686,8 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
             {
                 "member": "boundary_member_name",
                 "violation_type": "postal_code_out_of_range",
-                "current_postal_code": "1099ZZ",
-                "chapter_range": "1000AB-1050ZZ"
+                "current_postal_code": "1099",
+                "chapter_range": "1000-1050"
             }
         ]
         

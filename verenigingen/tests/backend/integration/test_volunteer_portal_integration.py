@@ -62,11 +62,12 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "abbr": "ITC",
                     "default_currency": "EUR",
                     "country": "Netherlands",
-                    "valuation_method": "FIFO"}
+                    "valuation_method": "FIFO",
+                }
             )
             company.insert()
             self.company = company.name
-            self.track_doc("Company", company.name)
+            self.track_test_record("Company", company.name)
         else:
             self.company = "Integration Test Company"
 
@@ -90,10 +91,11 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                         "first_name": name.split()[0],
                         "last_name": name.split()[-1],
                         "full_name": name,
-                        "enabled": 1}
+                        "enabled": 1,
+                    }
                 )
                 user.insert()
-                self.track_doc("User", user.name)
+                self.track_test_record("User", user.name)
             else:
                 user = frappe.get_doc("User", email)
 
@@ -105,20 +107,14 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         # Create test chapter with board structure
         # Note: Chapter uses autoname:"prompt", so name is set directly via factory
         # Let factory auto-generate unique name for test isolation
-        self.test_chapter = self.create_test_chapter(
-            postal_codes="1000-9999"
-        )
+        self.test_chapter = self.create_test_chapter(postal_codes="1000-9999")
 
         # Create test members and volunteers using factory methods
         self.volunteer_member = self.create_test_member(
-            first_name="Integration",
-            last_name="Volunteer",
-            email=self.volunteer_email
+            first_name="Integration", last_name="Volunteer", email=self.volunteer_email
         )
         self.board_member_member = self.create_test_member(
-            first_name="Integration",
-            last_name="BoardMember",
-            email=self.board_member_email
+            first_name="Integration", last_name="BoardMember", email=self.board_member_email
         )
 
         # Self-service expense operations resolve the Member by its email (and
@@ -142,19 +138,25 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             member=self.volunteer_member.name,
             volunteer_name="Integration Volunteer",
             email=self.volunteer_email,
-            _exact_email=True  # Required to prevent factory from generating unique email
+            _exact_email=True,  # Required to prevent factory from generating unique email
         )
         self.board_volunteer = self.create_test_volunteer(
             member=self.board_member_member.name,
             volunteer_name="Integration Board Member",
             email=self.board_member_email,
-            _exact_email=True  # Required to prevent factory from generating unique email
+            _exact_email=True,  # Required to prevent factory from generating unique email
         )
 
         # Store string names for use in tests (factory methods return doc objects)
-        self.test_chapter_name = self.test_chapter.name if hasattr(self.test_chapter, 'name') else self.test_chapter
-        self.test_volunteer_name = self.test_volunteer.name if hasattr(self.test_volunteer, 'name') else self.test_volunteer
-        self.board_volunteer_name = self.board_volunteer.name if hasattr(self.board_volunteer, 'name') else self.board_volunteer
+        self.test_chapter_name = (
+            self.test_chapter.name if hasattr(self.test_chapter, "name") else self.test_chapter
+        )
+        self.test_volunteer_name = (
+            self.test_volunteer.name if hasattr(self.test_volunteer, "name") else self.test_volunteer
+        )
+        self.board_volunteer_name = (
+            self.board_volunteer.name if hasattr(self.board_volunteer, "name") else self.board_volunteer
+        )
 
         # Set up chapter roles first (needed for board positions)
         self.setup_chapter_roles()
@@ -181,7 +183,9 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         """Create test team for integration tests"""
         team_name = "Integration Test Team"
         # Get document name (factory methods return doc objects)
-        test_chapter_name = self.test_chapter.name if hasattr(self.test_chapter, 'name') else self.test_chapter
+        test_chapter_name = (
+            self.test_chapter.name if hasattr(self.test_chapter, "name") else self.test_chapter
+        )
         if not frappe.db.exists("Team", team_name):
             team = frappe.get_doc(
                 {
@@ -189,7 +193,8 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "team_name": team_name,
                     "description": "Integration test team",
                     "chapter": test_chapter_name,
-                    "status": "Active"}
+                    "status": "Active",
+                }
             )
             team.insert()
             return team.name
@@ -212,11 +217,18 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             settings = frappe.get_single("Verenigingen Settings")
 
             # Configure national board chapter
-            test_chapter_name = self.test_chapter.name if hasattr(self.test_chapter, 'name') else self.test_chapter
+            test_chapter_name = (
+                self.test_chapter.name if hasattr(self.test_chapter, "name") else self.test_chapter
+            )
             settings.national_board_chapter = test_chapter_name
 
             # Configure company
             settings.company = self.company
+
+            # creation_user is mandatory on Verenigingen Settings (v16); seed it
+            # if the Single has not been populated yet so the fixture save passes.
+            if not settings.get("creation_user"):
+                settings.creation_user = "Administrator"
 
             settings.save()
             frappe.db.commit()
@@ -228,17 +240,20 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                 "name": "Integration Chair",
                 "permissions_level": "Admin",
                 "can_approve_expenses": 1,
-                "description": "Chapter chair with admin permissions"},
+                "description": "Chapter chair with admin permissions",
+            },
             {
                 "name": "Integration Treasurer",
                 "permissions_level": "Financial",
                 "can_approve_expenses": 1,
-                "description": "Treasurer with financial permissions"},
+                "description": "Treasurer with financial permissions",
+            },
             {
                 "name": "Integration Secretary",
                 "permissions_level": "Basic",
                 "can_approve_expenses": 1,
-                "description": "Secretary with basic permissions"},
+                "description": "Secretary with basic permissions",
+            },
         ]
 
         self.chapter_roles = {}
@@ -250,7 +265,8 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                         "role_name": role_data["name"],
                         "permissions_level": role_data["permissions_level"],
                         "can_approve_expenses": role_data["can_approve_expenses"],
-                        "description": role_data["description"]}
+                        "description": role_data["description"],
+                    }
                 )
                 role.insert()
             self.chapter_roles[role_data["permissions_level"].lower()] = role_data["name"]
@@ -258,12 +274,20 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
     def setup_chapter_memberships(self):
         """Set up chapter memberships"""
         # Get document name (factory methods return doc objects)
-        test_chapter_name = self.test_chapter.name if hasattr(self.test_chapter, 'name') else self.test_chapter
+        test_chapter_name = (
+            self.test_chapter.name if hasattr(self.test_chapter, "name") else self.test_chapter
+        )
         chapter_doc = frappe.get_doc("Chapter", test_chapter_name)
 
         # Get member names
-        volunteer_member_name = self.volunteer_member.name if hasattr(self.volunteer_member, 'name') else self.volunteer_member
-        board_member_name = self.board_member_member.name if hasattr(self.board_member_member, 'name') else self.board_member_member
+        volunteer_member_name = (
+            self.volunteer_member.name if hasattr(self.volunteer_member, "name") else self.volunteer_member
+        )
+        board_member_name = (
+            self.board_member_member.name
+            if hasattr(self.board_member_member, "name")
+            else self.board_member_member
+        )
         members_to_add = [volunteer_member_name, board_member_name]
 
         for member_id in members_to_add:
@@ -278,20 +302,27 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
     def setup_board_positions(self):
         """Set up board positions"""
         # Get document names (factory methods return doc objects)
-        board_volunteer_name = self.board_volunteer.name if hasattr(self.board_volunteer, 'name') else self.board_volunteer
-        test_chapter_name = self.test_chapter.name if hasattr(self.test_chapter, 'name') else self.test_chapter
+        board_volunteer_name = (
+            self.board_volunteer.name if hasattr(self.board_volunteer, "name") else self.board_volunteer
+        )
+        test_chapter_name = (
+            self.test_chapter.name if hasattr(self.test_chapter, "name") else self.test_chapter
+        )
 
         # Make board member a chapter chair using proper parent.append() pattern
         if not frappe.db.exists(
             "Chapter Board Member", {"volunteer": board_volunteer_name, "parent": test_chapter_name}
         ):
             chapter_doc = frappe.get_doc("Chapter", test_chapter_name)
-            chapter_doc.append("board_members", {
-                "volunteer": board_volunteer_name,
-                "chapter_role": self.chapter_roles["admin"],
-                "from_date": today(),  # Changed from start_date per DocType validation
-                "is_active": 1
-            })
+            chapter_doc.append(
+                "board_members",
+                {
+                    "volunteer": board_volunteer_name,
+                    "chapter_role": self.chapter_roles["admin"],
+                    "from_date": today(),  # Changed from start_date per DocType validation
+                    "is_active": 1,
+                },
+            )
             chapter_doc.save()
 
     def create_expense_categories(self):
@@ -329,15 +360,19 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         volunteers to have linked Employee records for ERPNext Expense Claim creation.
         """
         # Get volunteer document names
-        test_volunteer_name = self.test_volunteer.name if hasattr(self.test_volunteer, 'name') else self.test_volunteer
-        board_volunteer_name = self.board_volunteer.name if hasattr(self.board_volunteer, 'name') else self.board_volunteer
+        test_volunteer_name = (
+            self.test_volunteer.name if hasattr(self.test_volunteer, "name") else self.test_volunteer
+        )
+        board_volunteer_name = (
+            self.board_volunteer.name if hasattr(self.board_volunteer, "name") else self.board_volunteer
+        )
 
         # Create employee for test volunteer
         self.test_employee = self._create_employee_for_volunteer(
             volunteer_name=test_volunteer_name,
             volunteer_doc=self.test_volunteer,
             member_doc=self.volunteer_member,
-            user_email=self.volunteer_email
+            user_email=self.volunteer_email,
         )
 
         # Create employee for board volunteer
@@ -345,7 +380,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             volunteer_name=board_volunteer_name,
             volunteer_doc=self.board_volunteer,
             member_doc=self.board_member_member,
-            user_email=self.board_member_email
+            user_email=self.board_member_email,
         )
 
     def _create_employee_for_volunteer(self, volunteer_name, volunteer_doc, member_doc, user_email):
@@ -380,19 +415,23 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                 return existing_employee
 
             # Create new employee record
-            employee = frappe.get_doc({
-                "doctype": "Employee",
-                "naming_series": "HR-EMP-",  # Standard ERPNext naming
-                "employee_name": volunteer_doc.volunteer_name if hasattr(volunteer_doc, 'volunteer_name') else str(volunteer_doc),
-                "first_name": member_doc.first_name if hasattr(member_doc, 'first_name') else "Test",
-                "last_name": member_doc.last_name if hasattr(member_doc, 'last_name') else "Volunteer",
-                "company": self.company,
-                "date_of_joining": today(),
-                "date_of_birth": "1990-01-01",  # Required field
-                "gender": "Other",  # Required field - ERPNext mandates this
-                "status": "Active",
-                "user_id": user_email  # Link to user account
-            })
+            employee = frappe.get_doc(
+                {
+                    "doctype": "Employee",
+                    "naming_series": "HR-EMP-",  # Standard ERPNext naming
+                    "employee_name": volunteer_doc.volunteer_name
+                    if hasattr(volunteer_doc, "volunteer_name")
+                    else str(volunteer_doc),
+                    "first_name": member_doc.first_name if hasattr(member_doc, "first_name") else "Test",
+                    "last_name": member_doc.last_name if hasattr(member_doc, "last_name") else "Volunteer",
+                    "company": self.company,
+                    "date_of_joining": today(),
+                    "date_of_birth": "1990-01-01",  # Required field
+                    "gender": "Other",  # Required field - ERPNext mandates this
+                    "status": "Active",
+                    "user_id": user_email,  # Link to user account
+                }
+            )
             employee.insert()
             employee_name = employee.name
 
@@ -411,16 +450,15 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         # EnhancedTestCase tearDown handles user restoration
         # Clean up test expense claims - guard against setUp failure
         employee_names = []
-        if hasattr(self, 'test_employee') and self.test_employee:
+        if hasattr(self, "test_employee") and self.test_employee:
             employee_names.append(self.test_employee)
-        if hasattr(self, 'board_employee') and self.board_employee:
+        if hasattr(self, "board_employee") and self.board_employee:
             employee_names.append(self.board_employee)
 
         if employee_names:
             # Clean up Expense Claims created during tests (ERPNext native DocType)
             expense_claims = frappe.get_all(
-                "Expense Claim",
-                filters={"employee": ["in", employee_names], "docstatus": ["!=", 1]}
+                "Expense Claim", filters={"employee": ["in", employee_names], "docstatus": ["!=", 1]}
             )
             for claim in expense_claims:
                 try:
@@ -443,7 +481,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             "expense_date": today(),
             "organization_type": "National",  # Use National to avoid chapter cost center issues
             "category": self.expense_categories[0],
-            "notes": "Integration testing expense"
+            "notes": "Integration testing expense",
         }
 
         original_user = frappe.session.user
@@ -454,7 +492,9 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             # Submit expense - creates ERPNext Expense Claim
             submit_result = submit_expense(expense_data)
             if not submit_result.get("success"):
-                self.fail(f"submit_expense failed: {submit_result.get('message', submit_result.get('errors', 'Unknown error'))}")
+                self.fail(
+                    f"submit_expense failed: {submit_result.get('message', submit_result.get('errors', 'Unknown error'))}"
+                )
 
             self.assertTrue(submit_result["success"])
             expense_claim_name = submit_result.get("expense_claim_name")
@@ -502,7 +542,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             "expense_date": today(),
             "organization_type": "National",  # Use National to avoid chapter cost center issues
             "category": self.expense_categories[0] if self.expense_categories else "Travel",
-            "notes": "High-value expense for admin approval testing"
+            "notes": "High-value expense for admin approval testing",
         }
 
         original_user = frappe.session.user
@@ -513,7 +553,9 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             # Submit expense - creates ERPNext Expense Claim
             submit_result = submit_expense(expense_data)
             if not submit_result.get("success"):
-                self.fail(f"submit_expense failed: {submit_result.get('message', submit_result.get('errors', 'Unknown error'))}")
+                self.fail(
+                    f"submit_expense failed: {submit_result.get('message', submit_result.get('errors', 'Unknown error'))}"
+                )
 
             self.assertTrue(submit_result["success"])
             expense_claim_name = submit_result.get("expense_claim_name")
@@ -561,7 +603,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             "expense_date": today(),
             "organization_type": "National",
             "category": self.expense_categories[0] if self.expense_categories else "Travel",
-            "notes": "Testing rejection workflow"
+            "notes": "Testing rejection workflow",
         }
 
         original_user = frappe.session.user
@@ -571,7 +613,9 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
 
             submit_result = submit_expense(expense_data)
             if not submit_result.get("success"):
-                self.fail(f"submit_expense failed: {submit_result.get('message', submit_result.get('errors', 'Unknown error'))}")
+                self.fail(
+                    f"submit_expense failed: {submit_result.get('message', submit_result.get('errors', 'Unknown error'))}"
+                )
 
             self.assertTrue(submit_result["success"])
             expense_claim_name = submit_result.get("expense_claim_name")
@@ -631,12 +675,14 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "expense_date": today(),
                     "organization_type": "National",
                     "category": self.expense_categories[0] if self.expense_categories else "Travel",
-                    "notes": f"Permission integration test for {amount}"
+                    "notes": f"Permission integration test for {amount}",
                 }
 
                 result = submit_expense(expense_data)
                 if not result.get("success"):
-                    self.fail(f"submit_expense failed for €{amount}: {result.get('message', result.get('errors', 'Unknown error'))}")
+                    self.fail(
+                        f"submit_expense failed for €{amount}: {result.get('message', result.get('errors', 'Unknown error'))}"
+                    )
 
                 self.assertTrue(result["success"])
                 expense_claim_name = result.get("expense_claim_name")
@@ -697,7 +743,8 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "amount": 30.00 + (i * 10),
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.test_chapter_name}
+                    "chapter": self.test_chapter_name,
+                }
 
                 result = submit_expense(expense_data)
                 self.assertTrue(result["success"])
@@ -748,7 +795,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             "expense_date": today(),
             "organization_type": "National",
             "category": self.expense_categories[0] if self.expense_categories else "Travel",
-            "notes": "Testing notification system"
+            "notes": "Testing notification system",
         }
 
         original_user = frappe.session.user
@@ -758,7 +805,9 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
 
             result = submit_expense(expense_data)
             if not result.get("success"):
-                self.fail(f"submit_expense failed: {result.get('message', result.get('errors', 'Unknown error'))}")
+                self.fail(
+                    f"submit_expense failed: {result.get('message', result.get('errors', 'Unknown error'))}"
+                )
 
             self.assertTrue(result["success"])
             expense_claim_name = result.get("expense_claim_name")
@@ -814,7 +863,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "expense_date": today(),
                     "organization_type": "National",
                     "category": self.expense_categories[0] if self.expense_categories else "Travel",
-                    "notes": "Multi-org test - national"
+                    "notes": "Multi-org test - national",
                 },
                 {
                     "description": "Second national expense",
@@ -822,14 +871,16 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "expense_date": today(),
                     "organization_type": "National",
                     "category": self.expense_categories[0] if self.expense_categories else "Travel",
-                    "notes": "Multi-org test - second national"
-                }
+                    "notes": "Multi-org test - second national",
+                },
             ]
 
             for expense_data in test_expenses:
                 result = submit_expense(expense_data)
                 if not result.get("success"):
-                    self.fail(f"submit_expense failed: {result.get('message', result.get('errors', 'Unknown error'))}")
+                    self.fail(
+                        f"submit_expense failed: {result.get('message', result.get('errors', 'Unknown error'))}"
+                    )
 
                 self.assertTrue(result["success"])
                 expense_claim_name = result.get("expense_claim_name")
@@ -868,6 +919,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         # Imports deferred via importlib so static analyzers don't fail while
         # this test is skipped.
         import importlib
+
         expenses_mod = importlib.import_module("verenigingen.templates.pages.volunteer.expenses")
         get_expense_statistics = expenses_mod.get_expense_statistics
         submit_expense = expenses_mod.submit_expense
@@ -893,7 +945,8 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                     "amount": exp_data["amount"],
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.test_chapter_name}
+                    "chapter": self.test_chapter_name,
+                }
 
                 result = submit_expense(expense_data)
                 self.assertTrue(result["success"])

@@ -8,6 +8,7 @@ from frappe.utils import today, add_years, add_months, getdate, flt
 from datetime import datetime
 from decimal import Decimal
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 import unittest
 
 
@@ -22,12 +23,18 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
     # Cleanup is now handled automatically by VereningingenTestCase
     
     def create_test_donor(self, suffix=""):
-        """Create a test donor using factory method"""
+        """Create a test donor using factory method.
+
+        Individual donors need a valid BSN for ANBI periodic donation
+        agreements (the agreement validates this on Individual donors), so
+        seed one with a deterministically-valid (11-proof) Dutch BSN.
+        """
         donor = super().create_test_donor(
             donor_name=f"TEST-PDA-Donor-{frappe.utils.random_string(5)}{suffix}",
             donor_email=f"test-pda-{frappe.utils.random_string(5)}@example.com",
             donor_type="Individual"
         )
+        donor.db_set("bsn_citizen_service_number", generate_valid_bsn(), update_modified=False)
         return donor.name
     
     # Basic Functionality Tests
@@ -64,8 +71,11 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         ]
         
         for duration_str, expected_years, is_anbi in test_cases:
+            # A fresh donor per agreement: the production rule allows only one
+            # active ANBI agreement per donor, so reusing self.test_donor across
+            # the loop would trip "Donor already has active ANBI agreement".
             agreement = self.create_test_periodic_donation_agreement(
-                donor=self.test_donor,
+                donor=self.create_test_donor(),
                 start_date=today(),
                 agreement_duration_years=duration_str,
                 anbi_eligible=1 if is_anbi else 0,
@@ -99,8 +109,10 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         ]
         
         for annual, frequency, expected in test_cases:
+            # Fresh donor per iteration: the factory defaults anbi_eligible=1 and
+            # only one active ANBI agreement is allowed per donor.
             agreement = self.create_test_periodic_donation_agreement(
-                donor=self.test_donor,
+                donor=self.create_test_donor(),
                 start_date=today(),
                 annual_amount=annual,
                 payment_frequency=frequency,
@@ -132,6 +144,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         # Should not throw error
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # ANBI agreement must be >= 5 years - should throw error
         with self.assertRaises(frappe.ValidationError):
@@ -182,6 +195,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_method = "Bank Transfer"
         agreement.status = "Active"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Test 1: Link valid donation
         donation1 = self.create_test_donation(self.test_donor, 100)
@@ -214,14 +228,15 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         """Helper to create test donation"""
         donation = frappe.new_doc("Donation")
         donation.donor = donor
-        donation.date = today()
+        donation.donation_date = today()
         donation.amount = amount
-        donation.payment_method = "Bank Transfer"
+        donation.mode_of_payment = "Bank Transfer"
         donation.donation_type = "General"
         donation.company = self.test_company
         donation.paid = 1 if paid else 0
         donation.insert()
         donation.submit()
+        self.track_doc("Donation", donation.name)
         return donation
     
     # Agreement Number Generation Tests
@@ -239,6 +254,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
             agreement.payment_frequency = "Monthly"
             agreement.payment_method = "Bank Transfer"
             agreement.insert()
+            self.track_doc("Periodic Donation Agreement", agreement.name)
             
             # Check uniqueness
             self.assertNotIn(agreement.agreement_number, numbers)
@@ -261,6 +277,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_method = "Bank Transfer"
         agreement.status = "Active"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Test 1: No donations yet
         agreement.calculate_next_donation_date()
@@ -296,6 +313,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_method = "Bank Transfer"
         agreement.status = "Active"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Test 1: Cancel without reason
         original_status = agreement.status
@@ -321,9 +339,13 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         mandate.iban = "NL91ABNA0417164300"
         mandate.bic = "ABNANL2A"
         mandate.mandate_type = "RCUR"
+        mandate.scheme = "SEPA"
+        mandate.account_holder_name = "Test Donor"
+        mandate.sign_date = today()
         mandate.status = "Active"
         mandate.valid_from = today()
         mandate.insert()
+        self.track_doc("SEPA Mandate", mandate.name)
         
         # Create agreement with SEPA
         agreement = frappe.new_doc("Periodic Donation Agreement")
@@ -335,19 +357,21 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.sepa_mandate = mandate.name
         agreement.status = "Active"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Create donation with SEPA
         donation = frappe.new_doc("Donation")
         donation.donor = self.test_donor
-        donation.date = today()
+        donation.donation_date = today()
         donation.amount = 100
-        donation.payment_method = "SEPA Direct Debit"
+        donation.mode_of_payment = "SEPA Direct Debit"
         donation.sepa_mandate = mandate.name
         donation.periodic_donation_agreement = agreement.name
         donation.donation_type = "General"
         donation.company = self.test_company
         donation.insert()
         donation.submit()
+        self.track_doc("Donation", donation.name)
         
         # Verify linkage
         self.assertEqual(donation.periodic_donation_agreement, agreement.name)
@@ -362,7 +386,9 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         donor.donor_name = "TEST-PDA-Email-Donor"
         donor.donor_email = "test@example.com"
         donor.donor_type = "Individual"
+        donor.bsn_citizen_service_number = generate_valid_bsn()
         donor.insert()
+        self.track_doc("Donor", donor.name)
         
         # Create agreement
         agreement = frappe.new_doc("Periodic Donation Agreement")
@@ -373,6 +399,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_method = "Bank Transfer"
         agreement.status = "Draft"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Test activation email
         agreement.status = "Active"
@@ -399,6 +426,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         with self.assertRaises(frappe.ValidationError):
             agreement.insert()
+            self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Test 2: Zero annual amount
         agreement2 = frappe.new_doc("Periodic Donation Agreement")
@@ -410,6 +438,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         with self.assertRaises(frappe.ValidationError):
             agreement2.insert()
+            self.track_doc("Periodic Donation Agreement", agreement2.name)
         
         # Test 3: Missing required fields
         agreement3 = frappe.new_doc("Periodic Donation Agreement")
@@ -421,6 +450,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         with self.assertRaises(frappe.ValidationError):
             agreement3.insert()
+            self.track_doc("Periodic Donation Agreement", agreement3.name)
     
     # Performance Tests
     
@@ -435,6 +465,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_method = "Bank Transfer"
         agreement.status = "Active"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Create 24 monthly donations (2 years)
         import time
@@ -444,16 +475,17 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
             donation_date = add_months(agreement.start_date, month)
             donation = frappe.new_doc("Donation")
             donation.donor = self.test_donor
-            donation.date = donation_date
+            donation.donation_date = donation_date
             donation.amount = 100
-            donation.payment_method = "Bank Transfer"
+            donation.mode_of_payment = "Bank Transfer"
             donation.donation_type = "General"
             donation.company = self.test_company
             donation.periodic_donation_agreement = agreement.name
             donation.paid = 1
             donation.insert()
             donation.submit()
-            
+            self.track_doc("Donation", donation.name)
+
             agreement.link_donation(donation.name)
         
         elapsed_time = time.time() - start_time
@@ -479,6 +511,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_frequency = "Monthly"
         agreement.payment_method = "Bank Transfer"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         self.assertEqual(agreement.commitment_type, "ANBI Periodic Donation Agreement")
         
@@ -492,6 +525,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement2.payment_frequency = "Monthly"
         agreement2.payment_method = "Bank Transfer"
         agreement2.insert()
+        self.track_doc("Periodic Donation Agreement", agreement2.name)
         
         self.assertEqual(agreement2.commitment_type, "Donation Pledge (No ANBI Tax Benefits)")
     
@@ -506,6 +540,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_frequency = "Annually"
         agreement.payment_method = "Bank Transfer"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         self.assertEqual(agreement.anbi_eligible, 0)
         self.assertEqual(agreement.commitment_type, "Donation Pledge (No ANBI Tax Benefits)")
@@ -519,6 +554,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement2.payment_frequency = "Annually"
         agreement2.payment_method = "Bank Transfer"
         agreement2.insert()
+        self.track_doc("Periodic Donation Agreement", agreement2.name)
         
         self.assertEqual(agreement2.anbi_eligible, 1)
         self.assertEqual(agreement2.commitment_type, "ANBI Periodic Donation Agreement")
@@ -563,6 +599,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         with self.assertRaises(frappe.ValidationError) as cm:
             agreement.insert()
+            self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Check that error message mentions ANBI requirements
         error_message = str(cm.exception)
@@ -582,13 +619,14 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         agreement.payment_method = "Bank Transfer"
         agreement.status = "Active"
         agreement.insert()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
         
         # Test 1: Valid donation
         donation = frappe.new_doc("Donation")
         donation.donor = self.test_donor
-        donation.date = today()
+        donation.donation_date = today()
         donation.amount = 100
-        donation.payment_method = "Bank Transfer"
+        donation.mode_of_payment = "Bank Transfer"
         donation.periodic_donation_agreement = agreement.name
         donation.donation_type = "General"
         donation.company = self.test_company
@@ -596,16 +634,16 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         # Should auto-populate ANBI fields
         self.assertEqual(donation.anbi_agreement_number, agreement.agreement_number)
-        self.assertEqual(donation.anbi_agreement_date, agreement.agreement_date)
+        self.assertEqual(getdate(donation.anbi_agreement_date), getdate(agreement.agreement_date))
         self.assertEqual(donation.belastingdienst_reportable, 1)
         self.assertEqual(donation.status, "Recurring")
         
         # Test 2: Wrong donor
         donation2 = frappe.new_doc("Donation")
         donation2.donor = self.create_test_donor("-wrong")
-        donation2.date = today()
+        donation2.donation_date = today()
         donation2.amount = 100
-        donation2.payment_method = "Bank Transfer"
+        donation2.mode_of_payment = "Bank Transfer"
         donation2.periodic_donation_agreement = agreement.name
         donation2.donation_type = "General"
         donation2.company = self.test_company
@@ -619,9 +657,9 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         donation3 = frappe.new_doc("Donation")
         donation3.donor = self.test_donor
-        donation3.date = today()
+        donation3.donation_date = today()
         donation3.amount = 100
-        donation3.payment_method = "Bank Transfer"
+        donation3.mode_of_payment = "Bank Transfer"
         donation3.periodic_donation_agreement = agreement.name
         donation3.donation_type = "General"
         donation3.company = self.test_company

@@ -217,6 +217,17 @@ class TestDuesScheduleHealthManager(EnhancedTestCase):
         self.assertFalse(schedule_obj._should_auto_advance_schedule("account setup problem"))
         self.assertFalse(schedule_obj._should_auto_advance_schedule("missing customer record"))
 
+        # Regression: critical patterns containing regex syntax (".*") must be
+        # matched with re.search, not substring `in`. Before the fix these were
+        # dead patterns and such errors silently auto-advanced.
+        self.assertFalse(
+            schedule_obj._should_auto_advance_schedule("fatal database corruption detected")
+        )
+        self.assertFalse(
+            schedule_obj._should_auto_advance_schedule("ANBI compliance violation in donation record")
+        )
+        self.assertFalse(schedule_obj._should_auto_advance_schedule("admin role required for this action"))
+
     def test_field_synchronization_logic(self):
         """Test cross-DocType field synchronization"""
         # Create member, membership, and schedule
