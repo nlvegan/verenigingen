@@ -34,10 +34,15 @@ def get_predictive_analytics(months_ahead=12):
 def forecast_member_growth(months_ahead=12):
     """Forecast member growth using historical data"""
     # Get historical member counts by month
+    # NOTE: this query takes NO parameters, so frappe.db.sql does not run
+    # printf-style substitution. The DATE_FORMAT specifier must therefore use a
+    # single '%' ('%Y-%m'); with the doubled '%%Y-%%m' MariaDB received a literal
+    # format string, collapsing every row into one bucket named "%Y-%m" and
+    # making the forecast always report "Insufficient historical data".
     historical_data = frappe.db.sql(
         """
         SELECT
-            DATE_FORMAT(member_since, '%%Y-%%m') as month,
+            DATE_FORMAT(member_since, '%Y-%m') as month,
             COUNT(*) as new_members
         FROM `tabMember`
         WHERE member_since >= DATE_SUB(CURDATE(), INTERVAL 36 MONTH)

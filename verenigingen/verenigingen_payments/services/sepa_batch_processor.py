@@ -982,6 +982,12 @@ class SEPABatchProcessor:
             # Create invoice
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = member.customer or schedule.member
+            # Set the company explicitly from the processor's configured company
+            # rather than relying on an implicit global default (which is absent
+            # or ambiguous when multiple companies exist, raising "Please select
+            # a Company").
+            if self.company:
+                invoice.company = self.company.name
             invoice.posting_date = today()
             invoice.due_date = schedule.next_invoice_date
 
@@ -1007,16 +1013,23 @@ class SEPABatchProcessor:
                 },
             )
 
+            # Compute the coverage period THIS invoice covers. The schedule's
+            # last_invoice_coverage_* fields describe the PREVIOUS invoice (and are
+            # None for the first one), so reading them here left the invoice's
+            # coverage dates empty. update_schedule_after_invoice persists these
+            # same dates onto the schedule afterwards.
+            coverage_start, coverage_end = schedule.calculate_next_coverage_period()
+
             # Add custom fields for tracking
             invoice.membership_dues_schedule_display = schedule.name
-            invoice.custom_coverage_start_date = schedule.last_invoice_coverage_start
-            invoice.custom_coverage_end_date = schedule.last_invoice_coverage_end
+            invoice.custom_coverage_start_date = coverage_start
+            invoice.custom_coverage_end_date = coverage_end
             invoice.custom_contribution_mode = schedule.contribution_mode
 
             # Add reference
             invoice.remarks = (
                 f"Membership dues for {member.full_name}\n"
-                f"Period: {schedule.last_invoice_coverage_start} to {schedule.last_invoice_coverage_end}\n"
+                f"Period: {coverage_start} to {coverage_end}\n"
                 f"Schedule: {schedule.name}"
             )
 
@@ -1047,8 +1060,13 @@ class SEPABatchProcessor:
         """Generate invoice description based on contribution mode"""
         base_desc = f"Membership dues - {schedule.billing_frequency}"
 
-        if schedule.contribution_mode == "Income-Based" and schedule.base_multiplier:
-            percentage = int(schedule.base_multiplier * 100)
+        # The Membership Dues Schedule field is `default_multiplier`; there is no
+        # `base_multiplier` column (referencing it raised AttributeError and broke
+        # invoice description generation). See report: base_multiplier is still
+        # referenced in several other modules and should be reconciled.
+        multiplier = getattr(schedule, "default_multiplier", None)
+        if schedule.contribution_mode == "Income-Based" and multiplier:
+            percentage = int(multiplier * 100)
             base_desc += f"\nContribution: {percentage}% of suggested amount"
         elif schedule.contribution_mode == "Flexible":
             base_desc += f"\nFlexible contribution"
@@ -1077,11 +1095,15 @@ class SEPABatchProcessor:
 
     def update_schedule_after_invoice(self, schedule):
         """Update dues schedule after creating invoice"""
-        # Calculate next dates
-        schedule.calculate_coverage_dates()
-
-        # Update last invoice date
-        schedule.db_set("last_invoice_date", today())
+        # Record the coverage period just invoiced and advance the schedule dates.
+        # (The old call to schedule.calculate_coverage_dates() referenced a method
+        # that does not exist; the correct API is calculate_next_coverage_period()
+        # + update_schedule_dates(), mirroring InvoiceGenerationOrchestrator.)
+        coverage_start, coverage_end = schedule.calculate_next_coverage_period()
+        schedule.last_invoice_coverage_start = coverage_start
+        schedule.last_invoice_coverage_end = coverage_end
+        schedule.last_invoice_date = today()
+        schedule.update_schedule_dates(actual_invoice_date=today())
 
         # Save changes
         schedule.save()

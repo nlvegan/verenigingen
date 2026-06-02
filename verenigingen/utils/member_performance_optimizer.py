@@ -118,39 +118,46 @@ class MemberPerformanceOptimizer:
         """Pre-validate all member data in single query"""
 
         validation_checks = []
+        params: List[Any] = []
 
-        # Check for duplicate email
-        if member_data.get("email_address"):
+        # Check for duplicate email.
+        # Member stores the address in the `email` field (not `email_address`);
+        # using the wrong column silently disabled this guard previously.
+        # Queries are parameterized to prevent SQL injection.
+        if member_data.get("email"):
             validation_checks.append(
-                f"""
+                """
                 SELECT 'email_exists' as check_type, COUNT(*) as count
                 FROM `tabMember`
-                WHERE email_address = '{member_data['email_address']}'
+                WHERE email = %s
             """
             )
+            params.append(member_data["email"])
 
         # Check for duplicate IBAN (if provided)
         if member_data.get("iban"):
             validation_checks.append(
-                f"""
+                """
                 SELECT 'iban_exists' as check_type, COUNT(*) as count
                 FROM `tabSEPA Mandate`
-                WHERE iban = '{member_data['iban']}' AND status = 'Active'
+                WHERE iban = %s AND status = 'Active'
             """
             )
+            params.append(member_data["iban"])
 
         # Check for required field data validity
         if member_data.get("birth_date"):
             validation_checks.append(
-                f"""
+                """
                 SELECT 'age_valid' as check_type,
-                       TIMESTAMPDIFF(YEAR, '{member_data['birth_date']}', CURDATE()) as count
+                       TIMESTAMPDIFF(YEAR, %s, CURDATE()) as count
             """
             )
+            params.append(member_data["birth_date"])
 
         if validation_checks:
             combined_query = " UNION ALL ".join(validation_checks)
-            results = frappe.db.sql(combined_query, as_dict=True)
+            results = frappe.db.sql(combined_query, params, as_dict=True)
 
             for result in results:
                 if result["check_type"] == "email_exists" and result["count"] > 0:

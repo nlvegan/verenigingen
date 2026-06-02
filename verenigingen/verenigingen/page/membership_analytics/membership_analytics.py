@@ -85,7 +85,11 @@ def get_summary_metrics(year, period="year", filters=None):
     # Total members active as of the cutoff date
     # For current year: use today's date
     # For past/future years: use December 31st of that year
-    from frappe.utils import getdate, nowdate
+    # NOTE: getdate is already imported at module level. Re-importing it here as
+    # a function-local made it a local name, so the earlier getdate() calls in
+    # the quarter/month branches (above) raised UnboundLocalError. Only import
+    # the name that isn't available at module scope.
+    from frappe.utils import nowdate
 
     current_year = datetime.now().year
     if year == current_year:

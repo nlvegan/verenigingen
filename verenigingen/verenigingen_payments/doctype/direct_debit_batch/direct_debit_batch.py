@@ -200,6 +200,14 @@ class DirectDebitBatch(Document):
 
     def calculate_totals(self):
         """Calculate batch totals - optimized with database aggregation for large batches"""
+        # For a not-yet-persisted document the child rows are only in memory
+        # (self.invoices) and are NOT in `tabDirect Debit Batch Invoice` yet, so
+        # the SQL aggregation below would return 0 and clobber the real total.
+        # Compute from the in-memory rows in that case.
+        if self.is_new() or not self.name:
+            self._calculate_totals_python()
+            return
+
         batch_processing_service.calculate_batch_totals_optimized(self)
         try:
             result = frappe.db.sql(

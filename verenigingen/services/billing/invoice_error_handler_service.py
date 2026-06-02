@@ -43,6 +43,7 @@ Security:
 - Permission-aware escalation to manual review
 """
 
+import re
 import sys
 from typing import TYPE_CHECKING, Any, Dict, Literal, TypedDict
 
@@ -396,8 +397,10 @@ class InvoiceErrorHandlerService(StatelessService):
             return False
 
         # ✅ ENHANCED: Check critical issues first
+        # Patterns may contain regex syntax (e.g. ".*"), so match with re.search,
+        # not substring `in` — otherwise ".*" patterns never match (dead patterns).
         for pattern in critical_manual_review_patterns:
-            if pattern in error_lower:
+            if re.search(pattern, error_lower):
                 self.logger.error(
                     f"Critical error detected for schedule {schedule_doc.name}: {error_message}"
                 )
@@ -405,13 +408,13 @@ class InvoiceErrorHandlerService(StatelessService):
 
         # Check legacy manual review patterns
         for pattern in manual_review_patterns:
-            if pattern in error_lower:
+            if re.search(pattern, error_lower):
                 return False
 
         # ✅ ENHANCED: Check if this might be fixable by reconstruction
         reconstruction_triggered = False
         for pattern in reconstruction_patterns:
-            if pattern in error_lower:
+            if re.search(pattern, error_lower):
                 # Try to trigger health system reconstruction
                 schedule_doc._trigger_health_reconstruction(error_message)
                 reconstruction_triggered = True

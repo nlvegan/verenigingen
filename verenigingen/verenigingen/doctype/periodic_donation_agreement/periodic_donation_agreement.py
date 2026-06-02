@@ -337,7 +337,10 @@ class PeriodicDonationAgreement(Document):
             "donations",
             {
                 "donation": donation_name,
-                "date": donation.date,
+                # The Donation doctype's date field is `donation_date`; the child
+                # table column here is `date`. (Older code read donation.date,
+                # which no longer exists and raised AttributeError on link.)
+                "date": donation.donation_date,
                 "amount": donation.amount,
                 "status": "Paid" if donation.paid else "Unpaid",
             },
