@@ -85,10 +85,13 @@ def mock_email_sending():
     """Context manager to mock email sending in tests"""
     mock_email_queue.reset()
     
+    # v16: email_queue moved to frappe.email.doctype.* and the old send_one /
+    # frappe.email.queue.send entry points were removed (both patch targets raised
+    # AttributeError, breaking every test that used this CM). frappe.email.queue.flush()
+    # is the real queue-drain entry point, so patch that alongside frappe.sendmail.
     with patch('frappe.sendmail', side_effect=mock_email_queue.sendmail):
-        with patch('frappe.core.doctype.email_queue.email_queue.send_one', return_value=None):
-            with patch('frappe.email.queue.send', return_value=None):
-                yield mock_email_queue
+        with patch('frappe.email.queue.flush', return_value=None):
+            yield mock_email_queue
 
 
 def setup_test_environment():

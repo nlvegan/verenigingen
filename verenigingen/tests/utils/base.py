@@ -228,7 +228,7 @@ class VereningingenTestCase(FrappeTestCase):
                 # In the future, we can make this configurable or fail on critical errors
                 print(f"WARNING: {error_msg}")
 
-        except (frappe.QueryResolutionError, frappe.db.OperationalError, AttributeError) as e:
+        except (frappe.db.OperationalError, AttributeError) as e:
             # Don't let error checking itself break tests (DB or attribute errors possible)
             frappe.logger().error(f"Error during test error checking: {str(e)}")
             print(f"Warning: Could not check for test errors: {str(e)}")

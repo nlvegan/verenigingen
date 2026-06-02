@@ -2432,8 +2432,11 @@ class EnhancedTestCase(FrappeTestCase):
                 "Form Integration Test%", "Fallback Test%"
             ]
 
-            # Build WHERE clause for test patterns
-            pattern_conditions = " OR ".join([f"dl.link_name LIKE '{p}'" for p in test_patterns])
+            # Build WHERE clause for test patterns. Use bound parameters, NOT inlined
+            # literals: the patterns contain '%' (e.g. "Test %"), and MySQLdb runs
+            # `query % args`, so an inlined '%' raises "not enough arguments for format
+            # string". Each pattern becomes a positional %s param below.
+            pattern_conditions = " OR ".join(["dl.link_name LIKE %s" for _ in test_patterns])
 
             # Find orphaned Dynamic Links (links to non-existent documents)
             # We check each link_doctype separately since we can't do dynamic table joins
@@ -2453,7 +2456,7 @@ class EnhancedTestCase(FrappeTestCase):
                               WHERE t.name = dl.link_name
                           )
                         LIMIT 500
-                    """, (doctype,), as_dict=True)
+                    """, tuple([doctype, *test_patterns]), as_dict=True)
 
                     if orphaned_links:
                         for link in orphaned_links:
