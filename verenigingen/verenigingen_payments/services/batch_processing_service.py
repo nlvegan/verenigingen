@@ -244,7 +244,14 @@ class BatchProcessingService:
                 handle_data_integrity_error,
             )
 
-            handle_data_integrity_error(e, "batch invoice validation", batch_doc.name)
+            handle_data_integrity_error(
+                "F3001",
+                {
+                    "stage": "batch invoice validation",
+                    "batch_name": batch_doc.name,
+                    "error": str(e),
+                },
+            )
             raise
 
     def validate_sepa_sequence_types(self, batch_doc) -> Dict[str, Any]:

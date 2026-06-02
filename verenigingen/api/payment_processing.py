@@ -415,17 +415,22 @@ def export_overdue_payments(filters=None, format="CSV") -> OperationResult[Dict[
                         clean_row[field] = value
                     writer.writerow(clean_row)
 
-            # Create file record in Frappe
-            file_doc = frappe.get_doc(
-                {
-                    "doctype": "File",
-                    "file_name": file_name,
-                    "file_url": f"/files/{file_name}",
-                    "is_private": 1,
-                    "folder": "Home",
-                }
+            # Create file record in Frappe from the generated CSV content.
+            # Previously this set file_url without attaching content, so File.save()
+            # tried to read a file that only existed in the temp dir and failed with
+            # "No such file or directory".
+            with open(file_path, "rb") as csv_file:
+                file_content = csv_file.read()
+
+            from frappe.utils.file_manager import save_file
+
+            file_doc = save_file(
+                fname=file_name,
+                content=file_content,
+                dt=None,
+                dn=None,
+                is_private=1,
             )
-            file_doc.save()
 
             return OperationResult.ok(
                 data={

@@ -362,42 +362,47 @@ class DuesScheduleHealthManager:
         """
         import time
 
-        from frappe.database.database import savepoint
-
         initial_processed = self.results["members_processed"]
         initial_reconstructed = self.results["memberships_reconstructed"]
         initial_created = self.results["schedules_created"]
         initial_synchronized = self.results["fields_synchronized"]
 
+        # Use an explicit named savepoint rather than the savepoint() context
+        # manager: that helper catches Exception and swallows it, which would skip
+        # both the failure-dict return and the counter rollback below (the method
+        # would silently return None on failure). With an explicit savepoint we
+        # roll back to it and let the exception reach our own except handler.
+        sp = "health_check_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(sp)
         try:
-            # Use Frappe's savepoint context manager for transaction safety
-            with savepoint():
-                # Process this member's health check
-                self.results["members_processed"] += 1
+            # Process this member's health check
+            self.results["members_processed"] += 1
 
-                # Always sync fields first
-                self.sync_member_fields(member_name)
+            # Always sync fields first
+            self.sync_member_fields(member_name)
 
-                if fix_issues:
-                    # Ensure membership exists
-                    self.reconstruct_missing_membership(member_name)
+            if fix_issues:
+                # Ensure membership exists
+                self.reconstruct_missing_membership(member_name)
 
-                    # Ensure dues schedule exists
-                    self.reconstruct_dues_schedule(member_name)
+                # Ensure dues schedule exists
+                self.reconstruct_dues_schedule(member_name)
 
-                # If we reach here without exceptions, savepoint will auto-commit
-                return {
-                    "success": True,
-                    "member": member_name,
-                    "operations_completed": {
-                        "memberships_reconstructed": self.results["memberships_reconstructed"]
-                        - initial_reconstructed,
-                        "schedules_created": self.results["schedules_created"] - initial_created,
-                        "fields_synchronized": self.results["fields_synchronized"] - initial_synchronized,
-                    },
-                }
+            frappe.db.release_savepoint(sp)
+
+            return {
+                "success": True,
+                "member": member_name,
+                "operations_completed": {
+                    "memberships_reconstructed": self.results["memberships_reconstructed"]
+                    - initial_reconstructed,
+                    "schedules_created": self.results["schedules_created"] - initial_created,
+                    "fields_synchronized": self.results["fields_synchronized"] - initial_synchronized,
+                },
+            }
 
         except Exception as e:
+            frappe.db.rollback(save_point=sp)
             # Savepoint context manager handles rollback automatically
             # Reset counters to pre-transaction state
             self.results["members_processed"] = initial_processed
@@ -469,7 +474,7 @@ class DuesScheduleHealthManager:
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
 def comprehensive_dues_schedule_health_check(
-    member_filter: str = None,
+    member_filter: "str | list | None" = None,
     fix_issues: bool = False,
     batch_size: int = 100,
     continue_on_error: bool = True,
