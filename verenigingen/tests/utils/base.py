@@ -103,6 +103,14 @@ class VereningingenTestCase(FrappeTestCase):
         super().setUp()
         self._test_docs = []
         self._original_session_user = frappe.session.user
+        # Start every test from a clean Administrator context. Without this, a prior
+        # test that left frappe.session.user = "Guest" (e.g. a bare set_user("Guest")
+        # with no restore) poisons this test — the body then runs as Guest and hits
+        # "Access denied ... roles: Guest". EnhancedTestCase already forces Admin in
+        # setUp; VereningingenTestCase previously only captured+restored the inherited
+        # (possibly-leaked) user, propagating the leak down the whole shard.
+        if frappe.session.user != "Administrator":
+            frappe.set_user("Administrator")
         # Track test start time for error monitoring
         self._test_start_time = frappe.utils.now()
 
@@ -125,8 +133,9 @@ class VereningingenTestCase(FrappeTestCase):
         # Check for errors that occurred during this test BEFORE cleanup
         self._check_test_errors()
 
-        # Restore original session user
-        frappe.session.user = self._original_session_user
+        # Reset to a clean Administrator context (via set_user so the permission/role
+        # cache is rebuilt too) so this test never leaks its session user to the next.
+        frappe.set_user("Administrator")
 
         # Clean up customers linked to members BEFORE deleting members
         self._cleanup_member_customers()
