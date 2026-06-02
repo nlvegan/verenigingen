@@ -11,6 +11,7 @@ This test suite validates:
 import frappe
 from frappe.utils import add_days, now_datetime, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.sepa_test_company import ensure_sepa_payment_terms_template
 import unittest
 
 
@@ -21,7 +22,9 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
         """Set up test data using Enhanced Test Factory"""
         super().setUp()
         self.test_amendments = []
-        
+        # Dues schedules set payment_terms_template = "SEPA Direct Debit".
+        ensure_sepa_payment_terms_template()
+
         # Create test member with Enhanced Test Factory
         self.test_member = self.create_test_member(
             first_name="Amendment",
@@ -38,16 +41,20 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
         )
         self.test_membership_name = self.test_membership.name
         
-        # Create initial dues schedule for testing
-        self.test_dues_schedule = self.create_test_dues_schedule(
-            member=self.test_member_name,
-            membership=self.test_membership_name,
-            amount=50.0,
-            contribution_mode="Custom",
-            uses_custom_amount=1,
-            custom_amount_approved=1,
-            status="Active"
+        # The membership auto-creates an Active dues schedule (one-active-per-
+        # member rule), so reuse it instead of creating a second. Configure it
+        # for a custom approved amount used by the conflict scenarios.
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": self.test_member_name, "is_template": 0, "status": "Active"},
+            "name",
         )
+        self.test_dues_schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+        self.test_dues_schedule.contribution_mode = "Custom"
+        self.test_dues_schedule.uses_custom_amount = 1
+        self.test_dues_schedule.custom_amount_approved = 1
+        self.test_dues_schedule.dues_rate = 100.0  # respect membership type minimum
+        self.test_dues_schedule.save()
 
     def tearDown(self):
         """Clean up test data - Enhanced Test Factory handles most cleanup"""
@@ -61,6 +68,23 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
         
         # Enhanced Test Factory handles Member, Membership, and Dues Schedule cleanup
         super().tearDown()
+
+    def _insert_amendment(self, requested_amount, reason):
+        """Insert a Fee Change amendment for the test member and track it."""
+        amendment = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": self.test_membership_name,
+                "member": self.test_member_name,
+                "amendment_type": "Fee Change",
+                "requested_amount": requested_amount,
+                "reason": reason,
+                "effective_date": add_days(today(), 30),
+            }
+        )
+        amendment.insert()
+        self.test_amendments.append(amendment.name)
+        return amendment
 
     def test_amendment_conflict_detection(self):
         """Test that the system detects conflicting amendments"""
@@ -156,52 +180,33 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
 
     def test_cancel_conflicting_amendments_method(self):
         """Test the cancel_conflicting_amendments method directly"""
-        # Create multiple amendments with different statuses
-        amendment1 = frappe.get_doc(
-            {
-                "doctype": "Contribution Amendment Request",
-                "membership": self.test_membership_name,
-                "member": self.test_member_name,
-                "amendment_type": "Fee Change",
-                "requested_amount": 75.0,
-                "reason": "First amendment",
-                "effective_date": add_days(today(), 30),
-                "status": "Approved"}
+        # Create amendments one at a time, pinning each to a known status right
+        # after insert so the conflict-prevention rule (which blocks creating a
+        # new request while another "Pending Approval" exists) doesn't fire
+        # between inserts. The scenario under test is the cancellation method,
+        # not the creation-time conflict guard.
+        amendment1 = self._insert_amendment(75.0, "First amendment")
+        frappe.db.set_value(
+            "Contribution Amendment Request", amendment1.name, "status", "Approved"
         )
-        amendment1.insert()
-        self.test_amendments.append(amendment1.name)
 
-        amendment2 = frappe.get_doc(
-            {
-                "doctype": "Contribution Amendment Request",
-                "membership": self.test_membership_name,
-                "member": self.test_member_name,
-                "amendment_type": "Fee Change",
-                "requested_amount": 100.0,
-                "reason": "Second amendment",
-                "effective_date": add_days(today(), 30),
-                "status": "Pending Approval"}
+        amendment2 = self._insert_amendment(75.0, "Second amendment")
+        frappe.db.set_value(
+            "Contribution Amendment Request", amendment2.name, "status", "Approved"
         )
-        # Bypass validation for testing
-        amendment2.flags.ignore_validate = True
-        amendment2.insert()
-        self.test_amendments.append(amendment2.name)
 
-        # Create third amendment to test the cancellation
-        amendment3 = frappe.get_doc(
-            {
-                "doctype": "Contribution Amendment Request",
-                "membership": self.test_membership_name,
-                "member": self.test_member_name,
-                "amendment_type": "Fee Change",
-                "requested_amount": 125.0,
-                "reason": "Third amendment",
-                "effective_date": add_days(today(), 30),
-                "status": "Pending Approval"}
+        # Third amendment (the "winner") that cancels the conflicting ones.
+        amendment3 = self._insert_amendment(75.0, "Third amendment")
+        amendment3.reload()
+
+        # Restore the two conflicting amendments to states the cancellation
+        # method acts on, then run it.
+        frappe.db.set_value(
+            "Contribution Amendment Request", amendment1.name, "status", "Pending Approval"
         )
-        amendment3.flags.ignore_validate = True
-        amendment3.insert()
-        self.test_amendments.append(amendment3.name)
+        frappe.db.set_value(
+            "Contribution Amendment Request", amendment2.name, "status", "Pending Approval"
+        )
 
         # Test the cancellation method
         amendment3.cancel_conflicting_amendments()
@@ -245,7 +250,8 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
 
     def test_cancelled_amendments_dont_conflict(self):
         """Test that cancelled amendments don't count as conflicts"""
-        # Create and cancel first amendment
+        # Create first amendment, then move it to "Cancelled" (the controller
+        # recomputes status on insert, so set the terminal status afterwards).
         amendment1 = frappe.get_doc(
             {
                 "doctype": "Contribution Amendment Request",
@@ -255,22 +261,25 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
                 "requested_amount": 75.0,
                 "reason": "First amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Cancelled"}
+            }
         )
         amendment1.insert()
         self.test_amendments.append(amendment1.name)
+        frappe.db.set_value("Contribution Amendment Request", amendment1.name, "status", "Cancelled")
 
-        # Create second amendment - this should be allowed since first is cancelled
+        # Create second amendment - allowed since the first is cancelled. Use an
+        # amount that differs from the current rate (100) and is below the minimum
+        # so it stays "Pending Approval".
         amendment2 = frappe.get_doc(
             {
                 "doctype": "Contribution Amendment Request",
                 "membership": self.test_membership_name,
                 "member": self.test_member_name,
                 "amendment_type": "Fee Change",
-                "requested_amount": 100.0,
+                "requested_amount": 75.0,
                 "reason": "Second amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval"}
+            }
         )
         amendment2.insert()
         self.test_amendments.append(amendment2.name)
@@ -280,7 +289,9 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
 
     def test_applied_amendments_dont_conflict(self):
         """Test that applied amendments don't count as conflicts"""
-        # Create and apply first amendment
+        # Create first amendment, then move it to "Applied". The controller
+        # recomputes status on insert (auto-approval), so set the terminal status
+        # directly afterwards rather than via the create dict.
         amendment1 = frappe.get_doc(
             {
                 "doctype": "Contribution Amendment Request",
@@ -290,22 +301,24 @@ class TestContributionAmendmentConflicts(EnhancedTestCase):
                 "requested_amount": 75.0,
                 "reason": "First amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Applied"}
+            }
         )
         amendment1.insert()
         self.test_amendments.append(amendment1.name)
+        frappe.db.set_value("Contribution Amendment Request", amendment1.name, "status", "Applied")
 
-        # Create second amendment - this should be allowed since first is applied
+        # Create second amendment - allowed since the first is Applied (only
+        # "Pending Approval" amendments block new requests).
         amendment2 = frappe.get_doc(
             {
                 "doctype": "Contribution Amendment Request",
                 "membership": self.test_membership_name,
                 "member": self.test_member_name,
                 "amendment_type": "Fee Change",
-                "requested_amount": 100.0,
+                "requested_amount": 75.0,  # below minimum -> stays Pending Approval
                 "reason": "Second amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval"}
+            }
         )
         amendment2.insert()
         self.test_amendments.append(amendment2.name)

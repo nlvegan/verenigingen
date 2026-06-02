@@ -144,12 +144,11 @@ class TestSplitPercentageFactory(VereningingenTestCase):
 
         split = SplitPercentage.from_chapter(chapter.name)
 
-        # Should use system default (60% from setUp) since chapter_split_percentage is 0
-        # Note: In actual implementation, 0 would be treated as valid 0%, but for this test
-        # we're checking the fallback logic. Let's adjust the test to match implementation.
-        # Actually, when chapter_split_percentage is 0, it should return 0%, not fallback
-        self.assertEqual(split.chapter_percentage, Decimal("0.0"))
-        self.assertEqual(split.national_percentage, Decimal("100.0"))
+        # A chapter_split_percentage of 0 is a fallback indicator: from_chapter
+        # falls back to the system default (60% configured in setUp), per the
+        # documented logic in SplitPercentage.from_chapter.
+        self.assertEqual(split.chapter_percentage, Decimal("60.0"))
+        self.assertEqual(split.national_percentage, Decimal("40.0"))
 
     def test_from_chapter_with_unconfigured_default(self):
         """Test fallback to 60% when no system default is configured"""
@@ -353,13 +352,15 @@ class TestDuesAllocationService(VereningingenTestCase):
         )
         frappe.db.commit()
 
-        # Create test chapters with different split percentages
+        # Create test chapters with different split percentages.
+        # Chapter names must not contain "%" (invalid character per the
+        # Chapter name validator), so use descriptive ascii labels instead.
         self.chapter_60 = self.create_test_chapter(
-            chapter_name="Chapter 60%",
+            chapter_name="Chapter 60 pct",
             chapter_split_percentage=60.0
         )
         self.chapter_75 = self.create_test_chapter(
-            chapter_name="Chapter 75%",
+            chapter_name="Chapter 75 pct",
             chapter_split_percentage=75.0
         )
         # Chapter with default - create with 0 and will fallback to system default

@@ -182,12 +182,16 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         
         for injection_vector in injection_vectors:
             with self.subTest(injection_vector=injection_vector):
-                # Create a member with malicious name for testing
+                # Create a member with malicious name for testing.
+                # The member's full_name drives the auto-created Customer name, so the
+                # last_name must be unique per iteration to avoid a Customer name collision
+                # (the auto-create-customer hook raises DuplicateEntryError otherwise).
+                unique_suffix = frappe.generate_hash(length=8)
                 malicious_member = frappe.get_doc({
                     'doctype': 'Member',
                     'first_name': 'Malicious',
-                    'last_name': 'Test',
-                    'email': f'evil_{hash(injection_vector) % 10000}@example.com',
+                    'last_name': f'Test {unique_suffix}',
+                    'email': f'evil_{unique_suffix}@example.com',
                     'birth_date': add_days(getdate(), -10000)
                 })
                 malicious_member.insert()
@@ -223,11 +227,13 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
                         # Some failures are OK (like missing table), but not injection-related ones
                             
                 finally:
-                    # Clean up
-                    frappe.db.sql(
-                        "DELETE FROM tabMember WHERE email LIKE %s",
-                        (f'evil_{hash(injection_vector) % 10000}@example.com',)
-                    )
+                    # Clean up the member and any auto-created Customer linked to it,
+                    # so a leftover Customer cannot collide with the next iteration.
+                    for customer_name in frappe.get_all(
+                        "Customer", filters={"member": malicious_member.name}, pluck="name"
+                    ):
+                        frappe.delete_doc("Customer", customer_name, force=True)
+                    frappe.delete_doc("Member", malicious_member.name, force=True)
                     
     def test_sql_injection_prevention_member_field_escaping(self):
         """

@@ -317,7 +317,9 @@ class TestMembershipApplication(VereningingenTestCase):
         second_result = submit_application(**self.application_data)
         # Either fails with error, or handles reapplication scenario
         if not second_result["success"]:
-            self.assertIn("already", second_result.get("error", "").lower())
+            error = second_result.get("error", {})
+            error_message = error.get("message", "") if isinstance(error, dict) else str(error)
+            self.assertIn("already", error_message.lower())
         else:
             # Reapplication scenario - same member record updated
             self.assertTrue(second_result["success"])
@@ -343,10 +345,14 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
     def setUp(self):
         """Set up for each test"""
         super().setUp()
-        self.test_email = f"load_test_{frappe.generate_hash(length=8)}@example.com"
+        # Unique suffix per test: submit_application commits the created Customer
+        # (autonamed by customer_name), so a shared "Load Tester" name would
+        # collide with DuplicateEntryError across the tests in this class.
+        unique = frappe.generate_hash(length=8)
+        self.test_email = f"load_test_{unique}@example.com"
         self.application_data = {
             "first_name": "Load",
-            "last_name": "Tester",
+            "last_name": f"Tester {unique}",
             "email": self.test_email,
             "birth_date": "1990-01-01",
             "address_line1": "123 Test Street",
@@ -1060,29 +1066,37 @@ class TestMembershipApplicationLoad(EnhancedTestCase):
 
         membership = frappe.get_doc("Membership", memberships[0].name)
 
-        # Verify membership does NOT use custom amount
-        self.assertFalse(membership.uses_custom_amount, "Standard membership should not use custom amount")
-
         # Verify dues schedule uses membership type configuration
+        # (the custom-amount flag lives on Membership Dues Schedule, not Membership)
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
             fields=["name", "dues_rate", "contribution_mode"]
         )
-        
+
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
             membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
-            # Should use the standard amount from membership type
+            # Verify the dues schedule does NOT use a custom amount
+            self.assertFalse(
+                dues_schedule.uses_custom_amount, "Standard membership should not use custom amount"
+            )
+
+            # Standard amount is sourced from the membership type's dues schedule
+            # template, not from minimum_amount (which may be 0). Verify the
+            # member's dues schedule rate matches the template's configured rate.
+            template = frappe.get_doc(
+                "Membership Dues Schedule", membership_type.dues_schedule_template
+            )
             self.assertEqual(
                 float(dues_schedule.dues_rate),
-                float(membership_type.minimum_amount),
-                f"Dues schedule amount should match membership type amount €{membership_type.minimum_amount}, got €{dues_schedule.dues_rate}",
+                float(template.dues_rate),
+                f"Dues schedule amount should match membership type template rate €{template.dues_rate}, got €{dues_schedule.dues_rate}",
             )
 
             print(f"✅ Standard membership uses membership type configuration")
-            print(f"✅ Dues schedule amount matches membership type: €{dues_schedule.dues_rate}")
+            print(f"✅ Dues schedule amount matches membership type template: €{dues_schedule.dues_rate}")
         else:
             print("ℹ️  No dues schedule found - may be using legacy override system")
 
@@ -2659,7 +2673,9 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
 
         self.assertFalse(result["success"], "Should fail when required field missing")
         self.assertTrue(result.get("error"), "Should have error message")
-        self.assertIn("email", result.get("error", "").lower(), "Error should mention missing email")
+        error = result.get("error", {})
+        error_message = error.get("message", "") if isinstance(error, dict) else str(error)
+        self.assertIn("email", error_message.lower(), "Error should mention missing email")
 
         print("✅ Missing required field validation works")
 
@@ -2856,8 +2872,10 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
 
         # Should fail gracefully with appropriate error
         self.assertFalse(result["success"], "Should fail for invalid membership type")
+        error = result.get("error", {})
+        error_message = error.get("message", "") if isinstance(error, dict) else str(error)
         self.assertIn(
-            "membership", (result.get("error") or "").lower(), "Error should mention membership type issue"
+            "membership", error_message.lower(), "Error should mention membership type issue"
         )
 
         print("✅ Invalid membership type handled correctly")

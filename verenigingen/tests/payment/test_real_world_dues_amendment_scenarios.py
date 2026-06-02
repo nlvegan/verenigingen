@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_days, today, flt
 
+from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -100,10 +101,11 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
     def create_test_memberships(self):
         """Create memberships for test members"""
 
-        # Get regular membership type
-        regular_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Regular%"]}, "name")
-        if not regular_type:
-            regular_type = frappe.db.get_value("Membership Type", {}, "name", order_by="name")
+        # These scenarios use small dues rates (€8-€25), so the membership type's
+        # minimum must be low enough to validate. ensure_membership_type_exists
+        # aligns the auto-created template's rate to this minimum, so dues
+        # schedules at these rates pass validation.
+        regular_type = ensure_membership_type_exists("Regular Member (Real-World Test)", amount=5.0)
 
         # Create memberships (factory inserts Draft; submit to make them Active)
         self.young_professional_membership = self._submit_membership(

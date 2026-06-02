@@ -176,9 +176,28 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
             self._invoice_items = self._get_or_create_invoice_items()
 
     def _get_or_create_test_companies(self) -> List[str]:
-        """Get or create test companies for payment processing"""
-        companies = QueryBuilder.get_all_active_records("Company", additional_filters={"company_name": ["like", "Test%"]}, fields=["name"])
-        
+        """Get or create test companies for payment processing.
+
+        Returns a list of company *names* (strings); downstream code indexes
+        self._test_companies[0] as a company name.
+        """
+        # Use a fully-configured EUR company. Membership customers use a EUR
+        # receivable account, so an INR/other-currency company (e.g. the
+        # ERPNext "Test Quality Company" fixture) triggers a currency-mismatch
+        # error. Prefer the standard "_Test Company 2" EUR fixture, which has a
+        # chart of accounts and fiscal years set up — creating a bare Company on
+        # the fly leaves it without an active Fiscal Year and trips invoice
+        # posting.
+        if frappe.db.get_value("Company", "_Test Company 2", "default_currency") == "EUR":
+            return ["_Test Company 2"]
+
+        company_rows = QueryBuilder.get_all_active_records(
+            "Company",
+            additional_filters={"default_currency": "EUR"},
+            fields=["name"],
+        )
+        companies = [c["name"] if isinstance(c, dict) else c for c in company_rows]
+
         if not companies:
             # Create a test company
             company = frappe.get_doc({
@@ -395,6 +414,9 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
 
     def _create_test_invoice(self, member: Any, invoice_date: str) -> Any:
         """Create a test sales invoice for member"""
+        # Defensive: ensure infrastructure exists when this is called directly
+        # (e.g. by test_infrastructure_validation) without a prior batch setup.
+        self._ensure_payment_infrastructure()
         company = self._test_companies[0]
         item_code = random.choice(self._invoice_items)
         amount = round(random.uniform(15.0, 150.0), 2)
@@ -405,6 +427,10 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
             "posting_date": invoice_date,
             "due_date": add_days(invoice_date, 30),
             "company": company,
+            # The test company and its receivable account are EUR; pin the
+            # document currency so it does not inherit the system-wide default
+            # (INR on this bench), which would trip a currency-mismatch error.
+            "currency": "EUR",
             "is_membership_invoice": 1,
             "items": [{
                 "item_code": item_code,

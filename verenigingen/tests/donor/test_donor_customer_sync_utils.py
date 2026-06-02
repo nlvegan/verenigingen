@@ -170,7 +170,9 @@ class TestDonorCustomerSyncUtils(VereningingenTestCase):
         # Mock justified: External Service - Testing error handling without database corruption
         # Use real database operations with proper error simulation
         # Create a donor that will trigger the error condition we want to test
-        with patch('verenigingen.utils.donor_customer_sync.log_sync_error') as mock_log_error:
+        # The sync module logs errors via frappe.log_error (there is no separate
+        # log_sync_error helper); patch that so the error path doesn't write to the DB.
+        with patch('frappe.log_error') as mock_log_error:
             # Use real error that can occur in practice - validation error
             invalid_donor = frappe.new_doc("Donor")
             invalid_donor.donor_name = ""  # This will cause validation error

@@ -190,6 +190,11 @@ class TestRegressionChapterJoinMemberLookup(VereningingenTestCase):
             "first_name": "Test",
             "last_name": "APIUser",
             "send_welcome_email": 0,
+            # get_chapter_join_context is a @standard_api (MEDIUM security).
+            # Per ROLE_PROFILE_SECURITY_MAPPING the Verenigingen Volunteer role
+            # grants MEDIUM access; assign it so the authenticated-member path
+            # is exercised rather than being rejected at the security gate.
+            "roles": [{"role": "Verenigingen Volunteer"}],
         })
         test_user.insert()
         self.track_doc("User", test_user.name)
@@ -210,10 +215,11 @@ class TestRegressionChapterJoinMemberLookup(VereningingenTestCase):
             # Call the API
             result = get_chapter_join_context(chapter.name)
 
-            # Verify the API found the member correctly
-            self.assertTrue(result.success)
-            self.assertEqual(result.data.get("member"), member.name)
-            self.assertTrue(result.data.get("user_logged_in"))
+            # Verify the API found the member correctly. get_chapter_join_context
+            # returns an OperationResult envelope dict: {"success", "data", ...}
+            self.assertTrue(result["success"], msg=result.get("error"))
+            self.assertEqual(result["data"].get("member"), member.name)
+            self.assertTrue(result["data"].get("user_logged_in"))
 
         finally:
             frappe.set_user(original_user)

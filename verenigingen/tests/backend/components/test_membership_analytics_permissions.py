@@ -77,13 +77,16 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
     
     def create_test_membership_data(self):
         """Create test members and memberships"""
+        # Per-test unique token so the auto-created Customer (named after the member's
+        # full_name) never collides with a Customer left behind by a previous/crashed run.
+        token = frappe.generate_hash(length=6)
         # Create a few test members
         for i in range(5):
             member = frappe.get_doc({
                 "doctype": "Member",
-                "first_name": f"Test{i}",
+                "first_name": f"Test{i}{token}",
                 "last_name": "Analytics",
-                "email": f"analytics{i}@test.com",
+                "email": f"analytics{i}{token}@test.com",
                 "status": "Active",
                 "member_since": add_months(getdate(), -i)
             })
@@ -98,8 +101,8 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "goal_type": "Member Count Growth",
             "goal_year": now_datetime().year,
             "target_value": 100,
-            "start_date": frappe.utils.year_start(),
-            "end_date": frappe.utils.year_end(),
+            "start_date": frappe.utils.get_year_start(frappe.utils.today()),
+            "end_date": frappe.utils.get_year_ending(frappe.utils.today()),
             "status": "Active"
         })
         self.test_goal.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
@@ -189,8 +192,8 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "goal_type": "Revenue Growth",
             "goal_year": now_datetime().year,
             "target_value": 50000,
-            "start_date": frappe.utils.year_start(),
-            "end_date": frappe.utils.year_end()
+            "start_date": frappe.utils.get_year_start(frappe.utils.today()),
+            "end_date": frappe.utils.get_year_ending(frappe.utils.today())
         })
         new_goal.insert()
         self.assertTrue(frappe.db.exists("Membership Goal", "Admin Test Goal"))
@@ -216,8 +219,8 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "goal_type": "Retention Rate",
             "goal_year": now_datetime().year,
             "target_value": 90,
-            "start_date": frappe.utils.year_start(),
-            "end_date": frappe.utils.year_end()
+            "start_date": frappe.utils.get_year_start(frappe.utils.today()),
+            "end_date": frappe.utils.get_year_ending(frappe.utils.today())
         })
         manager_goal.insert()
         
@@ -244,8 +247,8 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
                 "goal_type": "Member Count Growth",
                 "goal_year": now_datetime().year,
                 "target_value": 200,
-                "start_date": frappe.utils.year_start(),
-                "end_date": frappe.utils.year_end()
+                "start_date": frappe.utils.get_year_start(frappe.utils.today()),
+                "end_date": frappe.utils.get_year_ending(frappe.utils.today())
             })
             board_goal.insert()
         
@@ -474,8 +477,8 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "goal_type": "Member Count Growth",
             "goal_year": now_datetime().year,
             "target_value": 200,
-            "start_date": frappe.utils.year_start(),
-            "end_date": frappe.utils.year_end(),
+            "start_date": frappe.utils.get_year_start(frappe.utils.today()),
+            "end_date": frappe.utils.get_year_ending(frappe.utils.today()),
             "description": "Test goal created via API"
         }
         
@@ -513,11 +516,12 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         frappe.db.sql("DELETE FROM `tabMembership Analytics Snapshot`")
         frappe.db.sql("DELETE FROM `tabMembership Goal`")
         
-        # Delete test members
+        # Delete test members (first_name is uniquified per run, so the auto-created Customer
+        # cannot collide across runs; the raw DELETE leaves those Customers behind harmlessly).
         frappe.db.sql("DELETE FROM `tabMember` WHERE last_name = 'Analytics'")
-        
+
         frappe.db.commit()
-        
+
         super().tearDown()
 
 
@@ -586,12 +590,15 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
     
     def create_chapter_members(self, chapter, count):
         """Create test members in a chapter"""
+        # Per-call unique token so the auto-created Customer (named after the member's
+        # full_name) never collides with a Customer left behind by a previous/crashed run.
+        token = frappe.generate_hash(length=6)
         for i in range(count):
             member = frappe.get_doc({
                 "doctype": "Member",
-                "first_name": f"Test{chapter}",
+                "first_name": f"Test{chapter}{token}",
                 "last_name": f"Member{i}",
-                "email": f"{chapter.lower().replace(' ', '')}member{i}@test.com",
+                "email": f"{chapter.lower().replace(' ', '')}member{i}{token}@test.com",
                 "status": "Active",
                 "current_chapter": chapter,
                 "member_since": frappe.utils.add_months(frappe.utils.getdate(), -i)
@@ -638,15 +645,29 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
     def tearDown(self):
         """Clean up test data"""
         # BaseTestCase handles permissions through custom framework
-        
-        # Delete test members
+
+        # Delete test members (names are uniquified per run, so the auto-created Customer
+        # cannot collide across runs; the raw DELETE leaves those Customers behind harmlessly).
         frappe.db.sql("DELETE FROM `tabMember` WHERE first_name LIKE 'Test%'")
-        
-        # Delete chapter members
-        frappe.db.sql("DELETE FROM `tabChapter Member` WHERE member_email LIKE '%@test.com'")
-        
-        # Delete test chapters
-        frappe.db.sql("DELETE FROM `tabChapter` WHERE chapter_name IN ('Chapter A', 'Chapter B')")
+
+        # Delete chapter members + chapters. Chapter is prompt-named (the `name` IS the
+        # chapter name; there is no `chapter_name` column) and create_test_chapter may
+        # uniquify the name, so use the actual created chapter names. Chapter Member is a
+        # child table keyed by `parent` (the Chapter); the old `member_email` column is gone.
+        chapter_names = [
+            getattr(c, "name", c)
+            for c in (getattr(self, "chapter_a", None), getattr(self, "chapter_b", None))
+            if c is not None
+        ]
+        if chapter_names:
+            frappe.db.sql(
+                "DELETE FROM `tabChapter Member` WHERE parent IN %(names)s",
+                {"names": tuple(chapter_names)},
+            )
+            frappe.db.sql(
+                "DELETE FROM `tabChapter` WHERE name IN %(names)s",
+                {"names": tuple(chapter_names)},
+            )
         
         frappe.db.commit()
         

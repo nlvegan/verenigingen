@@ -14,6 +14,7 @@ Created: 2025-09-11 (converted from debug functions)
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.sepa_test_company import ensure_sepa_payment_terms_template
 import unittest
 
 
@@ -22,6 +23,21 @@ class TestContributionAmendmentIntegration(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+        # Dues schedules created during amendment apply set
+        # payment_terms_template = "SEPA Direct Debit"; ensure that master exists.
+        ensure_sepa_payment_terms_template()
+
+    def _get_active_dues_schedule(self, member_name):
+        """Return the member's auto-created active (instance) dues schedule."""
+        name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "is_template": 0, "status": "Active"},
+            "name",
+        )
+        self.assertIsNotNone(
+            name, f"Expected an auto-created active dues schedule for {member_name}"
+        )
+        return frappe.get_doc("Membership Dues Schedule", name)
 
     def test_amendment_controller_methods_exist(self):
         """Test that all required controller methods exist and are callable"""
@@ -62,25 +78,28 @@ class TestContributionAmendmentIntegration(EnhancedTestCase):
             status="Active"
         )
 
-        # Create amendment request
+        # Create amendment request. The requested amount must respect the
+        # membership type minimum (€100), otherwise validation/approval differs.
         amendment = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": member.name,
             "membership": membership.name,
             "amendment_type": "Fee Change",
-            "requested_amount": 50.0,
+            "requested_amount": 150.0,
             "reason": "Integration test amendment",
             "effective_date": add_days(today(), 30)
         })
 
         # Should validate and insert successfully
         amendment.insert()
-        
-        # Verify amendment was created with proper defaults
-        self.assertEqual(amendment.status, "Draft")
+
+        # A Fee Change that respects the minimum is auto-approved in the current
+        # business logic (set_auto_approval_status), so the persisted status is
+        # "Approved" rather than the old "Draft".
+        self.assertEqual(amendment.status, "Approved")
         self.assertEqual(amendment.requested_by, frappe.session.user)
         self.assertIsNotNone(amendment.effective_date)
-        
+
         print(f"✅ Amendment {amendment.name} created and validated successfully")
 
     def test_amendment_approval_workflow(self):
@@ -97,29 +116,32 @@ class TestContributionAmendmentIntegration(EnhancedTestCase):
             status="Active"
         )
 
-        # Create amendment that requires approval (large amount)
+        # Create an amendment that requires manual approval. Auto-approval only
+        # triggers when the requested amount respects the membership type minimum
+        # (€100); a below-minimum amount lands in "Pending Approval" so we can
+        # exercise the manual approval path.
         amendment = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": member.name,
             "membership": membership.name,
             "amendment_type": "Fee Change",
-            "requested_amount": 200.0,  # Large amount to force approval
-            "reason": "Large fee increase test",
+            "requested_amount": 50.0,  # Below minimum -> requires approval
+            "reason": "Below-minimum fee change requiring manual approval",
             "effective_date": add_days(today(), 30)
         })
-        
+
         amendment.insert()
-        
-        # Should be pending approval for large amounts
+
+        # Below-minimum amounts require manual approval
         self.assertEqual(amendment.status, "Pending Approval")
-        
+
         # Test approval process
         amendment.approve_amendment("Approved for integration test")
-        
+
         self.assertEqual(amendment.status, "Approved")
         self.assertEqual(amendment.approved_by, frappe.session.user)
         self.assertIsNotNone(amendment.approved_date)
-        
+
         print(f"✅ Amendment approval workflow completed for {amendment.name}")
 
     def test_dues_schedule_integration(self):
@@ -136,38 +158,37 @@ class TestContributionAmendmentIntegration(EnhancedTestCase):
             status="Active"
         )
 
-        # Create initial dues schedule
-        dues_schedule = self.create_test_dues_schedule(
-            member=member.name,
-            membership=membership.name,
-            dues_rate=25.0,
-            status="Active"
-        )
+        # Creating the membership auto-creates an Active dues schedule, and the
+        # controller enforces one active schedule per member. Fetch that schedule
+        # and set its rate rather than creating a second (which would fail).
+        dues_schedule = self._get_active_dues_schedule(member.name)
+        dues_schedule.dues_rate = 100.0  # respect membership type minimum
+        dues_schedule.save()
 
-        # Create and approve amendment
+        # Create amendment (>= minimum -> auto-approved on insert)
         amendment = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": member.name,
             "membership": membership.name,
-            "amendment_type": "Fee Change", 
-            "requested_amount": 35.0,
+            "amendment_type": "Fee Change",
+            "requested_amount": 150.0,
             "reason": "Dues schedule integration test",
             "effective_date": today()
         })
-        
+
         amendment.insert()
-        amendment.approve_amendment("Approved for dues integration test")
-        
+        self.assertEqual(amendment.status, "Approved")
+
         # Force apply the amendment
         amendment._force_apply = True
         result = amendment.apply_amendment()
-        
+
         self.assertEqual(result["status"], "success")
         self.assertEqual(amendment.status, "Applied")
-        
+
         # Verify dues schedule was updated
         dues_schedule.reload()
-        self.assertEqual(float(dues_schedule.dues_rate), 35.0)
+        self.assertEqual(float(dues_schedule.dues_rate), 150.0)
         
         print(f"✅ Dues schedule integration successful for {amendment.name}")
 
@@ -223,28 +244,26 @@ class TestContributionAmendmentIntegration(EnhancedTestCase):
             status="Active"
         )
 
-        # Create dues schedule with base amount
-        dues_schedule = self.create_test_dues_schedule(
-            member=member.name,
-            membership=membership.name,
-            dues_rate=20.0,
-            status="Active"
-        )
+        # Use the membership's auto-created active dues schedule (one-active-per-
+        # member rule) and set its base rate.
+        dues_schedule = self._get_active_dues_schedule(member.name)
+        dues_schedule.dues_rate = 100.0  # respect membership type minimum
+        dues_schedule.save()
 
-        # Create small fee increase (should auto-approve)
+        # Fee change that respects the minimum (>= €100) should auto-approve
         amendment = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": member.name,
             "membership": membership.name,
             "amendment_type": "Fee Change",
-            "requested_amount": 21.0,  # Small 5% increase
+            "requested_amount": 105.0,
             "reason": "Small auto-approval test",
             "effective_date": add_days(today(), 30)
         })
-        
+
         amendment.insert()
-        
-        # Should auto-approve small increases
+
+        # Should auto-approve changes that respect the minimum
         self.assertEqual(amendment.status, "Approved")
         self.assertIn("Auto-approved", amendment.internal_notes or "")
         

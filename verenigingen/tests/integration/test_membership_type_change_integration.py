@@ -24,10 +24,44 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        # Ensure the literal-named Membership Types exist on a fresh site
+        # Ensure the literal-named Membership Types exist on a fresh site.
+        # ensure_membership_type_exists() defaults every type to an Annual
+        # billing_period, but these tests assert the billing frequency matches the
+        # type's name, so set each type's billing_period to match explicitly.
         ensure_membership_type_exists("Monthly Membership")
         ensure_membership_type_exists("Quarterly Membership")
         ensure_membership_type_exists("Annual Membership")
+        # Give each type a distinct billing period and minimum amount. Distinct
+        # amounts matter for test_fee_change_recorded_with_type_change, which
+        # requires the type change to actually change the fee (same amounts would
+        # record no fee_change_history entry). Keep the template's rate aligned
+        # with the new minimum so create_from_template still validates.
+        for type_name, period, amount in (
+            ("Monthly Membership", "Monthly", 100.0),
+            ("Quarterly Membership", "Quarterly", 150.0),
+            ("Annual Membership", "Annual", 200.0),
+        ):
+            mt = frappe.get_doc("Membership Type", type_name)
+            dirty = False
+            if mt.billing_period != period:
+                mt.billing_period = period
+                dirty = True
+            if float(mt.minimum_amount or 0) != amount:
+                mt.minimum_amount = amount
+                dirty = True
+            if dirty:
+                mt.save(ignore_permissions=True)
+            template = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"is_template": 1, "membership_type": type_name},
+                "name",
+            )
+            if template:
+                tmpl = frappe.get_doc("Membership Dues Schedule", template)
+                tmpl.suggested_amount = amount
+                tmpl.dues_rate = amount
+                tmpl.minimum_amount = amount
+                tmpl.save(ignore_permissions=True)
         # Get existing membership types from fixtures
         self.monthly_type = frappe.get_doc("Membership Type", "Monthly Membership")
         self.quarterly_type = frappe.get_doc("Membership Type", "Quarterly Membership")
@@ -503,15 +537,34 @@ class TestDuesScheduleRepositoryTypeChange(EnhancedTestCase):
 class TestMembershipTypeRoleProfile(EnhancedTestCase):
     """Tests for membership type role profile utility"""
 
+    def setUp(self):
+        super().setUp()
+        # "Monthly Membership" + its role profile are custom fixtures that don't
+        # exist on a fresh test site, so ensure the types exist and pin both to
+        # the same known role profile (the same-profile test relies on that).
+        ensure_membership_type_exists("Monthly Membership")
+        ensure_membership_type_exists("Quarterly Membership")
+        self.expected_role_profile = frappe.db.get_value(
+            "Membership Type", "Monthly Membership", "role_profile"
+        )
+        # Align Quarterly to the same role profile so a switch is a no-op change.
+        if (
+            frappe.db.get_value("Membership Type", "Quarterly Membership", "role_profile")
+            != self.expected_role_profile
+        ):
+            frappe.db.set_value(
+                "Membership Type", "Quarterly Membership", "role_profile", self.expected_role_profile
+            )
+
     def test_get_role_profile_for_membership_type(self):
         """Test retrieving role profile for membership type"""
         from verenigingen.utils.membership_type_role_profile import get_role_profile_for_membership_type
 
-        # Monthly Membership should have Verenigingen Member role profile per fixtures
         role_profile = get_role_profile_for_membership_type("Monthly Membership")
 
-        # The fixture sets role_profile to "Verenigingen Member"
-        self.assertEqual(role_profile, "Verenigingen Member")
+        # Should return whatever role profile the type was created with.
+        self.assertEqual(role_profile, self.expected_role_profile)
+        self.assertIsNotNone(role_profile)
 
     def test_get_role_profile_nonexistent_type(self):
         """Test retrieving role profile for nonexistent type"""

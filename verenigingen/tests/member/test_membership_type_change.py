@@ -41,7 +41,8 @@ class TestMembershipTypeChange(BaseTestCase):
         )
 
         self.quarterly_type = self.create_membership_type(
-            name="Basic Quarterly", minimum_amount=27.00, description="Basic quarterly membership (3 months)"
+            name="Basic Quarterly", minimum_amount=27.00,
+            description="Basic quarterly membership (3 months)", billing_period="Quarterly"
         )
 
         # Create a test member with active membership
@@ -371,7 +372,7 @@ class TestMembershipTypeChange(BaseTestCase):
 
     # Helper methods
 
-    def create_membership_type(self, name, minimum_amount, description=""):
+    def create_membership_type(self, name, minimum_amount, description="", billing_period="Monthly"):
         """Create a test membership type"""
         # The Membership Type doc is named after membership_type_name, so make it
         # unique to avoid collisions with records already present in the snapshot.
@@ -383,11 +384,32 @@ class TestMembershipTypeChange(BaseTestCase):
                 "membership_type_name": test_name,
                 "minimum_amount": minimum_amount,
                 "description": description,
+                "billing_period": billing_period,
                 "is_active": 1,
             }
         )
         membership_type.insert()
         self.track_doc("Membership Type", membership_type.name)
+
+        # Membership Type.after_insert auto-creates a dues schedule template with
+        # a default €15 rate, which is below our minimum_amount. On membership
+        # submit, create_from_template then fails with "Template dues rate
+        # (€15.00) cannot be less than membership type minimum". Align the
+        # template's rate with the type (mirrors ensure_membership_type_exists).
+        template = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"is_template": 1, "membership_type": membership_type.name},
+            "name",
+        )
+        if template:
+            template_doc = frappe.get_doc("Membership Dues Schedule", template)
+            template_doc.suggested_amount = minimum_amount
+            template_doc.dues_rate = minimum_amount
+            template_doc.minimum_amount = minimum_amount
+            template_doc.save(ignore_permissions=True)
+            if membership_type.dues_schedule_template != template:
+                membership_type.dues_schedule_template = template
+                membership_type.save(ignore_permissions=True)
         return membership_type
 
     def create_test_membership(self, member, membership_type):
@@ -416,7 +438,7 @@ class TestMembershipTypeChange(BaseTestCase):
                 "membership": membership,
                 "membership_type": membership_type,
                 "dues_rate": amount,
-                "contribution_mode": "Custom",  # Set to Custom to preserve our amount
+                "contribution_mode": "Fixed",  # Fixed mode preserves our amount (v16 modes: Fixed/Income-Based/Flexible)
                 "uses_custom_amount": 1,
                 "custom_amount_approved": 1,
                 "custom_amount_reason": "Test amount",
@@ -444,6 +466,13 @@ class TestMembershipTypeChange(BaseTestCase):
             old_schedule.status = "Cancelled"
             old_schedule.save()
 
+        # Derive the new schedule's billing frequency from the target membership
+        # type's billing period (e.g. converting to a Monthly type yields a
+        # Monthly schedule).
+        target_billing_period = frappe.db.get_value(
+            "Membership Type", request.requested_membership_type, "billing_period"
+        )
+
         # Create new dues schedule
         new_schedule = frappe.get_doc(
             {
@@ -453,7 +482,8 @@ class TestMembershipTypeChange(BaseTestCase):
                 "membership": request.membership,
                 "membership_type": request.requested_membership_type,
                 "dues_rate": request.requested_amount,
-                "contribution_mode": "Custom",  # Set to Custom to preserve our amount
+                "billing_frequency": target_billing_period,
+                "contribution_mode": "Fixed",  # Fixed mode preserves our amount (v16 modes: Fixed/Income-Based/Flexible)
                 "uses_custom_amount": 1,
                 "custom_amount_approved": 1,
                 "custom_amount_reason": "Membership type change",

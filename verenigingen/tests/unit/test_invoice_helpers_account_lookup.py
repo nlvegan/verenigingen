@@ -51,8 +51,10 @@ class TestProcessLineItemsAccountValidation(unittest.TestCase):
         ) as mock_map:
             mock_map.return_value = None  # No mapping found
 
+            # process_line_items imports get_or_create_item_improved lazily from
+            # eboekhouden_improved_item_naming, so patch it at its source module.
             with patch(
-                "verenigingen.e_boekhouden.utils.invoice_helpers.get_or_create_item_improved"
+                "verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming.get_or_create_item_improved"
             ) as mock_item:
                 mock_item.return_value = "Test-Item"
 
@@ -65,7 +67,9 @@ class TestProcessLineItemsAccountValidation(unittest.TestCase):
                     with self.assertRaises(frappe.exceptions.ValidationError) as context:
                         process_line_items(invoice, regels, "sales", "Main - TC", debug_info)
 
-                    self.assertIn("Account Mapping Required", str(context.exception))
+                    # "Account Mapping Required" is the throw() title; the exception
+                    # message itself describes the missing mapping.
+                    self.assertIn("No account mapping found", str(context.exception))
 
 
 class TestGetOrCreateItemImprovedCompanyParameter(unittest.TestCase):
@@ -84,11 +88,17 @@ class TestGetOrCreateItemImprovedCompanyParameter(unittest.TestCase):
             captured_params["allow_fallback"] = allow_fallback
             return None  # Return None to simulate no mapping found
 
-        # Mock all frappe database calls
-        with patch("frappe.db.exists", return_value=False):
+        # Mock all frappe database calls. frappe.log_error is mocked because the
+        # fallback path writes an Error Log doc, which isn't available in this bare
+        # unittest context (no DocType setup) and would raise DoesNotExistError.
+        with patch("frappe.log_error"), patch("frappe.db.exists", return_value=False):
             with patch("frappe.db.get_value", return_value=None):
+                # map_grootboek_to_erpnext_account and get_item_for_account are imported
+                # lazily inside get_or_create_item_improved from their source modules
+                # (invoice_helpers and e_boekhouden_item_mapping respectively), so patch
+                # them there rather than on eboekhouden_improved_item_naming.
                 with patch(
-                    "verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming.map_grootboek_to_erpnext_account",
+                    "verenigingen.e_boekhouden.utils.invoice_helpers.map_grootboek_to_erpnext_account",
                     side_effect=capture_map_call,
                 ):
                     with patch(
@@ -100,7 +110,7 @@ class TestGetOrCreateItemImprovedCompanyParameter(unittest.TestCase):
                             return_value=False,
                         ):
                             with patch(
-                                "verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming.get_item_for_account",
+                                "verenigingen.e_boekhouden.doctype.e_boekhouden_item_mapping.e_boekhouden_item_mapping.get_item_for_account",
                                 return_value=None,
                             ):
                                 with patch(
@@ -165,7 +175,7 @@ class TestAutoCreateLedgerMappingAccountLookupLogic(unittest.TestCase):
                     mock_settings.return_value = mock_settings_doc
 
                     with patch(
-                        "verenigingen.e_boekhouden.utils.invoice_helpers.EBoekhoudenRESTClient"
+                        "verenigingen.e_boekhouden.utils.eboekhouden_rest_client.EBoekhoudenRESTClient"
                     ) as mock_client:
                         mock_client_instance = MagicMock()
                         mock_client.return_value = mock_client_instance
@@ -231,7 +241,7 @@ class TestAutoCreateLedgerMappingAccountLookupLogic(unittest.TestCase):
                     mock_settings.return_value = mock_settings_doc
 
                     with patch(
-                        "verenigingen.e_boekhouden.utils.invoice_helpers.EBoekhoudenRESTClient"
+                        "verenigingen.e_boekhouden.utils.eboekhouden_rest_client.EBoekhoudenRESTClient"
                     ) as mock_client:
                         mock_client_instance = MagicMock()
                         mock_client.return_value = mock_client_instance

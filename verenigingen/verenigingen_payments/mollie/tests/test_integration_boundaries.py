@@ -392,13 +392,20 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             customer=self.test_member.customer, grand_total=50.00, submit=True
         )
 
-        # Create payment entry for the invoice
+        # Create payment entry for the invoice. The invoice link lives in the
+        # Payment Entry "references" child table (reference_doctype/reference_name
+        # are not top-level Payment Entry fields).
         self.payment_entry = self.create_test_payment_entry(
             payment_type="Receive",
             party=self.test_member.customer,
             paid_amount=50.00,
-            reference_doctype="Sales Invoice",
-            reference_name=self.paid_invoice.name,
+            references=[
+                {
+                    "reference_doctype": "Sales Invoice",
+                    "reference_name": self.paid_invoice.name,
+                    "allocated_amount": 50.00,
+                }
+            ],
         )
 
         # Mark invoice as paid

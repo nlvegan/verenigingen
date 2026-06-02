@@ -8,6 +8,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -27,6 +28,18 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         # Create test mandate
         self.mandate = self.create_test_sepa_mandate(member=self.member.name, bank_code="TEST")
 
+        # The batch invoice rows below carry the member's IBAN (reqd on the
+        # Direct Debit Batch Invoice child table). create_test_sepa_mandate sets
+        # the IBAN on the mandate but does not push it onto the Member, so mirror
+        # the production state (member with an active mandate has the IBAN) here.
+        # create_test_sepa_mandate may modify the Member (e.g. set its customer),
+        # so reload before saving to avoid a TimestampMismatchError.
+        self.member.reload()
+        if not self.member.iban:
+            self.member.iban = self.mandate.iban
+            self.member.save()
+            self.member.reload()
+
         # Create test membership and invoice
         self.membership = self.create_test_membership(
             member=self.member.name, membership_type=self.create_test_membership_type().name
@@ -34,11 +47,18 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
 
         # Create test invoice and submit it (the batch only accepts submitted,
         # unpaid invoices; a Draft invoice yields "No valid invoices found").
-        # NOTE: SEPA validation requires EUR invoices. On a test site whose
-        # default company currency is not EUR, the batch will still reject these
-        # invoices ("Unsupported currency"). That is an environment limitation,
-        # not a test-logic bug.
-        self.invoice = self.create_test_sales_invoice(customer=self.member.customer, grand_total=100.00)
+        # SEPA validation requires EUR invoices (validate_invoice_for_sepa
+        # rejects any other currency), so the invoice must be created under a
+        # EUR company. `_Test Company 2` is the EUR company in the ERPNext test
+        # fixtures; without it the batch rejects every invoice and reports
+        # "No valid invoices found" / F3001 "Negative batch total".
+        self.eur_company = get_eur_test_company()
+        self.invoice = self.create_test_sales_invoice(
+            customer=self.member.customer,
+            grand_total=100.00,
+            company=self.eur_company,
+            currency="EUR",
+        )
         self.invoice.submit()
 
     def test_sequence_type_validation_critical_error(self):

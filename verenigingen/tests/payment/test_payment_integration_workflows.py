@@ -18,6 +18,8 @@ Test Categories:
 @version 1.0.0
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_months, flt, nowdate, add_days
 from decimal import Decimal
@@ -38,9 +40,11 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
         """Set up test environment for payment integration testing"""
         super().setUp()
 
-        # Create test chapter for member context
+        # Create test chapter for member context. The factory names the Chapter
+        # via chapter_name (the Chapter "name" is derived from it), so pass
+        # chapter_name rather than the non-existent "name" field.
         self.test_chapter = self.create_test_chapter(
-            name="Payment Test Chapter",
+            chapter_name="Payment Test Chapter",
             postal_codes="1000-1099",
             region="Noord-Holland"
         )
@@ -256,7 +260,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
         # Create payment entry
         payment = self.create_test_payment_entry(
             party=self.test_member.customer,
-            amount=50.00,
+            paid_amount=50.00,
             reference_no="PAY001"
         )
 
@@ -311,7 +315,7 @@ class TestPaymentIntegrationWorkflows(EnhancedTestCase):
                 payment_amount = scenario["amount"] if scenario["status"] == "Paid" else scenario["amount"] * 0.5
                 payment = self.create_test_payment_entry(
                     party=self.test_member.customer,
-                    amount=payment_amount,
+                    paid_amount=payment_amount,
                     reference_no=f"PAY_{invoice.name}"
                 )
                 self.link_payment_to_invoice(payment, invoice)
@@ -482,6 +486,11 @@ class TestAPISecurityAndValidation(EnhancedTestCase):
     inputs and enforce security policies.
     """
 
+    @unittest.skip(
+        "Placeholder: relies on the _api_operation stub (returns a hardcoded "
+        "{success: True}), so it asserts against a constant and tests no real API "
+        "access control. Skipped until implemented against the real API (review 2026-06-02)."
+    )
     def test_member_api_access_control_validation(self):
         """
         Test API access control for member operations
@@ -497,12 +506,15 @@ class TestAPISecurityAndValidation(EnhancedTestCase):
 
         for role, allowed_ops, forbidden_ops in test_roles:
             with self.subTest(role=role):
-                # Create test user with specific role
-                test_user = self.create_test_user(roles=[role])
+                # Create test user with specific role (email is required)
+                test_user = self.create_test_user(
+                    email=f"apiaccess_{frappe.generate_hash(length=8)}@example.com",
+                    roles=[role],
+                )
 
                 # Test allowed operations
                 for operation in allowed_ops:
-                    result = self.test_api_operation(
+                    result = self._api_operation(
                         "member", operation, user=test_user
                     )
                     self.assertTrue(result["success"],
@@ -510,12 +522,18 @@ class TestAPISecurityAndValidation(EnhancedTestCase):
 
                 # Test forbidden operations
                 for operation in forbidden_ops:
-                    result = self.test_api_operation(
+                    result = self._api_operation(
                         "member", operation, user=test_user
                     )
                     self.assertFalse(result["success"],
                         f"{role} should forbid {operation}")
 
+    @unittest.skip(
+        "Placeholder: relies on the _api_with_malicious_input stub (returns a "
+        "hardcoded {success: False}), so it asserts against a constant and tests no "
+        "real input validation. Skipped until implemented against the real API "
+        "(review 2026-06-02)."
+    )
     def test_api_input_validation_comprehensive(self):
         """
         Test comprehensive API input validation
@@ -534,7 +552,7 @@ class TestAPISecurityAndValidation(EnhancedTestCase):
         for malicious_input in malicious_inputs:
             with self.subTest(attack_type=malicious_input["type"]):
                 # Test API endpoint with malicious input
-                result = self.test_api_with_malicious_input(
+                result = self._api_with_malicious_input(
                     endpoint="create_member",
                     field="first_name",
                     value=malicious_input["value"]
@@ -546,12 +564,12 @@ class TestAPISecurityAndValidation(EnhancedTestCase):
                 self.assertIn("validation", result.get("error", "").lower())
 
     # Helper methods for API testing
-    def test_api_operation(self, doctype, operation, user):
+    def _api_operation(self, doctype, operation, user):
         """Test API operation with specific user"""
         # Implementation would test actual API with user context
         return {"success": True}  # Placeholder
 
-    def test_api_with_malicious_input(self, endpoint, field, value):
+    def _api_with_malicious_input(self, endpoint, field, value):
         """Test API with malicious input"""
         # Implementation would test actual API security
         return {"success": False, "error": "Validation failed"}  # Placeholder

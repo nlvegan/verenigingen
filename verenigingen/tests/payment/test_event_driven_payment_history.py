@@ -7,6 +7,7 @@ invoice events without blocking invoice submission on validation errors.
 
 import frappe
 from frappe.utils import today, add_days
+from verenigingen.tests.support.sepa_test_company import ensure_membership_dues_item
 from verenigingen.tests.utils.base import VereningingenTestCase
 import time
 
@@ -17,7 +18,16 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
     def setUp(self):
         """Set up test data"""
         super().setUp()
-        
+
+        # Invoices below reference the "Membership Dues - Daily" Item, which is
+        # created on demand in production but absent on a fresh test site. Create
+        # it (and the invoices) under the EUR test company so the Item's default
+        # accounts and the invoice currency/company line up.
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        self.company = get_eur_test_company()
+        ensure_membership_dues_item("Daily")
+
         # Create test member with customer
         self.member = self.create_test_member(
             first_name="EventTest",
@@ -48,6 +58,8 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
         # Create invoice
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = self.customer.name
+        invoice.company = self.company
+        invoice.currency = "EUR"
         invoice.posting_date = today()
         invoice.due_date = add_days(today(), 30)
         
@@ -85,6 +97,8 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
         # Create and submit invoice
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = self.customer.name
+        invoice.company = self.company
+        invoice.currency = "EUR"
         invoice.posting_date = today()
         invoice.due_date = add_days(today(), 30)
         
@@ -124,6 +138,8 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
         # Create and submit invoice
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = self.customer.name
+        invoice.company = self.company
+        invoice.currency = "EUR"
         invoice.posting_date = today()
         invoice.due_date = add_days(today(), 30)
         
@@ -155,6 +171,8 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
         # Create, submit, then cancel invoice
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = self.customer.name
+        invoice.company = self.company
+        invoice.currency = "EUR"
         invoice.posting_date = today()
         invoice.due_date = add_days(today(), 30)
         
@@ -200,6 +218,8 @@ class TestEventDrivenPaymentHistory(VereningingenTestCase):
         # Create invoice for this customer
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = problem_customer.name
+        invoice.company = self.company
+        invoice.currency = "EUR"
         invoice.posting_date = today()
         invoice.due_date = add_days(today(), 30)
         
@@ -258,19 +278,37 @@ class TestEventSystemIntegration(VereningingenTestCase):
         member.save()
         self.track_doc("Customer", customer.name)
         
-        # Create membership
+        # Create membership. "Daglid" is a named type that may not exist on a
+        # fresh site; ensure it before referencing it.
+        from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
+
+        ensure_membership_type_exists("Daglid", amount=2.0)
         membership = self.create_test_membership(
             member=member.name,
             membership_type="Daglid"
         )
+        # The dues schedule below requires an active *submitted* membership
+        # (status=Active, docstatus=1); the factory only inserts (docstatus=0).
+        if membership.docstatus == 0:
+            membership.submit()
         
-        # Create dues schedule
-        dues_schedule = frappe.new_doc("Membership Dues Schedule")
-        dues_schedule.schedule_name = f"Integration Test Schedule {member.name}"
-        dues_schedule.member = member.name
-        dues_schedule.member_name = member.full_name
-        dues_schedule.membership_type = "Daglid"
-        dues_schedule.status = "Active"
+        # Submitting the membership auto-creates an Active dues schedule, and the
+        # controller enforces one active schedule per member. Reuse it and set the
+        # Daily billing config the test needs.
+        existing_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0, "status": "Active"},
+            "name",
+        )
+        if existing_schedule:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+        else:
+            dues_schedule = frappe.new_doc("Membership Dues Schedule")
+            dues_schedule.schedule_name = f"Integration Test Schedule {member.name}"
+            dues_schedule.member = member.name
+            dues_schedule.member_name = member.full_name
+            dues_schedule.membership_type = "Daglid"
+            dues_schedule.status = "Active"
         dues_schedule.billing_frequency = "Daily"
         dues_schedule.dues_rate = 2.0
         dues_schedule.next_invoice_date = today()

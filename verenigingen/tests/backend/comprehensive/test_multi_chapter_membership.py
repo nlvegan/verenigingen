@@ -368,6 +368,9 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
 
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = customer
+        # Company is mandatory and needs an active Fiscal Year for the posting
+        # date; _Test Company is the standard fixture configured for that.
+        invoice.company = "_Test Company"
         invoice.posting_date = today()
         invoice.append(
             "items",

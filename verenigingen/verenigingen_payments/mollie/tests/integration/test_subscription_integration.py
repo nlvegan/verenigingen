@@ -52,6 +52,7 @@ while preserving legitimate infrastructure mocks for external services like SMTP
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import json
+import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -66,6 +67,23 @@ from verenigingen.verenigingen_payments.utils.payment_gateways import (
 )
 
 
+def _has_live_mollie_credentials():
+    """True only when a real Mollie test API key is configured for this site.
+
+    These Phase 4D tests deliberately exercise the real PaymentGatewayFactory /
+    Mollie SDK (no business-logic mocks), so they require live Mollie test
+    credentials. Without them the Mollie client cannot bind and the tests are
+    not runnable, so we skip rather than error.
+    """
+    key = frappe.conf.get("mollie_test_api_key") or frappe.conf.get("mollie_api_key")
+    return bool(key) and str(key).startswith(("test_", "live_"))
+
+
+@unittest.skipUnless(
+    _has_live_mollie_credentials(),
+    "Live Mollie test credentials not configured (set 'mollie_test_api_key' in "
+    "site config); Phase 4D tests call the real Mollie API.",
+)
 class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
     """
     Phase 4D Compliant Mollie Subscription Integration Tests
@@ -143,34 +161,43 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
 
         print(f"\n🧪 Setting up test: {self._testMethodName}")
 
-        # Create test member with Dutch compliance data using Enhanced Test Factory
-        with self.assertQueryCount(50):  # Performance monitoring (Phase 4D requirement)
-            self.member = self.create_test_member(
-                first_name="Willem",  # Dutch name for authentic testing
-                last_name="van der Berg",  # Dutch tussenvoegsel pattern
-                email="willem.vandberg@test.verenigingen.nl",
-                birth_date="1985-03-15",  # Over 16 for business rule compliance
-                attributes={
-                    # Dutch postal code compliance
-                    "postal_code": "1234 AB",
-                    "city": "Amsterdam",
-                    "country": "Netherlands",
-                },
-            )
+        # Create test member with Dutch compliance data using Enhanced Test
+        # Factory. Note: data provisioning is intentionally not wrapped in an
+        # assertQueryCount gate — member + membership + dues setup legitimately
+        # issues many (uncached metadata) queries and a fixed cap here is
+        # brittle. Per-test-method performance assertions live in the bodies.
+        # The factory validates kwargs as Member fields; pass the Dutch address
+        # fields as flat kwargs (whitelisted) rather than a nested "attributes"
+        # dict, which is not a Member field.
+        self.member = self.create_test_member(
+            first_name="Willem",  # Dutch name for authentic testing
+            last_name="van der Berg",  # Dutch tussenvoegsel pattern
+            email="willem.vandberg@test.verenigingen.nl",
+            birth_date="1985-03-15",  # Over 16 for business rule compliance
+            postal_code="1234 AB",  # Dutch postal code compliance
+            city="Amsterdam",
+            country="Netherlands",
+        )
 
         print(f"✅ Created Dutch test member: {self.member.full_name}")
 
-        # Create customer for invoice generation (required for authentic payment flow)
-        self.customer = frappe.get_doc(
-            {
-                "doctype": "Customer",
-                "customer_name": self.member.full_name,
-                "customer_type": "Individual",
-                "territory": "Netherlands",
-                "default_currency": "EUR",  # Dutch compliance
-            }
-        )
-        self.customer.insert()
+        # Reuse the Customer auto-created for the member (Member.after_insert
+        # creates one named after full_name); creating another with the same
+        # name would collide on the Customer primary key.
+        self.member.reload()
+        if self.member.customer:
+            self.customer = frappe.get_doc("Customer", self.member.customer)
+        else:
+            self.customer = frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": self.member.full_name,
+                    "customer_type": "Individual",
+                    "territory": "Netherlands",
+                    "default_currency": "EUR",  # Dutch compliance
+                }
+            )
+            self.customer.insert()
 
         # Link customer to member (authentic business relationship)
         self.member.customer = self.customer.name
@@ -219,7 +246,10 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         if DocumentExistenceValidator.check_document_exists("Membership Type", membership_type_name):
             return frappe.get_doc("Membership Type", membership_type_name)
 
-        # Create authentic Dutch membership type
+        # Create authentic Dutch membership type. dues_schedule_template is a
+        # Link to an existing Membership Dues Schedule template; reuse the
+        # standard "Test Membership Template" fixture rather than a name that
+        # does not exist on the site (which trips LinkValidationError).
         return frappe.get_doc(
             {
                 "doctype": "Membership Type",
@@ -227,8 +257,11 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
                 "description": "Standard membership for Dutch association",
                 "is_active": 1,
                 "billing_period": "Annual",
-                "minimum_amount": 25.00,  # Standard Dutch association fee
-                "dues_schedule_template": "Annual Membership",
+                # minimum_amount must not exceed the linked template's dues rate
+                # (Test Membership Template = €15), else dues-schedule validation
+                # rejects the template as below the type minimum.
+                "minimum_amount": 15.00,
+                "dues_schedule_template": "Test Membership Template",
             }
         ).insert()
 

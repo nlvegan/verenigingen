@@ -154,6 +154,14 @@ class TestPartialPaymentReconciliation(VereningingenTestCase):
 
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = customer
+        # Company is mandatory and must have an active Fiscal Year covering the
+        # posting date; _Test Company is the standard fixture with that setup.
+        invoice.company = "_Test Company"
+        # Preserve the backdated posting_date; without set_posting_time ERPNext
+        # resets posting_date to today, which can make the (earlier) due_date
+        # fall before the posting date and trip "Due Date cannot be before
+        # Posting Date" on backdated test invoices.
+        invoice.set_posting_time = 1
         invoice.posting_date = posting_date
         invoice.due_date = due_date
         invoice.append("items", {
@@ -221,11 +229,20 @@ class TestPartialPaymentReconciliation(VereningingenTestCase):
         return bank_account.name
 
     def reconcile_transaction(self, transaction):
-        """Attempt to reconcile a bank transaction"""
-        # This is a mock reconciliation - in real tests, call actual reconciliation service
-        # For now, return a simulated result based on transaction data
+        """Attempt to reconcile a bank transaction.
+
+        Simulated reconciliation: resolves the target invoice from the
+        "INVOICE <name>" token in the transaction description so callers can
+        assert which invoice the deposit was matched against.
+        """
+        invoice_name = None
+        description = transaction.description or ""
+        if "INVOICE " in description:
+            invoice_name = description.split("INVOICE ", 1)[1].split()[0]
+
         return {
             "matched": True,
+            "invoice": invoice_name,
             "match_type": "partial_payment" if transaction.deposit < 50 else "full_payment",
             "allocated_amount": transaction.deposit,
             "remaining_amount": max(0, 50 - transaction.deposit),
@@ -245,28 +262,49 @@ class TestDuplicatePaymentDetection(VereningingenTestCase):
         """Test detection of duplicate reference numbers"""
         reference = f"REF-{frappe.generate_hash(length=8)}"
 
-        # First transaction with reference
-        tx1 = {
-            "name": "BT-001",
-            "reference_number": reference,
-            "deposit": 25.00,
-            "date": add_days(today(), -5),
-            "description": "Payment from Jan",
-        }
+        # check_duplicate_reference queries persisted Bank Transactions, so the
+        # first transaction must actually exist in the database for the second
+        # (same reference) to be detected as a duplicate.
+        tx1 = self._create_bank_transaction(reference=reference, deposit=25.00)
 
-        # Second transaction with same reference (duplicate)
-        tx2 = {
-            "name": "BT-002",
-            "reference_number": reference,
-            "deposit": 25.00,
-            "date": today(),
-            "description": "Payment from Jan",
-        }
-
-        # Detect duplicates
-        is_duplicate = self.check_duplicate_reference(tx1["reference_number"], tx2["name"])
+        # A second, not-yet-persisted transaction with the same reference must
+        # be flagged as a duplicate of the existing tx1.
+        is_duplicate = self.check_duplicate_reference(reference, exclude_name="NEW-BT")
 
         self.assertTrue(is_duplicate)
+
+    def _create_bank_transaction(self, reference, deposit):
+        """Create a persisted Bank Transaction for duplicate-detection tests."""
+        bank_account = frappe.db.get_value("Bank Account", {"is_default": 1}, "name")
+        if not bank_account:
+            bank = frappe.db.get_value("Bank", {}, "name")
+            if not bank:
+                bank_doc = frappe.new_doc("Bank")
+                bank_doc.bank_name = "Test Bank"
+                bank_doc.save()
+                self.track_doc("Bank", bank_doc.name)
+                bank = bank_doc.name
+            gl_account = frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "name")
+            account = frappe.new_doc("Bank Account")
+            account.account_name = f"Test Bank Account {frappe.generate_hash(length=6)}"
+            account.bank = bank
+            account.account = gl_account
+            account.is_default = 1
+            account.save()
+            self.track_doc("Bank Account", account.name)
+            bank_account = account.name
+
+        bt = frappe.new_doc("Bank Transaction")
+        bt.date = today()
+        bt.deposit = deposit
+        bt.withdrawal = 0
+        bt.description = "Payment from Jan"
+        bt.reference_number = reference
+        bt.bank_account = bank_account
+        bt.status = "Pending"
+        bt.save()
+        self.track_doc("Bank Transaction", bt.name)
+        return bt
 
     def test_duplicate_amount_date_member_detection(self):
         """Test detection of same amount/date/member combinations"""
