@@ -271,7 +271,11 @@ class SEPAMonitoringDashboard:
                 MIN(sign_date) as oldest_mandate,
                 MAX(sign_date) as newest_mandate
             FROM `tabSEPA Mandate`
-            WHERE docstatus = 1
+            -- SEPA Mandate is not a submittable doctype, so docstatus is always
+            -- 0; filtering on docstatus = 1 returned no rows (mandate health
+            -- report was always empty). Use docstatus < 2 to count all valid
+            -- (non-cancelled) mandates.
+            WHERE docstatus < 2
             GROUP BY status
         """,
             as_dict=True,

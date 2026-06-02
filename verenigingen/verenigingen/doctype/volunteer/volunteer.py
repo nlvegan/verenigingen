@@ -773,7 +773,7 @@ def create_volunteer_from_member(
                             "skills_and_qualifications",
                             {
                                 "volunteer_skill": skill,
-                                "skill_category": "General",
+                                "skill_category": "Other",
                                 "proficiency_level": "1 - Beginner",
                             },
                         )
@@ -782,7 +782,7 @@ def create_volunteer_from_member(
                             "skills_and_qualifications",
                             {
                                 "volunteer_skill": skill.get("name", skill.get("skill", "Unknown")),
-                                "skill_category": skill.get("category", "General"),
+                                "skill_category": skill.get("category", "Other"),
                                 "proficiency_level": skill.get("level", "1 - Beginner"),
                             },
                         )

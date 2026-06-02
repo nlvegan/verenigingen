@@ -220,7 +220,9 @@ class SEPAAdminReportGenerator:
                 WHERE ddb.docstatus = 1
                 GROUP BY mem.name
             ) ddb_stats ON ddb_stats.member_id = sm.member
-            WHERE sm.docstatus = 1
+            -- SEPA Mandate is not submittable (docstatus always 0); docstatus = 1
+            -- matched nothing, leaving the lifecycle report with zero mandates.
+            WHERE sm.docstatus < 2
             ORDER BY sm.creation DESC
         """,
             as_dict=True,

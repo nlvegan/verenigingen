@@ -754,8 +754,17 @@ def reject_membership_application(member_name, reason) -> OperationResult[Dict[s
                 },
             )
 
-        # Use the new reject_application method which handles chapter membership cleanup
-        member.reject_application(reason)
+        # Member.reject_application was removed in T4.1. Apply the rejection
+        # directly here (mirrors the canonical path in
+        # api.membership_application_review.reject_membership_application):
+        # mark the application rejected and record the reviewer + reason.
+        member.application_status = "Rejected"
+        member.status = "Rejected"
+        member.reviewed_by = frappe.session.user
+        member.review_date = frappe.utils.now_datetime()
+        member.review_notes = reason
+        member.flags.ignore_status_validation = True
+        member.save()
 
         # Send rejection notification using modern EmailService
         send_rejection_notification(member, reason)
@@ -765,7 +774,7 @@ def reject_membership_application(member_name, reason) -> OperationResult[Dict[s
                 "member_id": member_name,
                 "status": "Rejected",
             },
-            message=_("Application rejected, pending chapter membership removed, and notification sent"),
+            message=_("Application rejected and notification sent"),
         )
 
     except Exception as e:

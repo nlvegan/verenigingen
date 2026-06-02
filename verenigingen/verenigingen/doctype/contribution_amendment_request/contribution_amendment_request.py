@@ -259,29 +259,51 @@ class ContributionAmendmentRequest(Document):
             self.requested_by = None
             self.requested_by = frappe.session.user
 
+    def set_requested_date(self):
+        """Default the request date to today when not provided.
+
+        Mirrors the field's "Today" default for documents created via
+        frappe.get_doc({...}), which does not apply field defaults.
+        """
+        if not self.requested_date:
+            self.requested_date = today()
+
     def before_insert(self):
         """Set approval status for certain cases with enhanced rules"""
-        # Run all validations first before determining approval status
+        # requested_date is a reqd field with a "Today" default, but that default
+        # is only applied by frappe.new_doc(); documents built via
+        # frappe.get_doc({...}) (the common API/test path) skip it and would fail
+        # mandatory validation. Set it unconditionally and before the validation
+        # try-block so it is populated on every creation path.
+        self.set_requested_date()
+
+        # Hard business-rule validations: these MUST block creation when they
+        # fail, so let their frappe.throw propagate. (Previously they were wrapped
+        # in a try/except that swallowed every ValidationError and silently
+        # downgraded the request to "Pending Approval" — which defeated conflict
+        # detection: a second pending amendment for the same member was created
+        # instead of being rejected.)
+        self.validate_membership_exists()
+        self.validate_effective_date()
+        self.validate_amount_changes()
+        self.validate_no_conflicting_amendments()
+        self.validate_adjustment_frequency()
+
+        # Detail population for the auto-approval decision. If any of these can't
+        # be determined, fall back to manual approval rather than auto-approving.
         try:
-            self.validate_membership_exists()
-            self.validate_effective_date()
-            self.validate_amount_changes()
-            self.validate_no_conflicting_amendments()
-            self.validate_adjustment_frequency()
             self.set_current_details()
             self.set_default_effective_date()
             self.set_requested_by()
+
+            from verenigingen.services.approval import ContributionAmendmentApprovalService
+
+            approval_service = ContributionAmendmentApprovalService(self)
+            approval_service.set_auto_approval_status()
         except frappe.ValidationError:
-            # If any validation fails, don't auto-approve
+            # Could not determine details/auto-approval; require manual review.
             self.status = "Pending Approval"
             self.internal_notes = "Requires manual approval due to validation issues"
-            return
-
-        # Delegate auto-approval logic to service
-        from verenigingen.services.approval import ContributionAmendmentApprovalService
-
-        approval_service = ContributionAmendmentApprovalService(self)
-        approval_service.set_auto_approval_status()
 
     def after_insert(self):
         """Handle post-insertion tasks"""

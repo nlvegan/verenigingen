@@ -100,7 +100,7 @@ def get_skills_overview() -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist()
-@high_security_api  # Volunteer search - personal data access
+@high_security_api()  # Volunteer search - personal data access
 def search_volunteers_advanced(filters: str | None = None) -> OperationResult[Dict[str, Any]]:
     """Advanced volunteer search with multiple skill filters
 
@@ -402,7 +402,7 @@ def get_skill_gaps_analysis() -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist()
-@high_security_api  # Data export - personal information
+@high_security_api()  # Data export - personal information
 def export_skills_data(format_type="json") -> OperationResult[Dict[str, Any]]:
     """Export skills data for external analysis
 

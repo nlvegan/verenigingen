@@ -288,7 +288,7 @@ def handle_automated_batch_validation(batch, critical_errors, warnings):
             # BLOCK: Critical SEPA compliance issues
             batch.db_set("status", "Validation Failed")
             batch.add_comment(
-                "System",
+                "Info",
                 f"Automated processing blocked: {len(critical_errors)} critical sequence type errors",
             )
 
@@ -299,7 +299,7 @@ def handle_automated_batch_validation(batch, critical_errors, warnings):
         elif warnings:
             # PROCEED WITH WARNING: Minor issues, but notify
             batch.add_comment(
-                "System", f"Processed with {len(warnings)} sequence type warnings - review recommended"
+                "Info", f"Processed with {len(warnings)} sequence type warnings - review recommended"
             )
 
             # Send informational notification
@@ -308,7 +308,7 @@ def handle_automated_batch_validation(batch, critical_errors, warnings):
 
         else:
             # PROCEED: No issues
-            batch.add_comment("System", "Sequence type validation passed - no issues found")
+            batch.add_comment("Info", "Sequence type validation passed - no issues found")
             return {"action": "processed", "requires_intervention": False}
 
     except Exception as e:

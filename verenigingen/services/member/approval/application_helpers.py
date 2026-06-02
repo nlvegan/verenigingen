@@ -248,6 +248,16 @@ def parse_application_data(data_input):
     else:
         data = data_input
 
+    # The @frappe.whitelist/@public_api layer HTML-escapes incoming string
+    # values (e.g. an apostrophe in "O'Brien" becomes "O&#x27;Brien"). Decode
+    # those entities so downstream name/address validation and the persisted
+    # Member record see the real characters rather than rejecting legitimate
+    # names. Mirrors the html.unescape applied to the JSON-string branch above.
+    if isinstance(data, dict):
+        import html
+
+        data = {k: (html.unescape(v) if isinstance(v, str) else v) for k, v in data.items()}
+
     return data
 
 

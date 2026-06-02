@@ -20,7 +20,10 @@ class MembershipAnalyticsSnapshot(Document):
 @high_security_api(operation_type=OperationType.ADMIN)
 def create_snapshot(snapshot_type="Daily", specific_date=None):
     """Create analytics snapshot for the specified type and date"""
-    snapshot_date = getdate(specific_date) if specific_date else today()
+    # Always coerce to a date object: calculate_period() calls date methods like
+    # .replace(month=...)/.strftime() on it. today() returns a str, so use getdate()
+    # (getdate() with no arg returns today's date) for the no-specific_date case.
+    snapshot_date = getdate(specific_date) if specific_date else getdate()
 
     # Check if snapshot already exists
     existing = frappe.db.exists(
