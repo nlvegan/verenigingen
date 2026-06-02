@@ -16,7 +16,7 @@ year; the ERPNext ``_Test Company 2`` is EUR but has no current Fiscal Year.
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import getdate, today
 
 # The app's EUR test company, scoped to the current fiscal year. Preferred.
 _PREFERRED_EUR_COMPANY = "TEST-Payment-Integration-Company"
@@ -26,7 +26,11 @@ def get_eur_test_company() -> str:
     """Return a EUR company that also has an active Fiscal Year for today.
 
     Prefers ``TEST-Payment-Integration-Company`` (EUR + current FY); otherwise
-    falls back to the first EUR company whose Fiscal Year covers today.
+    falls back to the first EUR company whose Fiscal Year covers today; otherwise
+    CREATES the preferred company (get-or-create). The company used to be created
+    only as a side effect of one e_boekhouden test, so SEPA tests raised
+    RuntimeError on any shard/order where that test had not run first. Creating it
+    on demand here makes SEPA tests self-sufficient regardless of suite ordering.
     """
     if _company_is_eur_with_current_fy(_PREFERRED_EUR_COMPANY):
         return _PREFERRED_EUR_COMPANY
@@ -35,11 +39,63 @@ def get_eur_test_company() -> str:
         if _company_is_eur_with_current_fy(company):
             return company
 
-    raise RuntimeError(
-        "No EUR company with an active Fiscal Year for today was found for SEPA "
-        "tests. SEPA invoice validation requires EUR and Sales Invoice save "
-        "requires a current Fiscal Year."
-    )
+    return _create_eur_test_company()
+
+
+def _create_eur_test_company() -> str:
+    """Get-or-create the EUR test company with a Fiscal Year covering today.
+
+    Mirrors the company that test_e_boekhouden_migration_integration builds, but
+    makes it available to any SEPA test. ERPNext creates a default Chart of
+    Accounts on company insert, so the standard Receivable/Payable/Income accounts
+    exist afterwards.
+    """
+    company_name = _PREFERRED_EUR_COMPANY
+
+    if not frappe.db.exists("Company", company_name):
+        company = frappe.new_doc("Company")
+        company.company_name = company_name
+        company.abbr = "TPIC"
+        company.default_currency = "EUR"
+        company.country = "Netherlands"
+        company.insert(ignore_permissions=True)
+
+        receivable = frappe.db.get_value(
+            "Account", {"company": company_name, "account_type": "Receivable", "is_group": 0}, "name"
+        )
+        payable = frappe.db.get_value(
+            "Account", {"company": company_name, "account_type": "Payable", "is_group": 0}, "name"
+        )
+        if receivable:
+            company.default_receivable_account = receivable
+        if payable:
+            company.default_payable_account = payable
+        if receivable or payable:
+            company.save(ignore_permissions=True)
+
+    _ensure_current_fiscal_year(company_name)
+    frappe.db.commit()
+    return company_name
+
+
+def _ensure_current_fiscal_year(company_name: str) -> None:
+    """Ensure a Fiscal Year covering today exists and includes ``company_name``."""
+    year = getdate().year
+    fy_name = f"FY-{year}"
+
+    if not frappe.db.exists("Fiscal Year", fy_name):
+        fy = frappe.new_doc("Fiscal Year")
+        fy.year = fy_name
+        fy.year_start_date = f"{year}-01-01"
+        fy.year_end_date = f"{year}-12-31"
+        fy.append("companies", {"company": company_name})
+        fy.insert(ignore_permissions=True)
+        return
+
+    fy = frappe.get_doc("Fiscal Year", fy_name)
+    if not any(c.company == company_name for c in fy.companies):
+        fy.append("companies", {"company": company_name})
+        fy.save(ignore_permissions=True)
 
 
 def _company_is_eur_with_current_fy(company: str) -> bool:
