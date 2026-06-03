@@ -40,7 +40,7 @@ def run_comprehensive_membership_dues_tests(test_categories=None, verbose=False)
         'real_world': {
             'description': 'Real-World Scenario Tests', 
             'modules': [
-                'verenigingen.tests.backend.components.test_membership_dues_real_world_scenarios',
+                'verenigingen.tests.payment.test_real_world_dues_amendment_scenarios',
             ]
         },
         'stress': {
