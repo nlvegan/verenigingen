@@ -347,83 +347,67 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
 
     # ===== BANKING INTEGRATION EDGE CASES =====
 
-    @unittest.skip(
-        "Test built on a legacy pattern incompatible with current validation: it "
-        "inserts an empty Direct Debit Batch (now rejected with 'No invoices added "
-        "to batch') and a standalone Direct Debit Batch Invoice carrying only "
-        "mandate/amount/currency (no invoice/membership). Properly testing file-"
-        "generation error handling needs a real eligible-invoice EUR batch. "
-        "See flagged_for_followup."
-    )
     def test_direct_debit_file_generation_errors(self):
-        """Test direct debit file generation error handling"""
-        mandate = frappe.get_doc(
+        """File-generation error handling on a real eligible-EUR-invoice batch.
+
+        The previous version inserted an empty batch + a standalone batch-invoice
+        row (no real invoice/membership), which current validation rejects. Build a
+        real Direct Debit Batch backed by submitted EUR invoices and verify the
+        valid batch passes validation, then that malformed batches are rejected
+        rather than silently producing an invalid SEPA file.
+        """
+        from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+
+        factory = SEPATestDataFactory(seed=20260603, use_faker=True)
+        scenario = factory.create_sepa_test_scenario(scenario_name="filegen", member_count=2)
+        batch = scenario["batches"][0]
+        self.track_doc("Direct Debit Batch", batch.name)
+
+        # Valid batch: validated + saved with the expected eligible invoices/totals.
+        self.assertEqual(len(batch.invoices), 2)
+        self.assertEqual(batch.entry_count, 2)
+        self.assertGreater(batch.total_amount, 0)
+
+        # Error handling 1: an empty batch must be rejected, not generate an empty file.
+        empty_batch = frappe.get_doc(
             {
-                "doctype": "SEPA Mandate",
-                "member": self.member.name,
-                "account_holder_name": "SEPA EdgeCase",
-                "sign_date": today(),
-                "iban": self._get_test_iban(),
-                "status": "Active",
-                "mandate_date": today()}
+                "doctype": "Direct Debit Batch",
+                "batch_date": today(),
+                "batch_type": "RCUR",
+                "currency": "EUR",
+                "status": "Draft",
+            }
         )
-        mandate.insert()
+        with self.assertRaises(frappe.ValidationError):
+            empty_batch.insert()
 
-        # Create direct debit batch
-        batch = frappe.get_doc(
-            {"doctype": "Direct Debit Batch", "batch_date": today(), "status": "Draft"}
-        )
-        batch.insert()
-
-        # Add mandate to batch
-        batch_invoice = frappe.get_doc(
+        # Error handling 2: a row pointing at a non-existent Sales Invoice must be
+        # rejected (no valid invoices), not silently included in the file.
+        bad_batch = frappe.get_doc(
             {
-                "doctype": "Direct Debit Batch Invoice",
-                "parent": batch.name,
-                "mandate": mandate.name,
-                "amount": 100.00,
-                "currency": "EUR"}
+                "doctype": "Direct Debit Batch",
+                "batch_date": today(),
+                "batch_type": "RCUR",
+                "currency": "EUR",
+                "status": "Draft",
+                "invoices": [
+                    {
+                        "invoice": "ACC-SINV-DOES-NOT-EXIST",
+                        "membership": scenario["memberships"][0].name,
+                        "member": scenario["members"][0].name,
+                        "member_name": scenario["members"][0].full_name,
+                        "amount": 25.0,
+                        "currency": "EUR",
+                        "iban": scenario["mandates"][0].iban,
+                        "mandate_reference": scenario["mandates"][0].mandate_id,
+                        "status": "Pending",
+                        "sequence_type": "FRST",
+                    }
+                ],
+            }
         )
-        batch_invoice.insert()
-
-        # Test file generation with various error conditions
-        test_conditions = [
-            ("Invalid character in name", {"member_name": "Test\x00Member"}),
-            ("Amount too large", {"amount": 999999999.99}),
-            ("Invalid currency", {"currency": "INVALID"}),
-            ("Missing IBAN", {"iban": ""}),
-        ]
-
-        for condition_name, error_data in test_conditions:
-            with self.subTest(condition=condition_name):
-                # Simulate error condition
-                if "member_name" in error_data:
-                    original_name = self.member.first_name
-                    self.member.first_name = error_data["member_name"]
-                    self.member.save()
-
-                try:
-                    # Attempt file generation
-                    batch.status = "Ready"
-                    batch.save()
-
-                    # Should handle error gracefully
-                    if batch.status == "Error":
-                        self.assertTrue(True, f"Error condition '{condition_name}' handled correctly")
-                except frappe.ValidationError:
-                    # Validation error is acceptable
-                    pass
-                finally:
-                    # Restore original data
-                    if "member_name" in error_data:
-                        self.member.first_name = original_name
-                        self.member.save()
-
-        # Clean up
-        batch_invoice.delete()
-        batch.delete()
-        self._delete_mandate(mandate)
-
+        with self.assertRaises((frappe.ValidationError, frappe.LinkValidationError)):
+            bad_batch.insert()
     def test_bank_response_processing(self):
         """Test processing of bank response files"""
         # TODO: Implement sepa_processing module with process_bank_response()
