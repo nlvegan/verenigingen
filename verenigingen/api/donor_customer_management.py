@@ -305,7 +305,7 @@ def get_donor_donation_summary(donor_name):
                 COUNT(CASE WHEN paid = 1 THEN 1 END) as paid_donations,
                 MAX(donation_date) as last_donation_date
             FROM `tabDonation`
-            WHERE donor = %s AND docstatus = 1
+            WHERE donor = %s AND docstatus < 2
         """,
             (donor_name,),
             as_dict=True,
@@ -323,7 +323,7 @@ def get_donor_donation_summary(donor_name):
                 paid,
                 status
             FROM `tabDonation`
-            WHERE donor = %s AND docstatus = 1
+            WHERE donor = %s AND docstatus < 2
             ORDER BY donation_date DESC
             LIMIT 5
         """,

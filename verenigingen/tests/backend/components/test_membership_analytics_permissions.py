@@ -142,45 +142,47 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         from verenigingen.verenigingen.page.membership_analytics.membership_analytics import get_dashboard_data
         
         # Test administrator access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
+        frappe.set_user(self.admin_user)
         try:
             data = get_dashboard_data()
             self.assertIsNotNone(data)
             self.assertIn("summary", data)
         except frappe.PermissionError:
             self.fail("Administrator should have access to analytics page")
-        
+
         # Test manager access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
+        frappe.set_user(self.manager_user)
         try:
             data = get_dashboard_data()
             self.assertIsNotNone(data)
         except frappe.PermissionError:
             self.fail("Manager should have access to analytics page")
-        
+
         # Test board member access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
+        frappe.set_user(self.board_member_user)
         try:
             data = get_dashboard_data()
             self.assertIsNotNone(data)
         except frappe.PermissionError:
             self.fail("Board member should have access to analytics page")
-        
+
         # Test regular member - should NOT have access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
+        frappe.set_user(self.regular_member_user)
         with self.assertRaises(frappe.PermissionError):
             data = get_dashboard_data()
-        
+
         # Test user with no roles - should NOT have access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.no_role_user)
+        frappe.set_user(self.no_role_user)
         with self.assertRaises(frappe.PermissionError):
             data = get_dashboard_data()
+
+        frappe.set_user("Administrator")
     
     def test_goal_permissions(self):
         """Test permissions for Membership Goal doctype"""
         # Administrator - full access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
-        
+        frappe.set_user(self.admin_user)
+
         # Should be able to read
         goal = frappe.get_doc("Membership Goal", self.test_goal.name)
         self.assertEqual(goal.goal_name, "Test Growth Goal")
@@ -196,49 +198,43 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "end_date": frappe.utils.get_year_ending(frappe.utils.today())
         })
         new_goal.insert()
-        self.assertTrue(frappe.db.exists("Membership Goal", "Admin Test Goal"))
-        
+        # Membership Goal autoname is GOAL-{goal_year}-{####}, so look it up by goal_name.
+        self.assertTrue(frappe.db.exists("Membership Goal", {"goal_name": "Admin Test Goal"}))
+
         # Should be able to update
         goal.target_value = 150
         goal.save()
-        
+
         # Should be able to delete
         new_goal.delete()
-        
-        # Manager - read and write, no delete
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
-        
+
+        # Manager (Verenigingen Staff) - read only per Membership Goal permissions
+        frappe.set_user(self.manager_user)
+
         # Should be able to read
         goal = frappe.get_doc("Membership Goal", self.test_goal.name)
         self.assertIsNotNone(goal)
-        
-        # Should be able to create
-        manager_goal = frappe.get_doc({
-            "doctype": "Membership Goal",
-            "goal_name": "Manager Test Goal",
-            "goal_type": "Retention Rate",
-            "goal_year": now_datetime().year,
-            "target_value": 90,
-            "start_date": frappe.utils.get_year_start(frappe.utils.today()),
-            "end_date": frappe.utils.get_year_ending(frappe.utils.today())
-        })
-        manager_goal.insert()
-        
-        # Should be able to update
-        manager_goal.target_value = 95
-        manager_goal.save()
-        
-        # Should NOT be able to delete
+
+        # Should NOT be able to create (Staff has read-only on Membership Goal)
         with self.assertRaises(frappe.PermissionError):
-            manager_goal.delete()
-        
+            manager_goal = frappe.get_doc({
+                "doctype": "Membership Goal",
+                "goal_name": "Manager Test Goal",
+                "goal_type": "Retention Rate",
+                "goal_year": now_datetime().year,
+                "target_value": 90,
+                "start_date": frappe.utils.get_year_start(frappe.utils.today()),
+                "end_date": frappe.utils.get_year_ending(frappe.utils.today())
+            })
+            manager_goal.insert()
+
         # Board Member - read only
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
-        
+        frappe.set_user(self.board_member_user)
+
         # Should be able to read
         goal = frappe.get_doc("Membership Goal", self.test_goal.name)
         self.assertIsNotNone(goal)
-        
+
         # Should NOT be able to create
         with self.assertRaises(frappe.PermissionError):
             board_goal = frappe.get_doc({
@@ -257,18 +253,19 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             goal.target_value = 200
             goal.save()
         
-        # Regular Member - no access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
-        
-        # Should NOT be able to read
+        # Regular Member - no access. frappe.get_doc() does not enforce read
+        # permission, so assert via the explicit read permission check.
+        frappe.set_user(self.regular_member_user)
         with self.assertRaises(frappe.PermissionError):
-            goal = frappe.get_doc("Membership Goal", self.test_goal.name)
-    
+            frappe.get_doc("Membership Goal", self.test_goal.name).check_permission("read")
+
+        frappe.set_user("Administrator")
+
     def test_alert_rule_permissions(self):
         """Test permissions for Analytics Alert Rule doctype"""
         # Administrator - full access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
-        
+        frappe.set_user(self.admin_user)
+
         # Should be able to read
         alert = frappe.get_doc("Analytics Alert Rule", self.test_alert_rule.name)
         self.assertEqual(alert.rule_name, "Test Alert Rule")
@@ -294,12 +291,12 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         new_alert.delete()
         
         # Board Member - read only
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
-        
+        frappe.set_user(self.board_member_user)
+
         # Should be able to read
         alert = frappe.get_doc("Analytics Alert Rule", self.test_alert_rule.name)
         self.assertIsNotNone(alert)
-        
+
         # Should NOT be able to create
         with self.assertRaises(frappe.PermissionError):
             board_alert = frappe.get_doc({
@@ -314,125 +311,137 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             })
             board_alert.insert()
         
-        # Manager - no access to alert rules
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
-        
-        # Should NOT be able to read
+        # Manager - no access to alert rules. frappe.get_doc() does not enforce
+        # read permission, so assert via the explicit read permission check.
+        frappe.set_user(self.manager_user)
         with self.assertRaises(frappe.PermissionError):
-            alert = frappe.get_doc("Analytics Alert Rule", self.test_alert_rule.name)
-        
+            frappe.get_doc(
+                "Analytics Alert Rule", self.test_alert_rule.name
+            ).check_permission("read")
+
         # Regular Member - no access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
-        
-        # Should NOT be able to read
+        frappe.set_user(self.regular_member_user)
         with self.assertRaises(frappe.PermissionError):
-            alert = frappe.get_doc("Analytics Alert Rule", self.test_alert_rule.name)
-    
+            frappe.get_doc(
+                "Analytics Alert Rule", self.test_alert_rule.name
+            ).check_permission("read")
+
+        frappe.set_user("Administrator")
+
     def test_snapshot_permissions(self):
         """Test permissions for Membership Analytics Snapshot doctype"""
         # Administrator - full access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
-        
+        frappe.set_user(self.admin_user)
+
         # Should be able to read
         snapshot = frappe.get_doc("Membership Analytics Snapshot", self.test_snapshot.name)
         self.assertEqual(snapshot.total_members, 100)
-        
+
         # Should be able to create via API
         from verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot import create_snapshot
         new_snapshot_name = create_snapshot("Manual")
         self.assertTrue(frappe.db.exists("Membership Analytics Snapshot", new_snapshot_name))
-        
+
         # Manager - read only
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
-        
+        frappe.set_user(self.manager_user)
+
         # Should be able to read
         snapshot = frappe.get_doc("Membership Analytics Snapshot", self.test_snapshot.name)
         self.assertIsNotNone(snapshot)
-        
+
         # Should NOT be able to write
         with self.assertRaises(frappe.PermissionError):
             snapshot.total_members = 150
             snapshot.save()
-        
+
         # Board Member - read only
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
-        
+        frappe.set_user(self.board_member_user)
+
         # Should be able to read
         snapshot = frappe.get_doc("Membership Analytics Snapshot", self.test_snapshot.name)
         self.assertIsNotNone(snapshot)
-        
+
         # Regular Member - no access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
-        
-        # Should NOT be able to read
+        frappe.set_user(self.regular_member_user)
+
+        # Should NOT be able to read. frappe.get_doc() does not enforce read
+        # permission, so assert via the explicit read permission check.
         with self.assertRaises(frappe.PermissionError):
-            snapshot = frappe.get_doc("Membership Analytics Snapshot", self.test_snapshot.name)
-    
+            frappe.get_doc(
+                "Membership Analytics Snapshot", self.test_snapshot.name
+            ).check_permission("read")
+
+        frappe.set_user("Administrator")
+
     def test_predictive_analytics_access(self):
         """Test access to predictive analytics functions"""
         from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import get_predictive_analytics
         
         # Administrator - should have access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
+        frappe.set_user(self.admin_user)
         try:
             data = get_predictive_analytics(months_ahead=6)
             self.assertIsNotNone(data)
             self.assertIn("member_growth_forecast", data)
         except frappe.PermissionError:
             self.fail("Administrator should have access to predictive analytics")
-        
+
         # Manager - should have access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
+        frappe.set_user(self.manager_user)
         try:
             data = get_predictive_analytics(months_ahead=6)
             self.assertIsNotNone(data)
         except frappe.PermissionError:
             self.fail("Manager should have access to predictive analytics")
-        
+
         # Board Member - should have access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
+        frappe.set_user(self.board_member_user)
         try:
             data = get_predictive_analytics(months_ahead=6)
             self.assertIsNotNone(data)
         except frappe.PermissionError:
             self.fail("Board member should have access to predictive analytics")
-        
+
         # Regular Member - should NOT have access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
+        frappe.set_user(self.regular_member_user)
         with self.assertRaises(frappe.PermissionError):
             data = get_predictive_analytics(months_ahead=6)
+
+        frappe.set_user("Administrator")
     
     def test_export_permissions(self):
         """Test export functionality permissions"""
         from verenigingen.verenigingen.page.membership_analytics.membership_analytics import export_dashboard_data
         
         # Administrator - should be able to export
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
+        frappe.set_user(self.admin_user)
         try:
             # Test Excel export
             data = export_dashboard_data(format="excel")
             # Since this modifies frappe.response, we just check it doesn't raise an error
         except frappe.PermissionError:
             self.fail("Administrator should be able to export data")
-        
+
         # Manager - should be able to export
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
+        frappe.set_user(self.manager_user)
         try:
             data = export_dashboard_data(format="csv")
         except frappe.PermissionError:
             self.fail("Manager should be able to export data")
-        
+
         # Board Member - should be able to export
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
+        frappe.set_user(self.board_member_user)
         try:
             data = export_dashboard_data(format="csv")
         except frappe.PermissionError:
             self.fail("Board member should be able to export data")
-        
+
         # Regular Member - should NOT be able to export
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
+        frappe.set_user(self.regular_member_user)
         with self.assertRaises(frappe.PermissionError):
             data = export_dashboard_data(format="excel")
+
+        frappe.set_user("Administrator")
     
     def test_alert_log_permissions(self):
         """Test permissions for Analytics Alert Log"""
@@ -447,26 +456,29 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "condition": "Greater Than"
         })
         test_log.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
-        
+
         # Administrator - full access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
+        frappe.set_user(self.admin_user)
         log = frappe.get_doc("Analytics Alert Log", test_log.name)
         self.assertEqual(log.metric_value, 150)
-        
+
         # Board Member - read only
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
+        frappe.set_user(self.board_member_user)
         log = frappe.get_doc("Analytics Alert Log", test_log.name)
         self.assertIsNotNone(log)
-        
-        # Manager - no access to alert logs
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
+
+        # Manager - no access to alert logs. frappe.get_doc() does not enforce
+        # read permission, so assert via the explicit read permission check.
+        frappe.set_user(self.manager_user)
         with self.assertRaises(frappe.PermissionError):
-            log = frappe.get_doc("Analytics Alert Log", test_log.name)
-        
+            frappe.get_doc("Analytics Alert Log", test_log.name).check_permission("read")
+
         # Regular Member - no access
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
+        frappe.set_user(self.regular_member_user)
         with self.assertRaises(frappe.PermissionError):
-            log = frappe.get_doc("Analytics Alert Log", test_log.name)
+            frappe.get_doc("Analytics Alert Log", test_log.name).check_permission("read")
+
+        frappe.set_user("Administrator")
     
     def test_goal_creation_api(self):
         """Test goal creation through API with permissions"""
@@ -483,33 +495,37 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         }
         
         # Administrator - should succeed
-        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
+        frappe.set_user(self.admin_user)
         goal_name = create_goal(goal_data)
         self.assertTrue(frappe.db.exists("Membership Goal", {"goal_name": "API Test Goal"}))
         frappe.delete_doc("Membership Goal", goal_name)
-        
-        # Manager - should succeed
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_user)
+
+        # Manager (Verenigingen Staff) - should fail (read-only on Membership Goal)
+        frappe.set_user(self.manager_user)
         goal_data["goal_name"] = "Manager API Goal"
-        goal_name = create_goal(goal_data)
-        self.assertTrue(frappe.db.exists("Membership Goal", {"goal_name": "Manager API Goal"}))
-        
+        with self.assertRaises(frappe.PermissionError):
+            create_goal(goal_data)
+
         # Board Member - should fail
-        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_user)
+        frappe.set_user(self.board_member_user)
         goal_data["goal_name"] = "Board API Goal"
         with self.assertRaises(frappe.PermissionError):
             create_goal(goal_data)
-        
+
         # Regular Member - should fail
-        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member_user)
+        frappe.set_user(self.regular_member_user)
         goal_data["goal_name"] = "Member API Goal"
         with self.assertRaises(frappe.PermissionError):
             create_goal(goal_data)
+
+        frappe.set_user("Administrator")
     
     def tearDown(self):
         """Clean up test data"""
-        # BaseTestCase handles permissions through custom framework
-        
+        # Restore Administrator in case a test left a restricted user active
+        # (e.g. on early failure) before running cleanup.
+        frappe.set_user("Administrator")
+
         # Delete test data in reverse order of dependencies
         frappe.db.sql("DELETE FROM `tabAnalytics Alert Log`")
         frappe.db.sql("DELETE FROM `tabAnalytics Alert Rule`")
@@ -593,6 +609,7 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
         # Per-call unique token so the auto-created Customer (named after the member's
         # full_name) never collides with a Customer left behind by a previous/crashed run.
         token = frappe.generate_hash(length=6)
+        chapter_doc = frappe.get_doc("Chapter", chapter)
         for i in range(count):
             member = frappe.get_doc({
                 "doctype": "Member",
@@ -604,6 +621,16 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
                 "member_since": frappe.utils.add_months(frappe.utils.getdate(), -i)
             })
             member.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
+            # The chapter segmentation analytics joins via the Chapter Member child
+            # table (status='Active'), not Member.current_chapter, so add an Active
+            # Chapter Member row for each member.
+            chapter_doc.append("members", {
+                "member": member.name,
+                "chapter_join_date": frappe.utils.today(),
+                "enabled": 1,
+                "status": "Active",
+            })
+        chapter_doc.save()
     
     def test_chapter_data_isolation(self):
         """Test that chapter managers can only see their chapter's data"""
@@ -613,7 +640,7 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
         from verenigingen.verenigingen.page.membership_analytics.membership_analytics import get_dashboard_data
         
         # Test with chapter filter
-        # EnhancedTestCase handles permissions: frappe.set_user(self.manager_a)
+        frappe.set_user(self.manager_a)
         data = get_dashboard_data(filters={"chapter": self.chapter_a})
         
         # Verify data structure supports filtering
@@ -644,7 +671,8 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
     
     def tearDown(self):
         """Clean up test data"""
-        # BaseTestCase handles permissions through custom framework
+        # Restore Administrator in case a test left a restricted user active.
+        frappe.set_user("Administrator")
 
         # Delete test members (names are uniquified per run, so the auto-created Customer
         # cannot collide across runs; the raw DELETE leaves those Customers behind harmlessly).

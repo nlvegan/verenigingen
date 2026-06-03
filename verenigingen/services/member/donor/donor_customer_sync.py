@@ -62,6 +62,23 @@ def sync_donor_to_customer(doc, method=None):
 
         doc.sync_with_customer()
 
+        # sync_with_customer() intentionally does NOT save the donor (it runs
+        # inside the on_update hook, after the document write). Persist the
+        # resulting customer link / sync status directly so the values survive
+        # a reload. Use db_set with update_modified=False to avoid a recursive
+        # on_update and timestamp churn.
+        if doc.name and frappe.db.exists("Donor", doc.name):
+            frappe.db.set_value(
+                "Donor",
+                doc.name,
+                {
+                    "customer": doc.customer,
+                    "customer_sync_status": doc.customer_sync_status,
+                    "last_customer_sync": doc.last_customer_sync,
+                },
+                update_modified=False,
+            )
+
     except Exception as e:
         # Enhanced error logging with operational context
         error_context = {

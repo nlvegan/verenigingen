@@ -34,6 +34,13 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         """Set up test fixtures"""
         super().setUp()
 
+        # Verenigingen Settings.creation_user is a mandatory field that is empty on
+        # a freshly reset test site, which makes any full .save() of the Single
+        # raise MandatoryError. Populate it (via set_single_value to bypass the
+        # mandatory check) so the settings-toggling saves below succeed.
+        if not frappe.db.get_single_value("Verenigingen Settings", "creation_user"):
+            frappe.db.set_single_value("Verenigingen Settings", "creation_user", "Administrator")
+
         # Store original settings
         self.settings = frappe.get_single("Verenigingen Settings")
         self.original_cutoff_freq = self.settings.billing_cutoff_frequency
@@ -57,7 +64,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as mid-month
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-11-15"
 
             # Act
@@ -74,7 +81,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as December
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-12-15"
 
             # Act
@@ -102,7 +109,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as November (Q4, but before quarter end)
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-11-15"
 
             # Act
@@ -121,7 +128,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as January (Q1)
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-01-15"
 
             # Act
@@ -139,7 +146,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as May (Q2)
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-05-15"
 
             # Act
@@ -157,7 +164,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as August (Q3)
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-08-15"
 
             # Act
@@ -175,7 +182,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as May (Q1 of fiscal year)
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-05-15"
 
             # Act
@@ -198,15 +205,17 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as mid-year
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-06-15"
 
             # Act
             cutoff = calculate_cutoff_date_for_period()
 
-            # Assert - for calendar year that starts Jan and ends Dec, end_year = book_year + 1
-            # because the end month (12) comes at the end of the cycle
-            self.assertEqual(cutoff, date(2026, 12, 31))
+            # Assert - for a calendar-year book year (Jan 1 - Dec 31) the end month
+            # (12) does NOT precede the start month (1), so the book year ends in the
+            # same calendar year it started. With today in 2025 the cutoff is the end
+            # of the current book year: 2025-12-31.
+            self.assertEqual(cutoff, date(2025, 12, 31))
 
     def test_yearly_cutoff_fiscal_year(self):
         """Test yearly cutoff for fiscal year (Apr 1 - Mar 31)"""
@@ -220,7 +229,7 @@ class TestCutoffDateCalculations(EnhancedTestCase):
         frappe.db.commit()
 
         # Mock today as May (in current fiscal year)
-        with patch("verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.today") as mock_today:
+        with patch("verenigingen.services.billing.bulk_invoice_generation_service.today") as mock_today:
             mock_today.return_value = "2025-05-15"
 
             # Act

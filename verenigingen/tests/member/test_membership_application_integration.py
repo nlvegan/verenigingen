@@ -36,20 +36,25 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
             else:
                 # Create simple membership type without template dependency
                 # Template creation is complex business logic tested separately
-                # Create a dues schedule template (is_template=1)
-                template = frappe.new_doc("Membership Dues Schedule")
-                template.schedule_name = "Test Integration Template"
-                template.is_template = 1
-                template.minimum_amount = 25.0
-                template.suggested_amount = 25.0
-                template.billing_frequency = "Monthly"
-                template.currency = "EUR"
-                template.status = "Active"
-                # membership_type will be set after creating the Membership Type
-                template.flags.ignore_validate = True  # Skip validation during creation
-                template.flags.ignore_mandatory = True
-                template.save()
-                self.track_doc("Membership Dues Schedule", template.name)
+                # Create a dues schedule template (is_template=1). The template's
+                # schedule_name is its primary key, so reuse any existing row
+                # (e.g. left behind by a committed prior run) instead of colliding.
+                if frappe.db.exists("Membership Dues Schedule", "Test Integration Template"):
+                    template = frappe.get_doc("Membership Dues Schedule", "Test Integration Template")
+                else:
+                    template = frappe.new_doc("Membership Dues Schedule")
+                    template.schedule_name = "Test Integration Template"
+                    template.is_template = 1
+                    template.minimum_amount = 25.0
+                    template.suggested_amount = 25.0
+                    template.billing_frequency = "Monthly"
+                    template.currency = "EUR"
+                    template.status = "Active"
+                    # membership_type will be set after creating the Membership Type
+                    template.flags.ignore_validate = True  # Skip validation during creation
+                    template.flags.ignore_mandatory = True
+                    template.save()
+                self.track_test_record("Membership Dues Schedule", template.name)
                 
                 # Ensure role profile exists
                 role_profile_name = "Verenigingen Member"
@@ -59,7 +64,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
                         "role_profile": role_profile_name
                     })
                     role_profile.insert(ignore_permissions=True)
-                    self.track_doc("Role Profile", role_profile.name)
+                    self.track_test_record("Role Profile", role_profile.name)
 
                 self.membership_type = frappe.new_doc("Membership Type")
                 self.membership_type.membership_type_name = "Test Integration Type"
@@ -68,7 +73,7 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
                 self.membership_type.role_profile = role_profile_name
                 self.membership_type.is_active = 1
                 self.membership_type.save()
-                self.track_doc("Membership Type", self.membership_type.name)
+                self.track_test_record("Membership Type", self.membership_type.name)
 
                 # Now update the template with the membership_type
                 template.membership_type = self.membership_type.name
@@ -93,9 +98,12 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
     
     def _create_real_test_invoice(self, customer, amount):
         """Create real test invoice for genuine business logic testing (no mocks)"""
-        # Create real invoice with business rule validation
+        # Create real invoice with business rule validation. Sales Invoice
+        # requires an explicit company (the site has multiple test companies, so
+        # it cannot be auto-selected); use the factory's consistent test company.
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = customer
+        invoice.company = self._get_test_company()
         invoice.posting_date = frappe.utils.today()
         invoice.due_date = frappe.utils.today()
         
@@ -148,17 +156,23 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         doctype = frappe.get_doc("DocType", "Verenigingen Settings")
         field_names = [field.fieldname for field in doctype.fields]
         
-        # Check for required fields
+        # Check for required fields. Note: creditor_id moved to the dedicated
+        # "Verenigingen Payments Settings" doctype and is asserted there.
         required_fields = [
             "member_contact_email",
             "support_email",
             "company_name",
-            "creditor_id"
         ]
-        
+
         for field in required_fields:
-            self.assertIn(field, field_names, 
+            self.assertIn(field, field_names,
                 f"Verenigingen Settings missing required field: {field}")
+
+        # creditor_id now lives on Verenigingen Payments Settings.
+        payments_settings = frappe.get_doc("DocType", "Verenigingen Payments Settings")
+        payments_fields = [field.fieldname for field in payments_settings.fields]
+        self.assertIn("creditor_id", payments_fields,
+            "Verenigingen Payments Settings missing required field: creditor_id")
 
     def test_approval_function_with_all_parameters(self):
         """Test approval function with all JavaScript parameters - REAL business logic (NO MOCKS)"""
@@ -330,14 +344,15 @@ class TestMembershipApplicationIntegration(EnhancedTestCase):
         settings_doctype = frappe.get_doc("DocType", "Verenigingen Settings")
         settings_fields = [field.fieldname for field in settings_doctype.fields]
         
-        # Verify both contact email fields exist (member_contact_email is primary)
+        # The member contact email field is member_contact_email. The old
+        # contact_email field was renamed (no backward-compat alias remains), and
+        # support_email is the secondary contact field.
         self.assertIn("member_contact_email", settings_fields,
             "Verenigingen Settings should have member_contact_email field")
-        self.assertIn("contact_email", settings_fields,
-            "Verenigingen Settings should have contact_email field for backward compatibility")
-        
-        # This test validates field consistency - both fields exist in the system
-        # member_contact_email is the primary field, contact_email provides backward compatibility
+        self.assertIn("support_email", settings_fields,
+            "Verenigingen Settings should have support_email field")
+        self.assertNotIn("contact_email", settings_fields,
+            "contact_email was renamed to member_contact_email; the old field should not exist")
 
 if __name__ == "__main__":
     unittest.main()

@@ -251,8 +251,15 @@ class Donor(Document):
             self._sync_already_done = False
             self._last_sync_hash = current_sync_hash
 
-        # During tests, only sync if explicitly enabled
-        if frappe.flags.get("in_test") and not self.flags.get("enable_customer_sync_in_test"):
+        # During tests, only sync if explicitly enabled. The opt-in can be set
+        # either on the document (self.flags) or globally (frappe.flags) so that
+        # an explicit, user-triggered sync (e.g. force_donor_customer_sync, which
+        # re-fetches the donor internally) can enable it for the whole request.
+        if (
+            frappe.flags.get("in_test")
+            and not self.flags.get("enable_customer_sync_in_test")
+            and not frappe.flags.get("enable_customer_sync_in_test")
+        ):
             if frappe.flags.get("in_test"):
                 print("❌ Sync skipped: enable_customer_sync_in_test flag not set")
             return

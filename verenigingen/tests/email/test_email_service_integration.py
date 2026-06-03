@@ -41,6 +41,23 @@ class TestEmailServiceIntegration(EnhancedTestCase):
         super().setUp()
         self.email_service = get_email_service()
 
+        # EmailService._send_email_internal refuses to queue when there is no
+        # active outgoing Email Account. The presence of an SMTP account is an
+        # external-infrastructure concern, not the templating/sending business
+        # logic under test (and frappe.sendmail is already mocked per-test), so
+        # report an active account for the duration of each test.
+        # Mock justified: External Service - SMTP account configuration, not business logic
+        self._email_account_patch = patch.object(
+            EmailService, "_has_active_email_account", return_value=True
+        )
+        self._email_account_patch.start()
+        self.addCleanup(self._email_account_patch.stop)
+
+        # EmailService._get_default_context() derives organization_name from
+        # Verenigingen Settings.company_name (empty on a fresh test site). Set a
+        # known value so template rendering produces a real organization name.
+        frappe.db.set_single_value("Verenigingen Settings", "company_name", "Verenigingen")
+
         # Create test templates for our tests
         self._create_test_email_templates()
 
@@ -411,7 +428,8 @@ class TestEmailServiceIntegration(EnhancedTestCase):
             member_id=f"DUTCH-{int(time.time() * 1000000) % 1000000}"
         )
 
-        # Test context with Dutch formatting (let EmailService use its default organization name)
+        # Test context with Dutch formatting (let EmailService supply the
+        # organization name from Verenigingen Settings.company_name, set in setUp).
         context = {
             "member_name": dutch_member.full_name,
             "membership_number": dutch_member.name,
