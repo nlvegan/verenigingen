@@ -147,6 +147,23 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         self.validate_field_exists("Membership Dues Schedule", "member")
         self.validate_field_exists("Membership Dues Schedule", "payment_terms_template")
 
+        # Production enforces one active dues schedule per member; a Membership
+        # created earlier in the test auto-creates one via after_insert. Inserting a
+        # second active schedule raises "already has an active dues schedule", so
+        # reuse the existing one and attach the requested payment terms instead.
+        if kwargs.get("status", "Active") == "Active":
+            existing = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"member": member, "is_template": 0, "status": "Active"},
+                "name",
+            )
+            if existing:
+                schedule = frappe.get_doc("Membership Dues Schedule", existing)
+                if payment_terms_template is not None:
+                    schedule.payment_terms_template = payment_terms_template
+                    schedule.save()
+                return schedule
+
         schedule = frappe.new_doc("Membership Dues Schedule")
         schedule_data = {
             # schedule_name is the autoname (field:schedule_name), reqd + unique, and
@@ -176,6 +193,11 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
                                 membership: str = None, status: str = "Unpaid",
                                 grand_total: float = 25.0, **kwargs) -> Document:
         """Create test sales invoice for SEPA batch processing"""
+        # Pop control flags BEFORE they reach invoice.update(**kwargs): a `submit`
+        # key would be set as a doc attribute, clobbering the submit() method
+        # (invoice.submit() then raises "'bool' object is not callable").
+        submit_flag = kwargs.pop("submit", False)
+
         if not customer:
             test_customer = self.create_test_customer()
             customer = test_customer.name
@@ -183,9 +205,16 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         # Validate required fields
         self.validate_field_exists("Sales Invoice", "customer")
         
+        # get_party_account requires an explicit company (it does NOT consult Global
+        # Defaults), and SEPA validation requires EUR -> use the EUR test company.
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        company = kwargs.pop("company", None) or get_eur_test_company()
+
         invoice = frappe.new_doc("Sales Invoice")
         invoice.update({
             "customer": customer,
+            "company": company,
             "posting_date": kwargs.get("posting_date", today()),
             "due_date": kwargs.get("due_date", add_days(today(), 14)),
             "status": status,
@@ -195,19 +224,29 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             **kwargs
         })
         
-        # Add custom fields if they exist
-        if self.validate_field_exists("Sales Invoice", "custom_member") and member:
-            invoice.custom_member = member
-            
-        if self.validate_field_exists("Sales Invoice", "custom_membership") and membership:
-            invoice.custom_membership = membership
-            
+        # Link the member via the real custom field ("member"); there is no
+        # custom_member/custom_membership field on Sales Invoice. Use meta.has_field
+        # (non-raising) rather than validate_field_exists (which throws on absence).
+        si_meta = frappe.get_meta("Sales Invoice")
+        if member and si_meta.has_field("member"):
+            invoice.member = member
+
         if self.validate_field_exists("Sales Invoice", "membership_dues_schedule_display"):
             invoice.membership_dues_schedule_display = kwargs.get("membership_dues_schedule_display")
         
-        # Add a simple item
+        # Add a simple item (get-or-create; fresh sites lack this Item)
+        item_code = kwargs.get("item_code", "MEMBERSHIP-DUES")
+        if not frappe.db.exists("Item", item_code):
+            item = frappe.new_doc("Item")
+            item.item_code = item_code
+            item.item_name = "Membership Dues"
+            item.item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+            item.stock_uom = "Nos"
+            item.is_stock_item = 0
+            item.is_sales_item = 1
+            item.insert(ignore_permissions=True)
         invoice.append("items", {
-            "item_code": kwargs.get("item_code", "MEMBERSHIP-DUES"),
+            "item_code": item_code,
             "item_name": "Membership Dues",
             "qty": 1,
             "rate": grand_total,
@@ -215,9 +254,9 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         })
         
         invoice.insert()
-        if kwargs.get("submit", False):
+        if submit_flag:
             invoice.submit()
-            
+
         return invoice
     
     def create_test_direct_debit_batch(self, batch_date: str = None,
@@ -288,6 +327,7 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             "scenario_name": scenario_name,
             "members": [],
             "mandates": [],
+            "memberships": [],
             "schedules": [],
             "invoices": [],
             "batches": []
@@ -301,11 +341,18 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
                 birth_date="1990-01-01"
             )
             
-            # Create customer
-            customer = self.create_test_customer(
-                customer_name=f"Customer {member.full_name}"
-            )
-            member.db_set("customer", customer.name)
+            # Reuse the Customer that create_test_member already auto-created and linked
+            # (Customer.member is UNIQUE, so creating a second customer for the same
+            # member would violate it). The Customer.member back-link is what
+            # set_member_from_customer (Sales Invoice before_validate) reads to populate
+            # invoice.member; without it the batch optimizer skips every invoice.
+            customer_name = member.customer
+            if not customer_name:
+                customer_name = self.create_test_customer(
+                    customer_name=f"Customer {member.full_name}"
+                ).name
+                member.db_set("customer", customer_name)
+            frappe.db.set_value("Customer", customer_name, "member", member.name)
             
             # Create SEPA mandate
             mandate = self.create_test_sepa_mandate(member=member.name)
@@ -321,7 +368,7 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             
             # Create invoice
             invoice = self.create_test_sales_invoice(
-                customer=customer.name,
+                customer=customer_name,
                 member=member.name,
                 membership=membership.name,
                 membership_dues_schedule_display=schedule.name,
@@ -331,6 +378,7 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             # Store in scenario data
             scenario_data["members"].append(member)
             scenario_data["mandates"].append(mandate)
+            scenario_data["memberships"].append(membership)
             scenario_data["schedules"].append(schedule)
             scenario_data["invoices"].append(invoice)
         
@@ -343,15 +391,16 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             batch.status = "Draft"
             
             total_amount = 0
-            for i, (member, mandate, invoice) in enumerate(zip(
+            for i, (member, mandate, membership, invoice) in enumerate(zip(
                 scenario_data["members"],
-                scenario_data["mandates"], 
+                scenario_data["mandates"],
+                scenario_data["memberships"],
                 scenario_data["invoices"]
             )):
                 amount = 25.0
                 batch.append("invoices", {
                     "invoice": invoice.name,
-                    "membership": scenario_data["schedules"][i].name,
+                    "membership": membership.name,
                     "member": member.name,
                     "member_name": member.full_name,
                     "amount": amount,
@@ -359,7 +408,9 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
                     "iban": mandate.iban,
                     "mandate_reference": mandate.mandate_id,
                     "status": "Pending",
-                    "sequence_type": "RCUR"
+                    # First usage of a freshly-created mandate must be FRST; the SEPA
+                    # sequence-type validation flags RCUR-on-first-use as a critical error.
+                    "sequence_type": "FRST"
                 })
                 total_amount += amount
             

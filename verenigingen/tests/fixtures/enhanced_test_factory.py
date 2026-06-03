@@ -921,6 +921,25 @@ class EnhancedTestDataFactory:
                 setattr(membership_type, key, value)
         membership_type.insert()
         self.track_document("Membership Type", membership_type.name, priority=1)
+
+        # Membership Type.after_insert auto-creates a dues-schedule template at the
+        # default rate (€15). When the type's minimum is higher (default 100), any
+        # dues schedule built from that template fails validation ("Template dues
+        # rate cannot be less than membership type minimum"). Align the auto-created
+        # template's rate to the type minimum so downstream schedules validate.
+        effective_amount = membership_type.minimum_amount or amount
+        template = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"is_template": 1, "membership_type": membership_type.name},
+            "name",
+        )
+        if template:
+            template_doc = frappe.get_doc("Membership Dues Schedule", template)
+            template_doc.suggested_amount = effective_amount
+            template_doc.dues_rate = effective_amount
+            template_doc.minimum_amount = effective_amount * 0.5
+            template_doc.save(ignore_permissions=True)
+
         return membership_type
 
     def _get_enhanced_member_defaults(self) -> Dict[str, Any]:
