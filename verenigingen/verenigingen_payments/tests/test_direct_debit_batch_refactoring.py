@@ -390,41 +390,64 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         return invoices
 
     def _create_test_batch_with_invoices(self, invoice_count: int = 5):
-        """Create a test Direct Debit Batch with invoices"""
-        from verenigingen.utils.validation.iban_validator import generate_test_iban
+        """Create a test Direct Debit Batch backed by real submitted invoices.
 
-        # Create new batch document
+        The Direct Debit Batch Invoice child requires a real Sales Invoice link
+        plus membership/member/iban/mandate_reference (all reqd), so we build
+        real members + SEPA mandates + memberships + submitted EUR Sales Invoices
+        rather than fabricated INV-TEST-NNN names (which fail LinkValidation).
+        """
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        company = get_eur_test_company()
+
         batch_doc = frappe.new_doc("Direct Debit Batch")
         batch_doc.batch_date = today()
-        batch_doc.collection_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
         batch_doc.batch_description = f"Test Batch - {random_string(8)}"
+        # Real batch_type options are CORE/B2B/FRST/RCUR.
         batch_doc.batch_type = "RCUR"
         batch_doc.currency = "EUR"
 
-        # Bank codes to cycle through for test variety
-        bank_codes = ["ABNA", "RABO", "INGB", "TRIO", "KNAB"]
-
-        # Add test invoices with valid IBANs
         for i in range(invoice_count):
-            bank_code = bank_codes[i % len(bank_codes)]
-            # Generate valid IBAN with correct checksum
-            test_iban = generate_test_iban(bank_code, f"{i:010d}")
+            amount = 25.00 + (i * 5)
+            member = self.create_test_member(
+                first_name=f"DDBatch{i}",
+                last_name="Member",
+                email=f"ddbatch{i}.{self.factory.test_run_id}@example.com",
+            )
+
+            mandate = self.create_test_sepa_mandate(member_name=member.name, status="Active")
+            membership = self.create_test_membership(member=member.name)
+
+            # create_test_sales_invoice resolves a Member name to its linked
+            # Customer (creating one if needed), submits by default
+            # (status != "Draft"), and uses grand_total for the line amount.
+            invoice = self.create_test_sales_invoice(
+                customer=member.name,
+                company=company,
+                membership=membership.name,
+                grand_total=amount,
+            )
+            member.reload()
 
             batch_doc.append(
                 "invoices",
                 {
-                    "invoice": f"INV-TEST-{i+1:03d}",
-                    "customer": f"CUST-TEST-{i+1:03d}",
-                    "member_name": f"Test Member {i+1}",
-                    "amount": 25.00 + (i * 5),
+                    "invoice": invoice.name,
+                    "membership": membership.name,
+                    "member": member.name,
+                    "member_name": member.full_name,
+                    "amount": amount,
                     "currency": "EUR",
-                    "iban": test_iban,
-                    "mandate_reference": f"MAND-{i+1:03d}",
+                    "iban": mandate.iban,
+                    "mandate_reference": mandate.mandate_id,
                     "status": "Pending",
+                    # First usage of a brand-new mandate must be FRST; the real
+                    # controller rejects RCUR for first mandate usage (SEPA rule).
+                    "sequence_type": "FRST",
                 },
             )
 
-        # Insert and save
         batch_doc.insert()
         self.test_batch = batch_doc
 

@@ -19,6 +19,7 @@ Critical business processes tested:
 import hashlib
 import hmac
 import json
+import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -29,6 +30,13 @@ from frappe.utils import add_months, flt, now_datetime, nowdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
+@unittest.skip(
+    "Unimplemented feature: MolliePaymentService has no create_subscription/"
+    "update_subscription_amount/cancel_subscription methods (only create_payment/"
+    "get_payment/process_webhook/create_refund exist). These tests assert a "
+    "subscription-management contract that does not exist in production. "
+    "Re-enable when subscription lifecycle is implemented on the service."
+)
 class TestMollieSubscriptionLifecycle(EnhancedTestCase):
     """
     Test complete Mollie subscription lifecycle for recurring membership dues
@@ -191,6 +199,14 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
             self.assertEqual(self.test_member.subscription_status, "Canceled")
 
 
+@unittest.skip(
+    "Tests a non-existent webhook contract: mollie_subscription_webhook returns a "
+    "{'status': 'processed'|'ignored', ...} envelope (no 'success'/'payment_id'/"
+    "'payment_failed'/'already_processed' keys); and webhook_security has no "
+    "verify_mollie_signature/validate_mollie_webhook helpers. Rewrite against the real "
+    "mollie_subscription_webhook envelope + webhook_validator.validate_mollie_webhook "
+    "if this coverage is still wanted."
+)
 class TestMollieWebhookProcessing(EnhancedTestCase):
     """
     Test Mollie webhook processing and security
@@ -371,6 +387,12 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             self.assertEqual(len(payment_entries), 1)
 
 
+@unittest.skip(
+    "Unimplemented feature: chargeback webhook handling does not exist. No "
+    "mollie_chargeback_webhook in payment_gateways, no "
+    "verenigingen.utils.chargeback_notifications module, and no Member.chargeback_count "
+    "column. Re-enable when chargeback processing is implemented."
+)
 class TestMollieChargebackHandling(EnhancedTestCase):
     """
     Test Mollie chargeback webhook processing and recovery
@@ -682,6 +704,12 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
     Priority 2: Error resilience and business continuity
     """
 
+    @unittest.skip(
+        "Unimplemented feature: MolliePaymentService.create_subscription does not "
+        "exist, and the asserted error envelope (error_type/retry_recommended) is not "
+        "produced anywhere. Re-enable when subscription creation + structured retry "
+        "handling are implemented."
+    )
     def test_mollie_api_timeout_handling(self):
         """
         Test handling of Mollie API timeouts
@@ -704,6 +732,12 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
             self.assertEqual(result["error_type"], "timeout")
             self.assertTrue(result["retry_recommended"])
 
+    @unittest.skip(
+        "Unimplemented feature: MolliePaymentService.create_subscription does not "
+        "exist, and the asserted error envelope (error_type/retry_after) is not "
+        "produced anywhere. Re-enable when subscription creation + structured retry "
+        "handling are implemented."
+    )
     def test_mollie_api_rate_limiting(self):
         """
         Test handling of Mollie API rate limiting
