@@ -570,6 +570,8 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         customer = frappe.new_doc("Customer")
         customer.customer_name = customer_name
         customer.customer_type = "Individual"
+        # Pin to EUR so derived transactions match the EUR party accounts.
+        customer.default_currency = "EUR"
         customer.insert()
         return customer.name
 
@@ -584,6 +586,8 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         supplier = frappe.new_doc("Supplier")
         supplier.supplier_name = supplier_name
         supplier.supplier_type = "Individual"
+        # Pin to EUR so derived transactions match the EUR party accounts.
+        supplier.default_currency = "EUR"
         supplier.insert()
         return supplier.name
         
@@ -592,6 +596,11 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = self.test_customer
         invoice.company = self.test_company
+        # Match the company/party-account currency (EUR). Without this the
+        # invoice falls back to the system default currency, which can differ
+        # from the EUR party accounts and trips the currency-mismatch check.
+        invoice.currency = "EUR"
+        invoice.conversion_rate = 1.0
         invoice.posting_date = getdate()
         invoice.due_date = add_days(getdate(), 30)
         
@@ -610,9 +619,12 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         
     def _create_test_purchase_invoice(self) -> str:
         """Create test purchase invoice"""
-        invoice = frappe.new_doc("Purchase Invoice") 
+        invoice = frappe.new_doc("Purchase Invoice")
         invoice.supplier = self.test_supplier
         invoice.company = self.test_company
+        # Match the company/party-account currency (EUR) — see sales invoice note.
+        invoice.currency = "EUR"
+        invoice.conversion_rate = 1.0
         invoice.posting_date = getdate()
         invoice.due_date = add_days(getdate(), 30)
         
@@ -711,6 +723,8 @@ class TestPaymentProcessingIntegration(EnhancedTestCase):
         invoice2 = frappe.new_doc("Purchase Invoice")
         invoice2.supplier = self.test_supplier
         invoice2.company = self.test_company
+        invoice2.currency = "EUR"
+        invoice2.conversion_rate = 1.0
         invoice2.posting_date = getdate()
         invoice2.due_date = add_days(getdate(), 30)
         invoice2.append("items", {

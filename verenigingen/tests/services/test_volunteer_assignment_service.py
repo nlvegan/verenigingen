@@ -43,6 +43,12 @@ class TestVolunteerAssignmentService(EnhancedTestCase):
         self.designer_role = self.ensure_team_role("Designer")
         self.coordinator_role = self.ensure_team_role("Coordinator")
 
+        # Ensure the Chapter Role records referenced by board-position tests exist.
+        # The chapter_role link field (labeled "Board Role") points at the Chapter
+        # Role doctype, so these named records must exist before appending board members.
+        for chapter_role_name in ("Secretary", "Chair", "Treasurer"):
+            self.factory.ensure_chapter_role(chapter_role_name)
+
     def test_get_aggregated_assignments_empty(self):
         """Test getting aggregated assignments when volunteer has none"""
         service = VolunteerAssignmentService(self.test_volunteer.name)

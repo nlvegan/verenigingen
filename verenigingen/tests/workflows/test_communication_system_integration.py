@@ -19,24 +19,30 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
         """Set up test data for communication system tests"""
         super().setUp()
 
+        # Ensure the custom roles referenced below exist. before_tests (which
+        # normally creates these via fixtures) is skipped on single-module runs.
+        for role_name in ("Verenigingen Chapter Manager", "Volunteer Coordinator"):
+            if not frappe.db.exists("Role", role_name):
+                role_doc = frappe.get_doc({"doctype": "Role", "role_name": role_name})
+                role_doc.insert(ignore_permissions=True)
+                self._track_test_document("Role", role_doc.name)
+
         # Create test roles for notification testing
         self.admin_user = self._create_test_user("admin@test.com", ["System Manager"])
         self.chapter_manager = self._create_test_user("manager@test.com", ["Verenigingen Chapter Manager"])
         self.volunteer_coordinator = self._create_test_user("coordinator@test.com", ["Volunteer Coordinator"])
 
-        # Create test chapter with communication settings
-        self.test_chapter = self.factory.create_test_chapter(
-            chapter_name="Communication Test Chapter",
-            email_notifications_enabled=1,
-            primary_contact="manager@test.com"
-        )
+        # Create test chapter with communication settings.
+        # NOTE: email_notifications_enabled / primary_contact are not real Chapter
+        # fields, so they are not passed to the factory (field validation rejects them).
+        self.test_chapter = self.factory.create_test_chapter()
 
-        # Create test membership types with different notification rules
+        # Create test membership types.
+        # NOTE: send_welcome_email / send_renewal_reminders are not real
+        # Membership Type fields, so they are intentionally omitted.
         self.regular_membership = self.factory.create_test_membership_type(
             membership_type_name="Regular Communication Test",
             minimum_amount=25.00,
-            send_welcome_email=1,
-            send_renewal_reminders=1
         )
 
         # Create communication templates
@@ -62,7 +68,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
                 user.append("roles", {"role": role})
 
         user.save()  # EnhancedTestCase handles permissions
-        self.track_doc("User", user.name)
+        self._track_test_document("User", user.name)
         return user
 
     def _setup_email_templates(self):
@@ -95,12 +101,18 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
         ]
 
         for template_data in templates:
-            if not frappe.db.exists("Email Template", template_data["name"]):
-                template = frappe.new_doc("Email Template")
-                for key, value in template_data.items():
-                    setattr(template, key, value)
-                template.save()
-                self.track_doc("Email Template", template.name)
+            # Frappe's Email Template stores the body in 'response', not 'message'.
+            existing = frappe.db.exists("Email Template", template_data["name"])
+            template = (
+                frappe.get_doc("Email Template", template_data["name"])
+                if existing
+                else frappe.new_doc("Email Template")
+            )
+            for key, value in template_data.items():
+                setattr(template, "response" if key == "message" else key, value)
+            template.save()
+            if not existing:
+                self._track_test_document("Email Template", template.name)
 
     def test_email_template_rendering_validation(self):
         """Test email template rendering with various member data scenarios"""
@@ -109,13 +121,11 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
             first_name="Template",
             last_name="Test",
             email=f"template.test.{self.factory.test_run_id}@example.com",
-            preferred_language="Dutch"
         )
 
         membership = self.factory.create_test_membership(
             member=member.name,
             membership_type=self.regular_membership.name,
-            expiry_date=add_days(today(), 30)
         )
 
         # Test Welcome Template Rendering
@@ -130,7 +140,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
 
         # Render subject and message
         rendered_subject = frappe.render_template(welcome_template.subject, context)
-        rendered_message = frappe.render_template(welcome_template.message, context)
+        rendered_message = frappe.render_template(welcome_template.response, context)
 
         # Verify template rendering
         self.assertEqual(rendered_subject, "Welcome to Test Organization!")
@@ -142,24 +152,26 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
 
         renewal_context = {
             "member_name": f"{member.first_name} {member.last_name}",
-            "expiry_date": membership.to_date or add_days(today(), 30)
+            "expiry_date": membership.get("renewal_date") or add_days(today(), 30)
         }
 
         rendered_renewal_subject = frappe.render_template(renewal_template.subject, renewal_context)
-        rendered_renewal_message = frappe.render_template(renewal_template.message, renewal_context)
+        rendered_renewal_message = frappe.render_template(renewal_template.response, renewal_context)
 
         self.assertEqual(rendered_renewal_subject, "Time to Renew Your Membership")
         self.assertIn("Template Test", rendered_renewal_message)
         self.assertIn(str(renewal_context["expiry_date"]), rendered_renewal_message)
 
-        # Test with missing context variables (error handling)
+        # Test with missing context variables. Frappe's Jinja environment uses
+        # the default (lenient) Undefined, so an unknown variable renders to an
+        # empty string rather than raising. Assert that graceful behaviour.
         incomplete_context = {"member_name": "Test User"}
-
-        try:
-            frappe.render_template("Hello {{missing_variable}}", incomplete_context)
-            self.fail("Should have raised an error for missing variable")
-        except Exception as e:
-            self.assertIn("missing_variable", str(e).lower())
+        rendered_incomplete = frappe.render_template(
+            "Hello {{missing_variable}}", incomplete_context
+        )
+        # Rendering must not raise; the missing variable is handled leniently.
+        self.assertIsInstance(rendered_incomplete, str)
+        self.assertIn("Hello", rendered_incomplete)
 
     def test_notification_triggers_across_user_roles(self):
         """Test notification triggers for different user roles and events"""
@@ -187,8 +199,8 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
 
             # Create membership for the member
             membership = self.factory.create_test_membership(
-                member=member,
-                membership_type=self.regular_membership
+                member=member.name,
+                membership_type=self.regular_membership.name
             )
 
             # Trigger notification (simulate new member workflow)
@@ -204,22 +216,24 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
             membership = self.factory.create_test_membership(
                 member=member.name,
                 membership_type=self.regular_membership.name,
-                to_date=add_days(today(), 7)  # Expires in 7 days
+                renewal_date=add_days(today(), 7),  # Expires in 7 days
             )
 
             # Trigger expiry notification
             self._trigger_expiry_notification(membership)
 
             # Test 3: Payment Failure Notification
-            payment_history = frappe.new_doc("Member Payment History")
-            payment_history.member = member.name
-            payment_history.payment_date = today()
-            payment_history.amount = 25.00
-            payment_history.payment_type = "Membership Fee"
-            payment_history.status = "Failed"
-            payment_history.failure_reason = "Insufficient funds"
-            payment_history.save()
-            self.track_doc("Member Payment History", payment_history.name)
+            # NOTE: "Member Payment History" is a child table (istable=1), so it
+            # cannot be created/saved standalone. The notification trigger below
+            # only reads member/amount/failure_reason, so a lightweight stand-in
+            # carrying those attributes is sufficient to exercise the workflow.
+            payment_history = frappe._dict(
+                member=member.name,
+                payment_date=today(),
+                amount=25.00,
+                status="Failed",
+                failure_reason="Insufficient funds",
+            )
 
             # Trigger payment failure notification
             self._trigger_payment_failure_notification(payment_history)
@@ -230,14 +244,17 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
                 email=f"volunteer.{self.factory.test_run_id}@example.com"
             )
 
-            # Create volunteer assignment
-            assignment = frappe.new_doc("Volunteer Assignment")
-            assignment.volunteer = volunteer.name
-            assignment.team = "Communications Team"
-            assignment.start_date = today()
-            assignment.assigned_by = self.volunteer_coordinator.name
-            assignment.save()
-            self.track_doc("Volunteer Assignment", assignment.name)
+            # Create volunteer assignment.
+            # NOTE: "Volunteer Assignment" is a child table (istable=1) and has no
+            # volunteer/team/assigned_by fields, so it cannot be created standalone.
+            # The notification trigger only reads volunteer/team/start_date, so a
+            # lightweight stand-in carrying those attributes is sufficient.
+            assignment = frappe._dict(
+                volunteer=volunteer.name,
+                team="Communications Team",
+                start_date=today(),
+                assigned_by=self.volunteer_coordinator.name,
+            )
 
             # Trigger volunteer assignment notification
             self._trigger_volunteer_assignment_notification(assignment)
@@ -270,7 +287,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
         frappe.sendmail(
             recipients=[member.email],
             subject="Membership Renewal Reminder",
-            message=f"Your membership expires on {membership.to_date}"
+            message=f"Your membership expires on {membership.get('renewal_date')}"
         )
 
     def _trigger_payment_failure_notification(self, payment_history):
@@ -291,6 +308,11 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
             message=f"You have been assigned to {assignment.team} starting {assignment.start_date}"
         )
 
+    @unittest.skip(
+        "Depends on 'Communication Preferences' and 'Communication Unsubscribe' "
+        "doctypes which do not exist in this app (never implemented). FLAG: needs "
+        "either the doctypes built or the test rewritten against real comms model."
+    )
     def test_communication_preferences_workflow(self):
         """Test member communication preferences and opt-out workflows"""
         # Create member with specific communication preferences
@@ -312,7 +334,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
         preferences.sms_reminders = 0
         preferences.postal_mail = 1
         preferences.save()
-        self.track_doc("Communication Preferences", preferences.name)
+        self._track_test_document("Communication Preferences", preferences.name)
 
         # Test preference validation
         self.assertTrue(preferences.email_newsletters)
@@ -357,7 +379,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
         unsubscribe.communication_type = "All Marketing"
         unsubscribe.unsubscribe_date = now_datetime()
         unsubscribe.save()
-        self.track_doc("Communication Unsubscribe", unsubscribe.name)
+        self._track_test_document("Communication Unsubscribe", unsubscribe.name)
 
         # Update preferences based on unsubscribe
         preferences.email_marketing = 0
@@ -394,7 +416,6 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
                 first_name=f"{language}",
                 last_name="Speaker",
                 email=f"{lang_code}.speaker.{self.factory.test_run_id}@example.com",
-                preferred_language=language
             )
             created_members.append((member, language, lang_code))
 
@@ -425,14 +446,19 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
             for lang_code, content in translations.items():
                 template_lang_name = f"{template_name} - {lang_code.upper()}"
 
-                if not frappe.db.exists("Email Template", template_lang_name):
-                    template = frappe.new_doc("Email Template")
-                    template.name = template_lang_name
-                    template.subject = content["subject"]
-                    template.message = content["message"]
-                    template.language = lang_code
-                    template.save()
-                    self.track_doc("Email Template", template.name)
+                lang_existing = frappe.db.exists("Email Template", template_lang_name)
+                template = (
+                    frappe.get_doc("Email Template", template_lang_name)
+                    if lang_existing
+                    else frappe.new_doc("Email Template")
+                )
+                template.name = template_lang_name
+                template.subject = content["subject"]
+                # Email Template stores the body in 'response', not 'message'.
+                template.response = content["message"]
+                template.save()
+                if not lang_existing:
+                    self._track_test_document("Email Template", template.name)
 
         # Test language-specific template selection
         for member, language, lang_code in created_members:
@@ -448,7 +474,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
                 }
 
                 rendered_subject = frappe.render_template(template.subject, context)
-                rendered_message = frappe.render_template(template.message, context)
+                rendered_message = frappe.render_template(template.response, context)
 
                 # Verify language-appropriate content
                 if lang_code == "nl":
@@ -507,9 +533,12 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
                 "should_succeed": False
             },
             {
+                # The synchronous send succeeds; the bounce is an asynchronous
+                # event handled separately (see mock + bounced_communications check),
+                # so the send call itself must be treated as a success.
                 "email": "bounced@example.com",
                 "expected_status": "Bounced",
-                "should_succeed": False
+                "should_succeed": True
             }
         ]
 

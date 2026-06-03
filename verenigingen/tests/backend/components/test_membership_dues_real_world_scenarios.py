@@ -4,12 +4,29 @@ Real-world scenario tests for the membership dues system
 Tests common organizational workflows and member lifecycle scenarios
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_months, add_days, flt, getdate, now_datetime
 from verenigingen.tests.utils.base import VereningingenTestCase
 import time
 
 
+# FLAG: obsolete-data-model — these scenarios were written against a removed
+# tier/contribution data model. Membership Type no longer has predefined_tiers /
+# minimum_contribution / suggested_contribution / maximum_contribution /
+# enable_income_calculator, and Membership Dues Schedule no longer has the
+# `amount`, `base_multiplier` or `selected_tier` fields and uses a different
+# status/contribution_mode option set (Fixed/Income-Based/Flexible;
+# Active/Paused/Grace Period/Suspended/Cancelled/Test). The tier feature is dead
+# (get_contribution_options always returns an empty "tiers" list). Rewriting
+# would mean reconstructing a feature that no longer exists, so the scenarios are
+# skipped pending a rewrite against the current contribution model.
+@unittest.skip(
+    "Obsolete: tests removed tier/contribution data model "
+    "(predefined_tiers, Dues Schedule `amount`/`base_multiplier`/`selected_tier`, "
+    "old status options). Needs rewrite against current model. FLAG: obsolete-data-model"
+)
 class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
     """Test real-world scenarios for membership dues system"""
 

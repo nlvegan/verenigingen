@@ -115,25 +115,30 @@ class TransactionBoundaryTestCase(EnhancedTestCase):
                     f"Original error: {str(e)}"
                 )
 
-    def _capture_database_state(self):
+    def _capture_database_state(self, doctypes_to_monitor=None):
         """
         Capture current database state for comparison
 
         Returns a snapshot of relevant database tables and counts
         for validating rollback behavior.
+
+        Args:
+            doctypes_to_monitor: Optional explicit list of doctypes to snapshot.
+                When omitted, a default set of core Verenigingen doctypes is used.
         """
         state = {}
 
-        # Core Verenigingen doctypes to monitor
-        doctypes_to_monitor = [
-            'Member',
-            'Sales Invoice',
-            'Payment Entry',
-            'SEPA Mandate',
-            'Direct Debit Batch',
-            'Member Payment History',
-            'Membership Dues Schedule'
-        ]
+        # Core Verenigingen doctypes to monitor (default when caller passes none)
+        if doctypes_to_monitor is None:
+            doctypes_to_monitor = [
+                'Member',
+                'Sales Invoice',
+                'Payment Entry',
+                'SEPA Mandate',
+                'Direct Debit Batch',
+                'Member Payment History',
+                'Membership Dues Schedule'
+            ]
 
         for doctype in doctypes_to_monitor:
             try:
@@ -163,6 +168,69 @@ class TransactionBoundaryTestCase(EnhancedTestCase):
             # even with the same count due to updates
 
         return True
+
+    def execute_concurrent_operations_with_validation(self, operations):
+        """Run a batch of operations concurrently and collect their outcomes.
+
+        Each operation is a ``(callable, args, kwargs)`` tuple. Every operation
+        runs on its own thread with its own Frappe DB connection (Frappe state
+        is thread-local), so the callables may freely use the ORM. Operation
+        callables are expected to handle their own errors and return a dict
+        (commonly ``{"success": bool, ...}``); any uncaught exception is
+        captured and reported as a failed result.
+
+        Returns:
+            list[dict]: One result per operation, in input order, each shaped as
+                ``{"success": bool, "result": <callable return>, "error": <str|None>}``.
+                ``success`` mirrors the callable's own ``success`` flag when it
+                returns one, otherwise defaults to True for a clean return.
+
+        Note: operations must commit their own writes if they need to be visible
+        to other threads or asserted after join; the per-thread connection is
+        torn down when the operation finishes.
+        """
+        results = [None] * len(operations)
+        site = frappe.local.site
+
+        def _run(index, func, args, kwargs):
+            frappe.init(site=site)
+            frappe.connect()
+            frappe.set_user("Administrator")
+            try:
+                ret = func(*args, **kwargs)
+                if isinstance(ret, dict) and "success" in ret:
+                    results[index] = {
+                        "success": bool(ret.get("success")),
+                        "result": ret,
+                        "error": ret.get("error"),
+                    }
+                else:
+                    results[index] = {"success": True, "result": ret, "error": None}
+            except Exception as e:  # noqa: BLE001 - capture per-operation failure
+                results[index] = {"success": False, "result": None, "error": str(e)}
+            finally:
+                try:
+                    frappe.db.commit()
+                except Exception:
+                    pass
+                frappe.destroy()
+
+        threads = []
+        for i, (func, args, kwargs) in enumerate(operations):
+            t = threading.Thread(target=_run, args=(i, func, args, kwargs or {}))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # The worker threads committed their writes on separate connections. The
+        # calling thread is inside an open transaction (REPEATABLE READ), so its
+        # snapshot predates those commits. Commit here to refresh the snapshot so
+        # callers can observe the concurrently-committed rows.
+        frappe.db.commit()
+
+        return results
 
     def mock_external_api_failure(self, api_name, method_name, exception_class=Exception,
                                   exception_message="Simulated API failure"):

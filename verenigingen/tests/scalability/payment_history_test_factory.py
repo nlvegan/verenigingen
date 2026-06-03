@@ -181,14 +181,25 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
         Returns a list of company *names* (strings); downstream code indexes
         self._test_companies[0] as a company name.
         """
-        # Use a fully-configured EUR company. Membership customers use a EUR
-        # receivable account, so an INR/other-currency company (e.g. the
-        # ERPNext "Test Quality Company" fixture) triggers a currency-mismatch
-        # error. Prefer the standard "_Test Company 2" EUR fixture, which has a
-        # chart of accounts and fiscal years set up — creating a bare Company on
-        # the fly leaves it without an active Fiscal Year and trips invoice
-        # posting.
-        if frappe.db.get_value("Company", "_Test Company 2", "default_currency") == "EUR":
+        # Use a fully-configured EUR company that also has an *applicable* active
+        # Fiscal Year for the invoice posting dates. Membership customers use a EUR
+        # receivable account, so an INR/other-currency company triggers a
+        # currency-mismatch error. On this v16 bench the 2026 Fiscal Years are
+        # company-restricted: "_Test Company 2" (EUR) has no applicable 2026 FY,
+        # but "TEST-Payment-Integration-Company" is EUR and owns FY-2026, so prefer
+        # it. Fall back to any EUR company whose active FY covers today.
+        preferred = "TEST-Payment-Integration-Company"
+        if (
+            frappe.db.exists("Company", preferred)
+            and frappe.db.get_value("Company", preferred, "default_currency") == "EUR"
+            and self._company_has_active_fiscal_year(preferred)
+        ):
+            return [preferred]
+
+        if (
+            frappe.db.get_value("Company", "_Test Company 2", "default_currency") == "EUR"
+            and self._company_has_active_fiscal_year("_Test Company 2")
+        ):
             return ["_Test Company 2"]
 
         company_rows = QueryBuilder.get_all_active_records(
@@ -197,6 +208,10 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
             fields=["name"],
         )
         companies = [c["name"] if isinstance(c, dict) else c for c in company_rows]
+        # Prefer EUR companies that have an applicable active Fiscal Year.
+        companies_with_fy = [c for c in companies if self._company_has_active_fiscal_year(c)]
+        if companies_with_fy:
+            return companies_with_fy
 
         if not companies:
             # Create a test company
@@ -216,8 +231,33 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
                 frappe.session.user = original_user
             self.track_doc("Company", company.name)
             companies = [company.name]
-            
+
         return companies
+
+    def _company_has_active_fiscal_year(self, company: str) -> bool:
+        """Whether an active Fiscal Year applies to *company* for today's date.
+
+        A Fiscal Year applies when it is enabled, covers today, and is either
+        unrestricted (no company links) or explicitly linked to the company.
+        """
+        candidates = frappe.get_all(
+            "Fiscal Year",
+            filters=[
+                ["disabled", "=", 0],
+                ["year_start_date", "<=", today()],
+                ["year_end_date", ">=", today()],
+            ],
+            pluck="name",
+        )
+        for fy_name in candidates:
+            linked = frappe.get_all(
+                "Fiscal Year Company",
+                filters={"parent": fy_name},
+                pluck="company",
+            )
+            if not linked or company in linked:
+                return True
+        return False
 
     def _get_or_create_test_accounts(self) -> Dict[str, str]:
         """Get or create test accounts for payment processing"""
@@ -310,6 +350,7 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
                     "is_sales_item": 1,
                     "is_service_item": 1,
                     "is_stock_item": 0,
+                    "stock_uom": "Nos",
                     "standard_rate": 25.0
                 })
                 item.insert()
@@ -431,6 +472,12 @@ class PaymentHistoryTestFactory(CoreTestDataFactory):
             # document currency so it does not inherit the system-wide default
             # (INR on this bench), which would trip a currency-mismatch error.
             "currency": "EUR",
+            # Selling price list fields are mandatory on Sales Invoice in v16.
+            "selling_price_list": self._ensure_selling_price_list("EUR"),
+            "price_list_currency": "EUR",
+            "plc_conversion_rate": 1.0,
+            "conversion_rate": 1.0,
+            "ignore_pricing_rule": 1,
             "is_membership_invoice": 1,
             "items": [{
                 "item_code": item_code,

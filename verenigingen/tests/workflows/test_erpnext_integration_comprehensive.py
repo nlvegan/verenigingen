@@ -5,7 +5,7 @@ VAT/BTW compliance, chart of accounts synchronization, and GL Entry validation
 """
 
 import frappe
-from frappe.utils import today, add_days, add_months, flt, nowdate
+from frappe.utils import today, add_days, add_months, flt, nowdate, getdate
 from verenigingen.tests.utils.base import VereningingenTestCase
 from decimal import Decimal
 import json
@@ -56,10 +56,66 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
             company.company_name = company_name
             company.default_currency = currency
             company.country = "Netherlands"
+            # ERPNext builds the default Chart of Accounts (incl. root group
+            # accounts) when a Company is inserted.
             company.save()
             self.track_doc("Company", company.name)
-            return company.name
+
+        # A Fiscal Year covering today is required for any GL-posting document.
+        self._ensure_fiscal_year(company_name)
         return company_name
+
+    def _ensure_fiscal_year(self, company_name):
+        """Ensure a Fiscal Year covering today exists and includes the company."""
+        from frappe.utils import getdate
+
+        current_year = getdate().year
+        fy_name = f"FY-{current_year}"
+        if not frappe.db.exists("Fiscal Year", fy_name):
+            fy = frappe.new_doc("Fiscal Year")
+            fy.year = fy_name
+            fy.year_start_date = f"{current_year}-01-01"
+            fy.year_end_date = f"{current_year}-12-31"
+            fy.append("companies", {"company": company_name})
+            fy.insert(ignore_permissions=True)
+        else:
+            fy = frappe.get_doc("Fiscal Year", fy_name)
+            if not any(c.company == company_name for c in fy.companies):
+                fy.append("companies", {"company": company_name})
+                fy.save(ignore_permissions=True)
+
+    def _get_or_create_root_parent(self, company, root_type):
+        """Return a group account under which a leaf/group account may be created.
+
+        Manually created accounts need a parent group of the matching root_type;
+        a parentless non-root account triggers a mandatory parent_account error.
+        Prefer the company's ERPNext-provisioned root group account.
+        """
+        parent = frappe.db.get_value(
+            "Account",
+            {"company": company, "root_type": root_type, "is_group": 1, "parent_account": ("is", "not set")},
+            "name",
+        )
+        if parent:
+            return parent
+        parent = frappe.db.get_value(
+            "Account",
+            {"company": company, "root_type": root_type, "is_group": 1},
+            "name",
+        )
+        if parent:
+            return parent
+
+        # No root group for this root_type yet — create one.
+        root = frappe.new_doc("Account")
+        root.account_name = f"TEST {root_type} Root"
+        root.company = company
+        root.root_type = root_type
+        root.is_group = 1
+        root.flags.ignore_mandatory = True
+        root.insert(ignore_permissions=True)
+        self.track_doc("Account", root.name)
+        return root.name
 
     def test_multi_organization_accounting_isolation(self):
         """Test that accounting data is properly isolated between organizations"""
@@ -192,7 +248,8 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
         ]
 
         vat_summary = {
-            "period": today().strftime("%B %Y"),
+            # today() returns a date string; convert to a date before formatting.
+            "period": getdate(today()).strftime("%B %Y"),
             "total_exempt": 0,
             "total_21_percent": 0,
             "total_9_percent": 0,
@@ -205,6 +262,9 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = member.customer
             invoice.company = self.company_main
+            # Match the EUR party account currency (else falls back to system default).
+            invoice.currency = "EUR"
+            invoice.conversion_rate = 1.0
             invoice.posting_date = today()
 
             # Add item
@@ -367,21 +427,14 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
         total_credits = sum(entry.credit for entry in gl_entries)
         self.assertEqual(total_debits, total_credits, "Debits should equal credits")
 
-        # Test Case 2: Payment Entry GL Entries
-        payment = self.factory.create_test_payment_entry(
-            party=member.customer,
-            party_type="Customer",
-            paid_amount=invoice.grand_total,
-            company=self.company_main
-        )
+        # Test Case 2: Payment Entry GL Entries.
+        # Use ERPNext's get_payment_entry to build a fully-populated, balanced
+        # Payment Entry against the invoice (resolves accounts/party/amounts).
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
-        # Link payment to invoice
-        payment.append("references", {
-            "reference_doctype": "Sales Invoice",
-            "reference_name": invoice.name,
-            "allocated_amount": invoice.grand_total
-        })
-
+        payment = get_payment_entry("Sales Invoice", invoice.name)
+        payment.reference_no = f"TEST-PAY-{invoice.name}"
+        payment.reference_date = today()
         payment.save()
         payment.submit()
 
@@ -401,7 +454,7 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
 
         # Test Case 3: Period totals validation
         # Get all GL entries for the company in current month
-        month_start = today().replace(day=1)
+        month_start = getdate(today()).replace(day=1)
         month_gl_entries = frappe.get_all(
             "GL Entry",
             filters={
@@ -499,14 +552,17 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
         total_income = sum(entry.credit for entry in income_accounts)
         self.assertEqual(total_income, 150.00, "Total income should be 150.00")
 
-        # Verify Balance Sheet shows correct receivables
+        # Verify Balance Sheet shows correct receivables. The default ERPNext CoA
+        # names the receivable account "Debtors", not "...Receivable...", so query
+        # by the company's configured receivable account rather than a name LIKE.
+        receivable_account = self._get_or_create_receivable_account(self.company_main)
         receivable_balance = frappe.db.sql("""
             SELECT SUM(debit - credit) as balance
             FROM `tabGL Entry`
             WHERE company = %s
-            AND account LIKE '%%Receivable%%'
+            AND account = %s
             AND posting_date <= %s
-        """, (self.company_main, today()), as_dict=True)[0]
+        """, (self.company_main, receivable_account, today()), as_dict=True)[0]
 
         expected_receivable = membership_invoice.grand_total + donation_invoice.grand_total
         self.assertEqual(receivable_balance.balance, expected_receivable,
@@ -514,18 +570,18 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
 
     def _create_test_account(self, account_def, company):
         """Create a test account with proper structure"""
-        account_name_with_company = f"{account_def['name']} - {company}"
-
-        if frappe.db.exists("Account", account_name_with_company):
-            return frappe.get_doc("Account", account_name_with_company)
+        existing = self._existing_account(account_def["name"], company)
+        if existing:
+            return frappe.get_doc("Account", existing)
 
         account = frappe.new_doc("Account")
         account.account_name = account_def["name"]
         account.company = company
-        account.account_type = account_def.get("type")
         account.is_group = account_def.get("is_group", 0)
 
-        # Set root type based on account type
+        def_type = account_def.get("type")
+
+        # Set root type based on the account-definition type.
         root_type_mapping = {
             "Asset": "Asset",
             "Liability": "Liability",
@@ -535,64 +591,96 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
             "Receivable": "Asset",
             "Tax": "Liability"
         }
-        account.root_type = root_type_mapping.get(account_def.get("type"), "Asset")
+        account.root_type = root_type_mapping.get(def_type, "Asset")
 
-        # Set parent if specified
+        # account_type must be a valid ERPNext account type. The root-type-style
+        # values (Asset/Liability/Income/Expense) are not valid account types, so
+        # only set account_type for the recognised leaf types.
+        valid_account_types = {"Bank", "Receivable", "Tax", "Cash", "Payable",
+                               "Income Account", "Expense Account", "Fixed Asset"}
+        if def_type in valid_account_types:
+            account.account_type = def_type
+
+        # Set parent: use the explicit parent if it exists, otherwise fall back to
+        # a valid root group account so the account is not a parentless non-root.
+        parent_account = None
         if account_def.get("parent"):
             parent_name = f"{account_def['parent']} - {company}"
             if frappe.db.exists("Account", parent_name):
-                account.parent_account = parent_name
+                parent_account = parent_name
+        if not parent_account:
+            parent_account = self._get_or_create_root_parent(company, account.root_type)
+        account.parent_account = parent_account
 
         account.save()
         self.track_doc("Account", account.name)
         return account
 
+    def _account_name_for(self, account_name, company):
+        """Return the ERPNext account name ('<name> - <abbr>') for a company."""
+        abbr = frappe.db.get_value("Company", company, "abbr") or company
+        return f"{account_name} - {abbr}"
+
+    def _existing_account(self, account_name, company):
+        """Return an existing Account name matching by abbr, else None."""
+        candidate = self._account_name_for(account_name, company)
+        if frappe.db.exists("Account", candidate):
+            return candidate
+        # Also match by account_name within the company (handles CoA variants).
+        match = frappe.db.get_value(
+            "Account", {"account_name": account_name, "company": company}, "name"
+        )
+        return match
+
     def _get_or_create_account(self, account_name, company):
         """Get or create account with company suffix"""
-        account_full_name = f"{account_name} - {company}"
+        existing = self._existing_account(account_name, company)
+        if existing:
+            return existing
 
-        if frappe.db.exists("Account", account_full_name):
-            return account_full_name
-
-        # Create basic account
+        # Create basic account under a valid Income root group.
         account = frappe.new_doc("Account")
         account.account_name = account_name
         account.company = company
         account.account_type = "Income Account"  # Default to income
         account.root_type = "Income"
         account.is_group = 0
+        account.parent_account = self._get_or_create_root_parent(company, "Income")
         account.save()
         self.track_doc("Account", account.name)
         return account.name
 
     def _get_or_create_vat_account(self, vat_rate, company):
         """Get or create VAT account for specific rate"""
-        if vat_rate == 21:
-            account_name = f"BTW 21% - {company}"
-        elif vat_rate == 9:
-            account_name = f"BTW 9% - {company}"
-        else:
-            account_name = f"BTW {vat_rate}% - {company}"
-
-        if frappe.db.exists("Account", account_name):
-            return account_name
+        base_name = f"BTW {vat_rate}%"
+        existing = self._existing_account(base_name, company)
+        if existing:
+            return existing
 
         account = frappe.new_doc("Account")
-        account.account_name = account_name.replace(f" - {company}", "")
+        account.account_name = base_name
         account.company = company
         account.account_type = "Tax"
         account.root_type = "Liability"
         account.is_group = 0
+        account.parent_account = self._get_or_create_root_parent(company, "Liability")
         account.save()
         self.track_doc("Account", account.name)
         return account.name
 
     def _get_or_create_receivable_account(self, company):
         """Get or create receivable account"""
-        account_name = f"Accounts Receivable - {company}"
-
-        if frappe.db.exists("Account", account_name):
-            return account_name
+        # Prefer the company's configured default receivable account, then any
+        # existing receivable, before creating a new one (the default CoA ships
+        # with "Accounts Receivable - <abbr>").
+        default_receivable = frappe.db.get_value("Company", company, "default_receivable_account")
+        if default_receivable:
+            return default_receivable
+        existing = self._existing_account("Accounts Receivable", company) or frappe.db.get_value(
+            "Account", {"account_type": "Receivable", "company": company, "is_group": 0}, "name"
+        )
+        if existing:
+            return existing
 
         account = frappe.new_doc("Account")
         account.account_name = "Accounts Receivable"
@@ -600,6 +688,7 @@ class TestERPNextIntegrationComprehensive(VereningingenTestCase):
         account.account_type = "Receivable"
         account.root_type = "Asset"
         account.is_group = 0
+        account.parent_account = self._get_or_create_root_parent(company, "Asset")
         account.save()
         self.track_doc("Account", account.name)
         return account.name

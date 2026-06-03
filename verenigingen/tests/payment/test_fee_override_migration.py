@@ -4,6 +4,8 @@ Test suite for fee override migration and new dues schedule architecture
 Tests the migration from legacy override fields to child DocType approach
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -17,6 +19,12 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         self.test_member = self.create_test_member()
         self.test_membership_type = self.create_test_membership_type()
 
+    @unittest.skip(
+        "Obsolete priority model: submitting a Membership now auto-creates an Active "
+        "dues schedule, so the 'no override -> membership_type' and 'legacy override' "
+        "fallback branches are never reached. Needs rewrite against the current "
+        "always-has-a-dues-schedule model. FLAG: obsolete-fee-priority-model"
+    )
     def test_fee_priority_system(self):
         """Test that fee calculation follows the correct priority order"""
         from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
@@ -50,6 +58,12 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         self.assertEqual(fee_info["source"], "member_override")
         self.assertEqual(fee_info["amount"], 30.0)
 
+    @unittest.skip(
+        "Obsolete: create_new_dues_schedule() is permanently deprecated and always "
+        "raises ('Direct dues schedule creation is no longer allowed. Use the "
+        "Contribution Amendment Request workflow'). Needs rewrite against the CAR "
+        "workflow. FLAG: deprecated-direct-creation"
+    )
     def test_create_new_dues_schedule(self):
         """Test creating new dues schedule from portal"""
         from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
@@ -76,6 +90,11 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         self.test_member.reload()
         self.assertEqual(self.test_member.dues_rate, 35.0)
 
+    @unittest.skip(
+        "Obsolete: relies on create_new_dues_schedule(), which is permanently "
+        "deprecated and always raises. Superseding is now handled by the "
+        "Contribution Amendment Request workflow. FLAG: deprecated-direct-creation"
+    )
     def test_supersede_existing_schedule(self):
         """Test that creating new schedule supersedes existing one"""
         from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
@@ -99,6 +118,12 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         self.assertEqual(second_schedule.status, "Active")
         self.assertEqual(second_schedule.dues_rate, 25.0)
 
+    @unittest.skip(
+        "Obsolete: assumes multiple coexisting dues schedules per member, but only "
+        "one Active schedule is allowed and the test helper reuses the single "
+        "auto-created schedule, so history yields one entry. Needs rewrite to build "
+        "historical (superseded) schedules via the CAR workflow. FLAG: one-active-schedule-model"
+    )
     def test_fee_history_tracking(self):
         """Test that fee history is properly tracked"""
         from verenigingen.templates.pages.membership_adjustment import get_member_fee_history
@@ -183,9 +208,18 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         # Create dues schedule
         dues_schedule = self.create_test_dues_schedule(30.0)
 
+        # get_fee_calculation_info is a MEDIUM-security endpoint (Volunteer/Staff/
+        # Admin), and it resolves the member via the User link. Create a staff user
+        # linked to the member so the call both passes the security contract and
+        # resolves to this member.
+        staff_email = f"feecalc.staff.{frappe.generate_hash(length=6)}@example.com"
+        staff_user = self.create_test_user(staff_email, roles=["Verenigingen Staff"])
+        frappe.db.set_value("Member", self.test_member.name, "user", staff_user.name)
+        frappe.db.commit()
+
         # Mock user session
         original_user = frappe.session.user
-        frappe.session.user = self.test_member.email
+        frappe.session.user = staff_user.name
 
         try:
             # Get fee calculation info
@@ -206,6 +240,11 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         finally:
             frappe.session.user = original_user
 
+    @unittest.skip(
+        "Obsolete priority model: a Membership now always has an auto-created Active "
+        "dues schedule, so the legacy member_override fallback is never reached. Needs "
+        "rewrite against the current model. FLAG: obsolete-fee-priority-model"
+    )
     def test_backward_compatibility(self):
         """Test that system maintains backward compatibility"""
         from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
@@ -224,6 +263,12 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         self.assertEqual(fee_info["amount"], 40.0)
         self.assertIn("Legacy fee override", fee_info["reason"])
 
+    @unittest.skip(
+        "Obsolete: asserts ValidationError from create_new_dues_schedule(0.0), but that "
+        "function is permanently deprecated and throws unconditionally, so the zero-amount "
+        "path is never exercised (green for the wrong reason). Rewrite via the Contribution "
+        "Amendment Request workflow if zero-amount handling still needs coverage."
+    )
     def test_zero_amount_handling(self):
         """Test handling of zero amounts in new system"""
         from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
@@ -235,6 +280,11 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         with self.assertRaises(frappe.ValidationError):
             create_new_dues_schedule(self.test_member, 0.0, "Free membership")
 
+    @unittest.skip(
+        "Obsolete: relies on create_new_dues_schedule(), which is permanently "
+        "deprecated and always raises. Currency-precision rounding must be tested "
+        "via the Contribution Amendment Request workflow. FLAG: deprecated-direct-creation"
+    )
     def test_currency_precision(self):
         """Test currency precision in new system"""
         from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
@@ -278,8 +328,9 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         one active schedule per member is allowed, so reconfigure that schedule
         rather than insert a colliding new one.
         """
-        membership = self.create_test_membership(membership_type=self.test_membership_type.name)
-        membership.submit()
+        # The local create_test_membership() helper takes no arguments and
+        # already submits (which auto-creates the Active dues schedule).
+        self.create_test_membership()
 
         schedule_name = frappe.db.get_value(
             "Membership Dues Schedule",

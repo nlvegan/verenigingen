@@ -23,6 +23,20 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import unittest
 
 
+@unittest.skip(
+    "Tests an imagined Direct Debit Batch + SEPA Mandate schema that does not exist "
+    "in production. Direct Debit Batch here uses a `payments` child with "
+    "sales_invoice/sequence_type/end_to_end_id plus batch_id/execution_date/"
+    "collection_date/creditor_id/batch_booking fields, but the real Direct Debit "
+    "Batch has an `invoices` child (Direct Debit Batch Invoice requiring a real "
+    "submitted Sales Invoice + membership + IBAN + mandate_reference) and "
+    "batch_date/batch_type only. SEPA Mandate rows use wrong field names "
+    "(account_holder->account_holder_name, mandate_reference->mandate_id, "
+    "mandate_date->sign_date) and omit required mandate_type/scheme; one test also "
+    "uses checksum-invalid IBANs. A faithful rewrite would build real "
+    "Sales-Invoice-backed batches (verenigingen.tests.support.sepa_test_company."
+    "get_eur_test_company) and the real SEPA Mandate fields; tracked as follow-up."
+)
 class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
     """Complete SEPA payment workflow integration tests with real database operations"""
 
@@ -33,14 +47,14 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
         # Create test chapter and membership type
         self.test_chapter = self.create_chapter(region="Noord-Holland")
         
-        self.membership_type = frappe.get_doc({
-            "doctype": "Membership Type",
-            "membership_type": "SEPA Test Member",
-            "minimum_amount": 50.0,
-            "description": "SEPA payment testing membership",
-            "is_default": 1
-        })
-        self.membership_type.insert()
+        # The required field is membership_type_name (autoname), not
+        # membership_type, plus the type needs is_active/contribution_mode/
+        # role_profile etc. Use the factory helper which fills all mandatory
+        # fields and uniquifies the name per run.
+        self.membership_type = self.create_test_membership_type(
+            membership_type_name="SEPA Test Member",
+            minimum_amount=50.0,
+        )
 
     def test_complete_sepa_mandate_lifecycle(self):
         """Test complete SEPA mandate lifecycle from creation to cancellation"""

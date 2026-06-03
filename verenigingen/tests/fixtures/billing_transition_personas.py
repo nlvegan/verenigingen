@@ -78,7 +78,18 @@ class BillingTransitionPersonas:
             if "schedule_name" not in updates:
                 billing_frequency = updates.get("billing_frequency", "Monthly")
                 updates["schedule_name"] = f"DUES-{member_name}-{billing_frequency.upper()}"
-            
+
+            # membership_type is mandatory on Membership Dues Schedule; derive it
+            # from the membership when callers don't supply it explicitly.
+            if "membership_type" not in updates:
+                updates["membership_type"] = frappe.db.get_value(
+                    "Membership", membership_name, "membership_type"
+                )
+
+            # The legacy `amount` field was removed in favour of `dues_rate`.
+            if "amount" in updates and "dues_rate" not in updates:
+                updates["dues_rate"] = updates.pop("amount")
+
             schedule = frappe.get_doc({
                 "doctype": "Membership Dues Schedule",
                 "member": member_name,
@@ -539,6 +550,10 @@ class BillingTransitionPersonas:
             "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Annual",
             "requested_billing_frequency": "Monthly",
+            "current_membership_type": "Annual Standard",
+            # Switching to a monthly type so the €20 monthly rate satisfies the
+            # type minimum (Annual Standard's €200 minimum would reject it).
+            "requested_membership_type": "Monthly Standard",
             "current_amount": 240.00,
             "requested_amount": 20.00,
             "effective_date": add_days(today(), 1),  # Future date to pass validation

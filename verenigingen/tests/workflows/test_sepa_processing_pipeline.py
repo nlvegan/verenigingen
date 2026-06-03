@@ -12,6 +12,20 @@ from datetime import datetime
 import unittest
 
 
+@unittest.skip(
+    "Tests an imagined Direct Debit Batch schema/behavior that does not exist in "
+    "production. The real Direct Debit Batch uses an `invoices` child table "
+    "(Direct Debit Batch Invoice) whose rows require a real submitted Sales Invoice "
+    "+ membership + IBAN + mandate_reference; it has NO `items` child, NO "
+    "`collection_date` field, batch_type options are CORE/B2B/FRST/RCUR (not "
+    "'Monthly Collection'), and the controller validates real invoices/mandates "
+    "(not collection-notice/duplicate rules these tests assert). Additionally "
+    "test_sepa_mandate_renewal_workflow references the deleted 'SEPA Mandate "
+    "Renewal' doctype, and test_sepa_mandate_lifecycle uses an invalid mandate "
+    "status 'Pending'. A faithful rewrite would build real Sales-Invoice-backed "
+    "batches (verenigingen.tests.support.sepa_test_company.get_eur_test_company) "
+    "and drop the imagined assertions; tracked as follow-up."
+)
 class TestSEPAProcessingPipeline(VereningingenTestCase):
     """Comprehensive SEPA processing pipeline testing"""
 

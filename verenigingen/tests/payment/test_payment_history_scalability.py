@@ -220,8 +220,8 @@ class PaymentHistoryTestDataGenerator:
                                            include_unreconciled_payments: bool = False) -> Dict[str, Any]:
         """Generate a member with realistic payment history"""
         
-        # Create member and membership
-        member = self.factory.create_test_member()
+        # Create member and membership (customer required for invoices/payments)
+        member = self.factory.create_test_member(auto_create_customer=True)
         membership_type = self.factory.create_test_membership_type()
         membership = self.factory.create_test_membership(
             member=member,
@@ -328,39 +328,84 @@ class PaymentHistoryTestDataGenerator:
         return [str(date) for date in dates]
         
     def _create_test_invoice(self, member, membership, posting_date, amount) -> Any:
-        """Create test invoice with proper relationships"""
+        """Create test (submitted) invoice with proper relationships"""
         return self.factory.create_test_sales_invoice(
             customer=member.customer,
             membership=membership.name,
             posting_date=posting_date,
+            submit=True,
             items=[{
                 "item_code": "MEMBERSHIP-DUES",
                 "qty": 1,
                 "rate": amount
             }]
         )
-        
+
+    def _build_payment_entry(self, member, posting_date, paid_amount, references=None) -> Any:
+        """Build a real ERPNext Payment Entry inline against an EUR company.
+
+        CoreTestDataFactory intentionally does not expose a payment-entry
+        helper, so the Payment Entry is constructed directly here.
+        """
+        company = frappe.get_list("Company", limit=1)[0].name
+        company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
+        paid_to = frappe.db.get_value(
+            "Account",
+            {"account_type": "Bank", "company": company, "is_group": 0},
+            "name",
+        ) or frappe.db.get_value(
+            "Account",
+            {"account_type": "Cash", "company": company, "is_group": 0},
+            "name",
+        )
+
+        pe = frappe.get_doc({
+            "doctype": "Payment Entry",
+            "payment_type": "Receive",
+            "company": company,
+            "posting_date": posting_date,
+            "party_type": "Customer",
+            "party": member.customer,
+            "paid_amount": paid_amount,
+            "received_amount": paid_amount,
+            "paid_to": paid_to,
+            "paid_from_account_currency": company_currency,
+            "paid_to_account_currency": company_currency,
+            "source_exchange_rate": 1.0,
+            "target_exchange_rate": 1.0,
+            # Bank accounts require a reference no/date on the Payment Entry.
+            "reference_no": f"TEST-PE-{posting_date}",
+            "reference_date": posting_date,
+        })
+        for ref in (references or []):
+            pe.append("references", ref)
+        pe.insert(ignore_permissions=True)
+        self.factory.track_doc("Payment Entry", pe.name)
+        pe.submit()
+        return pe
+
     def _create_test_payment(self, member, invoice, posting_date) -> Any:
         """Create test payment entry linked to invoice"""
-        return self.factory.create_test_payment_entry(
-            party=member.customer,
-            party_type="Customer",
+        # Reload to read the post-submit outstanding amount; allocating more
+        # than the outstanding amount raises a ValidationError.
+        outstanding = frappe.db.get_value("Sales Invoice", invoice.name, "outstanding_amount")
+        return self._build_payment_entry(
+            member=member,
             posting_date=posting_date,
-            paid_amount=invoice.grand_total,
+            paid_amount=outstanding,
             references=[{
                 "reference_doctype": "Sales Invoice",
                 "reference_name": invoice.name,
-                "allocated_amount": invoice.grand_total
-            }]
+                "allocated_amount": outstanding,
+            }],
         )
-        
+
     def _create_unreconciled_payment(self, member) -> Any:
         """Create unreconciled payment entry"""
-        return self.factory.create_test_payment_entry(
-            party=member.customer,
-            party_type="Customer",
+        return self._build_payment_entry(
+            member=member,
             posting_date=add_days(today(), -random.randint(1, 30)),
-            paid_amount=random.uniform(10.0, 50.0)
+            paid_amount=round(random.uniform(10.0, 50.0), 2),
             # No references - makes it unreconciled
         )
 
@@ -384,6 +429,13 @@ class PaymentHistoryScalabilityTest(VereningingenTestCase):
         
     def setUp(self):
         """Set up individual test with metrics collection"""
+        # Load/scalability suite (100-5000 members; minutes to hours). Must NOT run
+        # in the regular/CI baseline (multi-minute bodies risk a shard-timeout abort).
+        # Opt in with RUN_SCALABILITY_TESTS=1.
+        if os.environ.get("RUN_SCALABILITY_TESTS") != "1":
+            self.skipTest(
+                "Scalability/load suite; set RUN_SCALABILITY_TESTS=1 to run (heavy: 100-5000 members)"
+            )
         super().setUp()
         self.metrics_collector = PerformanceMetricsCollector()
         self.test_data_generator = PaymentHistoryTestDataGenerator(self.factory)

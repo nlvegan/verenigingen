@@ -33,8 +33,15 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
             roles=["System Manager", "Verenigingen Administrator"]
         )
         
+        # "Chapter Leader" is not a seeded production role; ensure it exists
+        # before assigning it to the test user.
+        if not frappe.db.exists("Role", "Chapter Leader"):
+            frappe.get_doc({"doctype": "Role", "role_name": "Chapter Leader"}).insert(
+                ignore_if_duplicate=True
+            )
+
         self.chapter_leader = self.create_test_user(
-            "chapter.leader@example.com", 
+            "chapter.leader@example.com",
             roles=["Chapter Leader", "Verenigingen Staff"]
         )
 

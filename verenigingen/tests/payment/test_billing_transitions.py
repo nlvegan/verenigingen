@@ -118,6 +118,26 @@ class TestBillingTransitions(BaseTestCase):
                 })
                 membership_type.insert()
                 self.track_doc("Membership Type", membership_type.name)
+
+                # The auto-created dues schedule template defaults to a €15 rate.
+                # When minimum_amount is higher, submitting a membership auto-creates
+                # a schedule from the template and fails the "Template dues rate
+                # cannot be less than membership type minimum" validation. Align the
+                # template rate with the minimum so auto-created schedules are valid.
+                minimum = flt(type_data["minimum_amount"])
+                # Reload: insert()'s on_update hook updates the type in-place, so the
+                # in-memory doc is stale and calling a method that saves it would
+                # raise TimestampMismatchError.
+                membership_type.reload()
+                template_name = membership_type.get_dues_schedule_template()
+                if template_name:
+                    template = frappe.get_doc("Membership Dues Schedule", template_name)
+                    template.dues_rate = minimum
+                    template.suggested_amount = minimum
+                    if flt(template.minimum_amount) > minimum:
+                        template.minimum_amount = minimum
+                    template.save()
+                    self.track_doc("Membership Dues Schedule", template.name)
     
     def test_monthly_to_annual_transition(self):
         """Test transition from monthly to annual billing"""
@@ -409,6 +429,19 @@ class TestBillingTransitions(BaseTestCase):
         self.assertFalse(periods_overlap(period3, period4),
                         "Should not detect overlap for adjacent periods")
     
+    def _resolve_requested_membership_type(self, transition):
+        """Resolve the membership type for the new schedule.
+
+        membership_type is mandatory on Membership Dues Schedule. Pure
+        billing-interval changes don't carry a requested_membership_type, so fall
+        back to the current type, then the membership's type.
+        """
+        return (
+            transition.get("requested_membership_type")
+            or transition.get("current_membership_type")
+            or frappe.db.get_value("Membership", transition.membership, "membership_type")
+        )
+
     def _apply_billing_transition(self, transition):
         """
         Helper to apply a billing transition
@@ -438,7 +471,7 @@ class TestBillingTransitions(BaseTestCase):
             "schedule_name": f"DUES-{member.name}-{transition.requested_billing_frequency.upper()}",
             "member": member.name,
             "membership": transition.membership,
-            "membership_type": transition.requested_membership_type,
+            "membership_type": self._resolve_requested_membership_type(transition),
             "billing_frequency": transition.requested_billing_frequency,
             "dues_rate": transition.requested_amount,  # Use dues_rate instead of amount
             "status": "Active",
@@ -507,7 +540,7 @@ class TestBillingTransitions(BaseTestCase):
             "schedule_name": f"DUES-{member.name}-{transition.requested_billing_frequency.upper()}",
             "member": member.name,
             "membership": transition.membership,
-            "membership_type": transition.requested_membership_type,
+            "membership_type": self._resolve_requested_membership_type(transition),
             "billing_frequency": transition.requested_billing_frequency,
             "dues_rate": transition.requested_amount,  # Use dues_rate instead of amount
             "status": "Active",

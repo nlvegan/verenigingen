@@ -22,10 +22,26 @@ import frappe
 from frappe.utils import today, add_months, flt, nowdate
 from decimal import Decimal
 import json
+import unittest
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
+# FLAG: This module is a non-functional pseudo-test suite. Every endpoint it
+# references (verenigingen.api.member_management.create_member,
+# *.sepa_mandate.create_mandate, *.chapter_management.assign_member_to_chapter,
+# *.payment_processing.*, *.volunteer_management.register_volunteer,
+# *.system_management.*) does NOT exist in the codebase, and the helper
+# call_api_method() returns hardcoded fake results instead of invoking any real
+# API (a business-logic mock, which the project's test-quality rules forbid).
+# The classes are skipped until they are rewritten as real integration tests
+# against the actual whitelisted endpoints. See the test-failure triage notes.
+_PSEUDO_TEST_SKIP_REASON = (
+    "Pseudo-test: references nonexistent API endpoints and self-mocks results. "
+    "Needs rewrite as real integration tests against actual whitelisted endpoints."
+)
 
+
+@unittest.skip(_PSEUDO_TEST_SKIP_REASON)
 class TestMemberManagementAPIEndpoints(EnhancedTestCase):
     """
     Test member management API endpoints
@@ -233,6 +249,7 @@ class TestMemberManagementAPIEndpoints(EnhancedTestCase):
                     self.assertIn(scenario["query"].lower(), search_text)
 
 
+@unittest.skip(_PSEUDO_TEST_SKIP_REASON)
 class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
     """
     Test payment processing API endpoints
@@ -368,6 +385,7 @@ class TestPaymentProcessingAPIEndpoints(EnhancedTestCase):
                 self.assertIn(scenario["expected_error"].lower(), result["error"].lower())
 
 
+@unittest.skip(_PSEUDO_TEST_SKIP_REASON)
 class TestChapterManagementAPIEndpoints(EnhancedTestCase):
     """
     Test chapter management API endpoints
@@ -447,6 +465,7 @@ class TestChapterManagementAPIEndpoints(EnhancedTestCase):
                     self.assertEqual(result["assigned_chapter"], case["expected_chapter"])
 
 
+@unittest.skip(_PSEUDO_TEST_SKIP_REASON)
 class TestVolunteerOperationsAPIEndpoints(EnhancedTestCase):
     """
     Test volunteer operations API endpoints
@@ -518,6 +537,7 @@ class TestVolunteerOperationsAPIEndpoints(EnhancedTestCase):
         self.assertTrue(result["success"])
 
 
+@unittest.skip(_PSEUDO_TEST_SKIP_REASON)
 class TestSecurityAndAccessControlValidation(EnhancedTestCase):
     """
     Test API security and access control validation

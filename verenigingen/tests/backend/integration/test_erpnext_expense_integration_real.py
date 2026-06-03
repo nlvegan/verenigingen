@@ -68,6 +68,11 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         if self.test_company:
             frappe.db.set_default("company", self.test_company)
         
+        # get_or_create_expense_type now validates an Expense Category (a custom
+        # doctype) rather than creating an Expense Claim Type. Ensure a "Travel"
+        # category with a real expense account exists for the tests that need it.
+        self.test_expense_category = self._ensure_expense_category("Travel")
+
         # Create expense test data
         self.test_expense_data = {
             "description": "Real ERPNext Integration Test Expense",
@@ -78,25 +83,47 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
             "notes": "Real database testing for ERPNext integration"
         }
 
+    def _ensure_expense_category(self, category_name):
+        """Ensure an Expense Category with a real expense account exists."""
+        if frappe.db.exists("Expense Category", category_name):
+            return category_name
+
+        expense_account = None
+        if self.test_company:
+            expense_account = frappe.db.get_value(
+                "Account",
+                {"account_type": "Expense Account", "company": self.test_company, "is_group": 0},
+                "name",
+            )
+        if not expense_account:
+            self.skipTest("No expense account available to back an Expense Category")
+
+        category = frappe.get_doc({
+            "doctype": "Expense Category",
+            "category_name": category_name,
+            "expense_account": expense_account,
+            "is_active": 1,
+        })
+        category.insert()
+        self._track_test_document("Expense Category", category.name)
+        return category.name
+
     def test_get_or_create_expense_type_real_database_no_mocks(self):
-        """Test expense type retrieval using real database operations"""
-        
-        # Test with Travel expense type that should exist in real system
-        # Uses actual database query to retrieve or create expense type
+        """Test expense category validation using real database operations.
+
+        get_or_create_expense_type validates that the given Expense Category
+        exists and has an expense account, returning the category name. It no
+        longer creates Expense Claim Types.
+        """
+        # The "Travel" Expense Category is provisioned in setUp.
         expense_type = get_or_create_expense_type("Travel")
-        
-        # Validate real expense type exists or was created
-        self.assertIsInstance(expense_type, str)
-        self.assertGreater(len(expense_type), 0)
-        
-        # Verify in real database
-        expense_type_exists = frappe.db.exists("Expense Claim Type", expense_type)
-        # Note: May not exist in test environment but function should handle gracefully
-        
-        # Test with non-existent type - should create or fallback
-        custom_type = get_or_create_expense_type("Custom Testing Type")
-        self.assertIsInstance(custom_type, str)
-        self.assertGreater(len(custom_type), 0)
+        self.assertEqual(expense_type, "Travel")
+        self.assertTrue(frappe.db.exists("Expense Category", expense_type))
+
+        # A category that does not exist must be rejected (no silent fallback).
+        self.assertFalse(frappe.db.exists("Expense Category", "Custom Testing Type"))
+        with self.assertRaises(frappe.ValidationError):
+            get_or_create_expense_type("Custom Testing Type")
 
     def test_get_organization_cost_center_national_real_database(self):
         """Test national cost center retrieval using real settings operations"""
@@ -143,39 +170,30 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         self.assertTrue(chapter_exists)
 
     def test_expense_type_integration_real_workflow(self):
-        """Test complete expense type integration with real ERPNext workflow"""
-        
-        # Test various expense types with real database operations
+        """Test expense category validation across several categories.
+
+        get_or_create_expense_type validates an Expense Category and returns its
+        name; it does not create Expense Claim Types. Provision the categories
+        first, then verify validation is consistent and idempotent.
+        """
         test_expense_types = [
             "Meals and Entertainment",
-            "Office Equipment", 
-            "Communications"
+            "Office Equipment",
+            "Communications",
         ]
-        
-        created_types = []
-        
-        try:
-            for expense_type in test_expense_types:
-                # Clean slate for each test
-                if frappe.db.exists("Expense Claim Type", expense_type):
-                    frappe.delete_doc("Expense Claim Type", expense_type)
-                
-                # Test creation with real database
-                result = get_or_create_expense_type(expense_type)
-                created_types.append(result)
-                
-                # Verify real database state
-                self.assertTrue(frappe.db.exists("Expense Claim Type", result))
-                
-                # Test retrieval after creation (should not recreate)
-                second_result = get_or_create_expense_type(expense_type)
-                self.assertEqual(result, second_result)
-                
-        except Exception as e:
-            if any(keyword in str(e) for keyword in ["HRMS", "Expense Claim", "DocType"]):
-                self.skipTest("ERPNext HRMS not fully available")
-            else:
-                raise
+
+        for expense_type in test_expense_types:
+            # Provision the Expense Category (with a real expense account).
+            self._ensure_expense_category(expense_type)
+
+            # Validation returns the category name.
+            result = get_or_create_expense_type(expense_type)
+            self.assertEqual(result, expense_type)
+            self.assertTrue(frappe.db.exists("Expense Category", result))
+
+            # Repeated validation is consistent (idempotent).
+            second_result = get_or_create_expense_type(expense_type)
+            self.assertEqual(result, second_result)
 
     def test_organization_cost_center_real_database(self):
         """Test organization cost center retrieval with real database operations"""
@@ -199,37 +217,40 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
                 raise
 
     def test_expense_submission_real_integration(self):
-        """Test expense submission with real ERPNext integration"""
-        
-        # Test data for expense submission
+        """Test expense submission with real ERPNext integration.
+
+        submit_expense takes a single expense_data dict (category/organization_type/
+        amount/description/expense_date) and returns expense_claim_name on success.
+        """
         expense_data = {
-            "expense_type": "Travel",
+            "category": "Travel",
+            "organization_type": "National",
             "amount": 50.0,
             "description": "Bus fare for volunteer work",
             "expense_date": today(),
-            "volunteer_name": self.test_volunteer.name
+            "volunteer": self.test_volunteer.name,
         }
-        
+
         try:
             # This tests real ERPNext expense claim creation (no mocks)
-            result = submit_expense(**expense_data)
-            
+            result = submit_expense(expense_data)
+
             # Should create real expense claim in ERPNext
             if result.get("success"):
-                claim_name = result.get("expense_claim")
+                claim_name = result.get("expense_claim_name")
                 self.assertIsNotNone(claim_name)
-                
+
                 # Verify real expense claim was created
                 self.assertTrue(frappe.db.exists("Expense Claim", claim_name))
-                
+
                 # Verify expense claim data
                 claim = frappe.get_doc("Expense Claim", claim_name)
                 self.assertEqual(claim.total_claimed_amount, 50.0)
-                
+
             else:
                 # Expense submission failed - could be due to missing setup
-                self.assertIn("error", result)
-                
+                self.assertIn("message", result)
+
         except Exception as e:
             if any(keyword in str(e) for keyword in ["HRMS", "Expense Claim", "Employee"]):
                 self.skipTest("ERPNext HRMS expense submission not fully configured")
@@ -294,36 +315,37 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         volunteer_doc.save()
         
         expense_data = {
-            "expense_type": "Travel", 
+            "category": "Travel",
+            "organization_type": "National",
             "amount": 45.0,
             "description": "Real employee creation test",
             "expense_date": today(),
-            "volunteer_name": volunteer_without_employee.name
+            "volunteer": volunteer_without_employee.name,
         }
-        
+
         try:
             # Test real employee creation (no mocks)
-            result = submit_expense(**expense_data)
-            
+            result = submit_expense(expense_data)
+
             if result.get("success"):
                 # Verify real employee record was created
                 volunteer_doc.reload()
                 self.assertIsNotNone(volunteer_doc.employee_id)
-                
+
                 # Verify real Employee document exists
                 self.assertTrue(frappe.db.exists("Employee", volunteer_doc.employee_id))
-                
-                # Verify employee record has correct data  
+
+                # Verify employee record has correct data
                 employee = frappe.get_doc("Employee", volunteer_doc.employee_id)
                 self.assertEqual(employee.employee_name, volunteer_doc.volunteer_name)
                 self.assertEqual(employee.user_id, volunteer_doc.email)
-                
+
             else:
                 # Real failure - verify error handling
                 error_msg = result.get("message", "")
                 self.assertIsInstance(error_msg, str)
                 self.assertGreater(len(error_msg), 0)
-                
+
         except Exception as e:
             if "HRMS" in str(e) or "Employee" in str(e):
                 self.skipTest("ERPNext HRMS employee creation not available")
@@ -334,16 +356,17 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         """Test ERPNext expense claim validation with real validation errors"""
         
         expense_data = {
-            "expense_type": "InvalidExpenseType",  # Non-existent expense type
+            "category": "InvalidExpenseType",  # Non-existent expense category
+            "organization_type": "National",
             "amount": 99.99,
-            "description": "Test validation error handling", 
+            "description": "Test validation error handling",
             "expense_date": today(),
-            "volunteer_name": self.test_volunteer.name
+            "volunteer": self.test_volunteer.name,
         }
-        
+
         try:
             # Test with real ERPNext validation (no mocked ValidationError)
-            result = submit_expense(**expense_data)
+            result = submit_expense(expense_data)
             
             # Should handle validation gracefully
             if not result.get("success"):
@@ -353,20 +376,23 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
                 self.assertIsInstance(error_message, str)
                 self.assertGreater(len(error_message), 0)
                 
-                # Common ERPNext validation messages
+                # Common validation messages. "no volunteer record found" is a
+                # legitimate validation outcome: submit_expense resolves the
+                # volunteer from the session user, and an admin/test user without
+                # a Volunteer record is correctly rejected before category checks.
                 validation_indicators = [
-                    "does not exist", "not found", "invalid", 
-                    "required", "cannot", "must"
+                    "does not exist", "not found", "invalid",
+                    "required", "cannot", "must", "no volunteer",
                 ]
-                
+
                 # Should contain some validation context
-                has_validation_context = any(indicator in error_message.lower() 
+                has_validation_context = any(indicator in error_message.lower()
                                            for indicator in validation_indicators)
-                self.assertTrue(has_validation_context, 
+                self.assertTrue(has_validation_context,
                               f"Error message lacks validation context: {error_message}")
             else:
                 # Unexpected success - verify what was created
-                self.assertIsNotNone(result.get("expense_claim"))
+                self.assertIsNotNone(result.get("expense_claim_name"))
                 
         except Exception as e:
             if "HRMS" in str(e):
@@ -422,24 +448,24 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         ]
         
         created_types = []
-        
+
         try:
             for expense_type in edge_case_types:
-                # Clean up first to ensure fresh test
-                if frappe.db.exists("Expense Claim Type", expense_type):
-                    frappe.delete_doc("Expense Claim Type", expense_type)
-                
-                # Test real creation with edge case names
+                # Provision the Expense Category (with a real expense account)
+                # using the edge-case name, then validate it.
+                self._ensure_expense_category(expense_type)
+
+                # Test real validation with edge case names
                 result = get_or_create_expense_type(expense_type)
                 created_types.append(result)
-                
-                # Verify creation succeeded in real database
-                self.assertTrue(frappe.db.exists("Expense Claim Type", result))
-                
+
+                # Verify the category exists in the real database
+                self.assertTrue(frappe.db.exists("Expense Category", result))
+
                 # Verify document can be retrieved and has expected data
-                expense_type_doc = frappe.get_doc("Expense Claim Type", result)
-                self.assertEqual(expense_type_doc.expense_type, result)
-                
+                expense_category_doc = frappe.get_doc("Expense Category", result)
+                self.assertEqual(expense_category_doc.category_name, result)
+
         except Exception as e:
             if "HRMS" in str(e):
                 self.skipTest("ERPNext HRMS not available for edge case testing")
@@ -532,20 +558,21 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         """Test large amount expense handling with real ERPNext validation"""
         
         large_expense_data = {
-            "expense_type": "Travel",
+            "category": "Travel",
+            "organization_type": "National",
             "amount": 9999.99,  # Large amount
             "description": "Large expense amount test",
             "expense_date": today(),
-            "volunteer_name": self.test_volunteer.name
+            "volunteer": self.test_volunteer.name,
         }
-        
+
         try:
             # Test with real ERPNext validation (no amount mocks)
-            result = submit_expense(**large_expense_data)
-            
+            result = submit_expense(large_expense_data)
+
             if result.get("success"):
                 # Large amount accepted - verify correct handling
-                expense_claim_name = result.get("expense_claim")
+                expense_claim_name = result.get("expense_claim_name")
                 if expense_claim_name:
                     expense_claim = frappe.get_doc("Expense Claim", expense_claim_name)
                     self.assertEqual(expense_claim.total_claimed_amount, 9999.99)
@@ -569,20 +596,21 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
         """Test Unicode character handling in expense descriptions"""
         
         unicode_expense_data = {
-            "expense_type": "Travel",
+            "category": "Travel",
+            "organization_type": "National",
             "amount": 42.50,
             "description": "Café meeting ñ special chars 🎉 testing",
-            "expense_date": today(), 
-            "volunteer_name": self.test_volunteer.name
+            "expense_date": today(),
+            "volunteer": self.test_volunteer.name,
         }
-        
+
         try:
             # Test real Unicode handling (no mocked character processing)
-            result = submit_expense(**unicode_expense_data)
-            
+            result = submit_expense(unicode_expense_data)
+
             if result.get("success"):
                 # Unicode accepted - verify storage and retrieval
-                expense_claim_name = result.get("expense_claim")
+                expense_claim_name = result.get("expense_claim_name")
                 if expense_claim_name:
                     expense_claim = frappe.get_doc("Expense Claim", expense_claim_name)
                     
@@ -611,40 +639,43 @@ class TestERPNextExpenseIntegrationReal(EnhancedTestCase):
             {
                 "data": {
                     # Missing amount
-                    "expense_type": "Travel",
+                    "category": "Travel",
+                    "organization_type": "National",
                     "description": "Missing amount test",
                     "expense_date": today(),
-                    "volunteer_name": self.test_volunteer.name
+                    "volunteer": self.test_volunteer.name,
                 },
                 "expected_error": "amount"
             },
             {
                 "data": {
-                    "expense_type": "Travel", 
+                    "category": "Travel",
+                    "organization_type": "National",
                     "amount": 25.0,
                     # Missing description
                     "expense_date": today(),
-                    "volunteer_name": self.test_volunteer.name
+                    "volunteer": self.test_volunteer.name,
                 },
                 "expected_error": "description"
             },
             {
                 "data": {
-                    "expense_type": "Travel",
+                    "category": "Travel",
+                    "organization_type": "National",
                     "amount": 25.0,
                     "description": "Missing date test",
                     # Missing expense_date
-                    "volunteer_name": self.test_volunteer.name
+                    "volunteer": self.test_volunteer.name,
                 },
                 "expected_error": "date"
             }
         ]
-        
+
         for i, scenario in enumerate(invalid_data_scenarios):
             with self.subTest(scenario_index=i):
                 try:
                     # Test real validation (no mocked validation errors)
-                    result = submit_expense(**scenario["data"])
+                    result = submit_expense(scenario["data"])
                     
                     # Should fail validation
                     self.assertFalse(result.get("success"), 

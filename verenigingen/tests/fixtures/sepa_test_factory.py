@@ -123,9 +123,25 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             test_member = self.create_test_member()
             member = test_member.name
 
+        # membership_type is mandatory on Membership Dues Schedule under v16; derive it
+        # from the member's membership when the caller did not pass it explicitly.
+        if "membership_type" not in kwargs:
+            derived_type = frappe.db.get_value(
+                "Membership", {"member": member, "docstatus": 1}, "membership_type"
+            ) or frappe.db.get_value("Membership", {"member": member}, "membership_type")
+            if derived_type:
+                kwargs["membership_type"] = derived_type
+
         # Only set SEPA default if explicitly requested with "default"
         if payment_terms_template == "default":
             payment_terms_template = "SEPA Direct Debit"
+
+        # The "SEPA Direct Debit" Payment Terms Template is a production master that
+        # fresh test sites lack; get-or-create it so the schedule's link validates.
+        if payment_terms_template == "SEPA Direct Debit":
+            from verenigingen.tests.support.sepa_test_company import ensure_sepa_payment_terms_template
+
+            ensure_sepa_payment_terms_template()
 
         # Validate required fields
         self.validate_field_exists("Membership Dues Schedule", "member")
@@ -133,6 +149,10 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
 
         schedule = frappe.new_doc("Membership Dues Schedule")
         schedule_data = {
+            # schedule_name is the autoname (field:schedule_name), reqd + unique, and
+            # is NOT auto-populated on a raw factory insert (only the production
+            # create_from_template path generates it) -> set a unique default here.
+            "schedule_name": f"TEST-DUES-{member}-{frappe.generate_hash(length=8)}",
             "member": member,
             "billing_frequency": billing_frequency,
             "dues_rate": dues_rate,
@@ -227,7 +247,6 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             
             # Create SEPA mandate
             mandate = self.create_test_sepa_mandate(member=member.name)
-            member.db_set("active_mandate", mandate.name)
             
             # Create membership
             membership = self.create_test_membership(member=member.name)
@@ -290,7 +309,6 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             
             # Create SEPA mandate
             mandate = self.create_test_sepa_mandate(member=member.name)
-            member.db_set("active_mandate", mandate.name)
             
             # Create membership
             membership = self.create_test_membership(member=member.name)
