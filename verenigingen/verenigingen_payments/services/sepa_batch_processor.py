@@ -1060,8 +1060,10 @@ class SEPABatchProcessor:
         """Generate invoice description based on contribution mode.
 
         coverage_start/coverage_end describe the period THIS invoice covers; pass
-        them in from create_dues_invoice. They default to the schedule's stored
-        last_invoice_coverage_* (the previous period) only as a fallback.
+        them in from create_dues_invoice. When omitted, the period is computed
+        from the schedule (the upcoming period this invoice would cover) rather
+        than read from last_invoice_coverage_* — those fields hold the PREVIOUS
+        invoice's period and would mislabel the line item (Wave E flag A).
         """
         base_desc = f"Membership dues - {schedule.billing_frequency}"
 
@@ -1076,9 +1078,14 @@ class SEPABatchProcessor:
         elif schedule.contribution_mode == "Flexible":
             base_desc += f"\nFlexible contribution"
 
-        period_start = coverage_start if coverage_start is not None else schedule.last_invoice_coverage_start
-        period_end = coverage_end if coverage_end is not None else schedule.last_invoice_coverage_end
-        base_desc += f"\nCoverage: {period_start} to {period_end}"
+        # Fill in any missing period bound from the upcoming coverage period
+        # (never from the previously-invoiced last_invoice_coverage_* fields).
+        if coverage_start is None or coverage_end is None:
+            computed_start, computed_end = schedule.calculate_next_coverage_period()
+            coverage_start = coverage_start if coverage_start is not None else computed_start
+            coverage_end = coverage_end if coverage_end is not None else computed_end
+
+        base_desc += f"\nCoverage: {coverage_start} to {coverage_end}"
 
         return base_desc
 

@@ -145,7 +145,29 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         if custom_schedule:
             description = processor.generate_invoice_description(custom_schedule)
             self.assertIn("Custom contribution", description)
-            
+
+    def test_invoice_description_uses_upcoming_not_previous_coverage(self):
+        """generate_invoice_description (no explicit dates) labels the UPCOMING
+        period from calculate_next_coverage_period(), never the previously
+        invoiced last_invoice_coverage_* dates (Wave E flag A regression)."""
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+
+        schedule = self.create_test_dues_schedule_for_collection()
+
+        # Stamp a clearly-stale previously-invoiced period.
+        schedule.last_invoice_coverage_start = "2020-01-01"
+        schedule.last_invoice_coverage_end = "2020-01-31"
+
+        expected_start, expected_end = schedule.calculate_next_coverage_period()
+
+        processor = SEPAProcessor()
+        description = processor.generate_invoice_description(schedule)
+
+        self.assertIn(f"Coverage: {expected_start} to {expected_end}", description)
+        # The stale previously-invoiced dates must not be echoed.
+        self.assertNotIn("2020-01-01", description)
+        self.assertNotIn("2020-01-31", description)
+
     def test_sepa_mandate_integration(self):
         """Test SEPA mandate integration with dues collection"""
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
