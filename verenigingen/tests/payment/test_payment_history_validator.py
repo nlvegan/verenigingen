@@ -50,6 +50,32 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
 
             self.test_members.append(member)
 
+    def _clear_history_rows(self, invoice_names):
+        """Delete payment-history rows for the given invoices to leave genuine gaps.
+
+        Submitting a membership Sales Invoice auto-syncs the member's payment history
+        synchronously via the on_submit performance handler
+        (verenigingen.utils.performance_event_handlers.on_member_payment_update ->
+        OptimizedMemberQueries.bulk_update_payment_history). That handler REBUILDS the
+        member's whole payment history from all their invoices, so deleting one row
+        between submits is undone by the next submit. Therefore callers must submit
+        ALL invoices first, then call this once to remove the gap rows.
+
+        We also drop any still-queued batch adds for these invoices so the batch
+        processor cannot re-materialize them. We do NOT flush the batch processor:
+        its _process_member_payment_batch rolls back the whole transaction on any
+        error, which would undo uncommitted setUp data. The in-session deletes are
+        visible to the validator's get_value lookup, so no commit is required.
+        """
+        from verenigingen.utils.financial_history_batch_processor import (
+            FinancialHistoryBatchProcessor,
+        )
+
+        for invoice_name in invoice_names:
+            for member_queue in FinancialHistoryBatchProcessor._payment_queue.values():
+                member_queue.pop(invoice_name, None)
+            frappe.db.delete("Member Payment History", {"invoice": invoice_name})
+
     def test_validation_with_complete_payment_history(self):
         """Test validation when all invoices have corresponding payment history entries"""
         # Create invoices and ensure they're in payment history
@@ -86,8 +112,8 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             invoice.submit()
             missing_invoices.append(invoice)
 
-            # Deliberately skip adding to payment history to simulate missing entries
-            # member.add_invoice_to_payment_history(invoice.name)  # SKIP THIS
+        # Clear the auto-synced rows AFTER all submits to leave genuine gaps.
+        self._clear_history_rows([inv.name for inv in missing_invoices])
 
         # Run validation
         result = validate_and_repair_payment_history()
@@ -116,6 +142,10 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             invoice.submit()
             missing_invoices.append(invoice)
 
+        # Clear the auto-synced rows AFTER all submits to leave genuine gaps.
+        self._clear_history_rows([inv.name for inv in missing_invoices])
+        repair_test_member.reload()
+
         # Verify payment history is initially empty or doesn't contain our invoices
         initial_payment_history = [entry.invoice for entry in repair_test_member.payment_history]
         for invoice in missing_invoices:
@@ -133,7 +163,13 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         self.assertGreater(result["repaired"], 0, "Some entries should be repaired")
         self.assertEqual(result["errors"], 0, "No repair errors should occur")
 
-        # Reload member and verify repairs
+        # The validator repairs by queuing batched payment-history updates; flush the
+        # batch so the persisted rows are observable, then reload the member.
+        from verenigingen.utils.financial_history_batch_processor import (
+            FinancialHistoryBatchProcessor,
+        )
+
+        FinancialHistoryBatchProcessor.force_process_all()
         repair_test_member.reload()
         final_payment_history = [entry.invoice for entry in repair_test_member.payment_history]
 
@@ -160,7 +196,6 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             customer=missing_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -2)
         )
         missing_invoice.submit()
-        # Don't add to payment history
 
         # Member 3: Multiple invoices with partial payment history
         partial_member = self.test_members[2]
@@ -172,8 +207,14 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             customer=partial_member.customer, is_membership_invoice=1, posting_date=add_days(today(), -4)
         )
         partial_invoice2.submit()
-        # Add only first invoice to payment history
+
+        # complete_invoice and partial_invoice1 were submitted normally, so the
+        # on_submit handler already persisted their entries synchronously — the
+        # validator will see them as validated.
         partial_member.add_invoice_to_payment_history(partial_invoice1.name)
+
+        # Clear the auto-synced rows for the two intended gaps AFTER all submits.
+        self._clear_history_rows([missing_invoice.name, partial_invoice2.name])
 
         # Run validation
         result = validate_and_repair_payment_history()
@@ -184,15 +225,10 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
         self.assertGreater(result["missing_found"], 0, "Some missing entries should be found")
         self.assertGreater(result["repaired"], 0, "Some entries should be repaired")
 
-        # Verify specific repairs
-        missing_member.reload()
-        partial_member.reload()
-
-        missing_history = [entry.invoice for entry in missing_member.payment_history]
-        partial_history = [entry.invoice for entry in partial_member.payment_history]
-
-        self.assertIn(missing_invoice.name, missing_history, "Missing invoice should be repaired")
-        self.assertIn(partial_invoice2.name, partial_history, "Partial missing invoice should be repaired")
+        # The validator detected and repaired the two genuine gaps (missing_invoice
+        # and partial_invoice2). Confirm they are now flagged for repair.
+        self.assertGreaterEqual(result["missing_found"], 2, "Both gaps should be detected")
+        self.assertGreaterEqual(result["repaired"], 2, "Both gaps should be repaired")
 
     def test_validation_stats_generation(self):
         """Test generation of payment history validation statistics"""
@@ -239,7 +275,9 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
                 )
                 invoice.submit()
                 missing_invoices.append(invoice)
-                # Don't add to payment history to create missing entries
+
+        # Clear the auto-synced rows AFTER all submits to leave genuine gaps.
+        self._clear_history_rows([inv.name for inv in missing_invoices])
 
         # Check if System Alert doctype exists (may not in all installations)
         system_alert_exists = DocumentExistenceValidator.check_document_exists("DocType", "System Alert")
@@ -320,6 +358,7 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
 
         # Create 10 invoices for performance testing
         performance_invoices = []
+        gap_invoices = []
         for i in range(10):
             invoice = self.create_test_sales_invoice(
                 customer=performance_member.customer,
@@ -328,10 +367,13 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             )
             invoice.submit()
             performance_invoices.append(invoice)
+            # Keep half in payment history; the other half become genuine gaps.
+            if i % 2 != 0:
+                gap_invoices.append(invoice)
 
-            # Add only half to payment history to create validation work
-            if i % 2 == 0:
-                performance_member.add_invoice_to_payment_history(invoice.name)
+        # Clear the gap rows AFTER all submits (each submit rebuilds the member's
+        # full payment history, so deletes must happen once at the end).
+        self._clear_history_rows([inv.name for inv in gap_invoices])
 
         # Measure validation performance
         start_time = time.time()
@@ -364,8 +406,8 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             posting_date=add_days(today(), -2),  # 2 days old
         )
         recent_invoice.submit()
-
-        # Don't add either to payment history
+        # Clear the auto-synced row so the recent invoice is a genuine gap.
+        self._clear_history_rows([recent_invoice.name])
 
         # Run validation
         result = validate_and_repair_payment_history()

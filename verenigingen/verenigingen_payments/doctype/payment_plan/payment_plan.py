@@ -82,13 +82,26 @@ class PaymentPlan(Document):
                 self.end_date = add_months(getdate(self.start_date), 3)
 
     def generate_installments(self):
-        """Generate installment schedule"""
+        """Generate installment schedule.
+
+        Only auto-generates on initial setup. Once installments exist they carry
+        payment state (Paid/Overdue/partial amounts), so regenerating on every
+        save would wipe that state — e.g. process_payment() marks an installment
+        Paid then save() runs validate(); without this guard the schedule would be
+        rebuilt as all-Pending, discarding the payment.
+        """
         if self.plan_type == "Custom Schedule":
             # Don't auto-generate for custom schedules
             return
 
-        # Clear existing installments
-        self.set("installments", [])
+        # Preserve installments once any carries payment state (Paid/Overdue/
+        # Skipped/Failed): regenerating would wipe a recorded payment
+        # (process_payment marks an installment Paid, then save() re-runs
+        # validate()). While every installment is still Pending it is safe to
+        # regenerate, so edits to the plan header (amount/count/frequency) before
+        # any payment still take effect.
+        if self.installments and any(row.status and row.status != "Pending" for row in self.installments):
+            return
 
         if self.plan_type == "Equal Installments":
             self._generate_equal_installments()
@@ -214,7 +227,12 @@ class PaymentPlan(Document):
         try:
             schedule = frappe.get_doc("Membership Dues Schedule", self.membership_dues_schedule)
 
-            # Pause regular billing while payment plan is active
+            # Pause regular billing while payment plan is active. This is a status-only
+            # change (we are not editing the dues rate), so bypass the rate-boundary /
+            # template-minimum checks which would otherwise block the pause for schedules
+            # whose rate differs from the membership-type minimum.
+            schedule._skip_minimum_validation = True
+            schedule._skip_template_validation = True
             schedule.status = "Payment Plan Active"
             schedule.payment_plan = self.name
             schedule.add_comment(text=f"Payment plan {self.name} activated. Regular billing paused.")

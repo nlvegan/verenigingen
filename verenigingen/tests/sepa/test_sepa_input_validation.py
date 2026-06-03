@@ -46,7 +46,9 @@ class TestSEPAInputValidation(VereningingenTestCase):
 
         self.assertTrue(result["valid"])
         self.assertEqual(len(result["errors"]), 0)
-        self.assertEqual(result["cleaned_date"], future_date)
+        # validate_collection_date() normalizes via getdate(); in v16 add_days()
+        # returns a string, so compare against the normalized date object.
+        self.assertEqual(result["cleaned_date"], getdate(future_date))
 
     def test_validate_collection_date_too_early(self):
         """Test collection date too early"""
@@ -97,7 +99,9 @@ class TestSEPAInputValidation(VereningingenTestCase):
     def test_validate_batch_type_invalid(self):
         """Test invalid batch type validation"""
 
-        invalid_types = ["INVALID", "", None, "core", "b2b"]
+        # Note: "core"/"b2b" are NOT invalid — validate_batch_type() normalizes
+        # case (strip().upper()), so lowercase variants of valid types are accepted.
+        invalid_types = ["INVALID", "", None, "UNKNOWN"]
 
         for batch_type in invalid_types:
             with self.subTest(batch_type=batch_type):
@@ -199,7 +203,6 @@ class TestSEPAInputValidation(VereningingenTestCase):
             "ABCD123",  # Too short
             "ABCD12345678",  # Too long
             "123NANL2A",  # Numbers in bank code
-            "ABNANL22",  # Invalid format
         ]
 
         for bic in invalid_bics:

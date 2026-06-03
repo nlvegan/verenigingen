@@ -26,6 +26,35 @@ def _mk_result(payment_id, status, **kwargs):
     return r
 
 
+class _StubOrchestrator:
+    """Stub orchestrator that avoids constructing a real MollieClient.
+
+    MolliePaymentOrchestrator.__init__ instantiates MollieClient(), which requires
+    Mollie Settings credentials that don't exist on a fresh test site. The bulk-run
+    state machine only needs process_payment(), so we substitute a stub via
+    get_payment_orchestrator() and route process_payment to the test's fake.
+    """
+
+    def __init__(self, process_fn):
+        self._process_fn = process_fn
+
+    def process_payment(self, payment_id):
+        return self._process_fn(payment_id)
+
+
+def _patch_orchestrator(process_fn):
+    """Patch the orchestrator factory to return a credential-free stub.
+
+    _process_rows imports get_payment_orchestrator lazily from the orchestrator
+    module, so patch it at its definition site.
+    """
+    return patch(
+        "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
+        "get_payment_orchestrator",
+        return_value=_StubOrchestrator(process_fn),
+    )
+
+
 class TestMollieBulkRun(EnhancedTestCase):
     """Test the bulk run state machine, checkpointing, resume, and cancel."""
 
@@ -92,11 +121,7 @@ class TestMollieBulkRun(EnhancedTestCase):
             # would return real names; tests shouldn't invent ones that trip Link validation.
             return _mk_result(pid, "success", actions_taken=["ok"])
 
-        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_process,
-        ):
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), _patch_orchestrator(fake_process):
             svc.execute_bulk_run(run.name)
 
         run.reload()
@@ -124,11 +149,7 @@ class TestMollieBulkRun(EnhancedTestCase):
                 return _mk_result(pid, "skipped", skipped_reason="already done")
             return _mk_result(pid, "error", error="boom")
 
-        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_process,
-        ):
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), _patch_orchestrator(fake_process):
             svc.execute_bulk_run(run.name)
 
         run.reload()
@@ -152,11 +173,7 @@ class TestMollieBulkRun(EnhancedTestCase):
                 raise RuntimeError("simulated crash")
             return _mk_result(pid, "success")
 
-        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_process,
-        ):
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), _patch_orchestrator(fake_process):
             svc.execute_bulk_run(run.name)
 
         run.reload()
@@ -182,11 +199,7 @@ class TestMollieBulkRun(EnhancedTestCase):
                 frappe.db.commit()
             return _mk_result(pid, "success")
 
-        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_process,
-        ):
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), _patch_orchestrator(fake_process):
             svc.execute_bulk_run(run.name)
 
         run.reload()
@@ -212,11 +225,7 @@ class TestMollieBulkRun(EnhancedTestCase):
                 frappe.db.commit()
             return _mk_result(pid, "success")
 
-        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_first,
-        ):
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), _patch_orchestrator(fake_first):
             svc.execute_bulk_run(run.name)
 
         run.reload()
@@ -234,11 +243,7 @@ class TestMollieBulkRun(EnhancedTestCase):
             processed_round_two.append(pid)
             return _mk_result(pid, "success")
 
-        with patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_second,
-        ):
+        with _patch_orchestrator(fake_second):
             svc.execute_bulk_run(run.name)
 
         run.reload()
@@ -256,11 +261,7 @@ class TestMollieBulkRun(EnhancedTestCase):
         def fake_always_fail(pid):
             return _mk_result(pid, "error", error="always fails")
 
-        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_always_fail,
-        ):
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), _patch_orchestrator(fake_always_fail):
             # First run — 1 failure
             svc.execute_bulk_run(run.name)
             # Resume twice more; after MAX_ATTEMPTS_PER_PAYMENT, row should be Blocked
@@ -308,11 +309,7 @@ class TestMollieBulkRun(EnhancedTestCase):
             calls.append(pid_)
             return _mk_result(pid_, "success")
 
-        with patch.object(svc, "_list_mollie_payments", return_value=payments), patch(
-            "verenigingen.verenigingen_payments.services.mollie_payment_orchestrator."
-            "MolliePaymentOrchestrator.process_payment",
-            side_effect=fake_process,
-        ):
+        with patch.object(svc, "_list_mollie_payments", return_value=payments), _patch_orchestrator(fake_process):
             svc.execute_bulk_run(run.name)
 
         self.assertEqual(calls, [], "Orchestrator must not be called when BT exists")

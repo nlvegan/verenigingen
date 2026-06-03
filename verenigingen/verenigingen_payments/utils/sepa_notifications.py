@@ -63,10 +63,6 @@ class SEPAMandateNotificationManager:
 
     def send_mandate_created_notification(self, mandate):
         """Send notification when a new mandate is created - OPTIMIZED VERSION"""
-        # PERFORMANCE OPTIMIZATION: Skip all notification processing in test environment
-        if frappe.flags.in_test:
-            return
-
         # PERFORMANCE OPTIMIZATION: Use SQL query instead of loading full Member document
         # This eliminates N+1 queries where frappe.get_doc("Member", mandate.member)
         # would load all Member relationships
@@ -303,9 +299,6 @@ class SEPAMandateNotificationManager:
                 - notification_type: 'created', 'cancelled', 'expiring'
                 - extra_data: Additional data (reason, days_until_expiry)
         """
-        if frappe.flags.in_test:
-            return
-
         if not mandate_notifications:
             return
 

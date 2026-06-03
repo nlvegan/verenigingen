@@ -233,7 +233,7 @@ class SEPAInputValidator:
         """
         result = {"valid": True, "errors": [], "warnings": [], "cleaned_invoices": []}
 
-        if not invoices or not isinstance(invoices, list):
+        if invoices is None or not isinstance(invoices, list):
             result["errors"].append("Invoice list is required and must be a list")
             result["valid"] = False
             return result
@@ -355,7 +355,9 @@ class SEPAInputValidator:
             if not iban_result["valid"]:
                 result["errors"].append(f"{prefix}: {iban_result['message']}")
             else:
-                result["cleaned_invoice"]["iban"] = iban_result["formatted_iban"]
+                # validate_iban() returns only {valid, message}; normalize the IBAN
+                # here to the compact, uppercase form used throughout SEPA processing.
+                result["cleaned_invoice"]["iban"] = str(invoice["iban"]).replace(" ", "").upper()
 
             # Validate member name
             name_result = SEPAInputValidator.validate_sepa_text(

@@ -82,60 +82,65 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
         return mandates
 
     def test_sepa_mandate_created_notification_flow(self):
-        """Test complete SEPA mandate creation notification flow"""
+        """Test complete SEPA mandate creation notification flow.
+
+        The notification methods route through the unified EmailService via
+        send_sepa_email() (not frappe.sendmail directly), so we mock that boundary
+        and assert on the recipients/subject/context handed to it.
+        """
         mandate = self.test_mandates[0]  # Rabobank mandate
 
-        with patch('frappe.sendmail') as mock_sendmail:
+        with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
             # Test individual notification
             self.notification_manager.send_mandate_created_notification(mandate)
 
             # Verify email was sent
-            mock_sendmail.assert_called_once()
-            call_args = mock_sendmail.call_args[1]
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args[1]
 
-            # Verify email content
+            # Verify email metadata
             self.assertIn("SEPA", call_args["subject"])
             self.assertIn("Activated", call_args["subject"])
             self.assertIn(self.dutch_member.email, call_args["recipients"])
 
-            # Verify IBAN masking
-            email_content = call_args["message"]
-            self.assertIn("NL91****5264", email_content)  # Should be masked
-            self.assertNotIn("NL91RABO0300065264", email_content)  # Full IBAN should not appear
+            # Verify IBAN masking in the rendered context
+            context = call_args["context"]
+            self.assertEqual(context["iban"], "NL91****5264")  # Should be masked
+            self.assertNotIn("0300065264", context["iban"])  # Full IBAN should not appear
 
     def test_sepa_mandate_cancelled_notification_flow(self):
         """Test SEPA mandate cancellation notification flow"""
         mandate = self.test_mandates[1]  # ING mandate
         cancellation_reason = "Member requested cancellation due to bank change"
 
-        with patch('frappe.sendmail') as mock_sendmail:
+        with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
             self.notification_manager.send_mandate_cancelled_notification(mandate, cancellation_reason)
 
-            mock_sendmail.assert_called_once()
-            call_args = mock_sendmail.call_args[1]
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args[1]
 
             # Verify cancellation-specific content
             self.assertIn("Cancelled", call_args["subject"])
-            email_content = call_args["message"]
-            self.assertIn(cancellation_reason, email_content)
-            self.assertIn("NL69****6789", email_content)  # Masked ING IBAN
+            context = call_args["context"]
+            self.assertEqual(context["cancellation_reason"], cancellation_reason)
+            self.assertEqual(context["iban"], "NL69****6789")  # Masked ING IBAN
 
     def test_sepa_mandate_expiring_notification_flow(self):
         """Test SEPA mandate expiring notification flow"""
         mandate = self.test_mandates[2]  # ABN AMRO mandate
         days_until_expiry = 30
 
-        with patch('frappe.sendmail') as mock_sendmail:
+        with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
             self.notification_manager.send_mandate_expiring_notification(mandate, days_until_expiry)
 
-            mock_sendmail.assert_called_once()
-            call_args = mock_sendmail.call_args[1]
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args[1]
 
             # Verify expiration-specific content
             self.assertIn("Expiring", call_args["subject"])
-            email_content = call_args["message"]
-            self.assertIn("30", email_content)  # Days until expiry
-            self.assertIn("NL02****6789", email_content)  # Masked ABN AMRO IBAN
+            context = call_args["context"]
+            self.assertEqual(context["days_until_expiry"], 30)  # Days until expiry
+            self.assertEqual(context["iban"], "NL02****6789")  # Masked ABN AMRO IBAN
 
     def test_sepa_bulk_notification_processing(self):
         """Test bulk SEPA notification processing"""
@@ -157,14 +162,19 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
                 "extra_data": extra_data
             })
 
-        with patch('frappe.sendmail') as mock_sendmail:
+        # send_mandate_notifications_batch builds an email batch and hands it to
+        # _send_email_batch (which persists Communications and enqueues delivery).
+        # Mock that boundary and assert the batch was assembled correctly.
+        with patch.object(self.notification_manager, '_send_email_batch') as mock_batch:
             self.notification_manager.send_mandate_notifications_batch(bulk_notifications)
 
-            # Should have sent multiple emails
-            self.assertEqual(mock_sendmail.call_count, 3)
+            # Should have assembled one batch containing all three notifications
+            mock_batch.assert_called_once()
+            email_batch = mock_batch.call_args[0][0]
+            self.assertEqual(len(email_batch), 3)
 
             # Verify each notification type was handled
-            subjects = [call[1]["subject"] for call in mock_sendmail.call_args_list]
+            subjects = [email["subject"] for email in email_batch]
             self.assertTrue(any("Activated" in subject for subject in subjects))
             self.assertTrue(any("Cancelled" in subject for subject in subjects))
             self.assertTrue(any("Expiring" in subject for subject in subjects))
@@ -194,7 +204,9 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
         test_cases = [
             ("NL91RABO0300065264", "NL91****5264"),
             ("NL69INGB0123456789", "NL69****6789"),
-            ("NL 02 ABNA 0123 4567 89", "NL 0****67 89"),  # Spaced format
+            # Spaced format: _mask_iban() normalizes (strips spaces, uppercases)
+            # before masking, so the result is the compact masked form.
+            ("NL 02 ABNA 0123 4567 89", "NL02****6789"),  # Spaced format
             ("SHORT", "SHORT"),  # Too short
             ("", ""),  # Empty
             (None, None),  # None
@@ -267,14 +279,14 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
         # Mock customer lookup
         with patch('frappe.db.get_value', return_value=self.dutch_member.name):
             with patch('frappe.get_doc', return_value=self.dutch_member):
-                with patch('frappe.sendmail') as mock_sendmail:
+                with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
                     self.notification_manager.send_payment_success_notification(payment_entry)
 
                     # Verify success notification was sent
-                    mock_sendmail.assert_called_once()
-                    call_args = mock_sendmail.call_args[1]
+                    mock_send.assert_called_once()
+                    call_args = mock_send.call_args[1]
                     self.assertIn("Payment Received", call_args["subject"])
-                    self.assertIn("€25.00", call_args["message"])
+                    self.assertEqual(call_args["context"]["payment_reference"], "PE-2024-001")
 
     def test_payment_retry_notification_scenarios(self):
         """Test payment retry notification scenarios"""
@@ -298,32 +310,34 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
                 "Member": self.dutch_member
             }.get(doctype)
 
-            with patch('frappe.sendmail') as mock_sendmail:
+            with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
                 self.notification_manager.send_payment_retry_notification(retry_record)
 
-                mock_sendmail.assert_called_once()
-                call_args = mock_sendmail.call_args[1]
+                mock_send.assert_called_once()
+                call_args = mock_send.call_args[1]
                 self.assertIn("Retry Scheduled", call_args["subject"])
-                self.assertIn("Insufficient funds", call_args["message"])
+                self.assertEqual(call_args["context"]["failure_reason"], "Insufficient funds")
 
     def test_sepa_notification_error_handling(self):
         """Test SEPA notification error handling scenarios"""
         mandate = self.test_mandates[0]
 
-        # Test with member that has no email
+        # Test with member that has no email. The factory enforces a valid email,
+        # so create the member normally then clear the email at the DB level — the
+        # notification methods read the email via a direct SQL lookup.
         member_without_email = self.create_test_member(
             first_name="NoEmail",
             last_name="Member",
-            email="",  # Empty email
             birth_date="1990-01-01"
         )
+        frappe.db.set_value("Member", member_without_email.name, "email", "")
 
         mandate.member = member_without_email.name
 
         # Should handle gracefully without sending email
-        with patch('frappe.sendmail') as mock_sendmail:
+        with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
             self.notification_manager.send_mandate_created_notification(mandate)
-            mock_sendmail.assert_not_called()
+            mock_send.assert_not_called()
 
     def test_sepa_expiry_check_scheduler_integration(self):
         """Test SEPA expiry check scheduler integration"""
@@ -350,13 +364,13 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
                     mock_mandate.iban = expiring_mandate_data["iban"]
                     mock_get_doc.return_value = mock_mandate
 
-                    with patch('frappe.sendmail') as mock_sendmail:
+                    with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
                         # Call the scheduler function
                         self.notification_manager.check_and_send_expiry_notifications()
 
                         # Should have sent expiry notification
-                        mock_sendmail.assert_called_once()
-                        call_args = mock_sendmail.call_args[1]
+                        mock_send.assert_called_once()
+                        call_args = mock_send.call_args[1]
                         self.assertIn("Expiring", call_args["subject"])
 
     def test_realistic_dutch_member_notification_flow(self):
@@ -386,18 +400,18 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
         mock_settings.support_email = "info@duurzaamheidsvereniging.nl"
 
         with patch.object(self.notification_manager, '_get_settings', return_value=mock_settings):
-            with patch('frappe.sendmail') as mock_sendmail:
+            with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
                 self.notification_manager.send_mandate_created_notification(mandate)
 
-                mock_sendmail.assert_called_once()
-                call_args = mock_sendmail.call_args[1]
+                mock_send.assert_called_once()
+                call_args = mock_send.call_args[1]
 
-                # Verify Dutch content handling
-                email_content = call_args["message"]
-                self.assertIn("Pieter-Jan van den Berg-de Wit", email_content)
-                self.assertIn("Nederlandse Vereniging", email_content)
-                self.assertIn("NL20****4567", email_content)  # Masked IBAN
-                self.assertIn("ING", email_content)  # Bank name should be identified
+                # Verify Dutch content handling in the rendered context
+                context = call_args["context"]
+                self.assertIn("Pieter-Jan van den Berg-de Wit", context["member_name"])
+                self.assertIn("Nederlandse Vereniging", context["company_name"])
+                self.assertEqual(context["iban"], "NL20****4567")  # Masked IBAN
+                self.assertIn("ING", context["bank_name"])  # Bank name should be identified
 
     def test_sepa_notification_performance_optimization(self):
         """Test SEPA notification performance optimizations"""
@@ -423,15 +437,15 @@ class TestSEPANotificationIntegration(EnhancedTestCase):
         mandate = self.test_mandates[0]
 
         # Test notification includes required SEPA information
-        with patch('frappe.sendmail') as mock_sendmail:
+        with patch('verenigingen.services.communication.compatibility.send_sepa_email') as mock_send:
             self.notification_manager.send_mandate_created_notification(mandate)
 
-            call_args = mock_sendmail.call_args[1]
-            email_content = call_args["message"]
+            mock_send.assert_called_once()
+            context = mock_send.call_args[1]["context"]
 
             # Verify required SEPA compliance elements
-            self.assertIn(mandate.mandate_id, email_content)  # Mandate reference
-            self.assertIn("NL91****5264", email_content)  # Masked bank account
+            self.assertEqual(context["mandate_id"], mandate.mandate_id)  # Mandate reference
+            self.assertEqual(context["iban"], "NL91****5264")  # Masked bank account
 
             # Should include unsubscribe/preference link for compliance
             context_used = self.notification_manager._prepare_context({})

@@ -46,12 +46,16 @@ class DuesScheduleLifecycleService(StatelessService):
     # failed collection, Grace Period -> Suspended after repeated failures, and
     # either can recover to Active or be Cancelled.
     ALLOWED_TRANSITIONS = {
-        "Active": ["Paused", "Cancelled", "Grace Period", "Suspended"],
+        # "Payment Plan Active" pauses regular billing while a Payment Plan covers
+        # the dues (see PaymentPlan.update_dues_schedule_for_payment_plan); it
+        # returns to Active (or is Cancelled) when the plan ends.
+        "Active": ["Paused", "Cancelled", "Grace Period", "Suspended", "Payment Plan Active"],
         "Paused": ["Active", "Cancelled"],
         "Cancelled": [],  # No transitions from cancelled
         "Test": ["Active", "Cancelled"],
         "Grace Period": ["Active", "Suspended", "Cancelled"],
         "Suspended": ["Active", "Cancelled"],
+        "Payment Plan Active": ["Active", "Cancelled"],
     }
 
     def __init__(self):
