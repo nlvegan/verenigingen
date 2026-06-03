@@ -24,7 +24,7 @@ class TestPrimaryChapterDesignation(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.chapters = self.create_test_chapters()
-        self.test_member = self.create_test_member()
+        self.test_member = self.create_test_member(chapter=False)
 
     def test_first_chapter_becomes_primary(self):
         """Test that first chapter assignment becomes primary"""
@@ -215,7 +215,7 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.chapters = self.create_test_chapters_with_cost_centers()
-        self.test_member = self.create_test_member()
+        self.test_member = self.create_test_member(chapter=False)
 
     def test_dues_allocated_to_primary_chapter(self):
         """Test that membership dues are allocated to primary chapter's cost center"""
@@ -287,13 +287,13 @@ class TestMultiChapterFinancialImpact(VereningingenTestCase):
         rotterdam = self.chapters["rotterdam"]
 
         # Create multiple members with different chapter configurations
-        member1 = self.create_test_member()  # Amsterdam only
+        member1 = self.create_test_member(chapter=False)  # Amsterdam only
         self.assign_member_to_chapter(member1.name, amsterdam.name, is_primary=True)
 
-        member2 = self.create_test_member()  # Rotterdam only
+        member2 = self.create_test_member(chapter=False)  # Rotterdam only
         self.assign_member_to_chapter(member2.name, rotterdam.name, is_primary=True)
 
-        member3 = self.create_test_member()  # Both, Amsterdam primary
+        member3 = self.create_test_member(chapter=False)  # Both, Amsterdam primary
         self.assign_member_to_chapter(member3.name, amsterdam.name, is_primary=True)
         self.assign_member_to_chapter(member3.name, rotterdam.name, is_primary=False)
 
@@ -429,7 +429,7 @@ class TestChapterTransferScenarios(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.chapters = self.create_test_chapters()
-        self.test_member = self.create_test_member()
+        self.test_member = self.create_test_member(chapter=False)
 
     def test_full_transfer_removes_from_old_chapter(self):
         """Test that full chapter transfer removes member from old chapter"""
@@ -620,6 +620,22 @@ class TestChapterTransferScenarios(VereningingenTestCase):
                             row.leave_reason = transfer_reason or "Transferred to another chapter"
                     other.save()
 
+        # When making the target primary, it must become strictly the earliest
+        # active chapter (primary == lowest chapter_join_date). Using transfer
+        # date - 1 alone is not enough: a previous primary set via is_primary
+        # already carries today()-1, producing a tie that the creation-order
+        # tie-break resolves to the OLD chapter. Compute one day before the
+        # current earliest active join date instead (mirrors set_primary_chapter).
+        if make_primary:
+            existing = frappe.get_all(
+                "Chapter Member",
+                filters={"member": member_name, "enabled": 1, "parenttype": "Chapter"},
+                fields=["chapter_join_date"],
+                order_by="chapter_join_date asc, creation asc",
+            )
+            earliest = existing[0]["chapter_join_date"] if existing else transfer_date
+            primary_join_date = add_days(getdate(earliest), -1)
+
         # Create or update target chapter membership
         target = frappe.get_doc("Chapter", target_chapter)
         found = None
@@ -630,11 +646,15 @@ class TestChapterTransferScenarios(VereningingenTestCase):
         if found:
             found.enabled = 1
             found.status = "Active"
-            found.chapter_join_date = add_days(transfer_date, -1) if make_primary else transfer_date
+            found.chapter_join_date = primary_join_date if make_primary else transfer_date
             target.save()
+        elif make_primary:
+            self.assign_member_to_chapter(
+                member_name, target_chapter, join_date=primary_join_date, is_primary=False
+            )
         else:
             self.assign_member_to_chapter(
-                member_name, target_chapter, join_date=transfer_date, is_primary=make_primary
+                member_name, target_chapter, join_date=transfer_date, is_primary=False
             )
 
     def get_active_chapters(self, member_name):
@@ -677,7 +697,7 @@ class TestChapterHistoryTracking(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         self.chapters = self.create_test_chapters()
-        self.test_member = self.create_test_member()
+        self.test_member = self.create_test_member(chapter=False)
 
     def test_join_date_is_recorded(self):
         """Test that chapter join date is properly recorded"""
@@ -827,7 +847,7 @@ class TestChapterEdgeCases(VereningingenTestCase):
 
     def setUp(self):
         super().setUp()
-        self.test_member = self.create_test_member()
+        self.test_member = self.create_test_member(chapter=False)
 
     def test_assign_to_inactive_chapter_fails(self):
         """Test that assignment to inactive chapter fails or warns"""
@@ -844,8 +864,8 @@ class TestChapterEdgeCases(VereningingenTestCase):
         chapter = self.create_active_chapter()
 
         # Add members
-        member1 = self.create_test_member()
-        member2 = self.create_test_member()
+        member1 = self.create_test_member(chapter=False)
+        member2 = self.create_test_member(chapter=False)
 
         self.assign_member_to_chapter(member1.name, chapter.name)
         self.assign_member_to_chapter(member2.name, chapter.name)
@@ -870,7 +890,7 @@ class TestChapterEdgeCases(VereningingenTestCase):
         chapter = self.create_active_chapter()
 
         # Add member
-        member = self.create_test_member()
+        member = self.create_test_member(chapter=False)
         self.assign_member_to_chapter(member.name, chapter.name)
 
         # Deactivate then reactivate (reload to keep member rows)
@@ -890,7 +910,7 @@ class TestChapterEdgeCases(VereningingenTestCase):
 
     def test_member_in_all_chapters_scenario(self):
         """Test member assigned to many chapters (edge case)"""
-        member = self.create_test_member()
+        member = self.create_test_member(chapter=False)
 
         # Create and assign to multiple chapters
         chapter_names = []
@@ -914,7 +934,7 @@ class TestChapterEdgeCases(VereningingenTestCase):
 
     def test_member_with_no_chapter_scenario(self):
         """Test handling of member with no chapter assignment"""
-        member = self.create_test_member()
+        member = self.create_test_member(chapter=False)
 
         # Member with no chapter
         chapters = frappe.get_all("Chapter Member", filters={"member": member.name, "enabled": 1})

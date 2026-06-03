@@ -435,9 +435,17 @@ class VolunteerExpenseSubmissionService(StatelessService):
         elif request.organization_type == "Team":
             team = request.team
         elif request.organization_type == "National":
-            if self.settings.national_board_chapter:
-                chapter = self.settings.national_board_chapter
-            else:
+            # National expenses are NOT attributed to a specific chapter: their
+            # cost center comes from Verenigingen Settings.national_cost_center
+            # (see get_organization_cost_center), and submission access is gated
+            # by _validate_national_access (policy-covered categories are open to
+            # all volunteers). Deliberately leave `chapter` unset so the claim's
+            # custom_chapter stays empty. Setting it to national_board_chapter
+            # used to mislabel the claim AND trip the generic Expense Claim
+            # validate hook (validate_expense_claim_chapter_access), which gates
+            # on board membership and would override the service's own, more
+            # permissive national-expense policy.
+            if not self.settings.national_board_chapter:
                 frappe.throw(_("National chapter not configured in settings"))
 
         return chapter, team
@@ -482,6 +490,12 @@ class VolunteerExpenseSubmissionService(StatelessService):
                 ).format(self.company)
             )
 
+        # Expense Claim is multi-currency in current HRMS: calculate_total_amount()
+        # multiplies each line's amount by (row exchange_rate or doc exchange_rate),
+        # which raises "float * NoneType" if neither is set. Volunteer expenses are
+        # always in the company's own currency, so pin currency + exchange_rate here.
+        company_currency = frappe.db.get_value("Company", self.company, "default_currency")
+
         # Create expense claim
         expense_claim = frappe.get_doc(
             {
@@ -489,6 +503,8 @@ class VolunteerExpenseSubmissionService(StatelessService):
                 "employee": self.volunteer_doc.employee_id,
                 "posting_date": request.expense_date,
                 "company": self.company,
+                "currency": company_currency,
+                "exchange_rate": 1.0,
                 "cost_center": cost_center,
                 "payable_account": payable_account,
                 "approval_status": "Draft",

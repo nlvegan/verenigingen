@@ -24,6 +24,14 @@ class TestVolunteerAssignmentService(EnhancedTestCase):
         """Set up test data"""
         super().setUp()
 
+        # AssignmentQueryBuilder caches results on frappe.local (request-level
+        # cache). In production this is cleared at request end, but the test
+        # framework reuses one frappe.local across tests and rolls back the DB
+        # via savepoints, which makes autonamed Volunteer names recur. A stale
+        # cache entry keyed by a recurring volunteer name would leak a prior
+        # test's results into this one, so clear it before and after each test.
+        self._clear_assignment_cache()
+
         # Create test member and volunteer
         self.test_member = self.create_test_member(
             first_name="Assignment",
@@ -48,6 +56,17 @@ class TestVolunteerAssignmentService(EnhancedTestCase):
         # Role doctype, so these named records must exist before appending board members.
         for chapter_role_name in ("Secretary", "Chair", "Treasurer"):
             self.factory.ensure_chapter_role(chapter_role_name)
+
+    def tearDown(self):
+        """Clear the request-level assignment cache so it cannot leak into the next test."""
+        self._clear_assignment_cache()
+        super().tearDown()
+
+    @staticmethod
+    def _clear_assignment_cache():
+        """Drop the AssignmentQueryBuilder request-level cache from frappe.local."""
+        if hasattr(frappe.local, "_volunteer_assignment_cache"):
+            delattr(frappe.local, "_volunteer_assignment_cache")
 
     def test_get_aggregated_assignments_empty(self):
         """Test getting aggregated assignments when volunteer has none"""
