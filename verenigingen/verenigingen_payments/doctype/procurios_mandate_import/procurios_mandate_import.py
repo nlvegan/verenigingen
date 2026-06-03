@@ -19,14 +19,18 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
 import frappe
-from frappe.model.document import Document
-from frappe.utils import today
 
+from verenigingen.utils.csv.base_csv_import import (
+    BaseCSVImport,
+    format_truncated_error_log,
+    mark_import_failed,
+    prepare_background_import,
+    run_csv_validation,
+)
 from verenigingen.utils.csv.procurios_mandate_validator import (
     ProcuriosMandateRow,
     ProcuriosMandateValidator,
 )
-from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 
 
@@ -48,32 +52,22 @@ class _Caches:
     member_to_active_count: Dict[str, int] = field(default_factory=dict)
 
 
-class ProcuriosMandateImport(Document):
-    # Cache slots: single underscore so Python name-mangling doesn't break
-    # the hasattr-then-set idiom (a double-underscore attribute would mangle
-    # to _ProcuriosMandateImport__x, leaving the hasattr check perpetually
-    # False against the unmangled name).
-    @property
-    def _parser(self) -> SecureCSVParser:
-        if not hasattr(self, "_parser_instance"):
-            encoding = None if self.encoding == "auto-detect" else self.encoding
-            self._parser_instance = SecureCSVParser(encoding=encoding, delimiter=self.csv_delimiter)
-        return self._parser_instance
+class ProcuriosMandateImport(BaseCSVImport):
+    _BACKGROUND_METHOD = (
+        "verenigingen.verenigingen_payments.doctype.procurios_mandate_import."
+        "procurios_mandate_import.process_import_background"
+    )
 
     @property
     def _validator(self) -> ProcuriosMandateValidator:
+        # Cache slot is `_validator_instance` (single underscore) to match
+        # the BaseCSVImport name-mangling-safe pattern. See base class
+        # docstring + TestPropertyCacheHits.
         if not hasattr(self, "_validator_instance"):
             self._validator_instance = ProcuriosMandateValidator()
         return self._validator_instance
 
-    def validate(self):
-        if not self.import_date:
-            self.import_date = today()
-
     # ---- validate / preview -------------------------------------------
-
-    def _read_csv_file(self) -> List[Dict]:
-        return self._parser.read_csv_file(self.csv_file)
 
     def _validate_and_preview_csv(self) -> None:
         """Read the CSV, check shape, build a preview, set status."""
@@ -83,29 +77,19 @@ class ProcuriosMandateImport(Document):
         try:
             csv_data = self._read_csv_file()
             if not csv_data:
-                self.db_set("import_status", "Failed")
-                self.db_set("error_log", "CSV file is empty or could not be read")
-                frappe.db.commit()
+                mark_import_failed(self, "CSV file is empty or could not be read")
                 return
 
             headers = list(csv_data[0].keys())
             missing = self._validator.check_required_columns(headers)
             if missing:
-                self.db_set("import_status", "Failed")
-                self.db_set(
-                    "error_log",
-                    "Missing required columns: " + ", ".join(missing),
-                )
-                frappe.db.commit()
+                mark_import_failed(self, "Missing required columns: " + ", ".join(missing))
                 return
 
             mapped, errors, filtered_old = self._validator.validate_and_map(csv_data)
 
             if errors:
-                truncated = "\n".join(errors[:50])
-                if len(errors) > 50:
-                    truncated += f"\n... and {len(errors) - 50} more errors"
-                self.db_set("error_log", truncated)
+                self.db_set("error_log", format_truncated_error_log(errors))
 
             if mapped:
                 preview = [
@@ -141,9 +125,7 @@ class ProcuriosMandateImport(Document):
             frappe.db.commit()
 
         except Exception as e:
-            self.db_set("import_status", "Failed")
-            self.db_set("error_log", sanitize_error_for_audit(str(e)))
-            frappe.db.commit()
+            mark_import_failed(self, str(e))
             raise
 
     # ---- caches -------------------------------------------------------
@@ -373,22 +355,6 @@ class ProcuriosMandateImport(Document):
 
         return ("updated", mandate.name)
 
-    # ---- submission ---------------------------------------------------
-
-    def on_submit(self):
-        self.db_set("import_status", "Queued")
-        frappe.enqueue(
-            method=(
-                "verenigingen.verenigingen_payments.doctype.procurios_mandate_import."
-                "procurios_mandate_import.process_import_background"
-            ),
-            queue="long",
-            timeout=3600,
-            import_doc_name=self.name,
-            test_mode=bool(self.test_mode),
-            now=False,
-        )
-
     # ---- finalize -----------------------------------------------------
 
     def _finalize_import_results(
@@ -417,10 +383,7 @@ class ProcuriosMandateImport(Document):
         self.import_status = "Completed"
 
         if error_log:
-            truncated = error_log[:50]
-            self.error_log = "\n".join(truncated)
-            if len(error_log) > 50:
-                self.error_log += f"\n... and {len(error_log) - 50} more errors"
+            self.error_log = format_truncated_error_log(error_log)
 
         summary_counts = dict(counters)
         summary_counts.setdefault("filtered_old_cancelled", 0)
@@ -443,26 +406,10 @@ class ProcuriosMandateImport(Document):
         frappe.db.commit()
 
 
-_ADMIN_ROLES = ["System Manager", "Verenigingen Administrator"]
-
-
 @frappe.whitelist()
 def validate_import_file(import_doc_name: str) -> dict:
     """Manually trigger CSV validation (called from the client script)."""
-    frappe.only_for(_ADMIN_ROLES, message=True)
-    doc = frappe.get_doc("Procurios Mandate Import", import_doc_name)
-    try:
-        doc._validate_and_preview_csv()
-        doc.reload()
-        return {
-            "status": "success" if doc.import_status == "Ready for Import" else "error",
-            "message": f"Validation complete. Status: {doc.import_status}",
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": sanitize_error_for_audit(str(e)),
-        }
+    return run_csv_validation("Procurios Mandate Import", import_doc_name)
 
 
 @frappe.whitelist()
@@ -470,27 +417,15 @@ def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: validate, build caches, process, finalize."""
     import traceback
 
-    from verenigingen.utils.csv_import_processor import (
-        CSVImportBackgroundProcessor,
-        coerce_test_mode,
-    )
+    from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 
-    # Enqueued context: session.user is the original caller, who must be admin.
-    frappe.only_for(_ADMIN_ROLES, message=True)
-    test_mode = coerce_test_mode(test_mode)
-
-    frappe.flags.in_background_job = True
-    frappe.flags.ignore_version_changes = True
-
-    doc = frappe.get_doc("Procurios Mandate Import", import_doc_name)
+    doc, test_mode = prepare_background_import("Procurios Mandate Import", import_doc_name, test_mode)
     try:
         csv_data = doc._read_csv_file()
         headers = list(csv_data[0].keys()) if csv_data else []
         missing = doc._validator.check_required_columns(headers)
         if missing:
-            doc.db_set("import_status", "Failed")
-            doc.db_set("error_log", "Missing required columns: " + ", ".join(missing))
-            frappe.db.commit()
+            mark_import_failed(doc, "Missing required columns: " + ", ".join(missing))
             return
 
         mapped, validator_errors, filtered_old = doc._validator.validate_and_map(csv_data)
@@ -519,12 +454,12 @@ def process_import_background(import_doc_name: str, test_mode=False):
                     filtered_old_cancelled=filtered_old,
                 )
                 return
-            doc.db_set("import_status", "Failed")
-            doc.db_set(
-                "error_log",
-                "\n".join(validator_errors[:50]) if validator_errors else "No valid rows to import",
+            mark_import_failed(
+                doc,
+                format_truncated_error_log(validator_errors)
+                if validator_errors
+                else "No valid rows to import",
             )
-            frappe.db.commit()
             return
 
         if test_mode:
@@ -587,10 +522,7 @@ def process_import_background(import_doc_name: str, test_mode=False):
         )
 
     except Exception:
-        doc.reload()
-        doc.db_set("import_status", "Failed")
-        doc.db_set("error_log", sanitize_error_for_audit(traceback.format_exc()))
-        frappe.db.commit()
+        mark_import_failed(doc, traceback.format_exc())
     finally:
         frappe.flags.in_background_job = False
         frappe.flags.ignore_version_changes = False
