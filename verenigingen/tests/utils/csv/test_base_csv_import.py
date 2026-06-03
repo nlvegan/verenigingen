@@ -76,6 +76,24 @@ class TestRunCsvValidation(EnhancedTestCase):
         with self.assertRaises(frappe.DoesNotExistError):
             run_csv_validation("Procurios Mandate Import", "PMI-DOES-NOT-EXIST")
 
+    def test_ready_for_import_status_returns_success(self):
+        # Regression guard: a future rename of the "Ready for Import" status
+        # string would silently turn every successful validation into
+        # status="error" without any test catching it. Mock the delegate
+        # to isolate the helper's return-shape contract.
+        # Mock justified: testing the helper's status-string comparison
+        # without a real CSV file fixture.
+        from verenigingen.utils.csv.base_csv_import import run_csv_validation
+
+        stub = MagicMock()
+        stub._validate_and_preview_csv = MagicMock()
+        stub.reload = MagicMock()
+        stub.import_status = "Ready for Import"
+        with patch.object(frappe, "get_doc", return_value=stub):
+            result = run_csv_validation("Procurios Mandate Import", "PMI-X")
+        self.assertEqual(result["status"], "success")
+        self.assertIn("Ready for Import", result["message"])
+
 
 class TestPrepareBackgroundImport(EnhancedTestCase):
     """prepare_background_import: only_for runs BEFORE flag side-effects."""
@@ -118,6 +136,28 @@ class TestPrepareBackgroundImport(EnhancedTestCase):
         # reset so the next test sees the expected baseline.
         frappe.flags.in_background_job = False
         frappe.flags.ignore_version_changes = False
+
+    def test_happy_path_sets_both_base_flags(self):
+        # Regression guard: a future change deleting either
+        # `frappe.flags.in_background_job = True` or
+        # `frappe.flags.ignore_version_changes = True` from the helper would
+        # silently break both Procurios importers. This test pins the
+        # contract that BOTH flags get set on the admin-success path.
+        # Mock justified: avoids needing a real import doc to test pure
+        # flag side-effects.
+        from verenigingen.utils.csv.base_csv_import import prepare_background_import
+
+        frappe.flags.in_background_job = False
+        frappe.flags.ignore_version_changes = False
+        try:
+            with patch.object(frappe, "get_doc") as mocked:
+                mocked.return_value = MagicMock(name="ProcuriosMandateImport")
+                prepare_background_import("Procurios Mandate Import", "PMI-X", False)
+            self.assertTrue(frappe.flags.in_background_job)
+            self.assertTrue(frappe.flags.ignore_version_changes)
+        finally:
+            frappe.flags.in_background_job = False
+            frappe.flags.ignore_version_changes = False
 
 
 class TestMarkImportFailed(EnhancedTestCase):
