@@ -4,7 +4,7 @@ Context for membership fee adjustment page
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, today
+from frappe.utils import flt, get_datetime, getdate, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.constants import Roles
@@ -662,8 +662,15 @@ def get_member_fee_history(member_name):
                 }
             )
 
-        # Sort by date descending
-        history.sort(key=lambda x: x["date"], reverse=True)
+        # Sort by date descending. Entries mix Date (amendment requested_date)
+        # and Datetime (schedule creation) values; normalize to datetime so the
+        # comparison never raises (a mismatch previously bubbled up to the
+        # except below and silently returned an empty history).
+        def _sort_key(entry):
+            value = entry.get("date")
+            return get_datetime(value) if value else get_datetime("1900-01-01")
+
+        history.sort(key=_sort_key, reverse=True)
 
         return history[:10]  # Return last 10 entries
 

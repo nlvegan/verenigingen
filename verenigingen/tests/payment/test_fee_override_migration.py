@@ -4,157 +4,124 @@ Test suite for fee override migration and new dues schedule architecture
 Tests the migration from legacy override fields to child DocType approach
 """
 
-import unittest
-
 import frappe
-from frappe.utils import today, flt
+from frappe.utils import flt, today
+from verenigingen.tests.support.sepa_test_company import ensure_sepa_payment_terms_template
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestFeeOverrideMigration(VereningingenTestCase):
-    """Test the migration from fee overrides to dues schedules"""
+    """Test fee resolution and the Contribution Amendment Request (CAR) workflow.
+
+    The legacy "direct dues schedule creation" portal path is permanently
+    deprecated; all fee adjustments now flow through the CAR workflow, and a
+    submitted Membership always auto-creates exactly one Active dues schedule.
+    These tests assert that current model rather than the removed override model.
+    """
 
     def setUp(self):
         super().setUp()
+        # Applying an amendment can (re)create a dues schedule whose
+        # payment_terms_template = "SEPA Direct Debit"; ensure that master exists.
+        ensure_sepa_payment_terms_template()
         self.test_member = self.create_test_member()
         self.test_membership_type = self.create_test_membership_type()
 
-    @unittest.skip(
-        "Obsolete priority model: submitting a Membership now auto-creates an Active "
-        "dues schedule, so the 'no override -> membership_type' and 'legacy override' "
-        "fallback branches are never reached. Needs rewrite against the current "
-        "always-has-a-dues-schedule model. FLAG: obsolete-fee-priority-model"
-    )
-    def test_fee_priority_system(self):
-        """Test that fee calculation follows the correct priority order"""
+    def test_effective_fee_uses_active_dues_schedule(self):
+        """get_effective_fee_for_member returns the active dues schedule's rate."""
         from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
 
-        # Create membership
         membership = self.create_test_membership()
+        # Reconfigures the membership's auto-created Active schedule to €25.
+        self.create_test_dues_schedule(25.0)
 
-        # Test 1: No overrides - should use membership type amount
-        fee_info = get_effective_fee_for_member(self.test_member, membership)
-        self.assertEqual(fee_info["source"], "membership_type")
-
-        # Test 2: Add dues schedule - should have highest priority
-        dues_schedule = self.create_test_dues_schedule(25.0)
         fee_info = get_effective_fee_for_member(self.test_member, membership)
         self.assertEqual(fee_info["source"], "dues_schedule")
-        self.assertEqual(fee_info["amount"], 25.0)
+        self.assertEqual(flt(fee_info["amount"]), 25.0)
+        self.assertIn("schedule_name", fee_info)
 
-        # Test 3: Legacy override should be lower priority
-        self.test_member.dues_rate = 30.0
-        self.test_member.save()
+    def test_effective_fee_falls_back_to_legacy_override(self):
+        """With no Active dues schedule, the legacy member.dues_rate is used.
 
-        fee_info = get_effective_fee_for_member(self.test_member, membership)
-        self.assertEqual(fee_info["source"], "dues_schedule")  # Should still use dues schedule
-        self.assertEqual(fee_info["amount"], 25.0)
+        The auto-created schedule must be cancelled first; this exercises the
+        PRIORITY 3 ('member_override') branch that is otherwise shadowed by the
+        always-present Active schedule.
+        """
+        from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
 
-        # Test 4: Remove dues schedule - should fall back to legacy override
-        dues_schedule.status = "Inactive"
-        dues_schedule.save()
+        membership = self.create_test_membership()
+
+        # Cancel the auto-created Active schedule so no Active schedule remains.
+        schedule = self.create_test_dues_schedule(20.0)
+        schedule.status = "Cancelled"
+        schedule.save()
+
+        # Set a legacy override directly (db.set_value bypasses the fee-change
+        # history tracking that a doc.save() would trigger), then reload so the
+        # in-memory member carries the override.
+        frappe.db.set_value("Member", self.test_member.name, "dues_rate", 30.0, update_modified=False)
+        self.test_member.reload()
 
         fee_info = get_effective_fee_for_member(self.test_member, membership)
         self.assertEqual(fee_info["source"], "member_override")
-        self.assertEqual(fee_info["amount"], 30.0)
+        self.assertEqual(flt(fee_info["amount"]), 30.0)
+        self.assertIn("Legacy fee override", fee_info["reason"])
 
-    @unittest.skip(
-        "Obsolete: create_new_dues_schedule() is permanently deprecated and always "
-        "raises ('Direct dues schedule creation is no longer allowed. Use the "
-        "Contribution Amendment Request workflow'). Needs rewrite against the CAR "
-        "workflow. FLAG: deprecated-direct-creation"
-    )
-    def test_create_new_dues_schedule(self):
-        """Test creating new dues schedule from portal"""
+    def test_direct_dues_schedule_creation_is_deprecated(self):
+        """create_new_dues_schedule() is permanently deprecated and always raises."""
         from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
 
-        # Create membership
+        self.create_test_membership()
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            create_new_dues_schedule(self.test_member, 35.0, "Testing new schedule")
+        self.assertIn("no longer allowed", str(ctx.exception))
+        self.assertIn("Contribution Amendment Request", str(ctx.exception))
+
+    def test_zero_amount_fee_change_rejected(self):
+        """A Fee Change amendment with a non-positive amount is rejected."""
         membership = self.create_test_membership()
+        self.create_test_dues_schedule(25.0)
 
-        # Test creating new dues schedule
-        schedule_name = create_new_dues_schedule(self.test_member, 35.0, "Testing new schedule")
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            amendment = frappe.get_doc(
+                {
+                    "doctype": "Contribution Amendment Request",
+                    "member": self.test_member.name,
+                    "membership": membership.name,
+                    "amendment_type": "Fee Change",
+                    "requested_amount": 0.0,
+                    "reason": "Free membership",
+                    "effective_date": today(),
+                }
+            )
+            amendment.insert()
+        self.assertIn("greater than 0", str(ctx.exception))
 
-        # Verify schedule was created
-        self.assertIsNotNone(schedule_name)
-        schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-
-        self.assertEqual(schedule.member, self.test_member.name)
-        self.assertEqual(schedule.dues_rate, 35.0)
-        self.assertEqual(schedule.contribution_mode, "Custom")
-        self.assertEqual(schedule.status, "Active")
-        self.assertTrue(schedule.uses_custom_amount)
-        self.assertTrue(schedule.custom_amount_approved)
-        self.assertIn("Testing new schedule", schedule.custom_amount_reason)
-
-        # Verify legacy fields are also updated for backward compatibility
-        self.test_member.reload()
-        self.assertEqual(self.test_member.dues_rate, 35.0)
-
-    @unittest.skip(
-        "Obsolete: relies on create_new_dues_schedule(), which is permanently "
-        "deprecated and always raises. Superseding is now handled by the "
-        "Contribution Amendment Request workflow. FLAG: deprecated-direct-creation"
-    )
-    def test_supersede_existing_schedule(self):
-        """Test that creating new schedule supersedes existing one"""
-        from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
-
-        # Create membership
-        membership = self.create_test_membership()
-
-        # Create first schedule
-        first_schedule = self.create_test_dues_schedule(20.0)
-        self.assertEqual(first_schedule.status, "Active")
-
-        # Create second schedule - should supersede first
-        second_schedule_name = create_new_dues_schedule(self.test_member, 25.0, "Updated amount")
-
-        # Verify first schedule is superseded
-        first_schedule.reload()
-        self.assertEqual(first_schedule.status, "Superseded")
-
-        # Verify second schedule is active
-        second_schedule = frappe.get_doc("Membership Dues Schedule", second_schedule_name)
-        self.assertEqual(second_schedule.status, "Active")
-        self.assertEqual(second_schedule.dues_rate, 25.0)
-
-    @unittest.skip(
-        "Obsolete: assumes multiple coexisting dues schedules per member, but only "
-        "one Active schedule is allowed and the test helper reuses the single "
-        "auto-created schedule, so history yields one entry. Needs rewrite to build "
-        "historical (superseded) schedules via the CAR workflow. FLAG: one-active-schedule-model"
-    )
-    def test_fee_history_tracking(self):
-        """Test that fee history is properly tracked"""
+    def test_fee_history_reflects_amendments(self):
+        """get_member_fee_history surfaces Fee Change amendment requests."""
+        from verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request import (
+            create_fee_change_amendment,
+        )
         from verenigingen.templates.pages.membership_adjustment import get_member_fee_history
 
-        # Create membership
-        membership = self.create_test_membership()
+        self.create_test_membership()
+        self.create_test_dues_schedule(100.0)
 
-        # Create multiple dues schedules
-        schedule1 = self.create_test_dues_schedule(20.0)
-        schedule1.custom_amount_reason = "First adjustment"
-        schedule1.save()
+        amendment = create_fee_change_amendment(
+            self.test_member.name, 150.0, "Voluntary increase"
+        )
+        self.track_doc("Contribution Amendment Request", amendment.name)
 
-        schedule2 = self.create_test_dues_schedule(25.0)
-        schedule2.custom_amount_reason = "Second adjustment"
-        schedule2.save()
-
-        # Get fee history
         history = get_member_fee_history(self.test_member.name)
+        self.assertTrue(history, "Fee history should not be empty")
 
-        # Verify history contains both schedules
-        self.assertGreaterEqual(len(history), 2)
-
-        # Check that amounts are tracked
-        amounts = [h["amount"] for h in history]
-        self.assertIn(20.0, amounts)
-        self.assertIn(25.0, amounts)
-
-        # Check that reasons are tracked
-        reasons = [h["reason"] for h in history]
-        self.assertTrue(any("First adjustment" in r for r in reasons))
-        self.assertTrue(any("Second adjustment" in r for r in reasons))
+        amendment_entries = [h for h in history if h["source"] == "amendment_request"]
+        self.assertTrue(
+            amendment_entries, "Fee history should include the amendment request"
+        )
+        self.assertTrue(any(flt(h["amount"]) == 150.0 for h in amendment_entries))
+        self.assertTrue(any("Voluntary increase" in (h["reason"] or "") for h in amendment_entries))
 
     def test_migration_data_integrity(self):
         """Test that migration preserves data integrity
@@ -239,65 +206,6 @@ class TestFeeOverrideMigration(VereningingenTestCase):
 
         finally:
             frappe.session.user = original_user
-
-    @unittest.skip(
-        "Obsolete priority model: a Membership now always has an auto-created Active "
-        "dues schedule, so the legacy member_override fallback is never reached. Needs "
-        "rewrite against the current model. FLAG: obsolete-fee-priority-model"
-    )
-    def test_backward_compatibility(self):
-        """Test that system maintains backward compatibility"""
-        from verenigingen.templates.pages.membership_adjustment import get_effective_fee_for_member
-
-        # Create membership
-        membership = self.create_test_membership()
-
-        # Set only legacy override (no dues schedule)
-        self.test_member.reload()  # Refresh to avoid timestamp mismatch
-        self.test_member.dues_rate = 40.0
-        self.test_member.save()
-
-        # Should fall back to legacy override
-        fee_info = get_effective_fee_for_member(self.test_member, membership)
-        self.assertEqual(fee_info["source"], "member_override")
-        self.assertEqual(fee_info["amount"], 40.0)
-        self.assertIn("Legacy fee override", fee_info["reason"])
-
-    @unittest.skip(
-        "Obsolete: asserts ValidationError from create_new_dues_schedule(0.0), but that "
-        "function is permanently deprecated and throws unconditionally, so the zero-amount "
-        "path is never exercised (green for the wrong reason). Rewrite via the Contribution "
-        "Amendment Request workflow if zero-amount handling still needs coverage."
-    )
-    def test_zero_amount_handling(self):
-        """Test handling of zero amounts in new system"""
-        from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
-
-        # Create membership
-        membership = self.create_test_membership()
-
-        # Test that zero amounts are handled appropriately
-        with self.assertRaises(frappe.ValidationError):
-            create_new_dues_schedule(self.test_member, 0.0, "Free membership")
-
-    @unittest.skip(
-        "Obsolete: relies on create_new_dues_schedule(), which is permanently "
-        "deprecated and always raises. Currency-precision rounding must be tested "
-        "via the Contribution Amendment Request workflow. FLAG: deprecated-direct-creation"
-    )
-    def test_currency_precision(self):
-        """Test currency precision in new system"""
-        from verenigingen.templates.pages.membership_adjustment import create_new_dues_schedule
-
-        # Create membership
-        membership = self.create_test_membership()
-
-        # Test with precise amount
-        schedule_name = create_new_dues_schedule(self.test_member, 25.995, "Precise amount")
-        schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-
-        # Should be rounded to 2 decimal places
-        self.assertEqual(schedule.dues_rate, 26.00)
 
     # Helper methods
 
