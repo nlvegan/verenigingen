@@ -59,10 +59,22 @@ def assign_member_to_chapter(member_name, chapter_name) -> OperationResult[Dict[
             {"new_chapter": chapter_name},
             message=f"Member {member_name} has been assigned to {chapter_name}",
         )
-    else:
-        # Convert any error result to ValidationError
-        error_msg = result.get("error", "Unknown error occurred")
-        raise ValidationError(error_msg)
+
+    # Re-assigning a member who is already in the target chapter is an
+    # idempotent no-op, not a hard error. The membership manager signals this
+    # via action == "already_exists"; surface it as success so callers can
+    # safely retry an assignment.
+    if result.get("action") == "already_exists":
+        return OperationResult.ok(
+            {"new_chapter": chapter_name},
+            message=result.get("message")
+            or frappe._("Member is already assigned to {0}").format(chapter_name),
+        )
+
+    # Convert any other error result to ValidationError. The manager may report
+    # the failure under "error" or, for non-exception outcomes, under "message".
+    error_msg = result.get("error") or result.get("message") or "Unknown error occurred"
+    raise ValidationError(error_msg)
 
 
 @performance_monitor(threshold_ms=200)
