@@ -71,7 +71,28 @@ def _sanitize_error_message(message: str) -> str:
 
 
 class MijnroodCSVImport(Document):
-    """DocType for importing member data from CSV files with validation and preview."""
+    """DocType for importing member data from CSV files with validation and preview.
+
+    Why this class does NOT inherit from BaseCSVImport:
+
+    1. The property-cache idiom here uses the explicit-mangled-name form
+       (`hasattr(self, "_MijnroodCSVImport__validator")` + `self.__validator = ...`).
+       The two Procurios importers use the single-underscore form
+       (`hasattr(self, "_validator_instance")` + `self._validator_instance = ...`)
+       via BaseCSVImport. Both are correct; they are NOT interchangeable
+       because the mangled form embeds this class's name. Do not
+       "clean up" the underscores here — switching to the BaseCSVImport
+       form would silently break the cache the moment a subclass appears.
+
+    2. This controller is ~2000 LOC of domain orchestration (Account
+       Creation Requests, Bulk Volunteer Service, Mollie sync, chapter
+       provisioning, atomic tracker linking). A shared base class buys
+       little and would have to host carve-outs for every one of those
+       concerns.
+
+    See `verenigingen/utils/csv/base_csv_import.py` for the shared
+    scaffolding used by the Procurios importers.
+    """
 
     # Lazy-initialized instances to avoid repeated instantiation
     @property
