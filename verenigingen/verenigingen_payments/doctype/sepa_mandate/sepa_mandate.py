@@ -37,6 +37,37 @@ class SEPAMandate(Document):
         # Also synchronize status and is_active flag during validation
         self.sync_status_is_active()
 
+        # Run last: relies on the normalized IBAN (set by validate_iban) and the
+        # final status (set by set_status_based_on_dates / sync_status_is_active).
+        self.validate_no_duplicate_active_mandate()
+
+    def validate_no_duplicate_active_mandate(self):
+        """Reject a second Active mandate that duplicates an existing one (same IBAN).
+
+        A member legitimately switches banks by creating a new mandate with a
+        different IBAN, which supersedes the old one via the Member SEPA Mandate
+        Link `is_current` flag. But two Active mandates sharing the same IBAN are a
+        genuine duplicate and must be rejected as a data-integrity error.
+        """
+        if self.status != "Active" or not self.member or not self.iban:
+            return
+
+        duplicate = frappe.db.exists(
+            "SEPA Mandate",
+            {
+                "member": self.member,
+                "iban": self.iban,
+                "status": "Active",
+                "name": ["!=", self.name or ""],
+            },
+        )
+        if duplicate:
+            frappe.throw(
+                _("Member {0} already has an active SEPA mandate with this IBAN ({1}).").format(
+                    self.member, self.iban
+                )
+            )
+
     def set_scheme_default(self):
         """Apply the JSON 'SEPA' default for the mandatory scheme field.
 

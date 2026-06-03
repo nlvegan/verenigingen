@@ -185,17 +185,10 @@ class TestSEPAMandateCreation(VereningingenTestCase):
         )
 
         mandate2 = self.create_test_sepa_mandate(
-
-
             member=self.member.name,
-
-
-            iban="NL13TEST0123456789",  # Using test IBAN
-
-
-            status="Active"
-
-
+            iban="DE89370400440532013000",  # Distinct IBAN: a second Active mandate
+            # may not share the first's IBAN (SEPAMandate duplicate guard).
+            status="Active",
         )
 
         # Test filtering by specific IBAN

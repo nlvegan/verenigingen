@@ -211,16 +211,13 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
         finally:
             self._delete_mandate(mandate)
 
-    @unittest.skip(
-        "Duplicate-active-mandate prevention is not implemented: the SEPA Mandate "
-        "controller validate() does not raise on a second active mandate, and the "
-        "member-integration service supersedes via is_current flags rather than "
-        "rejecting. Asserting a ValidationError tests unimplemented behavior. "
-        "See flagged_for_followup."
-    )
     def test_duplicate_mandate_prevention(self):
-        """Test prevention of duplicate active mandates for same member"""
-        # Create first mandate
+        """A second active mandate with the SAME IBAN is rejected; a different
+        IBAN is allowed (the member-integration service supersedes via is_current).
+
+        See SEPAMandate.validate_no_duplicate_active_mandate().
+        """
+        # Create first active mandate
         mandate1 = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -233,21 +230,37 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
         )
         mandate1.insert()
 
-        # Try to create second active mandate for same member
+        # A second ACTIVE mandate with the SAME IBAN is a true duplicate -> rejected
         with self.assertRaises(frappe.ValidationError):
-            mandate2 = frappe.get_doc(
+            duplicate = frappe.get_doc(
                 {
                     "doctype": "SEPA Mandate",
                     "member": self.member.name,
                     "account_holder_name": "SEPA EdgeCase",
                     "sign_date": today(),
-                    "iban": "DE89370400440532013000",  # Different IBAN
+                    "iban": self._get_test_iban(),  # same IBAN as mandate1
                     "status": "Active",
                     "mandate_date": today()}
             )
-            mandate2.insert()
+            duplicate.insert()
+
+        # A second active mandate with a DIFFERENT IBAN (e.g. bank change) is allowed;
+        # it supersedes mandate1 via the Member SEPA Mandate Link is_current flag.
+        mandate2 = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "member": self.member.name,
+                "account_holder_name": "SEPA EdgeCase",
+                "sign_date": today(),
+                "iban": "DE89370400440532013000",  # different IBAN
+                "status": "Active",
+                "mandate_date": today()}
+        )
+        mandate2.insert()
+        self.assertEqual(mandate2.status, "Active")
 
         # Clean up
+        self._delete_mandate(mandate2)
         self._delete_mandate(mandate1)
 
     # ===== MANDATE USAGE TRACKING EDGE CASES =====

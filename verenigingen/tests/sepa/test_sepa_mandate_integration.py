@@ -257,36 +257,46 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
     def test_account_holder_validation_real_logic(self):
         """Test account holder name validation with real business logic"""
         
+        # Distinct valid IBANs so each Active mandate is unique: the controller
+        # rejects a second Active mandate sharing the same (member, IBAN).
+        valid_ibans = [
+            "NL91ABNA0417164300",
+            "DE89370400440532013000",
+            "GB82WEST12345698765432",
+            "FR1420041010050500013M02606",
+            "BE68539007547034",
+        ]
+
         # Test valid account holder names
         valid_names = [
             self.test_member.full_name,  # Exact match
             self.test_member.full_name.upper(),  # Case variation
             self.test_member.first_name + " " + self.test_member.last_name,  # No middle name
         ]
-        
-        for holder_name in valid_names:
+
+        for holder_name, iban in zip(valid_names, valid_ibans):
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.member = self.test_member.name
             mandate.account_holder_name = holder_name
-            mandate.iban = "NL91ABNA0417164300"  # Fixed: remove spaces
+            mandate.iban = iban
             mandate.status = "Active"
             mandate.sign_date = today()
-            
+
             # Real business logic should accept reasonable variations
             mandate.save()
-            
+
             # Validate account holder name handling
             self.assertIsNotNone(mandate.name)
-            
+
         # Test invalid account holder names (if validation exists)
         invalid_names = ["", "Completely Different Person"]
-        
-        for holder_name in invalid_names:
+
+        for holder_name, iban in zip(invalid_names, valid_ibans[len(valid_names):]):
             try:
                 mandate = frappe.new_doc("SEPA Mandate")
                 mandate.member = self.test_member.name
                 mandate.account_holder_name = holder_name
-                mandate.iban = "NL91ABNA0417164300"  # Fixed: remove spaces
+                mandate.iban = iban
                 mandate.status = "Active"
                 mandate.sign_date = today()
                 mandate.save()
@@ -345,7 +355,8 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         mandate2 = frappe.new_doc("SEPA Mandate")
         mandate2.member = self.test_member.name
         mandate2.account_holder_name = self.test_member.full_name
-        mandate2.iban = "NL91ABNA0417164300"  # Use same valid test IBAN
+        # Distinct IBAN: a second Active mandate may not share the first's IBAN.
+        mandate2.iban = "DE89370400440532013000"
         mandate2.status = "Active"
         mandate2.sign_date = today()  # Fixed: use current date, not future
         mandate2.mandate_type = "OOFF"
