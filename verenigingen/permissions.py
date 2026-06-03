@@ -1037,13 +1037,60 @@ def get_member_permission_query(user):
 
 
 def get_membership_permission_query(user):
-    """Permission query for Membership doctype"""
+    """Permission query for Membership doctype with chapter-based filtering.
+
+    Mirrors get_member_permission_query so Membership list visibility matches the
+    scoping already applied to Member, Employee, Donor and Termination Request:
+    - Admin roles: no restrictions (see all memberships)
+    - Chapter Board Members: see memberships of members in their chapters only
+    - Verenigingen Members: see their own membership records only
+    """
     if not user:
         user = frappe.session.user
 
-    # Always return empty string (no restrictions) for all users
-    # This is for debugging - remove this override once the issue is fixed
-    return ""
+    user_roles = frappe.get_roles(user)
+
+    # Admin roles see all memberships
+    if _has_admin_access(user_roles):
+        return ""
+
+    conditions = []
+
+    # Chapter Board Members can see memberships of members in their chapters
+    if Roles.CHAPTER_BOARD_MEMBER in user_roles:
+        try:
+            user_member = get_member_name_for_user(user)
+            if user_member:
+                board_chapters = _get_board_chapters_for_member(user_member)
+                if board_chapters:
+                    chapter_names = [frappe.db.escape(ch) for ch in board_chapters]
+                    conditions.append(
+                        f"""
+                        (`tabMembership`.member IN (
+                            SELECT DISTINCT cm.member
+                            FROM `tabChapter Member` cm
+                            JOIN `tabMember` m ON m.name = cm.member
+                            WHERE cm.parent IN ({','.join(chapter_names)})
+                              AND cm.status = 'Active'
+                              AND m.status NOT IN ('Quit', 'Banned', 'Deceased')
+                        ))
+                        """
+                    )
+        except Exception as e:
+            frappe.log_error(f"Error building membership chapter board query: {str(e)}")
+
+    # Members can see their own membership records
+    if Roles.VERENIGINGEN_MEMBER in user_roles:
+        user_member = get_member_name_for_user(user)
+        if user_member:
+            conditions.append(f"`tabMembership`.member = {frappe.db.escape(user_member)}")
+
+    # Combine conditions with OR logic
+    if conditions:
+        return f"({' OR '.join(conditions)})"
+
+    # No access if no conditions matched
+    return "1=0"
 
 
 def get_employee_permission_query(user):

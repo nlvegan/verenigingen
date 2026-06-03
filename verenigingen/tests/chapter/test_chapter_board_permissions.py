@@ -148,38 +148,42 @@ class TestChapterBoardPermissions(EnhancedTestCase):
 
         frappe.db.commit()
 
-    @unittest.skip(
-        "has_membership_permission() only grants direct access to admins and "
-        "otherwise returns None (defer to DocPerm); chapter-board filtering for "
-        "memberships is implemented via the permission QUERY (get_member_permission_query), "
-        "not this hook. Asserting board-member True access here tests a contract the "
-        "function does not implement. Needs product sign-off on whether Membership "
-        "should have a direct board-member permission hook like termination requests do."
-    )
     def test_membership_chapter_filtering(self):
-        """Test that board members can only see memberships from their chapters"""
-        from verenigingen.permissions import has_membership_permission, get_member_permission_query
+        """Board members see only memberships of members in their own chapter.
 
-        # Create membership for regular member (in chapter 1)
+        Chapter scoping for Membership is enforced by the permission QUERY
+        (get_membership_permission_query), mirroring the Member/Employee/Donor
+        scoping. The has_membership_permission hook only short-circuits for admins
+        (returns None otherwise to defer to DocPerm + the query).
+        """
+        from verenigingen.permissions import get_membership_permission_query
+
+        # Membership for the regular member, who belongs to chapter 1
         membership = self.create_test_membership(
             member=self.regular_member.name,
             membership_type="Basic Membership",
             start_date=frappe.utils.today(),
         )
 
-        # Board member 1 (chapter 1) should have access
-        with self.set_user(self.board_member_1.email):
-            self.assertTrue(
-                has_membership_permission(membership, self.board_member_1.email),
-                "Board member should have access to memberships in their chapter",
+        def membership_visible_to(user):
+            condition = get_membership_permission_query(user)
+            # Non-admin board members must be scoped, never granted the open "" query
+            self.assertTrue(condition, f"Expected a scoping condition for {user}")
+            rows = frappe.db.sql(
+                f"SELECT name FROM `tabMembership` WHERE name = %s AND {condition}",
+                membership.name,
             )
+            return bool(rows)
 
-        # Board member 2 (chapter 2) should not have access
-        with self.set_user(self.board_member_2.email):
-            self.assertFalse(
-                has_membership_permission(membership, self.board_member_2.email),
-                "Board member should not have access to memberships from other chapters",
-            )
+        # Board member 1 (chapter 1) sees it; board member 2 (chapter 2) does not.
+        self.assertTrue(
+            membership_visible_to(self.board_member_1.email),
+            "Board member should see memberships from their own chapter",
+        )
+        self.assertFalse(
+            membership_visible_to(self.board_member_2.email),
+            "Board member should not see memberships from other chapters",
+        )
 
     def test_termination_request_chapter_filtering(self):
         """Test that board members can only access termination requests for their chapter members"""
