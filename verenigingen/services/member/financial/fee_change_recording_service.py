@@ -99,6 +99,11 @@ class FeeChangeRecordingService(StatelessService):
         old_amount = flt(old_amount)
         new_amount = flt(new_amount)
         changed_by = changed_by or frappe.session.user or "Administrator"
+        # `reason` is mandatory on Member Fee Change History. A None/empty reason
+        # would produce an invalid child row that raises MandatoryError when the
+        # member is later saved (this previously aborted amendment application).
+        # Guarantee a non-empty value here for every caller.
+        reason = (reason or "").strip() or change_type or "Fee change"
 
         # Get member document
         if isinstance(member, str):

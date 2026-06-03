@@ -98,6 +98,51 @@ class TestFeeOverrideMigration(VereningingenTestCase):
             amendment.insert()
         self.assertIn("greater than 0", str(ctx.exception))
 
+    def test_membership_type_change_amendment_applies_cleanly(self):
+        """A membership-type-change amendment applies without a fee-change-history
+        MandatoryError, even when the existing schedule carries uses_custom_amount
+        with no custom_amount_reason. Regression for the empty-reason fee-change
+        row that previously aborted apply_membership_type_change.
+        """
+        membership = self.create_test_membership()
+        # create_test_dues_schedule sets uses_custom_amount=1 WITHOUT a
+        # custom_amount_reason -- the exact trigger for the empty-reason row.
+        original_schedule = self.create_test_dues_schedule(100.0)
+        self.assertTrue(original_schedule.uses_custom_amount)
+        self.assertFalse(original_schedule.custom_amount_reason)
+
+        new_type = self.create_test_membership_type()
+
+        amendment = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "member": self.test_member.name,
+                "membership": membership.name,
+                "amendment_type": "Membership Type Change",
+                "current_membership_type": self.test_membership_type.name,
+                "requested_membership_type": new_type.name,
+                "requested_amount": 120.0,
+                "reason": "Switching membership type",
+                "effective_date": today(),
+            }
+        )
+        amendment.insert()
+        if amendment.status == "Pending Approval":
+            amendment.approve_amendment("Approved for test")
+        self.assertEqual(amendment.status, "Approved")
+
+        amendment._force_apply = True
+        result = amendment.apply_amendment()
+        self.assertEqual(result["status"], "success", result.get("message"))
+        self.assertEqual(amendment.status, "Applied")
+
+        # The member now carries the new type and rate, and every fee-change
+        # history row has a (mandatory) reason.
+        member_doc = frappe.get_doc("Member", self.test_member.name)
+        self.assertEqual(member_doc.current_membership_type, new_type.name)
+        for row in member_doc.fee_change_history:
+            self.assertTrue(row.reason, "Every fee change history row must have a reason")
+
     def test_fee_history_reflects_amendments(self):
         """get_member_fee_history surfaces Fee Change amendment requests."""
         from verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request import (

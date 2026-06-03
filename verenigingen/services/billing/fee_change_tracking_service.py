@@ -110,10 +110,12 @@ class FeeChangeTrackingService(StatelessService):
 
         recording_service = get_fee_change_recording_service()
 
-        # Determine reason based on context
+        # Determine reason based on context. custom_amount_reason can be blank
+        # even when uses_custom_amount is set, so fall back to a descriptive
+        # default rather than passing an empty (mandatory) reason downstream.
         reason = (
             schedule_doc.custom_amount_reason
-            if schedule_doc.uses_custom_amount
+            if schedule_doc.uses_custom_amount and schedule_doc.custom_amount_reason
             else f"Schedule update - {schedule_doc.schedule_name or schedule_doc.name}"
         )
 
@@ -172,7 +174,7 @@ class FeeChangeTrackingService(StatelessService):
 
         reason = (
             schedule_doc.custom_amount_reason
-            if schedule_doc.uses_custom_amount
+            if schedule_doc.uses_custom_amount and schedule_doc.custom_amount_reason
             else f"New schedule - {schedule_doc.schedule_name or schedule_doc.name}"
         )
 
