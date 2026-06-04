@@ -600,11 +600,21 @@ class TestPropertyCacheHits(EnhancedTestCase):
 
     def test_mandate_import_validator_is_cached(self):
         doc = _create_stub_import_doc()
-        self.assertIs(doc._validator, doc._validator)
+        # First access initialises the cache; second returns the same object.
+        first = doc._validator
+        self.assertIs(first, doc._validator)
+        # Crucially: assert the cache landed on the UNMANGLED attribute name.
+        # `assertIs` alone would still pass if some future refactor adopted
+        # `functools.cached_property` or a descriptor, but the name-mangling
+        # fix specifically demands the slot be `_validator_instance`.
+        self.assertIn("_validator_instance", doc.__dict__)
 
     def test_mandate_import_parser_is_cached(self):
         doc = _create_stub_import_doc()
-        self.assertIs(doc._parser, doc._parser)
+        first = doc._parser
+        self.assertIs(first, doc._parser)
+        # See comment above — pin the cache-slot name, not just identity.
+        self.assertIn("_parser_instance", doc.__dict__)
 
 
 import time

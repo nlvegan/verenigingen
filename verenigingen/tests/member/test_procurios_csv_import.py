@@ -346,8 +346,16 @@ class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
 
     def test_validator_is_cached(self):
         doc = _create_stub_procurios_csv_import_doc()
-        self.assertIs(doc._validator, doc._validator)
+        first = doc._validator
+        self.assertIs(first, doc._validator)
+        # Pin the cache-slot name — assertIs alone would still pass if a
+        # future refactor adopted functools.cached_property or a descriptor,
+        # but the name-mangling fix specifically demands the slot be
+        # `_validator_instance` (single underscore, unmangled).
+        self.assertIn("_validator_instance", doc.__dict__)
 
     def test_parser_is_cached(self):
         doc = _create_stub_procurios_csv_import_doc()
-        self.assertIs(doc._parser, doc._parser)
+        first = doc._parser
+        self.assertIs(first, doc._parser)
+        self.assertIn("_parser_instance", doc.__dict__)
