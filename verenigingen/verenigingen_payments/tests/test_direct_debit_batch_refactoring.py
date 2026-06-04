@@ -248,6 +248,101 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         self.assertIn("total_amount", creation_result)
         self.assertIn("invoice_count", creation_result)
 
+    def test_create_batch_document_marks_batch_frst_when_any_row_is_first(self):
+        """Regression: a batch mixing a first collection (FRST) with a recurring
+        one (RCUR) must be typed FRST as a whole (SEPA pre-notification rule).
+
+        The previous derivation used ``seq_types.pop() if len == 1 else 'RCUR'``,
+        which silently mis-typed any mixed batch as RCUR. The child rows below use
+        sequence types that match what the Direct Debit Batch controller computes
+        from each mandate's usage history, so the batch inserts cleanly and we can
+        assert the batch-level ``batch_type``.
+        """
+        from frappe.utils import add_days, today
+
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        company = getattr(self, "eur_company", None) or get_eur_test_company()
+
+        # Member A: brand-new mandate -> get_mandate_sequence_type() == FRST
+        member_a = self.create_test_member(
+            first_name="FrstA",
+            last_name="Member",
+            email=f"frsta.{self.factory.test_run_id}@example.com",
+        )
+        mandate_a = self.create_test_sepa_mandate(member_name=member_a.name, status="Active")
+        membership_a = self.create_test_membership(member=member_a.name)
+        invoice_a = self.create_test_sales_invoice(
+            customer=member_a.name, company=company, membership=membership_a.name, grand_total=25.0
+        )
+
+        # Member B: mandate with a prior *Collected* usage -> sequence type RCUR
+        member_b = self.create_test_member(
+            first_name="RcurB",
+            last_name="Member",
+            email=f"rcurb.{self.factory.test_run_id}@example.com",
+        )
+        mandate_b = self.create_test_sepa_mandate(
+            member_name=member_b.name, status="Active", sign_date=add_days(today(), -60)
+        )
+        membership_b = self.create_test_membership(member=member_b.name)
+        invoice_b = self.create_test_sales_invoice(
+            customer=member_b.name, company=company, membership=membership_b.name, grand_total=30.0
+        )
+        # An *earlier* collection on this mandate (a different invoice). The
+        # controller calls get_mandate_sequence_type(mandate, <current invoice>),
+        # which ignores usage rows referencing the current invoice, so this prior
+        # usage must reference a different one for the mandate to read as RCUR.
+        invoice_b_prior = self.create_test_sales_invoice(
+            customer=member_b.name, company=company, membership=membership_b.name, grand_total=30.0
+        )
+        mandate_b.append(
+            "usage_history",
+            {
+                "usage_date": add_days(today(), -30),
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice_b_prior.name,
+                "sequence_type": "FRST",
+                "amount": 30.0,
+                "status": "Collected",
+            },
+        )
+        mandate_b.save()
+
+        invoices = [
+            {
+                "name": invoice_a.name,
+                "membership": membership_a.name,
+                "member": member_a.name,
+                "member_name": member_a.full_name,
+                "outstanding_amount": 25.0,
+                "currency": "EUR",
+                "iban": mandate_a.iban,
+                "mandate_reference": mandate_a.mandate_id,
+                "sequence_type": "FRST",
+            },
+            {
+                "name": invoice_b.name,
+                "membership": membership_b.name,
+                "member": member_b.name,
+                "member_name": member_b.full_name,
+                "outstanding_amount": 30.0,
+                "currency": "EUR",
+                "iban": mandate_b.iban,
+                "mandate_reference": mandate_b.mandate_id,
+                "sequence_type": "RCUR",
+            },
+        ]
+
+        batch = business_logic_service._create_batch_document(invoices)
+
+        self.assertIsNotNone(batch, "Mixed FRST/RCUR batch should insert cleanly")
+        self.assertEqual(
+            batch.batch_type,
+            "FRST",
+            "A batch containing any first collection must be typed FRST, not RCUR",
+        )
+
     def test_sepa_utilities(self):
         """Test SEPA utility functions"""
         # Test IBAN validation

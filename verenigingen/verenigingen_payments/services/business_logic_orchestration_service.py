@@ -350,10 +350,12 @@ class BusinessLogicOrchestrationService:
             batch_doc.batch_date = collection_date or frappe.utils.today()
             batch_doc.batch_description = f"Direct Debit Batch {frappe.utils.today()}"
             batch_doc.status = "Draft"
-            # batch_type is mandatory; derive from the invoices' sequence type
-            # (all rows in one batch share a sequence type), defaulting to RCUR.
+            # batch_type is mandatory. Per SEPA pre-notification rules the whole
+            # batch is treated as FRST if it contains any first collection;
+            # otherwise it is RCUR (mirrors dd_batch_optimizer.determine_batch_type).
+            # Each child row carries its own sequence_type (set below).
             seq_types = {inv.get("sequence_type") for inv in invoices if inv.get("sequence_type")}
-            batch_doc.batch_type = seq_types.pop() if len(seq_types) == 1 else "RCUR"
+            batch_doc.batch_type = "FRST" if "FRST" in seq_types else "RCUR"
 
             # Add invoices to batch
             for invoice_data in invoices:
