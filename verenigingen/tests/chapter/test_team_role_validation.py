@@ -22,7 +22,18 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, 
 
 class TestTeamRoleValidation(EnhancedTestCase):
     """Tests for Team Role DocType validation and business logic"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Some tests reference the canonical Team Role master records by their literal name
+        # (e.g. "Team Leader") and read back their default properties. The factory's
+        # ensure_team_role() uniquifies names and so never creates those literal records,
+        # so seed the standard defaults directly for standalone/isolated runs.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+
     def setUp(self):
         super().setUp()
         # Note: Each test method generates its own unique ID to avoid conflicts
@@ -120,15 +131,21 @@ class TestTeamRoleValidation(EnhancedTestCase):
             
             # Enhanced Test Factory handles cleanup automatically
         
-        # Test invalid permissions level
-        with self.assertRaises(frappe.ValidationError):
-            invalid_role = frappe.get_doc({
-                "doctype": "Team Role",
-                "role_name": f"Invalid Permissions Role {test_id}",
-                "permissions_level": "SuperAdmin",  # Not in valid options
-                "is_active": 1
-            })
-            invalid_role.insert()
+        # Test invalid permissions level. EnhancedTestCase sets frappe.flags.in_import = True,
+        # which makes Frappe skip Select-option validation; clear it so the real validation runs.
+        prev_in_import = getattr(frappe.flags, "in_import", False)
+        frappe.flags.in_import = False
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                invalid_role = frappe.get_doc({
+                    "doctype": "Team Role",
+                    "role_name": f"Invalid Permissions Role {test_id}",
+                    "permissions_level": "SuperAdmin",  # Not in valid options
+                    "is_active": 1
+                })
+                invalid_role.insert()
+        finally:
+            frappe.flags.in_import = prev_in_import
         
         print("✅ Permissions level validation working correctly")
     
@@ -492,7 +509,17 @@ class TestTeamRoleValidation(EnhancedTestCase):
 
 class TestTeamRoleBusinessLogic(EnhancedTestCase):
     """Tests for complex business logic around Team Roles"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # test_team_leadership_transition references the literal "Team Leader" Team Role and
+        # relies on its is_unique constraint to reject a second leader. Seed the canonical
+        # defaults so this resolves in standalone/isolated runs.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+
     def setUp(self):
         super().setUp()
         # Note: Each test method generates its own unique ID to avoid conflicts

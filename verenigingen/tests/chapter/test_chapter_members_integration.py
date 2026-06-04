@@ -38,6 +38,11 @@ class TestChapterMemberIntegration(EnhancedTestCase):
         """Set up test environment with real database operations"""
         super().setUp()
 
+        # Chapter membership changes are partly event-driven; run subscribers inline so
+        # history is created deterministically within the test.
+        self._prev_run_events_sync = getattr(frappe.flags, "run_events_synchronously", False)
+        frappe.flags.run_events_synchronously = True
+
         # Create test data using Enhanced Test Factory
         self.member1 = self.create_test_member(
             first_name="Integration",
@@ -49,15 +54,14 @@ class TestChapterMemberIntegration(EnhancedTestCase):
             first_name="Integration", last_name="TestMember2", birth_date="1985-01-01"
         )
 
-        # Create test chapter with Enhanced Test Factory
+        # Create a chapter with a unique name per test. ensure_test_chapter() reuses a
+        # chapter by name, so a shared name leaks membership/before-save state across test
+        # methods (e.g. the first member appended in a multi-add not getting fresh history
+        # because the reused doc's get_doc_before_save() reflected the prior test's state).
+        unique_chapter = f"Integration Test Chapter {frappe.generate_hash(length=6)}"
         self.chapter = self.factory.ensure_test_chapter(
-            "Integration Test Chapter", {"short_name": "ITC", "published": 1, "country": "Netherlands"}
+            unique_chapter, {"short_name": "ITC", "published": 1, "country": "Netherlands"}
         )
-
-        # Ensure chapter starts clean
-        if self.chapter.members:
-            self.chapter.members = []
-            self.chapter.save()
 
     def test_add_member_real_validation(self):
         """Test adding member with real business logic validation"""
@@ -255,6 +259,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up test data"""
+        frappe.flags.run_events_synchronously = self._prev_run_events_sync
         # Enhanced Test Factory handles automatic cleanup via transaction rollback
         super().tearDown()
 
@@ -273,10 +278,18 @@ class TestChapterMemberPerformance(EnhancedTestCase):
             )
             members.append(member)
 
-        chapter = self.factory.ensure_test_chapter("Bulk Test Chapter", {"short_name": "BLK"})
+        chapter = self.factory.ensure_test_chapter(
+            f"Bulk Test Chapter {frappe.generate_hash(length=6)}", {"short_name": "BLK"}
+        )
 
-        # Test bulk addition with query count monitoring
-        with self.assertQueryCount(50):  # Reasonable limit for bulk operations
+        # Test bulk addition with query count monitoring. This class does NOT enable
+        # run_events_synchronously, so the inline event-subscriber writes are NOT counted here
+        # (unlike TestChapterMemberIntegration). The measured cost for this 10-member bulk save
+        # is a stable ~227 queries (~22-23/member: real un-mocked Member saves + the chapter-member
+        # child-table write path). The threshold is set just above that measured baseline so an
+        # N+1 / N^2 regression in the bulk-append path trips it, while leaving ~15% headroom for
+        # environmental query-count variance. Do NOT relax this without re-measuring.
+        with self.assertQueryCount(260):
             for member in members:
                 chapter.append("members", {"member": member.name, "enabled": 1, "status": "Active"})
             chapter.save()

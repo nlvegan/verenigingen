@@ -41,7 +41,21 @@ def emit_event(
         )
         extra_kwargs["is_bulk_import"] = is_bulk_import
 
+    # Test affordance: subscribers are normally enqueued with a delay, so they do NOT run
+    # inline even under frappe.in_test (which only short-circuits is_async=False jobs).
+    # Integration tests that need to assert on a subscriber's side effects can set
+    # frappe.flags.run_events_synchronously to execute the real subscriber code inline.
+    run_sync = frappe.in_test and getattr(frappe.flags, "run_events_synchronously", False)
+
     for subscriber in subscribers:
+        if run_sync:
+            frappe.call(
+                subscriber,
+                event_name=event_name,
+                event_data=event_data,
+                **extra_kwargs,
+            )
+            continue
         frappe.enqueue(
             method=subscriber,
             queue="short",

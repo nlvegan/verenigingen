@@ -1298,13 +1298,14 @@ def get_organization_documents_for_template(
     """
     from collections import defaultdict
 
-    from verenigingen.utils.document_categories import get_document_category_options
+    from verenigingen.utils.document_categories import get_category_icons
 
     try:
-        # Get available categories (default + custom)
-        available_categories = {}
-        for category in get_document_category_options():
-            available_categories[category] = get_category_icon(category)
+        # Get available categories (default + custom) as {category_name: icon}.
+        # NOTE: get_category_icons() returns the dict; get_document_category_options()
+        # returns a newline-joined string for Select fields and must NOT be iterated here
+        # (iterating a string yields single characters, corrupting the category keys).
+        available_categories = get_category_icons()
 
         # Use DocumentPortalService to get documents
         service = get_document_portal_service()
@@ -1369,9 +1370,7 @@ def get_organization_documents_for_template(
     except Exception as e:
         frappe.log_error(f"Error fetching documents for {organization_name}: {str(e)}")
         # Get available categories for error case too
-        available_categories = {}
-        for category in get_document_category_options():
-            available_categories[category] = get_category_icon(category)
+        available_categories = get_category_icons()
         return {
             "by_type_and_year": {cat: {} for cat in available_categories.keys()},
             "total_count": 0,

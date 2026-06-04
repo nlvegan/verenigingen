@@ -347,6 +347,20 @@ class Chapter(Document):
         """Get board members - delegates to BoardManager"""
         return self.board_manager.get_board_members(include_inactive, role)
 
+    def get_board_member_emails(self, include_inactive=False, role=None):
+        """Return de-duplicated email addresses of the chapter's board members.
+
+        Used by notification flows (e.g. overdue-payment chapter notifications)
+        to reach the chapter board. Delegates to BoardManager.get_board_members()
+        and extracts the non-empty email addresses.
+        """
+        emails = []
+        for board_member in self.get_board_members(include_inactive=include_inactive, role=role):
+            email = board_member.get("email")
+            if email and email not in emails:
+                emails.append(email)
+        return emails
+
     def validate_role_profile_configuration(self):
         """Validate board role profile configuration"""
         # Validate default board role profile exists

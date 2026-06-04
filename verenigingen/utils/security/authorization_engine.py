@@ -103,18 +103,36 @@ class AuthorizationEngine:
         try:
             role_profiles = []
 
-            # Method 1: Get role profile directly assigned to user in User DocType
+            # Gather directly-assigned role profiles. Frappe v16 stores assignments in the
+            # role_profiles child table (Table MultiSelect) and deprecates/clears the single
+            # role_profile_name Link. Reading only role_profile_name would return nothing on
+            # v16 and silently deny all role-profile-based security access, so read both.
+            candidate_profiles = []
             user_role_profile = frappe.db.get_value("User", user, "role_profile_name")
             if user_role_profile:
+                candidate_profiles.append(user_role_profile)
+            candidate_profiles.extend(
+                frappe.get_all(
+                    "User Role Profile",
+                    filters={"parent": user, "parenttype": "User"},
+                    pluck="role_profile",
+                )
+            )
+
+            seen = set()
+            for profile in candidate_profiles:
+                if not profile or profile in seen:
+                    continue
+                seen.add(profile)
                 # Verify the role profile actually exists
-                if frappe.db.exists("Role Profile", user_role_profile):
-                    role_profiles.append(user_role_profile)
+                if frappe.db.exists("Role Profile", profile):
+                    role_profiles.append(profile)
                     frappe.logger("verenigingen.api_security").debug(
-                        f"Found direct role profile assignment: {user_role_profile}"
+                        f"Found direct role profile assignment: {profile}"
                     )
                 else:
                     frappe.logger("verenigingen.api_security").warning(
-                        f"User {user} has invalid role profile assignment: {user_role_profile}"
+                        f"User {user} has invalid role profile assignment: {profile}"
                     )
 
             # Note: We intentionally do NOT query role intersections as that would

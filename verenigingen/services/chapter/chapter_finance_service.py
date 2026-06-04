@@ -205,25 +205,32 @@ class ChapterFinanceService(StatelessService):
             Optional[str]: Company name if valid company found, None otherwise
 
         Selection Logic:
-            1. Try default company from Global Defaults
-            2. Validate company exists and is not disabled
-            3. Fallback: Use single active company if exactly one exists
-            4. Return None if multiple companies (ambiguous) or no companies found
+            1. Try the app-configured company from Verenigingen Settings
+            2. Try default company from Global Defaults
+            3. Validate company exists and is not disabled
+            4. Fallback: Use single active company if exactly one exists
+            5. Return None if multiple companies (ambiguous) or no companies found
 
         Example:
             >>> company = ChapterFinanceService.get_validated_company(chapter_doc)
             >>> if company:
             ...     # Proceed with cost center creation
         """
-        # First try default company
-        company = frappe.db.get_single_value("Global Defaults", "default_company")
-
-        if company:
+        # Prefer the app-configured company. Verenigingen Settings.company is the
+        # canonical company for this app; many sites set it but leave Global Defaults'
+        # default_company blank, so check it first before falling back.
+        for source_doctype, source_field in (
+            ("Verenigingen Settings", "company"),
+            ("Global Defaults", "default_company"),
+        ):
+            company = frappe.db.get_single_value(source_doctype, source_field)
+            if not company:
+                continue
             # Validate the company exists (Company DocType has no 'disabled' field in ERPNext v15+)
             if frappe.db.exists("Company", company):
                 return company
             else:
-                self.logger.warning(f"Default company {company} doesn't exist")
+                self.logger.warning(f"Configured company {company} ({source_doctype}) doesn't exist")
 
         # Fallback: get first active company, but only if there's exactly one
         active_companies = frappe.get_all("Company", pluck="name")

@@ -107,9 +107,12 @@ class TeamRole(Document):
                 indicator="yellow",
             )
 
-        # Check assignment history references
+        # Check assignment history references. These live in "Volunteer Assignment"
+        # (the assignment_history child table on Volunteer); there is no "Assignment
+        # History" doctype, and querying it raised a "table doesn't exist" error that
+        # crashed every Team Role deletion.
         history_references = frappe.db.count(
-            "Assignment History", filters={"role": ["like", f"%{self.role_name}%"]}
+            "Volunteer Assignment", filters={"role": ["like", f"%{self.role_name}%"]}
         )
 
         if history_references > 0:

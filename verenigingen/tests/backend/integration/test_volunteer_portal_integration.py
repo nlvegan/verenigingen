@@ -78,9 +78,18 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
 
         # The expense submission/approval APIs run at the "medium" security level,
         # which requires the Verenigingen Volunteer role on the acting user.
+        # The board member also gets the "Expense Approver" role. In production this is
+        # granted by the chapter board-membership role sync (event-driven), which does not
+        # run synchronously under the test factory's in_import flag. Granting it here
+        # reflects the production end-state for a board member with can_approve_expenses and
+        # keeps the approval test running as the real (non-admin) role.
         for email, name, roles in [
             (self.volunteer_email, "Integration Volunteer", ["Verenigingen Volunteer"]),
-            (self.board_member_email, "Integration Board Member", ["Verenigingen Chapter Board Member"]),
+            (
+                self.board_member_email,
+                "Integration Board Member",
+                ["Verenigingen Chapter Board Member", "Expense Approver"],
+            ),
             (self.admin_email, "Integration Admin", ["System Manager"]),
         ]:
             if not frappe.db.exists("User", email):
@@ -99,10 +108,15 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             else:
                 user = frappe.get_doc("User", email)
 
-            # Ensure roles are present (also for pre-existing users)
-            for role in roles:
-                if frappe.db.exists("Role", role):
-                    user.add_roles(role)
+            # Ensure roles are present (also for pre-existing users). Only call add_roles
+            # when a role is actually missing: add_roles saves the User, which triggers the
+            # User->Contact sync (create_contact). Re-saving a reused user across test
+            # methods can raise TimestampMismatchError on the shared Contact, so avoid the
+            # needless save when there is nothing to add.
+            existing_roles = set(frappe.get_roles(user.name))
+            missing = [r for r in roles if frappe.db.exists("Role", r) and r not in existing_roles]
+            if missing:
+                user.add_roles(*missing)
 
         # Create test chapter with board structure
         # Note: Chapter uses autoname:"prompt", so name is set directly via factory
@@ -383,6 +397,67 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             user_email=self.board_member_email,
         )
 
+        # Linking an Employee's user_id auto-creates an "Employee" User Permission with
+        # apply_to_all_doctypes=1, which restricts the user to their OWN Employee's records
+        # — including Expense Claim. An expense approver must be able to act on OTHER
+        # volunteers' claims, so scope that restriction off Expense Claim for the board
+        # member (the chapter-scoped has_expense_claim_permission hook still gates access).
+        self._exempt_expense_claim_from_employee_user_permission(self.board_member_email)
+
+    def _ensure_board_approver_roles(self):
+        """Re-assert the board member's approver roles immediately before approval.
+
+        Saving the board member's Member/Volunteer/User during the test triggers
+        role-profile recalculation, which rewrites the user's roles from the derived
+        role profile and strips ad-hoc roles like "Expense Approver" /
+        "Verenigingen Chapter Board Member". In production a can_approve_expenses board
+        member carries these roles; re-grant them here so the approval exercises the real
+        (non-admin) permission path. Also re-clear the Employee user-permission that the
+        recalc/Employee hooks may have re-created.
+        """
+        # Grant the roles via direct "Has Role" rows rather than User.save(): saving the
+        # User triggers role-profile regeneration (populate_role_profile_roles) which would
+        # immediately strip ad-hoc roles, and conflicts (TimestampMismatchError) with hooks
+        # that touched the same User earlier in the request. Direct row insertion is
+        # idempotent and side-effect free for this test's permission needs.
+        for role in ("Verenigingen Chapter Board Member", "Expense Approver"):
+            if frappe.db.exists("Role", role) and not frappe.db.exists(
+                "Has Role", {"parent": self.board_member_email, "parenttype": "User", "role": role}
+            ):
+                frappe.get_doc(
+                    {
+                        "doctype": "Has Role",
+                        "parent": self.board_member_email,
+                        "parenttype": "User",
+                        "parentfield": "roles",
+                        "role": role,
+                    }
+                ).insert(ignore_permissions=True)
+        # Re-clear any Employee User Permission that ERPNext hooks may have re-created
+        # since setUp (it would otherwise restrict the approver to their own claims).
+        self._exempt_expense_claim_from_employee_user_permission(self.board_member_email)
+        frappe.db.commit()
+        # Invalidate cached roles so the new Has Role rows take effect immediately.
+        frappe.cache().hdel("roles", self.board_member_email)
+
+    def _exempt_expense_claim_from_employee_user_permission(self, user_email):
+        """Remove the user's Employee User Permission so it can't restrict Expense Claim.
+
+        Linking an Employee.user_id auto-creates an "Employee" User Permission
+        (apply_to_all_doctypes=1) that restricts the user to their own Employee's records.
+        An expense approver must act on other volunteers' claims; the chapter-scoped
+        has_expense_claim_permission hook is the real access gate, so this record-level
+        restriction is removed for the approver.
+        """
+        with _with_user("Administrator"):
+            for up_name in frappe.get_all(
+                "User Permission",
+                filters={"user": user_email, "allow": "Employee"},
+                pluck="name",
+            ):
+                frappe.delete_doc("User Permission", up_name, ignore_permissions=True, force=True)
+            frappe.db.commit()
+
     def _create_employee_for_volunteer(self, volunteer_name, volunteer_doc, member_doc, user_email):
         """Create Employee record and link to volunteer
 
@@ -512,10 +587,18 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             # Note: We don't call submit() as that requires ERPNext GL setup
             # (fiscal year, accounts) — the approval workflow is exercised by
             # setting approval_status.
+            self._ensure_board_approver_roles()
             with _with_user(self.board_member_email):
-                expense_claim.reload()
-                expense_claim.approval_status = "Approved"
-                expense_claim.save()
+                for _attempt in range(3):
+                    expense_claim.reload()
+                    expense_claim.approval_status = "Approved"
+                    try:
+                        expense_claim.save()
+                        break
+                    except frappe.TimestampMismatchError:
+                        # A hook fired during save (e.g. expense notifications) can bump the
+                        # doc's timestamp; reload and retry.
+                        continue
 
             # Verify approval status was set correctly
             expense_claim.reload()
@@ -631,12 +714,18 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             # path as approval, exercised against a real role rather than
             # bypassed via Administrator.
             rejection_reason = "Insufficient documentation provided"
+            self._ensure_board_approver_roles()
             with _with_user(self.board_member_email):
-                expense_claim.reload()
-                expense_claim.approval_status = "Rejected"
-                # Add rejection note via comment
+                for _attempt in range(3):
+                    expense_claim.reload()
+                    expense_claim.approval_status = "Rejected"
+                    try:
+                        expense_claim.save()
+                        break
+                    except frappe.TimestampMismatchError:
+                        continue
+                # Add rejection note via comment (after the status save succeeds)
                 expense_claim.add_comment("Comment", rejection_reason)
-                expense_claim.save()
 
             # Verify rejection (rejected claims stay in Draft status)
             expense_claim.reload()
@@ -824,10 +913,18 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             # via the real production-permission path.
             # Note: We don't call submit() as that requires ERPNext GL setup
             # (fiscal year, accounts).
+            self._ensure_board_approver_roles()
             with _with_user(self.board_member_email):
-                expense_claim.reload()
-                expense_claim.approval_status = "Approved"
-                expense_claim.save()
+                for _attempt in range(3):
+                    expense_claim.reload()
+                    expense_claim.approval_status = "Approved"
+                    try:
+                        expense_claim.save()
+                        break
+                    except frappe.TimestampMismatchError:
+                        # A hook fired during save (e.g. expense notifications) can bump the
+                        # doc's timestamp; reload and retry.
+                        continue
 
             # Verify approval status was set correctly
             expense_claim.reload()

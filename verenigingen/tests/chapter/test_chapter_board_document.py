@@ -24,7 +24,8 @@ class TestChapterBoardDocument(EnhancedTestCase):
         if not frappe.db.exists("Region", "Noord-Holland"):
             frappe.get_doc({
                 "doctype": "Region",
-                "region_name": "Noord-Holland"
+                "region_name": "Noord-Holland",
+                "region_code": "NH"
             }).insert(ignore_permissions=True)
 
         # Create a test chapter directly using frappe.get_doc
@@ -40,6 +41,14 @@ class TestChapterBoardDocument(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up test data"""
+        # Delete any Organization Documents created for the test chapter
+        for od in frappe.get_all(
+            "Organization Document",
+            filters={"organization_type": "Chapter", "chapter": "Test Chapter Board Docs"},
+            pluck="name",
+        ):
+            frappe.delete_doc("Organization Document", od, force=True)
+
         # Delete the test chapter
         if frappe.db.exists("Chapter", "Test Chapter Board Docs"):
             frappe.delete_doc("Chapter", "Test Chapter Board Docs", force=True)
@@ -72,9 +81,12 @@ class TestChapterBoardDocument(EnhancedTestCase):
         self.assertEqual(board_doc.document_file, "/files/test_policy.pdf")
         self.assertEqual(board_doc.description, "Test policy document")
 
-        # Verify auto-populated fields
-        self.assertIsNotNone(board_doc.upload_date)
-        self.assertIsNotNone(board_doc.uploaded_by)
+        # Metadata auto-population (upload_date / uploaded_by) is exercised against the
+        # active Organization Document store in test_upload_date_auto_populated and
+        # test_uploaded_by_auto_populated. The deprecated board_documents child table no
+        # longer drives that logic, and the EnhancedTestCase test environment
+        # (frappe.flags.in_import = True) additionally suppresses child-field defaults,
+        # so it is not asserted here.
 
     def test_multiple_document_types(self):
         """Test creating documents of different types"""
@@ -108,38 +120,41 @@ class TestChapterBoardDocument(EnhancedTestCase):
         self.assertIn("Other", doc_types_added)
 
     def test_uploaded_by_auto_populated(self):
-        """Test that uploaded_by field is automatically populated"""
-        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
+        """Test that uploaded_by is auto-populated on the active document store.
 
-        # Add a document without specifying uploaded_by
-        chapter_doc.append("board_documents", {
+        Board documents are now stored in the Organization Document doctype (the
+        Chapter.board_documents child table is deprecated and no longer auto-populates
+        metadata), so the uploaded_by auto-population lives there.
+        """
+        doc = frappe.get_doc({
+            "doctype": "Organization Document",
+            "organization_type": "Chapter",
+            "chapter": self.chapter.name,
             "document_type": "Policy",
             "document_name": "Test Auto Upload",
-            "document_file": "/files/test.pdf"
-        })
-
-        chapter_doc.save()
+            "document_file": "/files/test.pdf",
+        }).insert(ignore_permissions=True)
 
         # Verify uploaded_by is populated with current user
-        board_doc = chapter_doc.board_documents[0]
-        self.assertEqual(board_doc.uploaded_by, frappe.session.user)
+        self.assertEqual(doc.uploaded_by, frappe.session.user)
 
     def test_upload_date_auto_populated(self):
-        """Test that upload_date is automatically set to today"""
-        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
+        """Test that upload_date is auto-populated on the active document store.
 
-        # Add a document without specifying upload_date
-        chapter_doc.append("board_documents", {
+        Stored via Organization Document (the deprecated Chapter.board_documents child
+        table no longer auto-populates metadata).
+        """
+        doc = frappe.get_doc({
+            "doctype": "Organization Document",
+            "organization_type": "Chapter",
+            "chapter": self.chapter.name,
             "document_type": "Meeting Minutes",
             "document_name": "Test Upload Date",
-            "document_file": "/files/test_minutes.pdf"
-        })
-
-        chapter_doc.save()
+            "document_file": "/files/test_minutes.pdf",
+        }).insert(ignore_permissions=True)
 
         # Verify upload_date is today
-        board_doc = chapter_doc.board_documents[0]
-        self.assertEqual(str(board_doc.upload_date), str(today()))
+        self.assertEqual(str(doc.upload_date), str(today()))
 
     def test_document_sorting_by_name(self):
         """Test that documents can be sorted by name (for date-based naming)"""
@@ -264,9 +279,9 @@ class TestChapterBoardDocument(EnhancedTestCase):
         """Test retrieving documents organized by type and year"""
         from verenigingen.templates.pages.chapter_dashboard import get_chapter_board_documents
 
-        chapter_doc = frappe.get_doc("Chapter", self.chapter.name)
-
-        # Add various documents with years
+        # get_chapter_board_documents reads from the Organization Document doctype
+        # (the board_documents child table on Chapter is a legacy store and is no
+        # longer the source for the dashboard view), so create the documents there.
         test_docs = [
             ("Policy", "Privacy Policy 2025"),
             ("Policy", "Code of Conduct 2024"),
@@ -275,13 +290,16 @@ class TestChapterBoardDocument(EnhancedTestCase):
         ]
 
         for doc_type, doc_name in test_docs:
-            chapter_doc.append("board_documents", {
+            frappe.get_doc({
+                "doctype": "Organization Document",
+                "organization_type": "Chapter",
+                "chapter": self.chapter.name,
                 "document_type": doc_type,
                 "document_name": doc_name,
-                "document_file": f"/files/{doc_name.replace(' ', '_').lower()}.pdf"
-            })
+                "document_file": f"/files/{doc_name.replace(' ', '_').lower()}.pdf",
+            }).insert(ignore_permissions=True)
 
-        chapter_doc.save()
+        frappe.db.commit()
 
         # Retrieve documents organized by type and year
         result = get_chapter_board_documents(self.chapter.name)

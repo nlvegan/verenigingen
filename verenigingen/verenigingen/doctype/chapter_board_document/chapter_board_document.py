@@ -41,11 +41,6 @@ ALLOWED_EXTENSIONS = {
 class ChapterBoardDocument(Document):
     """Child DocType for managing chapter board documents (policies, minutes, etc.)"""
 
-    def before_save(self):
-        """Auto-populate uploaded_by field with current user"""
-        if not self.uploaded_by:
-            self.uploaded_by = frappe.session.user
-
     def validate(self):
         """Validate document data"""
         # Ensure document name is provided

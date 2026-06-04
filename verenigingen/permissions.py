@@ -1803,18 +1803,27 @@ def has_expense_claim_permission(doc, user=None, permission_type=None):
             return True
 
     # Expense approvers can see expense claims for their chapters
-    if Roles.EXPENSE_APPROVER in user_roles and expense_chapter:
+    if Roles.EXPENSE_APPROVER in user_roles:
         from verenigingen.services.chapter.chapter_utils import get_user_accessible_chapters
 
-        accessible_chapters = get_user_accessible_chapters(user)
+        # National expense claims are intentionally not attributed to a chapter
+        # (custom_chapter is empty). Their approvers are the board of the configured
+        # national_board_chapter, so resolve that as the effective chapter for the
+        # access check.
+        effective_chapter = expense_chapter
+        if not effective_chapter:
+            effective_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
 
-        # None means admin access (already handled above)
-        if accessible_chapters is None:
-            return True
+        if effective_chapter:
+            accessible_chapters = get_user_accessible_chapters(user)
 
-        # Check if expense chapter is in accessible list
-        if accessible_chapters and expense_chapter in accessible_chapters:
-            return True
+            # None means admin access (already handled above)
+            if accessible_chapters is None:
+                return True
+
+            # Check if effective chapter is in accessible list
+            if accessible_chapters and effective_chapter in accessible_chapters:
+                return True
 
     return False
 
@@ -1857,6 +1866,15 @@ def get_expense_claim_permission_query(user):
         if accessible_chapters:
             chapter_names = [frappe.db.escape(ch) for ch in accessible_chapters]
             conditions.append(f"`tabExpense Claim`.custom_chapter IN ({','.join(chapter_names)})")
+
+            # National expense claims have no custom_chapter; board members of the
+            # configured national_board_chapter approve them, so include unattributed
+            # claims for them.
+            national_chapter = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+            if national_chapter and national_chapter in accessible_chapters:
+                conditions.append(
+                    "(`tabExpense Claim`.custom_chapter IS NULL " "OR `tabExpense Claim`.custom_chapter = '')"
+                )
 
     if conditions:
         return f"({' OR '.join(conditions)})"

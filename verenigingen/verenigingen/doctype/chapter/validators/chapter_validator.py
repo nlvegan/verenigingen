@@ -155,6 +155,21 @@ class ChapterValidator(BaseValidator):
         members = chapter_data.get("members", [])
         board_members = chapter_data.get("board_members", [])
 
+        # A member must not appear more than once as an enabled chapter member.
+        seen_enabled_members = set()
+        for m in members:
+            member_id = m.get("member")
+            if not member_id or not m.get("enabled"):
+                continue
+            if member_id in seen_enabled_members:
+                result.add_error(
+                    frappe._("Member {0} is listed more than once as an active chapter member").format(
+                        member_id
+                    )
+                )
+            else:
+                seen_enabled_members.add(member_id)
+
         # Check that all active board members are also chapter members
         active_board_volunteers = {m.get("volunteer") for m in board_members if m.get("is_active")}
 

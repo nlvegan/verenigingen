@@ -15,6 +15,13 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
         frappe.db.set_single_value(
             "Verenigingen Settings", "send_chapter_assignment_notifications", 1
         )
+        # The EmailService skips sending (before reaching the patched frappe.sendmail) when
+        # there is no active default-outgoing Email Account. Fresh test sites have none, so
+        # ensure one exists; otherwise board-notification emails are never queued/captured.
+        self._ensure_outgoing_email_account()
+        # The EmailService also gates per-notification-type via Verenigingen Email
+        # Configuration; ensure the board-lifecycle notification types are enabled.
+        self._enable_chapter_notification_types()
         # Clear any stale flags from other tests
         frappe.flags.chapter_transfer = None
         frappe.flags.is_bulk_import = False
@@ -75,6 +82,57 @@ class TestChapterBoardLifecycleNotifications(EnhancedTestCase):
     # ------------------------------------------------------------------
     # Helpers for board-notification tests
     # ------------------------------------------------------------------
+
+    def _ensure_outgoing_email_account(self):
+        """Ensure an active default-outgoing Email Account exists for the send path."""
+        existing = frappe.get_all(
+            "Email Account",
+            filters={"enable_outgoing": 1, "default_outgoing": 1},
+            limit=1,
+        )
+        if existing:
+            return
+        frappe.get_doc({
+            "doctype": "Email Account",
+            "email_account_name": "Test Outgoing",
+            "email_id": "test-outgoing@test.invalid",
+            "enable_outgoing": 1,
+            "default_outgoing": 1,
+            "smtp_server": "localhost",
+            "login_id_is_different": 0,
+        }).insert(ignore_permissions=True)
+
+    def _enable_chapter_notification_types(self):
+        """Ensure the chapter board-lifecycle notification types exist and are enabled.
+
+        EmailService gates each notification via Verenigingen Email Configuration's
+        notification_types child table; a missing/disabled row blocks the email.
+        """
+        config = frappe.get_single("Verenigingen Email Configuration")
+        wanted = {
+            "chapter_member_joined": "Chapter Member Joined",
+            "chapter_member_left": "Chapter Member Left",
+        }
+        existing = {nt.notification_key: nt for nt in config.notification_types}
+        changed = False
+        for key, label in wanted.items():
+            if key in existing:
+                if not existing[key].enabled:
+                    existing[key].enabled = 1
+                    changed = True
+            else:
+                config.append(
+                    "notification_types",
+                    {
+                        "notification_key": key,
+                        "label": label,
+                        "category": "System",
+                        "enabled": 1,
+                    },
+                )
+                changed = True
+        if changed:
+            config.save(ignore_permissions=True)
 
     def _ensure_chapter_role(self):
         """Ensure a basic Chapter Role exists for board-member rows."""

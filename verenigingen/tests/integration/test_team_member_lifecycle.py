@@ -17,12 +17,31 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 class TestTeamMemberLifecycle(EnhancedTestCase):
     """Test team member lifecycle operations"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Team members reference Team Role master records by literal name (e.g. "Team Member").
+        # The before_tests hook that normally seeds these is unreliable for single-module runs,
+        # so seed the standard Team Roles here to make this module pass in isolation.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+
     def setUp(self):
         """Set up test data"""
         super().setUp()
+        # Team membership changes update volunteer assignment history via background event
+        # subscribers (enqueued with a delay). Run them inline so these lifecycle tests can
+        # assert on the real subscriber side effects deterministically.
+        self._prev_run_events_sync = getattr(frappe.flags, "run_events_synchronously", False)
+        frappe.flags.run_events_synchronously = True
         self.test_volunteer = self.create_test_volunteer()
         self.test_team = self.create_test_team()
+
+    def tearDown(self):
+        frappe.flags.run_events_synchronously = self._prev_run_events_sync
+        super().tearDown()
     
     def test_team_member_addition(self):
         """Test that adding a team member creates assignment history"""

@@ -233,12 +233,13 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
     def test_get_skills_overview(self):
         """Test getting comprehensive skills overview"""
         overview = get_skills_overview()
-        
+
         self.assertTrue(overview["success"])
+        overview = overview["data"]  # OperationResult envelope: payload under "data"
         self.assertIn("skills_by_category", overview)
         self.assertIn("top_skills", overview)
         self.assertIn("development_skills", overview)
-        
+
         # Verify categories are present
         categories = [cat["skill_category"] for cat in overview["skills_by_category"]]
         expected_categories = ["Technical", "Communication", "Financial", "Leadership", "Organizational"]
@@ -251,26 +252,27 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
 
     def test_search_volunteers_advanced(self):
         """Test advanced volunteer search with multiple criteria"""
+        # These endpoints return an OperationResult envelope: {success, data: {...}, meta}.
         # Test single skill requirement
         filters = {"skills": ["Python"]}
         result = search_volunteers_advanced(json.dumps(filters))
-        
+
         self.assertTrue(result["success"])
-        self.assertGreater(result["count"], 0)
-        
+        self.assertGreater(result["data"]["count"], 0)
+
         # Test multiple skills requirement (AND logic)
         filters = {"skills": ["Python", "JavaScript"]}
         result = search_volunteers_advanced(json.dumps(filters))
-        
+
         self.assertTrue(result["success"])
         # Should find volunteer with both Python AND JavaScript
-        
+
         # Test category filter
         filters = {"categories": ["Technical"]}
         result = search_volunteers_advanced(json.dumps(filters))
-        
+
         self.assertTrue(result["success"])
-        self.assertGreater(result["count"], 0)
+        self.assertGreater(result["data"]["count"], 0)
 
     def test_get_skill_recommendations(self):
         """Test skill recommendations based on similar volunteers"""
@@ -292,7 +294,7 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
         
         no_recs = get_skill_recommendations(volunteer_no_skills.name)
         self.assertTrue(no_recs["success"])
-        self.assertEqual(len(no_recs["recommendations"]), 0)
+        self.assertEqual(len(no_recs["data"]["recommendations"]), 0)
         
         # Clean up
         frappe.delete_doc("Volunteer", volunteer_no_skills.name, force=True)
@@ -300,43 +302,47 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
     def test_get_skill_gaps_analysis(self):
         """Test skill gaps analysis"""
         gaps = get_skill_gaps_analysis()
-        
+
         self.assertTrue(gaps["success"])
-        self.assertIn("skill_gaps", gaps)
-        self.assertIn("category_gaps", gaps)
-        
+        gaps_data = gaps["data"]
+        self.assertIn("skill_gaps", gaps_data)
+        self.assertIn("category_gaps", gaps_data)
+
         # Verify structure of results
-        if gaps["category_gaps"]:
-            for gap in gaps["category_gaps"]:
+        if gaps_data["category_gaps"]:
+            for gap in gaps_data["category_gaps"]:
                 self.assertIn("skill_category", gap)
                 self.assertIn("volunteer_count", gap)
                 self.assertIn("skill_count", gap)
 
     def test_export_skills_data(self):
         """Test exporting skills data"""
-        # Test JSON export
+        # export_skills_data returns an OperationResult envelope whose payload is itself
+        # {format, data: [...rows...], filename?}; the rows live at result["data"]["data"].
         json_export = export_skills_data("json")
-        
+
         self.assertTrue(json_export["success"])
-        self.assertEqual(json_export["format"], "json")
-        self.assertIn("data", json_export)
-        self.assertGreater(len(json_export["data"]), 0)
-        
+        json_payload = json_export["data"]
+        self.assertEqual(json_payload["format"], "json")
+        self.assertIn("data", json_payload)
+        self.assertGreater(len(json_payload["data"]), 0)
+
         # Verify data structure
-        for item in json_export["data"]:
+        for item in json_payload["data"]:
             self.assertIn("volunteer_name", item)
             self.assertIn("volunteer_skill", item)
             self.assertIn("skill_category", item)
             self.assertIn("proficiency_level", item)
-        
+
         # Test CSV export
         csv_export = export_skills_data("csv")
-        
+
         self.assertTrue(csv_export["success"])
-        self.assertEqual(csv_export["format"], "csv")
-        self.assertIn("data", csv_export)
-        self.assertIn("filename", csv_export)
-        self.assertTrue(csv_export["filename"].endswith(".csv"))
+        csv_payload = csv_export["data"]
+        self.assertEqual(csv_payload["format"], "csv")
+        self.assertIn("data", csv_payload)
+        self.assertIn("filename", csv_payload)
+        self.assertTrue(csv_payload["filename"].endswith(".csv"))
 
     def test_api_error_handling(self):
         """Test API error handling for edge cases"""

@@ -63,13 +63,16 @@ class TestRoleProfileIntegration(EnhancedTestCase):
 
     def test_get_user_role_profiles_security_fix(self):
         """Test that role profile query is secure and only returns directly assigned profiles"""
-        # Create a real test user with role profile
+        # Create a real test user, then directly assign the role profile. (create_test_user
+        # does not take a role_profile kwarg, and in Frappe v16 the role_profiles child table
+        # is the canonical store — role_profile_name alone is a no-op.)
         test_user = self.create_test_user(
             email="treasurer@test.com",
             first_name="Test",
             last_name="Treasurer",
-            role_profile="Verenigingen Treasurer"
         )
+        test_user.set("role_profiles", [{"role_profile": "Verenigingen Treasurer"}])
+        test_user.save(ignore_permissions=True)
 
         # Test the method exists and works with real data
         user_profiles = self.framework._get_user_role_profiles(test_user.name)
@@ -90,17 +93,21 @@ class TestRoleProfileIntegration(EnhancedTestCase):
 
     def test_security_level_hierarchy(self):
         """Test that security levels are properly hierarchical"""
-        # Test that higher levels include lower levels
+        # Test the privilege hierarchy by the levels each profile grants, not by raw count
+        # (a higher-privilege profile may grant CRITICAL/HIGH while a lower one grants LOW;
+        # the counts can coincide, so compare the actual capabilities).
         mapping = self.framework.ROLE_PROFILE_SECURITY_MAPPING
         treasurer_levels = mapping.get("Verenigingen Treasurer", [])
         board_levels = mapping.get("Verenigingen Chapter Board Member", [])
         volunteer_levels = mapping.get("Verenigingen Volunteer", [])
 
-        # Treasurer should have more access levels than board member
-        self.assertGreater(len(treasurer_levels), len(board_levels))
+        # Treasurer outranks board member: it grants CRITICAL access, board member does not.
+        self.assertIn(SecurityLevel.CRITICAL, treasurer_levels)
+        self.assertNotIn(SecurityLevel.CRITICAL, board_levels)
 
-        # Board member should have more access levels than volunteer
-        self.assertGreater(len(board_levels), len(volunteer_levels))
+        # Board member outranks volunteer: it grants HIGH access, volunteer does not.
+        self.assertIn(SecurityLevel.HIGH, board_levels)
+        self.assertNotIn(SecurityLevel.HIGH, volunteer_levels)
 
     def test_self_service_validation_enhanced(self):
         """Test enhanced self-service validation logic"""

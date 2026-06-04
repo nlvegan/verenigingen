@@ -98,7 +98,7 @@ class TestBulkAssignChapterBoardRoleProfiles(EnhancedTestCase):
             fn = fn.__wrapped__
         return fn
 
-    @patch("verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change")
+    @patch("verenigingen.services.member.account.user_role_profile_calculator.auto_sync_on_role_change")
     def test_nonexistent_chapter_returns_failure(self, mock_sync):
         """Returns failure dict for nonexistent chapter."""
         fn = self._get_inner_fn()
@@ -110,7 +110,7 @@ class TestBulkAssignChapterBoardRoleProfiles(EnhancedTestCase):
         self.assertEqual(result["members_updated"], 0)
         mock_sync.assert_not_called()
 
-    @patch("verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change")
+    @patch("verenigingen.services.member.account.user_role_profile_calculator.auto_sync_on_role_change")
     def test_empty_board_returns_success(self, mock_sync):
         """Empty board (no active members with users) returns success with 0 updated."""
         fn = self._get_inner_fn()
@@ -124,7 +124,7 @@ class TestBulkAssignChapterBoardRoleProfiles(EnhancedTestCase):
         self.assertEqual(result["members_updated"], 0)
         mock_sync.assert_not_called()
 
-    @patch("verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change")
+    @patch("verenigingen.services.member.account.user_role_profile_calculator.auto_sync_on_role_change")
     def test_syncs_each_board_member_user(self, mock_sync):
         """Calls auto_sync_on_role_change for each board member's user."""
         fn = self._get_inner_fn()
@@ -141,7 +141,7 @@ class TestBulkAssignChapterBoardRoleProfiles(EnhancedTestCase):
         mock_sync.assert_any_call("alice@example.com")
         mock_sync.assert_any_call("bob@example.com")
 
-    @patch("verenigingen.utils.user_role_profile_calculator.auto_sync_on_role_change")
+    @patch("verenigingen.services.member.account.user_role_profile_calculator.auto_sync_on_role_change")
     def test_partial_failure_still_counts_successes(self, mock_sync):
         """If one user fails, others still get synced."""
         fn = self._get_inner_fn()

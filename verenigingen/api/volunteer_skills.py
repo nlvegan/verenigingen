@@ -241,6 +241,15 @@ def get_skill_recommendations(volunteer_name: str, limit: int = 10) -> Operation
         limit: Maximum number of recommendations
     """
     try:
+        # Validate the volunteer exists. Without this, a non-existent volunteer would
+        # look identical to one with no skills and return success — callers cannot tell
+        # the difference, so report a clear failure instead.
+        if not frappe.db.exists("Volunteer", volunteer_name):
+            return OperationResult.fail(
+                message=_("Volunteer {0} not found").format(volunteer_name),
+                http_status=404,
+            )
+
         # Get current volunteer's skills
         current_skills = frappe.get_all(
             "Volunteer Skill",

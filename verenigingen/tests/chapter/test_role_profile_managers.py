@@ -139,7 +139,17 @@ class TestValidationFunctions(EnhancedTestCase):
 
 class TestTeamRoleProfileManager(EnhancedTestCase):
     """Test TeamRoleProfileManager functionality"""
-    
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Team members reference Team Role master records by literal name (e.g. "Team Member").
+        # The before_tests hook that normally seeds these is unreliable for single-module runs,
+        # so seed the standard Team Roles here to make this module pass in isolation.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+
     def setUp(self):
         """Set up test data"""
         super().setUp()
@@ -291,10 +301,12 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         )
         
         self.assertTrue(result["success"])
-        self.assertIn("assigned", result["message"])
+        self.assertEqual(result["action"], "assigned")
         self.assertEqual(result["role_profile"], "Test Team Profile")
-        
-        # Verify user has the role profile
+
+        # Verify user has the role profile. Frappe v16 moves the legacy role_profile_name
+        # Link into the role_profiles child table on save (and clears role_profile_name),
+        # so assert against the child table.
         user_doc = frappe.get_doc("User", "test.volunteer@example.com")
         role_profiles = [rp.role_profile for rp in user_doc.role_profiles or []]
         self.assertIn("Test Team Profile", role_profiles)
@@ -333,9 +345,11 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         )
         
         self.assertTrue(result["success"])
-        self.assertIn("removed", result["message"])
-        
-        # Verify user no longer has the role profile
+        # After removal the manager recalculates the correct profile, so the action is
+        # either "recalculated" or "removed_pending_recalc" (both are successful removals).
+        self.assertIn(result["action"], ("recalculated", "removed_pending_recalc"))
+
+        # Verify user no longer carries the team's role profile in the role_profiles child table
         user_doc = frappe.get_doc("User", "test.volunteer@example.com")
         role_profiles = [rp.role_profile for rp in user_doc.role_profiles or []]
         self.assertNotIn("Test Team Profile", role_profiles)
@@ -346,17 +360,26 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         team_doc = frappe.get_doc("Team", "Test Team Valid")
         team_doc.append("team_members", {
             "volunteer": "Test Volunteer",
-            "team_role": "Member",
+            "team_role": "Team Member",
+            "from_date": frappe.utils.today(),
             "status": "Active"
         })
         team_doc.save()
         
         result = self.manager.bulk_assign_role_profiles("Test Team Valid")
-        
+
         self.assertTrue(result["success"])
-        self.assertEqual(result["processed"], 1)
-        self.assertEqual(result["assigned"], 1)
-        self.assertEqual(result["skipped"], 0)
+        # bulk_assign_role_profiles returns a per-member "results" list.
+        self.assertEqual(len(result["results"]), 1)
+        member_result = result["results"][0]["result"]
+        self.assertTrue(member_result["success"])
+        # Adding the team member can itself trigger role-profile sync, so the bulk run may
+        # report "assigned" (it set it) or "already_assigned" (sync got there first). Both
+        # are successful end-states; verify the user actually carries the profile.
+        self.assertIn(member_result["action"], ("assigned", "already_assigned"))
+        user_doc = frappe.get_doc("User", "test.volunteer@example.com")
+        role_profiles = [rp.role_profile for rp in user_doc.role_profiles or []]
+        self.assertIn("Test Team Profile", role_profiles)
 
 
 class TestChapterRoleProfileManager(EnhancedTestCase):
@@ -460,10 +483,12 @@ class TestChapterRoleProfileManager(EnhancedTestCase):
         )
         
         self.assertTrue(result["success"])
-        self.assertIn("assigned", result["message"])
+        self.assertEqual(result["action"], "assigned")
         self.assertEqual(result["role_profile"], "Test Board Profile")
-        
-        # Verify user has the role profile
+
+        # Verify user has the role profile. Frappe v16 moves the legacy role_profile_name
+        # Link into the role_profiles child table on save (and clears role_profile_name),
+        # so assert against the child table.
         user_doc = frappe.get_doc("User", "test.board@example.com")
         role_profiles = [rp.role_profile for rp in user_doc.role_profiles or []]
         self.assertIn("Test Board Profile", role_profiles)
