@@ -259,39 +259,52 @@ class TestOnSubmitEnqueueKwargs(unittest.TestCase):
         self.assertIs(kwargs["test_mode"], False)
 
 
+from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (  # noqa: E402
+    ProcuriosMandateImport,
+)
+
+
 class TestBeforeSubmitGuardIntegration(EnhancedTestCase):
     """Confirm the guard fires INSIDE Frappe's real submit lifecycle.
 
     The unit tests above use a FakeSelf; they verify the method body but
     don't exercise the submit machinery (validate → before_submit → write
-    docstatus → on_submit). This integration test temporarily monkey-patches
+    docstatus → on_submit). This integration test patches
     `_BACKGROUND_METHOD` on a real Procurios Mandate Import to simulate a
     misconfigured subclass, then attempts `doc.submit()` and asserts that
     docstatus stays at 0 — proving the guard fired BEFORE Frappe's
     docstatus write.
+
+    Patch is applied via `@patch.object` (class attribute mocker) rather
+    than inline try/finally. unittest.mock restores the original value
+    on SIGINT and on any exception that unwinds the test stack (including
+    `bench run-tests` graceful shutdown); the previous inline try/finally
+    could leak the empty string into the class's cached controller entry
+    if a test exception fired between the assignment and the finally
+    clause. (Neither form survives SIGKILL — but only the new form
+    survives a `KeyboardInterrupt` mid-assertion.)
     """
 
+    # @patch.object mutates the imported class object. Frappe's
+    # controller cache (`frappe.model.base_document.get_controller`)
+    # stores the SAME class reference per site, so instances Frappe
+    # constructs see the patched attribute. This invariant holds as
+    # long as no `extend_doctype_class` / `override_doctype_class`
+    # hook is registered for "Procurios Mandate Import" (none today).
+    @patch.object(ProcuriosMandateImport, "_BACKGROUND_METHOD", "")
     def test_guard_prevents_docstatus_write(self):
-        from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (
-            ProcuriosMandateImport,
+        doc = frappe.get_doc(
+            {
+                "doctype": "Procurios Mandate Import",
+                "import_date": frappe.utils.today(),
+                "encoding": "auto-detect",
+                "csv_delimiter": "Semicolon",
+            }
         )
-
-        original_method = ProcuriosMandateImport._BACKGROUND_METHOD
-        ProcuriosMandateImport._BACKGROUND_METHOD = ""
-        doc = None
+        doc.flags.ignore_permissions = True
+        doc.flags.ignore_mandatory = True
+        doc.insert()
         try:
-            doc = frappe.get_doc(
-                {
-                    "doctype": "Procurios Mandate Import",
-                    "import_date": frappe.utils.today(),
-                    "encoding": "auto-detect",
-                    "csv_delimiter": "Semicolon",
-                }
-            )
-            doc.flags.ignore_permissions = True
-            doc.flags.ignore_mandatory = True
-            doc.insert()
-
             # Attempting to submit MUST raise because before_submit's guard
             # rejects the misconfigured class.
             with self.assertRaises(frappe.ValidationError):
@@ -303,14 +316,12 @@ class TestBeforeSubmitGuardIntegration(EnhancedTestCase):
             doc.reload()
             self.assertEqual(doc.docstatus, 0)
         finally:
-            ProcuriosMandateImport._BACKGROUND_METHOD = original_method
-            if doc is not None:
-                frappe.delete_doc(
-                    "Procurios Mandate Import",
-                    doc.name,
-                    force=1,
-                    ignore_permissions=True,
-                )
+            frappe.delete_doc(
+                "Procurios Mandate Import",
+                doc.name,
+                force=1,
+                ignore_permissions=True,
+            )
 
 
 class TestMarkImportFailed(EnhancedTestCase):
