@@ -8,7 +8,7 @@ Replaces the separate refund processing logic with unified logic that reuses
 the main payment processing patterns.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import frappe
 from frappe.utils import flt, getdate
@@ -76,7 +76,9 @@ def create_unified_payment_entry(
             donation_account = frappe.get_value("Company", company, "default_receivable_account")
 
         # Get bank account (Mollie) - prefer settings, fallback to named account, then default
-        bank_account = settings.mollie_bank_account
+        # Use .get() because mollie_bank_account is an optional field that may not exist on
+        # the Verenigingen Settings DocType; direct attribute access would raise AttributeError.
+        bank_account = settings.get("mollie_bank_account")
         if not bank_account:
             bank_account = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
         if not bank_account:

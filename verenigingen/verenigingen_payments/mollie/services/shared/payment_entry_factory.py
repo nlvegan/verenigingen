@@ -23,7 +23,6 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import frappe
-from frappe import _
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
@@ -527,8 +526,11 @@ class PaymentEntryFactory:
                 )
 
             # Get Mollie bank account - prefer settings, fallback to named account, then default
-            if settings.mollie_bank_account:
-                accounts["bank_account"] = settings.mollie_bank_account
+            # Use .get() because mollie_bank_account is not a field on Verenigingen Settings;
+            # direct attribute access would raise AttributeError on every payment entry creation.
+            settings_bank_account = settings.get("mollie_bank_account")
+            if settings_bank_account:
+                accounts["bank_account"] = settings_bank_account
             else:
                 # First fallback: Look for account named "Mollie"
                 accounts["bank_account"] = frappe.get_value(

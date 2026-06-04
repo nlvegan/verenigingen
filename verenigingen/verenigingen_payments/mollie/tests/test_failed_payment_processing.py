@@ -7,7 +7,7 @@ Tests the complete webhook processing workflow without mocks.
 """
 
 import frappe
-from frappe.utils import getdate, now_datetime
+from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -56,12 +56,14 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
         result = _validate_payment_amount(payment)
         self.assertEqual(result, 25.50)
 
-        # Test zero amount
+        # Test zero amount: a zero/empty amount is a hard error (a payment with no
+        # value cannot be processed), so the validator throws rather than returning 0.
         payment_zero = RealPaymentStructure("0.00")
-        result_zero = _validate_payment_amount(payment_zero)
-        self.assertEqual(result_zero, 0.0)
+        with self.assertRaises(frappe.ValidationError):
+            _validate_payment_amount(payment_zero)
 
-        # Test None payment
+        # Test None payment: a missing payment object is treated as "nothing to
+        # validate" and returns 0.0 (no exception).
         result_none = _validate_payment_amount(None)
         self.assertEqual(result_none, 0.0)
 

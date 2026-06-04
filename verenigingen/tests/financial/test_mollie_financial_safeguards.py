@@ -20,21 +20,18 @@ Test Categories:
 Author: Test Engineering Team
 """
 
-import json
 import time
 from datetime import datetime, timedelta
-from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import frappe
-from frappe.utils import flt, today, add_days
+from frappe.utils import today
 
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-from verenigingen.verenigingen_payments.mollie.tests.fixtures.test_factory import MollieTestCase, MollieTestDataFactory
+from verenigingen.verenigingen_payments.mollie.tests.fixtures.test_factory import MollieTestCase
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
-    _process_subscription_payment,
-    PaymentGatewayFactory
+    _process_subscription_payment
 )
 import unittest
 
@@ -294,43 +291,93 @@ class TestMollieFinancialSafeguards(MollieTestCase):
         """Test protection against race conditions in concurrent payment processing"""
         payment_id = "tr_race_test_001"
         gateway = self._create_mock_mollie_gateway(50.00)
-        
+
+        # The work under test touches the database, but frappe's DB connection is
+        # thread-local. Worker threads spawned by ThreadPoolExecutor inherit no
+        # bound connection, so without an explicit per-thread connect() every call
+        # fails with "object is not bound" (a harness artifact, not a real race).
+        # Commit the test fixtures first so the freshly-connected worker threads can
+        # see the member/customer/invoice rows created in setUp.
+        site = frappe.local.site
+        member_name = self.member.name
+        customer_name = self.customer.name
+
+        # The processing function derives the company from Global Defaults /
+        # user defaults; in a freshly-connected worker thread no user default is
+        # set, so seed Global Defaults' default_company (as a configured production
+        # site would have) and restore it afterwards. Commit so the worker threads
+        # see both the fixtures and this default.
+        previous_default_company = frappe.db.get_single_value("Global Defaults", "default_company")
+        frappe.db.set_single_value("Global Defaults", "default_company", self.company)
+        frappe.db.commit()
+
         results = []
         exceptions = []
-        
+
         def process_payment():
+            frappe.init(site=site)
+            frappe.connect()
             try:
                 return _process_subscription_payment(
-                    gateway, self.member.name, self.customer.name, payment_id, "sub_race_test"
+                    gateway, member_name, customer_name, payment_id, "sub_race_test"
                 )
             except Exception as e:
                 exceptions.append(e)
                 return {"status": "error", "error": str(e)}
-                
+            finally:
+                frappe.db.commit()
+                frappe.destroy()
+
         # Simulate concurrent processing
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = [executor.submit(process_payment) for _ in range(3)]
-            
+
             for future in as_completed(futures):
                 results.append(future.result())
-                
+
+        # Restore the previous Global Defaults company so this test does not leak
+        # state into other tests on the shared site.
+        frappe.db.set_single_value("Global Defaults", "default_company", previous_default_company)
+        frappe.db.commit()
+
+        # The worker threads committed their own connections, so the duplicate-check
+        # query below must read fresh committed rows.
+        frappe.db.rollback()
+
         # Analyze results
         successful_results = [r for r in results if r.get("status") in ["success", "duplicate"]]
         error_results = [r for r in results if r.get("status") == "error"]
-        
+
         print(f"Concurrent processing results: {len(successful_results)} successful, {len(error_results)} errors")
-        
+
         # Should handle concurrent requests gracefully
         self.assertGreaterEqual(len(successful_results), 1, "At least one request should succeed")
-        
+
         # Check for duplicate payment entries
         payment_entries = frappe.get_all(
             "Payment Entry",
             filters={"reference_no": payment_id},
             fields=["name"]
         )
-        
-        self.assertLessEqual(len(payment_entries), 1, 
+
+        # Clean up any committed Payment Entries created by the worker threads so they
+        # do not pollute the shared test site (their party customer is cleaned in
+        # tearDown, which would otherwise leave the submitted PE uncancellable).
+        for pe in payment_entries:
+            try:
+                doc = frappe.get_doc("Payment Entry", pe.name)
+                if doc.docstatus == 1:
+                    doc.cancel()
+                frappe.delete_doc("Payment Entry", pe.name, force=True)
+            except Exception:
+                frappe.db.sql(
+                    "DELETE FROM `tabGL Entry` WHERE voucher_type='Payment Entry' AND voucher_no=%s",
+                    pe.name,
+                )
+                frappe.db.sql("DELETE FROM `tabPayment Entry` WHERE name=%s", pe.name)
+        frappe.db.commit()
+
+        self.assertLessEqual(len(payment_entries), 1,
                            "Race condition should not create duplicate payment entries")
                            
     def test_payment_reconciliation_accuracy(self):

@@ -5,19 +5,15 @@ Hybrid implementation that can optionally use the service layer architecture.
 Falls back to direct function calls if service layer is not available.
 """
 
-from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
-from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 # Import extracted handlers
 from verenigingen.verenigingen_payments.mollie.services.handlers import (
-    DonationLookup,
-    RefundHandler,
     check_payment_processing_status as _handler_check_payment_processing_status,
     find_donation_for_payment as _handler_find_donation_for_payment,
     find_donation_for_payment_by_id as _handler_find_donation_for_payment_by_id,
@@ -526,7 +522,9 @@ def create_payment_entry_for_donation(donation, mollie_data):
             donation_account = frappe.get_value("Company", company, "default_receivable_account")
 
         # Get bank account (Mollie) - prefer settings, fallback to named account, then default
-        bank_account = settings.mollie_bank_account
+        # Use .get() because mollie_bank_account is not a field on Verenigingen Settings;
+        # direct attribute access would raise AttributeError on every donation webhook.
+        bank_account = settings.get("mollie_bank_account")
         if not bank_account:
             bank_account = frappe.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
         if not bank_account:
@@ -909,8 +907,11 @@ def process_failed_payment(payment_id, payment):
         if member:
             frappe.logger().info(f"📝 Recording failed payment for member {member.name}")
 
-            # Use database transaction to ensure atomic operations
-            frappe.db.begin()
+            # NOTE: do NOT call frappe.db.begin() here. This function already runs
+            # inside Frappe's implicit request/webhook transaction, and on MariaDB in
+            # v16 issuing a fresh START TRANSACTION raises "This statement can cause
+            # implicit commit". The explicit commit()/rollback() below provide the
+            # required atomicity within the existing transaction.
             try:
                 # Add failed payment to member history with subscription ID
                 member.append(
@@ -952,7 +953,9 @@ def process_failed_payment(payment_id, payment):
                         results["processed_records"].append(
                             {"type": "member", "id": member.name, "status": "failed_payment_recorded"}
                         )
-                        return  # Early return - transaction already committed
+                        # Return the populated results (a bare `return` here would hand
+                        # the caller None on the most common subscription-failure path).
+                        return results  # Early return - transaction already committed
 
                 # Save member record within transaction
                 member.save()  # Webhook user has proper permissions via role assignment

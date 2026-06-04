@@ -13,6 +13,9 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
 )
+from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
+    ensure_mollie_reversal_accounts,
+)
 
 
 class TestMollieRefundChargebackWebhookProcessing(EnhancedTestCase):
@@ -25,6 +28,11 @@ class TestMollieRefundChargebackWebhookProcessing(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Ensure the master data (Mollie bank account + "Mollie Refund" mode of payment)
+        # required to build reversal Payment Entries exists for the test company.
+        ensure_mollie_reversal_accounts()
+
         self.webhook_processor = UnifiedWebhookWrapperService()
 
         # Create test data

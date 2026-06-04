@@ -18,7 +18,6 @@ Following Enhanced Test Factory patterns with proper field validation.
 import unittest
 from decimal import Decimal
 
-import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -166,8 +165,10 @@ class TestAmountValidation(FrappeTestCase):
     def test_validate_positive_integer(self):
         """Test validation of positive integer amounts"""
         result = validate_mollie_amount(50)
-        self.assertEqual(result, 50.0)
-        self.assertIsInstance(result, float)
+        # validate_mollie_amount returns Decimal (quantized to 2 places) for monetary
+        # precision; this is the documented contract, not float.
+        self.assertEqual(result, Decimal("50.00"))
+        self.assertIsInstance(result, Decimal)
 
     def test_validate_positive_float(self):
         """Test validation of positive float amounts"""
@@ -182,7 +183,9 @@ class TestAmountValidation(FrappeTestCase):
     def test_validate_decimal_object(self):
         """Test validation handles Decimal objects"""
         result = validate_mollie_amount(Decimal("15.99"))
-        self.assertEqual(result, 15.99)
+        # Returns a Decimal (the documented contract), so compare against Decimal.
+        self.assertEqual(result, Decimal("15.99"))
+        self.assertIsInstance(result, Decimal)
 
     def test_validate_zero_amount_raises_error(self):
         """Test zero amount raises ValueError"""

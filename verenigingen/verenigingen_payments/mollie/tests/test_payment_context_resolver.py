@@ -140,9 +140,11 @@ class TestPaymentContextResolver(EnhancedTestCase):
         """Test context resolution by existing payment reference"""
         payment_id = "test_payment_ref_123"
 
-        # Update donation with payment reference
-        self.test_donation.payment_id = payment_id
-        self.test_donation.save()
+        # Update donation with payment reference. The donation is submitted
+        # (docstatus=1), so a plain .save() raises; use db.set_value to update the
+        # field directly (the resolver reads it straight from the DB).
+        frappe.db.set_value("Donation", self.test_donation.name, "payment_id", payment_id)
+        self.test_donation.reload()
 
         payment_data = self._create_mock_payment_data(payment_id=payment_id)
 
@@ -158,14 +160,19 @@ class TestPaymentContextResolver(EnhancedTestCase):
         """Test that subscription_id in payment data suggests membership"""
         payment_id = "test_subscription_123"
 
-        payment_data = self._create_mock_payment_data(
-            payment_id=payment_id, subscription_id="sub_recurring_membership"
-        )
+        # The resolver maps a subscription payment to the Member that owns the
+        # subscription, so the member must actually carry the subscription id.
+        subscription_id = "sub_recurring_membership"
+        frappe.db.set_value("Member", self.test_member.name, "mollie_subscription_id", subscription_id)
+
+        payment_data = self._create_mock_payment_data(payment_id=payment_id, subscription_id=subscription_id)
 
         context = self.resolver.resolve_context(payment_id, payment_data)
 
         # Should resolve to membership based on subscription presence
         self.assertIsNotNone(context)
+        self.assertEqual(context.payment_type, "membership")
+        self.assertEqual(context.target_name, self.test_member.name)
         # Note: This test depends on the actual implementation logic
         # If subscription_id doesn't automatically indicate membership,
         # this might resolve differently
@@ -221,11 +228,13 @@ class TestPaymentContextResolver(EnhancedTestCase):
         """Test that resolver tries multiple strategies in order"""
         payment_id = "test_multiple_strategies_123"
 
-        # Create payment data with multiple potential indicators
+        # Create payment data with multiple potential indicators. Metadata carries a
+        # resolvable donation target; the description JSON points at membership. The
+        # resolver must prefer metadata (strategy 1) over the description fallback.
         payment_data = self._create_mock_payment_data(
             payment_id=payment_id,
-            metadata={"payment_type": "donation"},  # Strategy 1: Metadata
-            description='{"type": "membership"}',  # Strategy 2: JSON description
+            metadata={"payment_type": "donation", "donation_id": self.test_donation.name},
+            description='{"type": "membership", "member_id": "%s"}' % self.test_member.name,
         )
 
         context = self.resolver.resolve_context(payment_id, payment_data)
@@ -233,6 +242,7 @@ class TestPaymentContextResolver(EnhancedTestCase):
         # Should prioritize metadata over description
         self.assertIsNotNone(context)
         self.assertEqual(context.payment_type, "donation")  # From metadata, not description
+        self.assertEqual(context.target_name, self.test_donation.name)
 
     def test_resolve_context_nonexistent_target(self):
         """Test resolution when target document doesn't exist"""

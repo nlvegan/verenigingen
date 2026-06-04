@@ -13,8 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe import _
 
-from verenigingen.utils.constants import Roles
-
 # Decimal precision for monetary amounts (2 decimal places)
 DECIMAL_PLACES = Decimal("0.01")
 MIN_MOLLIE_AMOUNT = Decimal("0.01")
@@ -242,15 +240,15 @@ def validate_mollie_amount(amount: Any, min_amount: Union[Decimal, float, str] =
     try:
         # Convert to string first to avoid float precision issues
         if isinstance(amount, Decimal):
-            amount_decimal = amount
+            raw_decimal = amount
         elif isinstance(amount, float):
             # Use string conversion to preserve precision
-            amount_decimal = Decimal(str(amount))
+            raw_decimal = Decimal(str(amount))
         else:
-            amount_decimal = Decimal(str(amount))
+            raw_decimal = Decimal(str(amount))
 
         # Quantize to 2 decimal places with proper rounding
-        amount_decimal = amount_decimal.quantize(DECIMAL_PLACES, rounding=ROUND_HALF_UP)
+        amount_decimal = raw_decimal.quantize(DECIMAL_PLACES, rounding=ROUND_HALF_UP)
 
     except (TypeError, ValueError, InvalidOperation) as e:
         raise ValueError(f"Invalid amount format: {amount}") from e
@@ -258,7 +256,10 @@ def validate_mollie_amount(amount: Any, min_amount: Union[Decimal, float, str] =
     if amount_decimal <= 0:
         raise ValueError(f"Amount must be positive, got: {amount_decimal}")
 
-    if amount_decimal < min_amount:
+    # Compare the *raw* (pre-rounding) value against the minimum. Otherwise a value
+    # such as 0.005 would round up to 0.01 and be silently accepted even though it is
+    # below Mollie's minimum transaction amount. This matches the documented contract.
+    if raw_decimal < min_amount:
         raise ValueError(f"Amount must be at least {min_amount}, got: {amount_decimal}")
 
     return amount_decimal

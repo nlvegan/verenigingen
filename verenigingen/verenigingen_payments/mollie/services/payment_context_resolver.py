@@ -5,7 +5,7 @@ Determines the payment context (donation, membership, etc.) from Mollie payment 
 without being tied to any specific payment type.
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import frappe
 
@@ -86,7 +86,11 @@ class PaymentContextResolver:
             return {}
 
         metadata = getattr(payment_data, "metadata", {})
-        if isinstance(metadata, dict):
+        # Only treat metadata as authoritative when it is a non-empty dict. An empty
+        # dict (the common case for legacy payments) must fall through to the
+        # description-JSON parsing below, otherwise that legacy resolution path is
+        # unreachable.
+        if isinstance(metadata, dict) and metadata:
             return metadata
 
         # Try to parse description as JSON metadata (legacy support)

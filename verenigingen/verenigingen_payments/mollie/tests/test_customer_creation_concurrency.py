@@ -14,7 +14,7 @@ These tests ensure that:
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -24,7 +24,7 @@ class TestCustomerCreationConcurrency(FrappeTestCase):
     """
     Test race condition prevention in Mollie customer creation.
 
-    The _create_or_get_customer method uses SELECT FOR UPDATE to prevent
+    The _resolve_customer_by_email method uses SELECT FOR UPDATE to prevent
     duplicate customer creation when concurrent requests arrive for the same donor.
     """
 
@@ -99,88 +99,93 @@ class TestCustomerCreationConcurrency(FrappeTestCase):
             mock_customer.id = customer_id
             return mock_customer
 
-        # Patch complete_payment_service's client
-        with patch(
-            "verenigingen.verenigingen_payments.mollie.services.complete_payment_service.CompletePaymentService"
-        ) as MockService:
-            mock_service = MagicMock()
-            mock_service.client.create_customer = mock_create_customer
-            mock_service.client.get_customer = mock_get_customer
+        # The function under test is exercised on real CompletePaymentService
+        # instances (built via __new__ with a mocked Mollie client), so there is no
+        # need to patch the class itself. A stray mock.patch here is also unsafe:
+        # mock teardown interacts with frappe's lazy module proxies from the worker
+        # threads and raises a spurious "issubclass() arg 1 must be a class".
+        from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
+            CompletePaymentService,
+        )
 
-            # Import and test the actual function
-            from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
-                CompletePaymentService,
-            )
+        results = []
+        errors = []
 
-            results = []
-            errors = []
+        # frappe's DB connection is thread-local; each worker thread must bind its
+        # own connection or every frappe.* call fails (surfacing as a confusing
+        # "object is not bound" / issubclass error from deep in the ORM proxy).
+        site = frappe.local.site
 
-            def create_customer_thread(thread_id):
-                """Thread function to create customer."""
-                try:
-                    # Create fresh service instance for each thread
-                    service = CompletePaymentService.__new__(CompletePaymentService)
-                    service.client = MagicMock()
-                    service.client.create_customer = mock_create_customer
-                    service.client.get_customer = mock_get_customer
+        def create_customer_thread(thread_id):
+            """Thread function to create customer."""
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                # Create fresh service instance for each thread
+                service = CompletePaymentService.__new__(CompletePaymentService)
+                service.client = MagicMock()
+                service.client.create_customer = mock_create_customer
+                service.client.get_customer = mock_get_customer
 
-                    customer_data = {
-                        "email": self.test_email,
-                        "name": f"Thread {thread_id} Test",
+                customer_data = {
+                    "email": self.test_email,
+                    "name": f"Thread {thread_id} Test",
+                }
+
+                result = service._resolve_customer_by_email(customer_data)
+                results.append(
+                    {
+                        "thread_id": thread_id,
+                        "result": result,
                     }
+                )
+            except Exception as e:
+                errors.append(
+                    {
+                        "thread_id": thread_id,
+                        "error": str(e),
+                    }
+                )
+            finally:
+                frappe.destroy()
 
-                    result = service._create_or_get_customer(customer_data)
-                    results.append(
-                        {
-                            "thread_id": thread_id,
-                            "result": result,
-                        }
-                    )
-                except Exception as e:
-                    errors.append(
-                        {
-                            "thread_id": thread_id,
-                            "error": str(e),
-                        }
-                    )
+        # Run concurrent threads
+        threads = []
+        for i in range(3):
+            t = threading.Thread(target=create_customer_thread, args=(i,))
+            threads.append(t)
 
-            # Run concurrent threads
-            threads = []
-            for i in range(3):
-                t = threading.Thread(target=create_customer_thread, args=(i,))
-                threads.append(t)
+        # Start all threads nearly simultaneously
+        for t in threads:
+            t.start()
 
-            # Start all threads nearly simultaneously
-            for t in threads:
-                t.start()
+        # Wait for all threads to complete
+        for t in threads:
+            t.join(timeout=30)
 
-            # Wait for all threads to complete
-            for t in threads:
-                t.join(timeout=30)
+        # Verify results
+        self.assertEqual(len(errors), 0, f"Threads had errors: {errors}")
 
-            # Verify results
-            self.assertEqual(len(errors), 0, f"Threads had errors: {errors}")
+        # Check that only one Mollie customer was created
+        # (others should have found the existing one)
+        created_count = len([r for r in results if r["result"].get("status") == "created"])
+        found_count = len([r for r in results if r["result"].get("status") == "found"])
 
-            # Check that only one Mollie customer was created
-            # (others should have found the existing one)
-            created_count = len([r for r in results if r["result"].get("status") == "created"])
-            found_count = len([r for r in results if r["result"].get("status") == "found"])
+        # With proper locking, we should have exactly 1 created and N-1 found
+        # (first thread creates, others find)
+        self.assertLessEqual(
+            created_count,
+            1,
+            f"Expected at most 1 customer created, but got {created_count}. "
+            f"This indicates a race condition. Mollie calls: {mollie_create_calls}",
+        )
 
-            # With proper locking, we should have exactly 1 created and N-1 found
-            # (first thread creates, others find)
-            self.assertLessEqual(
-                created_count,
-                1,
-                f"Expected at most 1 customer created, but got {created_count}. "
-                f"This indicates a race condition. Mollie calls: {mollie_create_calls}",
-            )
-
-            # Verify donor has exactly one Mollie customer ID
-            frappe.db.rollback()  # Clear any uncommitted changes
-            donor = frappe.get_doc("Donor", donor_name)
-            self.assertIsNotNone(
-                donor.mollie_customer_id, "Donor should have a Mollie customer ID after concurrent creation"
-            )
+        # Verify donor has exactly one Mollie customer ID
+        frappe.db.rollback()  # Clear any uncommitted changes
+        donor = frappe.get_doc("Donor", donor_name)
+        self.assertIsNotNone(
+            donor.mollie_customer_id, "Donor should have a Mollie customer ID after concurrent creation"
+        )
 
     def test_partial_failure_releases_lock(self):
         """
@@ -207,7 +212,7 @@ class TestCustomerCreationConcurrency(FrappeTestCase):
         service1.client.get_customer = MagicMock()
 
         donor = frappe.get_doc("Donor", donor_name)
-        result1 = service1._create_or_get_customer(
+        result1 = service1._resolve_customer_by_email(
             {
                 "email": donor.donor_email,
                 "name": donor.donor_name,
@@ -233,7 +238,7 @@ class TestCustomerCreationConcurrency(FrappeTestCase):
         service2.client.create_customer = mock_create_customer_success
         service2.client.get_customer = MagicMock()
 
-        result2 = service2._create_or_get_customer(
+        result2 = service2._resolve_customer_by_email(
             {
                 "email": donor.donor_email,
                 "name": donor.donor_name,
@@ -276,19 +281,29 @@ class TestCustomerCreationConcurrency(FrappeTestCase):
             CompletePaymentService,
         )
 
-        def worker():
-            service = CompletePaymentService.__new__(CompletePaymentService)
-            service.client = MagicMock()
-            service.client.create_customer = mock_create_customer
-            service.client.get_customer = mock_get_customer
+        # frappe's DB connection is thread-local; worker threads must bind their own
+        # connection or every frappe.* call fails (surfacing as a confusing
+        # "object is not bound" / issubclass error from deep in the ORM proxy).
+        site = frappe.local.site
 
-            donor = frappe.get_doc("Donor", donor_name)
-            return service._create_or_get_customer(
-                {
-                    "email": donor.donor_email,
-                    "name": donor.donor_name,
-                }
-            )
+        def worker():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                service = CompletePaymentService.__new__(CompletePaymentService)
+                service.client = MagicMock()
+                service.client.create_customer = mock_create_customer
+                service.client.get_customer = mock_get_customer
+
+                donor = frappe.get_doc("Donor", donor_name)
+                return service._resolve_customer_by_email(
+                    {
+                        "email": donor.donor_email,
+                        "name": donor.donor_name,
+                    }
+                )
+            finally:
+                frappe.destroy()
 
         # Run 5 concurrent workers
         with ThreadPoolExecutor(max_workers=5) as executor:

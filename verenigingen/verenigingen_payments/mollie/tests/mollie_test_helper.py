@@ -256,3 +256,50 @@ def get_test_helper() -> MollieTestHelper:
         RuntimeError: If not in test mode
     """
     return MollieTestHelper()
+
+
+def ensure_mollie_reversal_accounts() -> None:
+    """
+    Ensure the master data the unified payment-entry creator needs to build refund/
+    chargeback Payment Entries exists for the test company.
+
+    In production these are configured by the operator; the test site ships without
+    them, so the creator's bank-account fallback chain (mollie_bank_account ->
+    Account named "Mollie" -> company default_bank_account) and the "Mollie Refund"
+    mode of payment would otherwise be unresolvable.
+
+    Creates (idempotently):
+    - a leaf bank Account named "Mollie" under the company's bank-account group
+    - the "Mollie Refund" Mode of Payment
+    """
+    company = frappe.db.get_single_value(
+        "Verenigingen Settings", "company"
+    ) or frappe.defaults.get_global_default("company")
+    if not company:
+        return
+
+    # Bank account named "Mollie" (matches the creator's named-account fallback)
+    mollie_account = frappe.db.get_value("Account", {"company": company, "account_name": "Mollie"}, "name")
+    if not mollie_account:
+        bank_group = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 1}, "name"
+        )
+        if bank_group:
+            frappe.get_doc(
+                {
+                    "doctype": "Account",
+                    "account_name": "Mollie",
+                    "parent_account": bank_group,
+                    "company": company,
+                    "account_type": "Bank",
+                    "is_group": 0,
+                }
+            ).insert(ignore_permissions=True)
+
+    # Mode of Payment used for reversal (Pay) entries
+    if not frappe.db.exists("Mode of Payment", "Mollie Refund"):
+        frappe.get_doc(
+            {"doctype": "Mode of Payment", "mode_of_payment": "Mollie Refund", "type": "Bank"}
+        ).insert(ignore_permissions=True)
+
+    frappe.db.commit()

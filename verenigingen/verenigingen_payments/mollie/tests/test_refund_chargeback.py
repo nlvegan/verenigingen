@@ -32,14 +32,16 @@ import frappe
 from frappe.utils import now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.payment_services.refund_utility import (
+from verenigingen.verenigingen_payments.utils.payment_services.refund_utility import (
     get_donation_refund_info,
     get_payment_refund_info,
-    initiate_donation_refund,
     initiate_refund,
 )
 from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
     UnifiedWebhookWrapperService,
+)
+from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
+    ensure_mollie_reversal_accounts,
 )
 
 
@@ -59,6 +61,10 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
+        # Ensure the master data (Mollie bank account + "Mollie Refund" mode of payment)
+        # required to build reversal Payment Entries exists for the test company.
+        ensure_mollie_reversal_accounts()
+
         # Initialize components for testing
         self.webhook_processor = UnifiedWebhookWrapperService()
 
@@ -76,6 +82,16 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         # Use db_set since donation is submitted (docstatus=1)
         frappe.db.set_value("Donation", self.test_donation.name, "payment_id", self.test_payment_id)
         self.test_donation.reload()
+
+        # Defensive isolation: the shared test site can carry committed, submitted
+        # Payment Entries from earlier runs/sibling tests that the framework fails to
+        # cancel+delete (their throwaway Customer party is deleted before the PE, so
+        # cancel raises and the PE survives rollback). Because Donation names are
+        # sequential and reused across rolled-back tests, those stale PEs collide with
+        # this donation by name and corrupt donation-level aggregation totals. Clear
+        # any pre-existing PE linked to this donation name before this test creates
+        # its own known fixture payments.
+        self._clear_payment_entries_for_donation(self.test_donation.name)
 
         # Create original payment entry for refund testing
         # Submit=True so it can be counted in donation totals
@@ -96,6 +112,29 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
             "chargeback_processing": 400,  # Chargeback workflow
         }
 
+    @staticmethod
+    def _clear_payment_entries_for_donation(donation_name):
+        """Hard-delete any Payment Entry (and its GL Entries) linked to a donation.
+
+        Used to neutralise committed, submitted Payment Entries that earlier runs or
+        sibling tests left behind because their party Customer was deleted before the
+        PE could be cancelled. Operates at the row level so it works regardless of
+        docstatus or whether the party still exists.
+        """
+        names = [
+            r.name
+            for r in frappe.db.sql(
+                "SELECT name FROM `tabPayment Entry` WHERE custom_donation = %s",
+                donation_name,
+                as_dict=True,
+            )
+        ]
+        for name in names:
+            frappe.db.sql(
+                "DELETE FROM `tabGL Entry` WHERE voucher_type='Payment Entry' AND voucher_no=%s", name
+            )
+            frappe.db.sql("DELETE FROM `tabPayment Entry` WHERE name=%s", name)
+
     def test_partial_refund_workflow(self):
         """
         Test partial refund business logic with mocked Mollie API.
@@ -111,7 +150,7 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
             # Mock Mollie API call (legitimate external service mock)
             # Patch where the class is used (in refund_utility), not where it's defined
             with patch(
-                "verenigingen.utils.payment_services.refund_utility.MolliePaymentService"
+                "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
             ) as mock_mollie:
                 mock_instance = mock_mollie.return_value
                 mock_instance.create_refund.return_value = {
@@ -193,7 +232,9 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         - Available amount becomes zero after full refund
         """
         # Test full refund initiation
-        with patch("verenigingen.utils.payment_services.refund_utility.MolliePaymentService") as mock_mollie:
+        with patch(
+            "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
+        ) as mock_mollie:
             mock_instance = mock_mollie.return_value
             mock_instance.create_refund.return_value = {
                 "status": "success",
@@ -263,7 +304,7 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         with self.assertQueryCount(self.refund_performance_baselines["concurrent_refund_check"]):
             # Mock first refund attempt
             with patch(
-                "verenigingen.utils.payment_services.refund_utility.MolliePaymentService"
+                "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
             ) as mock_mollie:
                 mock_instance = mock_mollie.return_value
                 mock_instance.create_refund.return_value = {
@@ -292,7 +333,9 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         )
 
         # Attempt second refund that would exceed available amount
-        with patch("verenigingen.utils.payment_services.refund_utility.MolliePaymentService") as mock_mollie:
+        with patch(
+            "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
+        ) as mock_mollie:
             mock_instance = mock_mollie.return_value
             mock_instance.create_refund.return_value = {
                 "status": "success",
@@ -462,7 +505,9 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         - Timing constraints
         """
         # Test minimum refund amount validation
-        with patch("verenigingen.utils.payment_services.refund_utility.MolliePaymentService"):
+        with patch(
+            "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
+        ):
             result = initiate_refund(
                 payment_entry_name=self.original_payment.name,
                 amount=0.001,  # Below minimum (0.01)
@@ -475,7 +520,9 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         # Test maximum description length validation
         long_description = "x" * 300  # Exceeds maximum length
 
-        with patch("verenigingen.utils.payment_services.refund_utility.MolliePaymentService"):
+        with patch(
+            "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
+        ):
             result = initiate_refund(
                 payment_entry_name=self.original_payment.name, amount=10.0, reason=long_description
             )
@@ -484,7 +531,9 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         self.assertEqual(result["error_code"], "DESCRIPTION_TOO_LONG")
 
         # Test valid refund with Dutch compliance
-        with patch("verenigingen.utils.payment_services.refund_utility.MolliePaymentService") as mock_mollie:
+        with patch(
+            "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
+        ) as mock_mollie:
             mock_instance = mock_mollie.return_value
             mock_instance.create_refund.return_value = {
                 "status": "success",
@@ -517,7 +566,7 @@ class TestMollieRefundChargebackBusinessLogic(EnhancedTestCase):
         start_time = time.time()
         with self.assertQueryCount(self.refund_performance_baselines["refund_initiation"]):
             with patch(
-                "verenigingen.utils.payment_services.refund_utility.MolliePaymentService"
+                "verenigingen.verenigingen_payments.utils.payment_services.refund_utility.MolliePaymentService"
             ) as mock_mollie:
                 mock_instance = mock_mollie.return_value
                 mock_instance.create_refund.return_value = {
