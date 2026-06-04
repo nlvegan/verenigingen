@@ -359,3 +359,182 @@ class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
         first = doc._parser
         self.assertIs(first, doc._parser)
         self.assertIn("_parser_instance", doc.__dict__)
+
+
+# ---- End-to-end integration ------------------------------------------------
+
+import csv  # noqa: E402
+import os  # noqa: E402
+import tempfile  # noqa: E402
+
+
+_MEMBER_CSV_HEADERS = [
+    "NVV-relatienummer",
+    "Systeem ID",
+    "Voornaam",
+    "Tussenvoegsel",
+    "Volledige naam",
+    "E-mailadres",
+    "Geboortedatum",
+    "Bankrekening",
+    "Aanmaakdatum",
+    "Mobiel",
+    "Type",
+]
+
+
+def _member_csv_row(**overrides):
+    """Build one valid Procurios member CSV row.
+
+    Defaults give a fully-populated valid row; overrides override specific
+    columns. Identifier and name columns are required by the validator.
+    """
+    row = {h: "" for h in _MEMBER_CSV_HEADERS}
+    row.update(
+        {
+            "NVV-relatienummer": "MEMBER-1",
+            "Voornaam": "Jan",
+            "Volledige naam": "Jan Jansen",
+            "E-mailadres": "jan@example.test",
+            "Bankrekening": "NL91ABNA0417164300",
+            "Aanmaakdatum": "01-01-2020",
+            "Mobiel": "+31612345678",
+            "Type": "Active",
+        }
+    )
+    row.update(overrides)
+    return row
+
+
+def _create_member_csv_attachment(rows):
+    """Test fixture: write `rows` to a temp CSV and register as a Frappe File."""
+    fd, path = tempfile.mkstemp(suffix=".csv", prefix="procurios_member_")
+    os.close(fd)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=_MEMBER_CSV_HEADERS, delimiter=";")
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    with open(path, "rb") as f:
+        content = f.read()
+    file_doc = frappe.get_doc(
+        {
+            "doctype": "File",
+            "file_name": os.path.basename(path),
+            "is_private": 1,
+            "content": content,
+        }
+    )
+    file_doc.flags.ignore_permissions = True
+    file_doc.insert()
+    return file_doc.file_url
+
+
+def _create_existing_member(member_id, suffix):
+    """Test fixture: pre-create a Member that will collide with a CSV row."""
+    member = frappe.get_doc(
+        {
+            "doctype": "Member",
+            "member_id": member_id,
+            "first_name": "Existing",
+            "last_name": "Member",
+            "email": f"existing+{suffix}@example.test",
+            "status": "Active",
+        }
+    )
+    member.flags.ignore_permissions = True
+    member.flags.ignore_mandatory = True
+    member.insert()
+    return member
+
+
+def _create_procurios_csv_import_doc(file_url):
+    """Test fixture: insert a Procurios CSV Import pointing at `file_url`."""
+    doc = frappe.get_doc(
+        {
+            "doctype": "Procurios CSV Import",
+            "csv_file": file_url,
+            "csv_delimiter": "Semicolon",
+        }
+    )
+    doc.flags.ignore_permissions = True
+    doc.insert()
+    return doc
+
+
+class TestProcuriosCSVImportEndToEnd(EnhancedTestCase):
+    """Full validate → process_import_background flow run in-process.
+
+    Procurios handoff §8 test gap: 'No test that the sibling
+    member-importer's own process_import_background works end-to-end.'
+    Mirrors TestProcuriosMandateImportEndToEnd in style.
+    """
+
+    def test_end_to_end_creates_members_and_skips_duplicate(self):
+        # Use unique identifiers per test run so concurrent / re-run executions
+        # don't fight over the same member_id.
+        suffix = frappe.generate_hash(length=8)
+        existing_member_id = f"E2E-EXISTING-{suffix}"
+        new_member_id = f"E2E-NEW-{suffix}"
+        nameless_id = f"E2E-NAMELESS-{suffix}"
+
+        # Pre-create one Member that will be hit by the duplicate-row branch.
+        _create_existing_member(existing_member_id, suffix)
+
+        rows = [
+            # new valid row → CREATED
+            _member_csv_row(
+                **{
+                    "NVV-relatienummer": new_member_id,
+                    "Voornaam": "Nieuw",
+                    "Volledige naam": "Nieuw Lid",
+                    "E-mailadres": f"nieuw+{suffix}@example.test",
+                }
+            ),
+            # collides with the pre-existing member_id → SKIPPED (duplicate)
+            _member_csv_row(
+                **{
+                    "NVV-relatienummer": existing_member_id,
+                    "Voornaam": "Duplicate",
+                    "Volledige naam": "Duplicate Attempt",
+                    "E-mailadres": f"dup+{suffix}@example.test",
+                }
+            ),
+            # missing both Voornaam and a derivable last name → validator-stage error
+            _member_csv_row(
+                **{
+                    "NVV-relatienummer": nameless_id,
+                    "Voornaam": "",
+                    "Volledige naam": "",
+                    "E-mailadres": f"nameless+{suffix}@example.test",
+                }
+            ),
+        ]
+        file_url = _create_member_csv_attachment(rows)
+        doc = _create_procurios_csv_import_doc(file_url)
+        doc.submit()  # enqueues; we drive synchronously
+
+        from verenigingen.verenigingen.doctype.procurios_csv_import.procurios_csv_import import (
+            process_import_background,
+        )
+
+        process_import_background(doc.name, test_mode=False)
+
+        doc.reload()
+        self.assertEqual(doc.import_status, "Completed")
+
+        # 1 new member created, 1 duplicate skipped. The nameless row is
+        # rejected at the validator stage before reaching the processor —
+        # it doesn't get counted as "created" or as a runtime "skipped".
+        self.assertEqual(doc.members_created, 1)
+
+        # Confirm the new Member exists in the DB and has the right shape.
+        created = frappe.get_doc("Member", {"member_id": new_member_id})
+        self.assertEqual(created.first_name, "Nieuw")
+        self.assertEqual(created.last_name, "Lid")
+        self.assertEqual(created.status, "Active")
+        self.assertIsNotNone(created.procurios_id is None or created.procurios_id)
+
+        # Background-job flags are cleaned up.
+        self.assertFalse(getattr(frappe.flags, "in_background_job", False))
+        self.assertFalse(getattr(frappe.flags, "bulk_member_operations", False))
