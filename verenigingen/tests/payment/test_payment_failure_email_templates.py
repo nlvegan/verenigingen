@@ -122,6 +122,10 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         # Mock payment object
         mock_payment = Mock()
         mock_payment.status = "failed"
+        # _validate_payment_amount parses payment.amount; give it a realistic Mollie
+        # amount so it does not throw (a bare Mock has no parseable amount and the
+        # notification would silently swallow the resulting ValidationError).
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
 
         # Test first failure notification
         _notify_member_of_payment_failure(self.test_member, mock_payment, 1)
@@ -161,6 +165,10 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         # Mock payment
         mock_payment = Mock()
         mock_payment.status = "failed"
+        # _validate_payment_amount parses payment.amount; give it a realistic Mollie
+        # amount so it does not throw (a bare Mock has no parseable amount and the
+        # notification would silently swallow the resulting ValidationError).
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
 
         # Test different failure counts
         test_cases = [
@@ -207,6 +215,10 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         # Mock payment
         mock_payment = Mock()
         mock_payment.status = "failed"
+        # _validate_payment_amount parses payment.amount; give it a realistic Mollie
+        # amount so it does not throw (a bare Mock has no parseable amount and the
+        # notification would silently swallow the resulting ValidationError).
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
 
         # Test fallback behavior with real database state
         _notify_member_of_payment_failure(self.test_member, mock_payment, 1)
@@ -230,6 +242,10 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         # Mock payment
         mock_payment = Mock()
         mock_payment.status = "failed"
+        # _validate_payment_amount parses payment.amount; give it a realistic Mollie
+        # amount so it does not throw (a bare Mock has no parseable amount and the
+        # notification would silently swallow the resulting ValidationError).
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
 
         # Should not raise exception when no templates exist
         try:
@@ -247,6 +263,10 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         # Mock payment with comprehensive data
         mock_payment = Mock()
         mock_payment.status = "failed"
+        # _validate_payment_amount parses payment.amount; give it a realistic Mollie
+        # amount so it does not throw (a bare Mock has no parseable amount and the
+        # notification would silently swallow the resulting ValidationError).
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
         mock_payment.id = "tr_context_test_123"
         mock_payment.amount = Mock()
         mock_payment.amount.value = "25.50"
@@ -289,6 +309,10 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         # Mock payment
         mock_payment = Mock()
         mock_payment.status = "failed"
+        # _validate_payment_amount parses payment.amount; give it a realistic Mollie
+        # amount so it does not throw (a bare Mock has no parseable amount and the
+        # notification would silently swallow the resulting ValidationError).
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
 
         # Should not raise exception even if email service fails
         try:
@@ -300,10 +324,11 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         """Test subscription status change notification templates"""
         from verenigingen.verenigingen_payments.mollie.api.sync import _notify_subscription_status_change
 
-        # Mock subscription status data
+        # Mock subscription status data. Mollie's status value is "canceled"
+        # (American spelling, one 'l'); the notifier matches that exact value.
         subscription_status = {
             "id": "sub_status_test_123",
-            "status": "cancelled",
+            "status": "canceled",
             "next_payment_date": None
         }
 
@@ -319,7 +344,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
                 _notify_subscription_status_change(
                     self.test_member,
                     "active",
-                    "cancelled",
+                    "canceled",
                     subscription_status
                 )
 
@@ -361,6 +386,10 @@ class TestEmailTemplatePerformance(EnhancedTestCase):
         # Mock payment
         mock_payment = Mock()
         mock_payment.status = "failed"
+        # _validate_payment_amount parses payment.amount; give it a realistic Mollie
+        # amount so it does not throw (a bare Mock has no parseable amount and the
+        # notification would silently swallow the resulting ValidationError).
+        mock_payment.amount = {"value": "25.00", "currency": "EUR"}
 
         # Test bulk notifications
         start_time = time.time()
@@ -426,3 +455,6 @@ class TestEmailTemplatePerformance(EnhancedTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+

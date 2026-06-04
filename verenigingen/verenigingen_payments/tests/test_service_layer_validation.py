@@ -109,8 +109,10 @@ class TestServiceLayerValidation(unittest.TestCase):
 
     def test_sepa_utilities_iban_validation(self):
         """Test SEPA utilities IBAN validation functionality"""
-        # Test valid Dutch IBANs
-        valid_ibans = ["NL91ABNA0417164300", "NL02RABO0000123456", "NL13INGB0000000001"]
+        # Test valid Dutch IBANs (MOD-97 checksum-valid; the canonical validator
+        # rejects bad checksums, so the previous placeholder RABO/INGB numbers
+        # with arbitrary digits no longer pass).
+        valid_ibans = ["NL91ABNA0417164300", "NL44RABO0123456789", "NL69INGB0123456789"]
 
         for iban in valid_ibans:
             self.assertTrue(SEPAUtilities.validate_dutch_iban(iban))
@@ -130,10 +132,11 @@ class TestServiceLayerValidation(unittest.TestCase):
 
     def test_sepa_utilities_bic_derivation(self):
         """Test BIC derivation from Dutch IBANs"""
+        # Checksum-valid Dutch IBANs (BIC derivation only runs on valid IBANs).
         test_cases = [
             ("NL91ABNA0417164300", "ABNANL2A"),
-            ("NL20RABO0123456789", "RABONL2U"),
-            ("NL13INGB0000000001", "INGBNL2A"),
+            ("NL44RABO0123456789", "RABONL2U"),
+            ("NL69INGB0123456789", "INGBNL2A"),
         ]
 
         for iban, expected_bic in test_cases:
@@ -323,12 +326,13 @@ class TestSEPAUtilitiesStandalone(unittest.TestCase):
 
     def test_dutch_bank_bic_mapping_completeness(self):
         """Test that all major Dutch banks are supported"""
+        # MOD-97 checksum-valid IBANs (BIC derivation requires a valid IBAN).
         major_dutch_banks = [
             ("NL91ABNA0417164300", "ABNANL2A"),  # ABN AMRO
-            ("NL20RABO0123456789", "RABONL2U"),  # Rabobank
-            ("NL13INGB0000000001", "INGBNL2A"),  # ING Bank
-            ("NL59TRIO0123456789", "TRIONL2U"),  # Triodos Bank
-            ("NL06KNAB0123456789", "KNABNL2H"),  # Knab
+            ("NL44RABO0123456789", "RABONL2U"),  # Rabobank
+            ("NL69INGB0123456789", "INGBNL2A"),  # ING Bank
+            ("NL70TRIO0123456789", "TRIONL2U"),  # Triodos Bank
+            ("NL68KNAB0123456789", "KNABNL2H"),  # Knab
         ]
 
         for iban, expected_bic in major_dutch_banks:

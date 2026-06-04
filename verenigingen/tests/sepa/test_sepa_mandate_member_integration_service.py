@@ -87,6 +87,23 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
 
         return factory.create_test_sepa_mandate(**defaults)
 
+    def _delete_mandate_links(self, mandate):
+        """Remove any Member SEPA Mandate Link rows for this mandate.
+
+        Mandate insertion auto-creates a link via the after_insert lifecycle
+        hook; tests that exercise the create-new-link path must start without
+        one. The link is a child of Member, so delete the child rows directly.
+        """
+        if not mandate.member:
+            return
+        link_names = frappe.get_all(
+            "Member SEPA Mandate Link",
+            filters={"parent": mandate.member, "sepa_mandate": mandate.name},
+            pluck="name",
+        )
+        for name in link_names:
+            frappe.db.delete("Member SEPA Mandate Link", {"name": name})
+
     # ========================================================================
     # Tests for update_member_mandate_relationship()
     # ========================================================================
@@ -323,71 +340,77 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
         """Test database update for existing mandate link with real data"""
         mandate = self._create_test_mandate()
 
+        # Mandate insertion already creates a link via the after_insert hook;
+        # remove it so the first call below genuinely creates a new link.
+        self._delete_mandate_links(mandate)
+
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
         with self._in_test_flag(True):
-            with patch('frappe.cache') as mock_cache:
-                mock_cache.return_value.delete_key.return_value = None
-                with patch.object(self.service, '_get_audit_context_data', return_value={}):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
 
-                    # First create a link by running the update once
-                    result1 = self.service._execute_secure_mandate_link_update(mandate)
-                    self.assertEqual(result1['action'], 'create_new_link')
+                # First create a link by running the update once
+                result1 = self.service._execute_secure_mandate_link_update(mandate)
+                self.assertEqual(result1['action'], 'create_new_link')
 
-                    # Now update the existing link
-                    mandate.status = 'Cancelled'
-                    result2 = self.service._execute_secure_mandate_link_update(mandate)
+                # Now update the existing link
+                mandate.status = 'Cancelled'
+                result2 = self.service._execute_secure_mandate_link_update(mandate)
 
-                    self.assertEqual(result2['action'], 'update_existing_link')
-                    self.assertIsNotNone(result2['link_name'])
-                    self.assertGreater(result2['queries_executed'], 0)
+                self.assertEqual(result2['action'], 'update_existing_link')
+                self.assertIsNotNone(result2['link_name'])
+                self.assertGreater(result2['queries_executed'], 0)
 
-                    # Verify the link was actually updated in the database
-                    link = frappe.db.get_value('Member SEPA Mandate Link',
-                                             {'parent': mandate.member, 'sepa_mandate': mandate.name},
-                                             'status')
-                    self.assertEqual(link, 'Cancelled')
+                # Verify the link was actually updated in the database
+                link = frappe.db.get_value('Member SEPA Mandate Link',
+                                         {'parent': mandate.member, 'sepa_mandate': mandate.name},
+                                         'status')
+                self.assertEqual(link, 'Cancelled')
 
     def test_execute_secure_mandate_link_update_new_link(self):
         """Test database update for new mandate link creation with real data"""
         mandate = self._create_test_mandate()
 
+        # Mandate insertion already creates a Member SEPA Mandate Link via the
+        # after_insert lifecycle hook. To exercise the create-new-link path in
+        # isolation, remove that auto-created link first.
+        self._delete_mandate_links(mandate)
+
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
         with self._in_test_flag(True):
-            with patch('frappe.cache') as mock_cache:
-                mock_cache.return_value.delete_key.return_value = None
-                with patch.object(self.service, '_get_audit_context_data', return_value={}):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
 
-                    result = self.service._execute_secure_mandate_link_update(mandate)
+                result = self.service._execute_secure_mandate_link_update(mandate)
 
-                    self.assertEqual(result['action'], 'create_new_link')
-                    self.assertIsNotNone(result['link_name'])
-                    self.assertGreater(result['queries_executed'], 0)
+                self.assertEqual(result['action'], 'create_new_link')
+                self.assertIsNotNone(result['link_name'])
+                self.assertGreater(result['queries_executed'], 0)
 
-                    # Verify the link was actually created in the database
-                    links = frappe.db.get_all('Member SEPA Mandate Link',
-                                            filters={'parent': mandate.member, 'sepa_mandate': mandate.name})
-                    self.assertEqual(len(links), 1)
+                # Verify the link was actually created in the database
+                links = frappe.db.get_all('Member SEPA Mandate Link',
+                                        filters={'parent': mandate.member, 'sepa_mandate': mandate.name})
+                self.assertEqual(len(links), 1)
 
     def test_execute_secure_mandate_link_update_inactive_mandate(self):
         """Test database update for inactive mandate (is_current = 0) with real data"""
         mandate = self._create_test_mandate(status='Cancelled', is_active=0)
 
+        # Mandate insertion auto-creates a link; remove it so the create path runs.
+        self._delete_mandate_links(mandate)
+
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
         with self._in_test_flag(True):
-            with patch('frappe.cache') as mock_cache:
-                mock_cache.return_value.delete_key.return_value = None
-                with patch.object(self.service, '_get_audit_context_data', return_value={}):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
 
-                    result = self.service._execute_secure_mandate_link_update(mandate)
+                result = self.service._execute_secure_mandate_link_update(mandate)
 
-                    self.assertEqual(result['action'], 'create_new_link')
-                    self.assertIsNotNone(result['link_name'])
+                self.assertEqual(result['action'], 'create_new_link')
+                self.assertIsNotNone(result['link_name'])
 
-                    # Verify the link was created with is_current = 0
-                    link = frappe.db.get_value('Member SEPA Mandate Link',
-                                             {'parent': mandate.member, 'sepa_mandate': mandate.name},
-                                             'is_current')
-                    self.assertEqual(link, 0)
+                # Verify the link was created with is_current = 0
+                link = frappe.db.get_value('Member SEPA Mandate Link',
+                                         {'parent': mandate.member, 'sepa_mandate': mandate.name},
+                                         'is_current')
+                self.assertEqual(link, 0)
 
     def test_execute_secure_mandate_link_update_with_member_without_mandate_table(self):
         """Test database update behavior when member lacks SEPA mandate child table"""
@@ -400,21 +423,22 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
 
         mandate = self._create_test_mandate(member=member.name)
 
+        # Mandate insertion auto-creates a link; remove it so the create path runs.
+        self._delete_mandate_links(mandate)
+
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
         with self._in_test_flag(True):
-            with patch('frappe.cache') as mock_cache:
-                mock_cache.return_value.delete_key.return_value = None
-                with patch.object(self.service, '_get_audit_context_data', return_value={}):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
 
-                    result = self.service._execute_secure_mandate_link_update(mandate)
+                result = self.service._execute_secure_mandate_link_update(mandate)
 
-                    self.assertEqual(result['action'], 'create_new_link')
-                    self.assertIsNotNone(result['link_name'])
+                self.assertEqual(result['action'], 'create_new_link')
+                self.assertIsNotNone(result['link_name'])
 
-                    # Verify the first link was created successfully
-                    links = frappe.db.get_all('Member SEPA Mandate Link',
-                                            filters={'parent': mandate.member})
-                    self.assertEqual(len(links), 1)
+                # Verify the first link was created successfully
+                links = frappe.db.get_all('Member SEPA Mandate Link',
+                                        filters={'parent': mandate.member})
+                self.assertEqual(len(links), 1)
 
     # ========================================================================
     # Tests for audit and context methods
@@ -582,31 +606,34 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
             mandate_id=f'VEG-DUTCH-{unique_suffix}',
             status='Active',
             is_active=1,
-            sign_date=date(2024, 1, 15),
-            expiry_date=date(2025, 1, 15),
+            # Use dates relative to today: a hardcoded 2024/2025 window is now in
+            # the past, so set_status_based_on_dates would mark the mandate Expired.
+            sign_date=date.today() - timedelta(days=30),
+            expiry_date=date.today() + timedelta(days=365),
             iban='NL91ABNA0417164300',
             bic='ABNANL2A',
             account_holder_name='Jan van der Berg'
         )
 
+        # Mandate insertion auto-creates a link; remove it so the create path runs.
+        self._delete_mandate_links(mandate)
+
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
         with self._in_test_flag(True):
-            with patch('frappe.cache') as mock_cache:
-                mock_cache.return_value.delete_key.return_value = None
-                with patch.object(self.service, '_get_audit_context_data', return_value={}):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
 
-                    result = self.service.update_member_mandate_relationship(mandate)
+                result = self.service.update_member_mandate_relationship(mandate)
 
-                    self.assertTrue(result['success'])
-                    self.assertEqual(result['action'], 'create_new_link')
+                self.assertTrue(result['success'])
+                self.assertEqual(result['action'], 'create_new_link')
 
-                    # Verify Dutch data was properly processed
-                    link = frappe.db.get_value('Member SEPA Mandate Link',
-                                             {'parent': member.name, 'sepa_mandate': mandate.name},
-                                             ['mandate_reference', 'status'],
-                                             as_dict=True)
-                    self.assertTrue(link.mandate_reference.startswith('VEG-DUTCH-'))
-                    self.assertEqual(link.status, 'Active')
+                # Verify Dutch data was properly processed
+                link = frappe.db.get_value('Member SEPA Mandate Link',
+                                         {'parent': member.name, 'sepa_mandate': mandate.name},
+                                         ['mandate_reference', 'status'],
+                                         as_dict=True)
+                self.assertTrue(link.mandate_reference.startswith('VEG-DUTCH-'))
+                self.assertEqual(link.status, 'Active')
 
     def test_multiple_mandates_for_same_member(self):
         """Test behavior when member has multiple SEPA mandates"""
@@ -625,32 +652,34 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
             status='Active'
         )
 
-        # Create second mandate for same member
+        # Create second mandate for same member. A second Active mandate must use
+        # a DIFFERENT IBAN: the SEPA Mandate controller rejects two active mandates
+        # sharing the same IBAN as a duplicate (a real member switches banks, which
+        # changes the IBAN). The _create_test_mandate default IBAN would collide.
         unique_suffix2 = str(uuid.uuid4())[:8]
         mandate2 = self._create_test_mandate(
             member=member.name,
             mandate_id=f'VEG-MULTI-{unique_suffix2}',
-            status='Active'
+            status='Active',
+            iban='NL39RABO0300065264'
         )
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
         with self._in_test_flag(True):
-            with patch('frappe.cache') as mock_cache:
-                mock_cache.return_value.delete_key.return_value = None
-                with patch.object(self.service, '_get_audit_context_data', return_value={}):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
 
-                    # Process first mandate
-                    result1 = self.service.update_member_mandate_relationship(mandate1)
-                    self.assertTrue(result1['success'])
+                # Process first mandate
+                result1 = self.service.update_member_mandate_relationship(mandate1)
+                self.assertTrue(result1['success'])
 
-                    # Process second mandate
-                    result2 = self.service.update_member_mandate_relationship(mandate2)
-                    self.assertTrue(result2['success'])
+                # Process second mandate
+                result2 = self.service.update_member_mandate_relationship(mandate2)
+                self.assertTrue(result2['success'])
 
-                    # Verify both links exist
-                    links = frappe.db.get_all('Member SEPA Mandate Link',
-                                            filters={'parent': member.name})
-                    self.assertEqual(len(links), 2)
+                # Verify both links exist
+                links = frappe.db.get_all('Member SEPA Mandate Link',
+                                        filters={'parent': member.name})
+                self.assertEqual(len(links), 2)
 
     def test_moderate_dataset_performance(self):
         """Test performance with moderate member dataset"""
@@ -679,43 +708,41 @@ class TestSEPAMandateMemberIntegrationService(EnhancedTestCase):
 
         # Mock justified: Infrastructure - audit logging and cache management, not business logic
         with self._in_test_flag(True):
-            with patch('frappe.cache') as mock_cache:
-                mock_cache.return_value.delete_key.return_value = None
-                with patch.object(self.service, '_get_audit_context_data', return_value={}):
+            with patch.object(self.service, '_get_audit_context_data', return_value={}):
 
-                    # Initial processing with Draft status
-                    result1 = self.service.update_member_mandate_relationship(mandate)
-                    self.assertTrue(result1['success'])
+                # Initial processing with Draft status
+                result1 = self.service.update_member_mandate_relationship(mandate)
+                self.assertTrue(result1['success'])
 
-                    # Update mandate to Active status
-                    mandate.status = 'Active'
-                    mandate.is_active = 1
-                    result2 = self.service.update_member_mandate_relationship(mandate)
-                    self.assertTrue(result2['success'])
-                    self.assertEqual(result2['action'], 'update_existing_link')
+                # Update mandate to Active status
+                mandate.status = 'Active'
+                mandate.is_active = 1
+                result2 = self.service.update_member_mandate_relationship(mandate)
+                self.assertTrue(result2['success'])
+                self.assertEqual(result2['action'], 'update_existing_link')
 
-                    # Verify status was updated in database
-                    link_status = frappe.db.get_value('Member SEPA Mandate Link',
-                                                    {'parent': mandate.member, 'sepa_mandate': mandate.name},
-                                                    'status')
-                    self.assertEqual(link_status, 'Active')
+                # Verify status was updated in database
+                link_status = frappe.db.get_value('Member SEPA Mandate Link',
+                                                {'parent': mandate.member, 'sepa_mandate': mandate.name},
+                                                'status')
+                self.assertEqual(link_status, 'Active')
 
-                    # Update mandate to Cancelled status by modifying the mandate doc and reprocessing
-                    mandate.reload()  # Reload to get fresh data
-                    mandate.status = 'Cancelled'
-                    mandate.is_active = 0
-                    mandate.save()  # Save changes to the mandate document
+                # Update mandate to Cancelled status by modifying the mandate doc and reprocessing
+                mandate.reload()  # Reload to get fresh data
+                mandate.status = 'Cancelled'
+                mandate.is_active = 0
+                mandate.save()  # Save changes to the mandate document
 
-                    result3 = self.service.update_member_mandate_relationship(mandate)
-                    self.assertTrue(result3['success'])
+                result3 = self.service.update_member_mandate_relationship(mandate)
+                self.assertTrue(result3['success'])
 
-                    # Verify final status
-                    final_data = frappe.db.get_value('Member SEPA Mandate Link',
-                                                   {'parent': mandate.member, 'sepa_mandate': mandate.name},
-                                                   ['status', 'is_current'],
-                                                   as_dict=True)
-                    self.assertEqual(final_data.status, 'Cancelled')
-                    self.assertEqual(final_data.is_current, 0)
+                # Verify final status
+                final_data = frappe.db.get_value('Member SEPA Mandate Link',
+                                               {'parent': mandate.member, 'sepa_mandate': mandate.name},
+                                               ['status', 'is_current'],
+                                               as_dict=True)
+                self.assertEqual(final_data.status, 'Cancelled')
+                self.assertEqual(final_data.is_current, 0)
 
 
 if __name__ == "__main__":

@@ -36,43 +36,99 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
     def setUp(self):
         """Set up test data with real email templates"""
         super().setUp()
-        
+
+        # send_payment_reminder_email routes through EmailService, which only
+        # reaches frappe.sendmail when (a) a default outgoing account exists and
+        # (b) the relevant notification key is enabled in the configuration.
+        self._ensure_outgoing_email_account()
+        self._enable_notifications(["payment_reminder_friendly", "payment_reminder_urgent"])
+
         # Create real test member
         self.test_member = self.create_test_member(
             first_name="Template",
-            last_name="Test", 
+            last_name="Test",
             email="template.test@example.com"
         )
-        
-        # Create real payment information
+
+        # Create real payment information. generate_payment_reminder_html and the
+        # reminder flow read overdue_count/total_overdue/days_overdue/membership_type,
+        # so populate those (keeping amount/invoice_number for template tests).
         self.sample_payment_info = {
             "amount": 125.00,
+            "total_overdue": 125.00,
+            "overdue_count": 1,
+            "membership_type": "Regular",
             "due_date": add_days(today(), -30),
             "invoice_number": f"TEST-INV-{frappe.utils.random_string(6)}",
             "member_name": self.test_member.full_name,
             "days_overdue": 30
         }
-        
+
         # Create real email template for testing
         self.create_real_email_template()
+
+    def _ensure_outgoing_email_account(self):
+        """Ensure a default outgoing Email Account exists (see module-2 helper)."""
+        if frappe.db.exists("Email Account", {"enable_outgoing": 1, "default_outgoing": 1}):
+            return
+        account = frappe.get_doc(
+            {
+                "doctype": "Email Account",
+                "email_account_name": "Test Outgoing",
+                "email_id": "test-outgoing@example.com",
+                "enable_outgoing": 1,
+                "default_outgoing": 1,
+                "smtp_server": "localhost",
+                "smtp_port": 25,
+                "login_id_is_different": 0,
+            }
+        )
+        account.flags.ignore_validate = True
+        account.flags.ignore_mandatory = True
+        account.insert(ignore_permissions=True)
+
+    def _enable_notifications(self, notification_keys):
+        """Enable the given notification keys in Verenigingen Email Configuration."""
+        config = frappe.get_single("Verenigingen Email Configuration")
+        config.master_email_enabled = 1
+        existing = {nt.notification_key for nt in config.notification_types}
+        for key in notification_keys:
+            if key in existing:
+                for nt in config.notification_types:
+                    if nt.notification_key == key:
+                        nt.enabled = 1
+            else:
+                config.append(
+                    "notification_types",
+                    {"notification_key": key, "enabled": 1, "label": key,
+                     "category": "Payment", "cooldown_minutes": 0},
+                )
+        config.flags.ignore_permissions = True
+        config.save(ignore_permissions=True)
 
     def create_real_email_template(self):
         """Create real email template in database for testing"""
         template_name = "payment_reminder_friendly"
-        
-        # Check if template already exists
+
+        # A production fixture for this template may already exist (with content
+        # that does not match this test's expectations). Replace it so the test
+        # deterministically controls the template content; tearDown removes it.
         if frappe.db.exists("Email Template", template_name):
-            return frappe.get_doc("Email Template", template_name)
-        
-        # Create real email template document
+            frappe.delete_doc("Email Template", template_name, force=True)
+
+        # Create real email template document. send_payment_reminder_email renders
+        # with a context of {member (doc), payment_info, custom_message, ...}, so the
+        # template must reference member.first_name / payment_info.* (not bare
+        # member_name / amount / invoice_number, which are not in the context).
         template = frappe.new_doc("Email Template")
         template.name = template_name
-        template.subject = "Friendly Payment Reminder - {{ member_name }}"
+        template.subject = "Friendly Payment Reminder - {{ member.first_name }}"
+        template.use_html = 1
         template.response_html = """
-        <p>Dear {{ member_name }},</p>
-        <p>This is a friendly reminder that your payment of €{{ amount }} was due on {{ due_date }}.</p>
-        <p>Invoice: {{ invoice_number }}</p>
-        <p>Days overdue: {{ days_overdue }}</p>
+        <p>Dear {{ member.first_name }},</p>
+        <p>This is a friendly reminder that your payment of €{{ payment_info.total_overdue }} is overdue.</p>
+        <p>Number of overdue invoices: {{ payment_info.overdue_count }}</p>
+        <p>Days overdue: {{ payment_info.days_overdue }}</p>
         <p>Please process your payment at your earliest convenience.</p>
         <p>Best regards,<br/>The Team</p>
         """
@@ -100,29 +156,20 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
             payment_info=self.sample_payment_info,
         )
         
-        # Verify real template handling worked
-        if result:
-            # Template was found and email logic executed
-            mock_sendmail.assert_called_once()
-            
-            # Verify real template data was used
-            call_kwargs = mock_sendmail.call_args[1]
-            self.assertEqual(call_kwargs["recipients"], [self.test_member.email])
-            self.assertEqual(call_kwargs["template"], "payment_reminder_friendly")
-            
-            # Verify template context contains real data
-            context = call_kwargs.get("args", {})
-            self.assertEqual(context.get("member_name"), self.test_member.full_name)
-            self.assertEqual(context.get("amount"), 125.00)
-            self.assertEqual(context.get("days_overdue"), 30)
-            
-            print(f"✅ Real template validation successful")
-            print(f"   Template: {call_kwargs['template']}")
-            print(f"   Recipient: {call_kwargs['recipients'][0]}")
-            print(f"   Member: {context.get('member_name')}")
-        else:
-            # Real business logic may have additional validation
-            print("ℹ️  Real business logic applied additional validation")
+        # The reminder routes through EmailService, which renders the template and
+        # queues the email via frappe.sendmail(recipients, subject, message, ...)
+        # — it does NOT pass template/args to sendmail.
+        self.assertTrue(result, "Reminder should be sent for an existing template")
+        mock_sendmail.assert_called_once()
+
+        call_kwargs = mock_sendmail.call_args[1]
+        self.assertEqual(call_kwargs["recipients"], [self.test_member.email])
+        # send_payment_reminder_email passes a fixed subject_override
+        # (get_reminder_subject), so the queued subject is that, not the template's.
+        self.assertEqual(call_kwargs["subject"], "Payment Reminder - Membership Fees")
+        # The rendered template body (member.first_name substituted) is the message.
+        self.assertIn("message", call_kwargs)
+        self.assertIn(self.test_member.first_name, call_kwargs["message"])
 
     # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # KEEP: External service mock
@@ -130,42 +177,29 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         """Test fallback behavior when template is missing using REAL database"""
         
         # Create unique reminder type that won't have a template
-        nonexistent_template = "payment_reminder_nonexistent_test"
-        
-        # REAL DATABASE CHECK: Verify template doesn't exist
-        template_exists = frappe.db.exists("Email Template", nonexistent_template)
-        self.assertIsNone(template_exists, "Test template should not exist")
-        
-        # Test real fallback logic (NO MOCKS)
+        # Unknown reminder types map to the "payment_reminder_friendly" template,
+        # so to exercise the missing-template HTML fallback, remove that template
+        # first; send_payment_reminder_email then falls back to
+        # generate_payment_reminder_html via _send_email_internal.
+        if frappe.db.exists("Email Template", "payment_reminder_friendly"):
+            frappe.delete_doc("Email Template", "payment_reminder_friendly", force=True)
+
         result = send_payment_reminder_email(
             member_name=self.test_member.name,
-            reminder_type="NonExistent Test",  # Maps to nonexistent template
+            reminder_type="Friendly Reminder",
             payment_info=self.sample_payment_info,
         )
-        
-        # Verify real fallback behavior
-        if result:
-            # System should have used HTML fallback
-            mock_sendmail.assert_called_once()
-            
-            call_kwargs = mock_sendmail.call_args[1]
-            
-            # Should use HTML content instead of template
-            self.assertIn("message", call_kwargs)  # HTML message used
-            self.assertNotIn("template", call_kwargs)  # No template specified
-            
-            # Verify real member data in fallback HTML
-            html_content = call_kwargs.get("message", "")
-            self.assertIn(self.test_member.full_name, html_content)
-            self.assertIn("125.00", html_content)  # Amount
-            
-            print(f"✅ Real template fallback successful")
-            print(f"   Used HTML fallback instead of missing template")
-            print(f"   Content length: {len(html_content)} chars")
-            
-        else:
-            # Real system may reject invalid reminder types
-            print("ℹ️  Real system rejected invalid reminder type - valid behavior")
+
+        # The fallback HTML path queues via frappe.sendmail with message content.
+        self.assertTrue(result, "Reminder should still be sent via HTML fallback")
+        mock_sendmail.assert_called_once()
+
+        call_kwargs = mock_sendmail.call_args[1]
+        self.assertIn("message", call_kwargs)  # HTML message used
+        # Fallback HTML is generated from the member doc (first_name) + payment_info.
+        html_content = call_kwargs.get("message", "")
+        self.assertIn(self.test_member.first_name, html_content)
+        self.assertIn("30", html_content)  # days overdue
 
     def test_real_template_document_retrieval(self):
         """Test real template document retrieval and processing"""
@@ -177,45 +211,44 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         self.assertIsNotNone(template_doc.subject, "Real template should have subject")
         self.assertIsNotNone(template_doc.response_html, "Real template should have HTML content")
         
-        # Verify template contains expected placeholders
-        self.assertIn("{{ member_name }}", template_doc.subject)
-        self.assertIn("{{ amount }}", template_doc.response_html)
-        self.assertIn("{{ due_date }}", template_doc.response_html)
-        self.assertIn("{{ invoice_number }}", template_doc.response_html)
-        
+        # Verify template contains expected placeholders (real context variables).
+        self.assertIn("{{ member.first_name }}", template_doc.subject)
+        self.assertIn("{{ payment_info.total_overdue }}", template_doc.response_html)
+        self.assertIn("{{ payment_info.overdue_count }}", template_doc.response_html)
+        self.assertIn("{{ payment_info.days_overdue }}", template_doc.response_html)
+
         print(f"✅ Real template document validation successful")
         print(f"   Subject: {template_doc.subject}")
         print(f"   HTML length: {len(template_doc.response_html)} chars")
-        print(f"   Placeholders found: member_name, amount, due_date, invoice_number")
 
     def test_real_html_generation_fallback(self):
         """Test real HTML generation when no template exists"""
         
-        # Test HTML fallback generation with real member data
+        # generate_payment_reminder_html(member_doc, payment_info, reminder_type,
+        # custom_message) renders member.first_name and payment_info.* (overdue_count,
+        # total_overdue, days_overdue, membership_type).
         html_content = generate_payment_reminder_html(
-            member_name=self.test_member.full_name,
-            payment_info=self.sample_payment_info,
-            reminder_type="Urgent Notice"
+            self.test_member,
+            self.sample_payment_info,
+            "Urgent Notice",
+            "Please pay promptly",
         )
-        
+
         # Verify real HTML generation
         self.assertIsInstance(html_content, str)
         self.assertGreater(len(html_content), 100, "Generated HTML should be substantial")
-        
+
         # Verify real member data incorporated
-        self.assertIn(self.test_member.full_name, html_content)
-        self.assertIn("125.00", html_content)  # Amount
+        self.assertIn(self.test_member.first_name, html_content)
         self.assertIn("30", html_content)  # Days overdue
-        self.assertIn(self.sample_payment_info["invoice_number"], html_content)
-        
+        self.assertIn("urgent notice", html_content.lower())  # reminder type
+        self.assertIn("Please pay promptly", html_content)  # custom message
+
         # Verify HTML structure
         self.assertIn("<p>", html_content, "Should contain paragraph tags")
-        self.assertIn("€", html_content, "Should contain currency symbol")
-        
+
         print(f"✅ Real HTML generation successful")
-        print(f"   Content length: {len(html_content)} chars") 
-        print(f"   Contains member name: {self.test_member.full_name in html_content}")
-        print(f"   Contains amount: {'125.00' in html_content}")
+        print(f"   Content length: {len(html_content)} chars")
 
     # Mock justified: External Service - SMTP delivery, not business logic
     @patch("frappe.sendmail")  # KEEP: External service mock
@@ -278,35 +311,31 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         
         # Get real template
         template_doc = frappe.get_doc("Email Template", "payment_reminder_friendly")
-        
-        # Create context with real member data  
+
+        # Context mirrors the real reminder context: a member doc + payment_info.
         context = {
-            "member_name": self.test_member.full_name,
-            "amount": self.sample_payment_info["amount"],
-            "due_date": self.sample_payment_info["due_date"],
-            "invoice_number": self.sample_payment_info["invoice_number"],
-            "days_overdue": self.sample_payment_info["days_overdue"]
+            "member": self.test_member,
+            "payment_info": self.sample_payment_info,
         }
-        
+
         # Test real template rendering (Frappe's template engine)
         from frappe.utils.jinja import render_template
-        
+
         rendered_subject = render_template(template_doc.subject, context)
         rendered_html = render_template(template_doc.response_html, context)
-        
+
         # Verify real template variable substitution
         self.assertNotIn("{{", rendered_subject, "All variables should be substituted in subject")
         self.assertNotIn("{{", rendered_html, "All variables should be substituted in HTML")
-        
-        # Verify actual member data appears
-        self.assertIn(self.test_member.full_name, rendered_subject)
-        self.assertIn(self.test_member.full_name, rendered_html)
-        self.assertIn("125.00", rendered_html)  # Amount
-        self.assertIn(self.sample_payment_info["invoice_number"], rendered_html)
-        
+
+        # Verify actual member/payment data appears
+        self.assertIn(self.test_member.first_name, rendered_subject)
+        self.assertIn(self.test_member.first_name, rendered_html)
+        self.assertIn("125.0", rendered_html)  # total_overdue
+        self.assertIn("30", rendered_html)  # days_overdue
+
         print(f"✅ Real template variable substitution successful")
         print(f"   Subject: {rendered_subject}")
-        print(f"   Variables substituted: member_name, amount, due_date, invoice_number")
 
     def test_real_error_handling_invalid_member(self):
         """Test error handling with invalid member using real validation"""
@@ -318,25 +347,16 @@ class TestPaymentProcessingRealTemplateHandling(EnhancedTestCase):
         member_exists = frappe.db.exists("Member", nonexistent_member)
         self.assertIsNone(member_exists, "Test member should not exist")
         
-        # Test real error handling
+        # send_payment_reminder_email loads the member via frappe.get_doc, so a
+        # nonexistent member raises a real DoesNotExistError (real DB validation).
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch("frappe.sendmail"):  # Mock only email service
-            result = send_payment_reminder_email(
-                member_name=nonexistent_member,
-                reminder_type="Friendly Reminder", 
-                payment_info=self.sample_payment_info,
-            )
-        
-        # Real validation should handle invalid member appropriately
-        if result is False:
-            print("✅ Real validation correctly rejected invalid member")
-        elif result is None:
-            print("✅ Real validation returned None for invalid member")  
-        else:
-            # Some business logic might handle differently
-            print(f"ℹ️  Real validation handled invalid member: {result}")
-            
-        # The key is that REAL database validation was used, not mocked
+            with self.assertRaises(frappe.DoesNotExistError):
+                send_payment_reminder_email(
+                    member_name=nonexistent_member,
+                    reminder_type="Friendly Reminder",
+                    payment_info=self.sample_payment_info,
+                )
 
     def tearDown(self):
         """Clean up test email templates"""

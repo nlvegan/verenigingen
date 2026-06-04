@@ -131,11 +131,13 @@ class TestInvoicesClient(FrappeTestCase):
         past_due_date = (datetime.now() - timedelta(days=10)).isoformat()
         future_due_date = (datetime.now() + timedelta(days=10)).isoformat()
         
+        # Invoice.is_overdue() keys off the Mollie status field ("overdue"), not a
+        # date comparison, so the overdue invoice must carry status "overdue".
         mock_response = [
             {
                 "resource": "invoice",
                 "id": "inv_overdue",
-                "status": "open",
+                "status": "overdue",
                 "dueAt": past_due_date,
                 "grossAmount": {"value": "100.00", "currency": "EUR"}
             },
@@ -162,10 +164,11 @@ class TestInvoicesClient(FrappeTestCase):
             self.assertEqual(len(overdue), 1)
             self.assertEqual(overdue[0].id, "inv_overdue")
             
-            # Verify warning logged for overdue invoices
+            # Verify warning logged for overdue invoices (AuditSeverity.WARNING.value
+            # is the lowercase string "warning").
             audit_calls = self.mock_audit_trail.log_event.call_args_list
             warning_logged = any(
-                call[0][1].value == "WARNING" 
+                call[0][1].value == "warning"
                 for call in audit_calls
             )
             self.assertTrue(warning_logged)
@@ -185,7 +188,8 @@ class TestInvoicesClient(FrappeTestCase):
             }),
             Invoice({
                 "resource": "invoice",
-                "status": "open",
+                # is_overdue() keys off the status field, so use "overdue" here.
+                "status": "overdue",
                 "dueAt": (datetime.now() - timedelta(days=5)).isoformat(),
                 "netAmount": {"value": "200.00", "currency": "EUR"},
                 "vatAmount": {"value": "18.00", "currency": "EUR"},
@@ -243,7 +247,9 @@ class TestInvoicesClient(FrappeTestCase):
             "resource": "invoice",
             "id": invoice_id,
             "reference": "2024-001",
-            "status": "open",
+            # is_overdue()/days_overdue are driven by the "overdue" status, not a
+            # date comparison, so model an overdue invoice with that status.
+            "status": "overdue",
             "issuedAt": "2024-01-01T10:00:00Z",
             "dueAt": due_date,
             "netAmount": {"value": "100.00", "currency": "EUR"},
@@ -258,7 +264,7 @@ class TestInvoicesClient(FrappeTestCase):
                 
                 # Verify status tracking
                 self.assertEqual(status["invoice_id"], invoice_id)
-                self.assertEqual(status["status"], "open")
+                self.assertEqual(status["status"], "overdue")
                 self.assertFalse(status["is_paid"])
                 self.assertTrue(status["is_overdue"])
                 self.assertEqual(status["days_overdue"], 5)

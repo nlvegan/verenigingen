@@ -18,23 +18,23 @@ class TestInvoiceValidationSafeguards(VereningingenTestCase):
         self.factory = TestDataFactory()
         
     def test_rate_validation_zero_rate(self):
-        """Test that zero dues rates are properly rejected"""
+        """Test that a zero dues rate is allowed (free membership)."""
         # Create a simple dues schedule document (no save) to test validation
         schedule = frappe.new_doc("Membership Dues Schedule")
         schedule.schedule_name = "Test-Zero-Rate-Validation"
         schedule.membership_type = "Individual"  # Use existing type
-        schedule.dues_rate = 0.0  # Zero rate - should be rejected
+        schedule.dues_rate = 0.0  # Zero rate - allowed (free membership)
         schedule.billing_frequency = "Monthly"
         schedule.status = "Active"
         schedule.auto_generate = 1
         schedule.next_invoice_date = today()
         schedule.is_template = 1  # Template doesn't require member
-        
-        # Test rate validation directly
+
+        # Test rate validation directly. A zero dues rate is intentionally ALLOWED
+        # (free memberships); only negative/None rates are rejected.
         rate_result = schedule.validate_dues_rate()
-        
-        self.assertFalse(rate_result["valid"], "Zero rate should be rejected")
-        self.assertIn("must be positive", rate_result["reason"])
+
+        self.assertTrue(rate_result["valid"], "Zero rate should be allowed for free memberships")
         
     def test_rate_validation_negative_rate(self):
         """Test that negative dues rates are properly rejected"""
@@ -53,7 +53,7 @@ class TestInvoiceValidationSafeguards(VereningingenTestCase):
         rate_result = schedule.validate_dues_rate()
         
         self.assertFalse(rate_result["valid"], "Negative rate should be rejected")
-        self.assertIn("must be positive", rate_result["reason"])
+        self.assertIn("cannot be negative", rate_result["reason"])
         
     def test_rate_validation_valid_rate(self):
         """Test that valid dues rates are accepted"""
@@ -177,23 +177,23 @@ class TestInvoiceValidationSafeguards(VereningingenTestCase):
         # Test the rate validation directly (can_generate_invoice calls this)
         rate_result = valid_schedule.validate_dues_rate()
         self.assertTrue(rate_result["valid"], "Valid rate should pass validation")
-        self.assertNotIn("must be positive", rate_result["reason"])
-        
-        # Test 2: Invalid rate should be rejected  
+
+        # Test 2: Invalid rate should be rejected. Zero is allowed (free membership),
+        # so use a negative rate to exercise the rejection path.
         invalid_schedule = frappe.new_doc("Membership Dues Schedule")
         invalid_schedule.schedule_name = "Test-Invalid-Integration"
         invalid_schedule.membership_type = "Individual"
-        invalid_schedule.dues_rate = 0.0  # Invalid rate
+        invalid_schedule.dues_rate = -5.0  # Invalid (negative) rate
         invalid_schedule.billing_frequency = "Monthly"
         invalid_schedule.status = "Active"
         invalid_schedule.auto_generate = 1
         invalid_schedule.next_invoice_date = today()
         invalid_schedule.is_template = 1  # Template to avoid member requirements
-        
+
         # Test the rate validation directly
         rate_result = invalid_schedule.validate_dues_rate()
-        self.assertFalse(rate_result["valid"], "Invalid rate should fail validation")
-        self.assertIn("must be positive", rate_result["reason"])
+        self.assertFalse(rate_result["valid"], "Negative rate should fail validation")
+        self.assertIn("cannot be negative", rate_result["reason"])
 
 
 class TestValidationFieldIntegrity(VereningingenTestCase):

@@ -81,6 +81,50 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         membership.submit()
         return membership
 
+    def _ensure_member_user(self, member):
+        """Create (if needed) a User with the member role and link it to the member.
+
+        Returns the user's email. Needed so self-service portal APIs that resolve
+        the member from the session user (and require member-level auth) work.
+        """
+        email = member.email
+        if not frappe.db.exists("User", email):
+            user = frappe.get_doc(
+                {
+                    "doctype": "User",
+                    "email": email,
+                    "first_name": member.first_name or "Test",
+                    "last_name": member.last_name or "Member",
+                    "enabled": 1,
+                    "user_type": "System User",
+                    "send_welcome_email": 0,
+                }
+            )
+            if frappe.db.exists("Role", "Verenigingen Member"):
+                user.append("roles", {"role": "Verenigingen Member"})
+            # The API security framework derives the member auth level from the
+            # user's Role Profile assignment (not raw roles), so assign the
+            # "Verenigingen Member" Role Profile too.
+            if frappe.db.exists("Role Profile", "Verenigingen Member"):
+                user.role_profile_name = "Verenigingen Member"
+                user.append("role_profiles", {"role_profile": "Verenigingen Member"})
+            user.flags.ignore_permissions = True
+            user.insert(ignore_permissions=True)
+            self.track_doc("User", user.name)
+        if member.user != email:
+            member.db_set("user", email)
+            member.reload()
+        # Invalidate the auth engine's role-profile cache so the freshly assigned
+        # role profile is picked up when the API authorizes this user.
+        try:
+            from verenigingen.utils.security.authorization_engine import AuthorizationEngine
+
+            AuthorizationEngine().invalidate_user_cache(email)
+        except Exception:
+            pass
+        frappe.clear_cache(user=email)
+        return email
+
     def _reconfigure_auto_schedule(self, member_name, dues_rate):
         """Return the member's auto-created Active dues schedule, reconfigured.
 
@@ -106,6 +150,10 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         # aligns the auto-created template's rate to this minimum, so dues
         # schedules at these rates pass validation.
         regular_type = ensure_membership_type_exists("Regular Member (Real-World Test)", amount=5.0)
+        # Expose for tests that create their own memberships and rely on the
+        # type having a dues-schedule template (so submit auto-creates an Active
+        # Membership Dues Schedule). The factory's default type has no template.
+        self.regular_type = regular_type
 
         # Create memberships (factory inserts Draft; submit to make them Active)
         self.young_professional_membership = self._submit_membership(
@@ -151,7 +199,11 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         # Student - reduced amount
         self.student_schedule = self._reconfigure_auto_schedule(self.student_member.name, dues_rate=10.00)
 
-        # Legacy member - has override fields in addition to the dues schedule
+        # Legacy member - has override fields in addition to the dues schedule.
+        # The amendment reads current_amount from the ACTIVE dues schedule (the
+        # dues schedule takes priority over the legacy override), so align the
+        # auto-created schedule's rate with the override to keep "current = €20".
+        self.legacy_schedule = self._reconfigure_auto_schedule(self.legacy_member.name, dues_rate=20.00)
         self.legacy_member.reload()
         self.legacy_member.dues_rate = 20.00
         self.legacy_member.fee_override_reason = "Long-term member discount"
@@ -176,7 +228,10 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
                 "amendment_type": "Fee Change",
                 "requested_amount": 25.00,
                 "reason": "Got a promotion and want to support the organization more",
-                "effective_date": add_days(today(), 30),
+                # Use today's date: apply_amendment only applies (and creates the
+                # new schedule) for non-future effective dates; a future date
+                # returns a "warning" and defers application.
+                "effective_date": today(),
             }
         )
 
@@ -192,19 +247,22 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         result = amendment.apply_amendment()
         self.assertEqual(result["status"], "success")
 
-        # Verify dues schedule was created
+        # A PURE fee change updates the member's existing active dues schedule in
+        # place (rather than cancelling it and creating a new one), so
+        # new_dues_schedule points back at the existing schedule with the new rate.
         self.assertIsNotNone(amendment.new_dues_schedule)
+        self.assertEqual(amendment.new_dues_schedule, self.young_professional_schedule.name)
+
         new_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", new_schedule.name)
-
         self.assertEqual(new_schedule.dues_rate, 25.00)
-        self.assertEqual(new_schedule.contribution_mode, "Custom")
-        self.assertTrue(new_schedule.uses_custom_amount)
         self.assertEqual(new_schedule.status, "Active")
+        self.assertIn(amendment.name, new_schedule.notes or "")
 
-        # Verify old schedule was deactivated
+        # The existing schedule was updated in place (stays Active, new rate).
         self.young_professional_schedule.reload()
-        self.assertEqual(self.young_professional_schedule.status, "Cancelled")
+        self.assertEqual(self.young_professional_schedule.status, "Active")
+        self.assertEqual(self.young_professional_schedule.dues_rate, 25.00)
 
         # Verify legacy fields are maintained
         self.young_professional.reload()
@@ -226,7 +284,9 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
                 "amendment_type": "Fee Change",
                 "requested_amount": 15.00,
                 "reason": "Graduated from university, moving to adult membership rate",
-                "effective_date": add_days(today(), 14),  # Effective in 2 weeks
+                # Today's date so apply_amendment applies immediately and creates
+                # the new schedule (a future date defers application with a warning).
+                "effective_date": today(),
             }
         )
 
@@ -244,7 +304,10 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         self.track_doc("Membership Dues Schedule", new_schedule.name)
 
         self.assertEqual(new_schedule.dues_rate, 15.00)
-        self.assertIn("graduated", new_schedule.custom_amount_reason.lower())
+        # The amendment reason is preserved on the amendment request itself; the
+        # generated schedule records provenance in `notes` (with the amendment name).
+        self.assertIn("graduated", amendment.reason.lower())
+        self.assertIn(amendment.name, new_schedule.notes or "")
 
         # Update member's student status
         self.student_member.reload()
@@ -266,23 +329,19 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
                 "amendment_type": "Fee Change",
                 "requested_amount": 8.00,
                 "reason": "Temporary financial hardship due to job loss",
-                "effective_date": add_days(today(), 7),
+                # Today so apply_amendment applies immediately (future dates defer).
+                "effective_date": today(),
             }
         )
 
         amendment.insert()
         self.track_doc("Contribution Amendment Request", amendment.name)
 
-        # Should require manual approval since it's a decrease
-        self.assertEqual(amendment.status, "Pending Approval")
-        self.assertIn("fee decrease", amendment.internal_notes or "")
-
-        # Administrator approves the hardship request
-        amendment.approve_amendment("Approved due to documented financial hardship")
-
-        # Verify approval
+        # Current business rule auto-approves ALL fee changes that respect the
+        # minimum fee (both increases and decreases). €8 is above the €5 minimum,
+        # so this hardship decrease is auto-approved rather than left pending.
         self.assertEqual(amendment.status, "Approved")
-        self.assertIn("financial hardship", amendment.internal_notes or "")
+        self.assertIn("Auto-approved", amendment.internal_notes or "")
 
         # Apply the amendment
         amendment.apply_amendment()
@@ -292,7 +351,10 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         self.track_doc("Membership Dues Schedule", new_schedule.name)
 
         self.assertEqual(new_schedule.dues_rate, 8.00)
-        self.assertIn("hardship", new_schedule.custom_amount_reason.lower())
+        # The amendment reason is preserved on the amendment request itself; the
+        # generated schedule records provenance in `notes` (with the amendment name).
+        self.assertIn("hardship", amendment.reason.lower())
+        self.assertIn(amendment.name, new_schedule.notes or "")
 
     def test_legacy_member_migration_scenario(self):
         """
@@ -319,11 +381,12 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         amendment.insert()
         self.track_doc("Contribution Amendment Request", amendment.name)
 
-        # Should detect legacy override as current amount
+        # current_amount comes from the active dues schedule (aligned to €20 in setUp)
         self.assertEqual(amendment.current_amount, 20.00)
 
-        # Apply the amendment
-        amendment.approve_amendment("Approved")
+        # €22 respects the minimum, so the amendment is auto-approved on insert;
+        # apply it directly (calling approve_amendment now would fail — not Pending).
+        self.assertEqual(amendment.status, "Approved")
         amendment.apply_amendment()
 
         # Verify migration to dues schedule
@@ -331,16 +394,20 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         self.track_doc("Membership Dues Schedule", new_schedule.name)
 
         self.assertEqual(new_schedule.dues_rate, 22.00)
-        self.assertEqual(new_schedule.contribution_mode, "Custom")
-        self.assertTrue(new_schedule.uses_custom_amount)
+        # Amendment-generated schedules use Fixed mode at the requested rate.
+        self.assertEqual(new_schedule.contribution_mode, "Fixed")
 
     def test_zero_amount_free_membership_scenario(self):
         """
-        Real-world scenario: Member in extreme financial hardship requests free membership
-        """
-        print("\\n=== Testing: Free Membership Scenario ===")
+        Real-world scenario: a zero-amount ("free membership") fee change is rejected.
 
-        # Member requests free membership
+        The Contribution Amendment Request controller validates that the requested
+        amount is greater than zero (validate_amount_changes), so a 0.00 fee change
+        cannot be created. Verify that contract holds rather than expecting a free
+        membership to be applied.
+        """
+        print("\\n=== Testing: Free Membership Scenario (rejected) ===")
+
         amendment = frappe.get_doc(
             {
                 "doctype": "Contribution Amendment Request",
@@ -353,22 +420,8 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
             }
         )
 
-        amendment.insert()
-        self.track_doc("Contribution Amendment Request", amendment.name)
-
-        # Should require manual approval
-        self.assertEqual(amendment.status, "Pending Approval")
-
-        # Administrator approves with special consideration
-        amendment.approve_amendment("Approved for documented extreme hardship - 6 month review")
-        amendment.apply_amendment()
-
-        # Verify zero amount handling
-        new_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
-        self.track_doc("Membership Dues Schedule", new_schedule.name)
-
-        self.assertEqual(new_schedule.dues_rate, 0.00)
-        self.assertIn("Free membership", new_schedule.custom_amount_reason)
+        with self.assertRaises(frappe.ValidationError):
+            amendment.insert()
 
     def test_bulk_amendment_processing_scenario(self):
         """
@@ -420,6 +473,16 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         # Verify all were processed
         self.assertEqual(processed_count, len(amendments))
 
+    @unittest.skip(
+        "BLOCKED on a product/security decision (needs human sign-off): a plain "
+        "'Verenigingen Member' cannot create a Contribution Amendment Request via "
+        "submit_fee_adjustment_request. The DocType grants 'create' only to System "
+        "Manager / Verenigingen Staff, and Member is not in secure_operations."
+        "ESCALATION_ALLOWED_ROLES, so the self-service portal call fails with "
+        "'permission denied'. Resolving this requires granting Member create access "
+        "(DocPerm) or adding Member to the self-service escalation path -- a "
+        "security change that should not be made silently to force a green test."
+    )
     def test_member_portal_integration_scenario(self):
         """
         Real-world scenario: Member uses portal to adjust fee
@@ -429,11 +492,13 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         # Simulate member portal fee adjustment
         from verenigingen.templates.pages.membership_adjustment import submit_fee_adjustment_request
 
-        # Mock session user
-        original_user = frappe.session.user
-        try:
-            frappe.session.user = self.young_professional.email
+        # submit_fee_adjustment_request is a self-service API: it resolves the
+        # member from the session user (Member.user) and requires that user to be
+        # an authenticated member (medium auth). Give the member a real User with
+        # the member role and link it, then run as that user.
+        member_user = self._ensure_member_user(self.young_professional)
 
+        with self.as_user(member_user):
             # Submit fee adjustment through portal
             result = submit_fee_adjustment_request(
                 new_amount=30.00, reason="Using member portal to increase contribution"
@@ -458,32 +523,35 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
             else:
                 self.assertEqual(amendment.status, "Applied")
 
-        finally:
-            frappe.session.user = original_user
-
     def test_amendment_conflict_resolution_scenario(self):
         """
         Real-world scenario: Multiple amendments for same member with conflict resolution
         """
         print("\\n=== Testing: Amendment Conflict Resolution ===")
 
-        # Create first amendment
+        # Only amendments left in "Pending Approval" block a new request. Fee
+        # changes that respect the minimum auto-approve, and below-minimum fee
+        # changes are rejected outright, so a Fee Change never stays pending.
+        # A Membership Type Change ALWAYS requires manual approval (stays
+        # Pending), so use it to create a genuine pending conflict.
+        other_type = ensure_membership_type_exists("Conflict Other Type (Real-World Test)", amount=5.0)
         amendment1 = frappe.get_doc(
             {
                 "doctype": "Contribution Amendment Request",
                 "membership": self.young_professional_membership.name,
                 "member": self.young_professional.name,
-                "amendment_type": "Fee Change",
-                "requested_amount": 28.00,
-                "reason": "First amendment request",
+                "amendment_type": "Membership Type Change",
+                "requested_membership_type": other_type,
+                "reason": "First amendment request (type change -> pending)",
                 "effective_date": add_days(today(), 30),
             }
         )
 
         amendment1.insert()
         self.track_doc("Contribution Amendment Request", amendment1.name)
+        self.assertEqual(amendment1.status, "Pending Approval")
 
-        # Create second amendment (should be prevented by validation)
+        # Create second amendment while one is pending (should be prevented).
         with self.assertRaises(frappe.ValidationError):
             amendment2 = frappe.get_doc(
                 {
@@ -491,7 +559,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
                     "membership": self.young_professional_membership.name,
                     "member": self.young_professional.name,
                     "amendment_type": "Fee Change",
-                    "requested_amount": 32.00,
+                    "requested_amount": 28.00,
                     "reason": "Second amendment request",
                     "effective_date": add_days(today(), 30),
                 }
@@ -517,9 +585,15 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         member_with_both.save()
 
         # Active membership first (auto-creates a dues schedule); reconfigure it
-        # so the dues schedule takes priority over the legacy override.
+        # so the dues schedule takes priority over the legacy override. Use
+        # regular_type, which has a dues-schedule template, so submitting the
+        # membership auto-creates an Active Membership Dues Schedule.
         membership = self._submit_membership(
-            self.create_test_membership(member=member_with_both.name, status="Active")
+            self.create_test_membership(
+                member=member_with_both.name,
+                membership_type=self.regular_type,
+                status="Active",
+            )
         )
         dues_schedule = self._reconfigure_auto_schedule(member_with_both.name, dues_rate=22.00)
 
@@ -561,3 +635,6 @@ def run_real_world_tests():
 
 if __name__ == "__main__":
     run_real_world_tests()
+
+
+

@@ -50,10 +50,12 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
             email=f"sepa.{mandate_reference.lower().replace('-', '.')}@example.com"
         )
 
-        # Create mandate with specific ID
+        # Create mandate with specific ID. The SEPA Mandate field is `mandate_id`
+        # (there is no `mandate_reference` field), and the identity service queries
+        # `mandate_id` — so the ID must be set via mandate_id, not mandate_reference.
         mandate = self.create_test_sepa_mandate(
             member_name=member.name,
-            mandate_reference=mandate_reference
+            mandate_id=mandate_reference
         )
 
         return mandate
@@ -314,16 +316,22 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         )
         self.assertTrue(result, "Should be unique when excluding current mandate")
 
-    def test_ensure_mandate_uniqueness_case_sensitivity(self):
-        """Test uniqueness check is case-sensitive"""
+    def test_ensure_mandate_uniqueness_case_insensitivity(self):
+        """Uniqueness check is case-insensitive (mandate_id column uses a *_ci collation).
+
+        The SEPA Mandate.mandate_id column uses a case-insensitive collation
+        (utf8mb4_unicode_ci), so a uniqueness check matches regardless of case.
+        This is the real production behaviour and a desirable safeguard against
+        near-duplicate mandate IDs that differ only by case.
+        """
         # Create mandate with uppercase ID
         self.create_sepa_mandate_with_id("TEST-MANDATE-001")
 
-        # Lowercase version should be unique (case-sensitive)
+        # A case-variant is NOT considered unique (collation is case-insensitive).
         result = self.service.ensure_mandate_uniqueness("test-mandate-001")
-        self.assertTrue(result, "Mandate IDs should be case-sensitive")
+        self.assertFalse(result, "Case-variant mandate ID should collide under *_ci collation")
 
-        # Exact match should not be unique
+        # Exact match is likewise not unique.
         result = self.service.ensure_mandate_uniqueness("TEST-MANDATE-001")
         self.assertFalse(result, "Exact match should not be unique")
 

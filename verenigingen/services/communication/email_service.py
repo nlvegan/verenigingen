@@ -130,9 +130,6 @@ class EmailService(StatelessService):
             # This prevents template-not-found errors when email is disabled
             config_service = self._get_config_service()
             is_enabled = config_service.is_email_enabled() if config_service else True
-            print(
-                f"\nDEBUG send_templated_email: template={template_name!r}, config_service={config_service!r}, is_enabled={is_enabled}"
-            )
             if config_service and not is_enabled:
                 self.logger.info(
                     "Email sending disabled via Verenigingen Email Configuration - skipping templated email"
@@ -145,7 +142,6 @@ class EmailService(StatelessService):
 
             # Load and validate template
             template = self._get_template(template_name)
-            print(f"DEBUG send_templated_email: template found={template is not None}")
             if not template:
                 return OperationResult.fail(f"Email template '{template_name}' not found")
 
@@ -537,9 +533,6 @@ class EmailService(StatelessService):
 
             # Check if email account is configured
             has_account = self._has_active_email_account()
-            print(
-                f"\nDEBUG email_service._send_email_internal: recipients={recipients}, subject={subject[:50]!r}, has_account={has_account}"
-            )
             if not has_account:
                 self.logger.warning(
                     f"No active email account configured. Email not queued.\n"

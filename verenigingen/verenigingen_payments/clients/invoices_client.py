@@ -83,6 +83,11 @@ class InvoicesClient(MollieBaseClient):
         )
 
         response = self.get("/invoices", params=params, paginated=True)
+        # An empty invoice collection is a valid result (paginated GET returns an
+        # empty list); _parse_response treats an empty response as an error, so
+        # short-circuit to an empty list here.
+        if not response:
+            return []
         return self._parse_response(response, Invoice)
 
     def get_overdue_invoices(self) -> List[Invoice]:

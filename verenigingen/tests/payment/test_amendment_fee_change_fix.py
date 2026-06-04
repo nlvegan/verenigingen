@@ -47,12 +47,12 @@ class TestAmendmentFeeChangeFix(FrappeTestCase):
             # Get the call arguments
             call_args, call_kwargs = mock_manager.add_or_update_entry.call_args
 
-            # Verify entry_id uses amendment name for idempotency
+            # FeeChangeRecordingService generates a timestamp-based entry_id and
+            # deduplicates on the change_date field (the old amendment_<name> /
+            # date_action entry_id scheme is gone).
             entry_id = call_kwargs.get("entry_id")
-            self.assertEqual(entry_id, "amendment_AMEND-2023-00001")
-
-            # Verify id_field_name is set to amendment_request for proper lookup
-            self.assertEqual(call_kwargs["id_field_name"], "amendment_request")
+            self.assertTrue(entry_id.startswith("fee_change_"))
+            self.assertEqual(call_kwargs["id_field_name"], "change_date")
 
             # Test the entry builder function
             entry_builder = call_kwargs["entry_builder"]
@@ -93,12 +93,11 @@ class TestAmendmentFeeChangeFix(FrappeTestCase):
 
             call_args, call_kwargs = mock_manager.add_or_update_entry.call_args
 
-            # Verify entry_id uses date-based format for non-amendment changes
+            # Non-amendment changes use the same timestamp entry_id + change_date
+            # dedup contract as amendment changes.
             entry_id = call_kwargs.get("entry_id")
-            self.assertEqual(entry_id, "2023-02-01_Manual update")
-
-            # Verify id_field_name uses dues_schedule for non-amendment lookups
-            self.assertEqual(call_kwargs["id_field_name"], "dues_schedule")
+            self.assertTrue(entry_id.startswith("fee_change_"))
+            self.assertEqual(call_kwargs["id_field_name"], "change_date")
 
             # Test entry data
             entry_data = call_kwargs["entry_builder"]()
@@ -150,13 +149,17 @@ class TestAmendmentFeeChangeFix(FrappeTestCase):
             self.assertTrue(result2)
             self.assertTrue(result3)
 
-            # Manager should be called with same entry_id each time
+            # Manager is invoked once per call; idempotency/dedup is delegated to
+            # the history manager via the change_date id_field_name (the service no
+            # longer reuses a fixed amendment-based entry_id).
             self.assertEqual(mock_manager.add_or_update_entry.call_count, 3)
 
-            # All calls should use the same amendment-based entry_id
             for call in mock_manager.add_or_update_entry.call_args_list:
                 call_args, call_kwargs = call
-                self.assertEqual(call_kwargs.get("entry_id"), "amendment_AMEND-2023-00005")
+                self.assertTrue(call_kwargs.get("entry_id").startswith("fee_change_"))
+                self.assertEqual(call_kwargs["id_field_name"], "change_date")
+                # The amendment reference is carried in the entry data for dedup/audit.
+                self.assertEqual(call_kwargs["entry_builder"]()["amendment_request"], "AMEND-2023-00005")
 
 
 if __name__ == '__main__':

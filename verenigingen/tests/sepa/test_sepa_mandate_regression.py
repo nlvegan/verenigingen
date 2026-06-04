@@ -36,6 +36,38 @@ class TestSEPAMandateRegression(VereningingenTestCase):
 
         super().tearDownClass()
 
+    def _create_mandate_autogen_id(self, member_name, iban=None):
+        """Create a SEPA Mandate letting the controller auto-generate the mandate_id.
+
+        The base factory (create_test_sepa_mandate) always assigns its own
+        "<SCENARIO>-<hash>" mandate_id, which bypasses the controller's
+        configurable-pattern auto-generation. To test the configured naming
+        pattern/counter, create the mandate directly without a mandate_id so
+        SEPAMandate.auto_generate_mandate_id() applies the pattern. The identity
+        service caches settings, so clear that cache after the test changed them.
+        """
+        from verenigingen.verenigingen_payments.services.sepa_mandate_identity_service import (
+            sepa_mandate_identity_service,
+        )
+
+        sepa_mandate_identity_service.clear_settings_cache()
+        mandate = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "member": member_name,
+                "iban": iban or self._get_test_iban(),
+                "account_holder_name": "Auto Gen Holder",
+                "sign_date": today(),
+                "status": "Active",
+                "is_active": 1,
+                "scheme": "SEPA",
+                "mandate_type": "RCUR",
+            }
+        )
+        mandate.save()
+        self.track_doc("SEPA Mandate", mandate.name)
+        return mandate
+
     def test_backward_compatibility_with_existing_mandates(self):
         """Test that new naming doesn't break existing mandates"""
         
@@ -63,9 +95,10 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         self.assertEqual(existing_mandate.mandate_id, "EXISTING-MANDATE-001",
                         "Existing mandate_id should be preserved")
         
-        # Create new mandate with auto-generation
-        new_mandate = self.create_test_sepa_mandate(member=member.name)
-        
+        # Create new mandate with auto-generation. Use a DIFFERENT IBAN than the
+        # existing active mandate (one active mandate per IBAN per member).
+        new_mandate = self.create_test_sepa_mandate(member=member.name, iban=self._get_test_iban("RABO"))
+
         # Should get auto-generated ID
         self.assertTrue(new_mandate.mandate_id, "New mandate should get auto-generated ID")
         self.assertNotEqual(new_mandate.mandate_id, "EXISTING-MANDATE-001",
@@ -124,7 +157,7 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                 email="high@example.com"
             )
 
-            mandate = self.create_test_sepa_mandate(member=member.name)
+            mandate = self._create_mandate_autogen_id(member.name)
 
             # Should handle high counter value
             self.assertTrue(mandate.mandate_id, "Should generate mandate_id with high counter")
@@ -171,9 +204,9 @@ class TestSEPAMandateRegression(VereningingenTestCase):
             ]
 
             for i, member in enumerate(members):
-                mandate = self.create_test_sepa_mandate(
-                    member=member.name,
-                    iban=test_ibans[i]  # Use valid test IBANs
+                mandate = self._create_mandate_autogen_id(
+                    member.name,
+                    iban=test_ibans[i],  # Use valid test IBANs
                 )
                 mandates.append(mandate)
 
@@ -263,8 +296,10 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         payments_settings.sepa_mandate_starting_counter = 1000
         payments_settings.save()
         
-        # 3. New system mandate
-        new_mandate = self.create_test_sepa_mandate(member=member.name)
+        # 3. New system mandate. Use the controller-autogen helper so the new
+        # naming pattern is applied, and a DIFFERENT IBAN so it does not collide
+        # with the legacy mandate's active IBAN (one active mandate per IBAN).
+        new_mandate = self._create_mandate_autogen_id(member.name, iban=self._get_test_iban("RABO"))
         mixed_mandates.append(new_mandate)
         
         # 4. Verify coexistence
@@ -305,7 +340,7 @@ class TestSEPAMandateRegression(VereningingenTestCase):
             import time
             start_time = time.time()
 
-            mandate = self.create_test_sepa_mandate(member=member.name)
+            mandate = self._create_mandate_autogen_id(member.name)
 
             creation_time = time.time() - start_time
 

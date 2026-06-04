@@ -416,28 +416,27 @@ class TestAPIEndpoints(EnhancedTestCase):
     def test_validate_iban_api(self):
         """Test IBAN validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_iban_api
-        from verenigingen.utils.operation_result import OperationResult
 
+        # @public_api serializes the OperationResult via to_dict() for HTTP
         result = validate_iban_api(iban="NL91ABNA0417164300")
 
-        self.assertIsInstance(result, OperationResult)
-        self.assertTrue(result.success)
-        self.assertIn("formatted_iban", result.data)
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["success"])
+        self.assertIn("formatted_iban", result["data"])
 
     def test_validate_bank_details_api(self):
         """Test bank details validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_bank_details_api
-        from verenigingen.utils.operation_result import OperationResult
 
+        # @public_api serializes the OperationResult via to_dict() for HTTP
         result = validate_bank_details_api(iban="NL91ABNA0417164300")
 
-        self.assertIsInstance(result, OperationResult)
-        self.assertTrue(result.success)
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["success"])
 
     def test_validate_payment_method_api(self):
         """Test payment method validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_payment_method_api
-        from verenigingen.utils.operation_result import OperationResult
 
         # Create test payment method first
         if not frappe.db.exists("Mode of Payment", "API Test"):
@@ -446,22 +445,23 @@ class TestAPIEndpoints(EnhancedTestCase):
             mode.enabled = 1
             mode.insert()
 
+        # @public_api serializes the OperationResult via to_dict() for HTTP
         result = validate_payment_method_api(method="API Test")
 
-        self.assertIsInstance(result, OperationResult)
-        self.assertTrue(result.success)
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["success"])
 
     def test_validate_payment_amount_api(self):
         """Test payment amount validation API endpoint"""
         from verenigingen.services.payment.validation_service import validate_payment_amount_api
-        from verenigingen.utils.operation_result import OperationResult
 
+        # @public_api serializes the OperationResult via to_dict() for HTTP
         result = validate_payment_amount_api(amount=25.50)
 
-        self.assertIsInstance(result, OperationResult)
-        self.assertTrue(result.success)
+        self.assertIsInstance(result, dict)
+        self.assertTrue(result["success"])
         # Amount should be converted to float for JSON serialization
-        self.assertIsInstance(result.data["amount"], float)
+        self.assertIsInstance(result["data"]["amount"], float)
 
 
 def run_tests():
