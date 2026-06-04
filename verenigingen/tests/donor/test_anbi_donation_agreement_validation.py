@@ -21,10 +21,8 @@ Design Philosophy:
 """
 
 import frappe
-from frappe.utils import today, add_years, flt
-from datetime import datetime, timedelta
+from frappe.utils import today, add_years
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -668,10 +666,19 @@ class TestANBIDonationAgreementValidation(VereningingenTestCase):
         with self.assertRaises(frappe.ValidationError) as cm:
             agreement.insert()
         
-        # Check for donor not found error message (may include donor name)
+        # Check for donor not found error message (may include donor name).
+        # Frappe's link validation (_validate_links) runs before the controller's
+        # validate(), so on insert the framework raises "Could not find Donor: <name>"
+        # (a LinkValidationError) before the ANBIValidationService's
+        # "Donor record '<name>' not found" message is reached. Both messages
+        # confirm the nonexistent-donor rejection, so accept either.
         error_message = str(cm.exception)
+        donor_not_found = (
+            ("Donor record" in error_message and "not found" in error_message)
+            or ("Could not find Donor" in error_message)
+        )
         self.assertTrue(
-            "Donor record" in error_message and "not found" in error_message,
+            donor_not_found,
             f"Expected donor not found error but got: {error_message}"
         )
     
@@ -753,7 +760,13 @@ class TestANBIDonationAgreementValidation(VereningingenTestCase):
         self.assertFalse(status["valid"])
         self.assertIn("validation errors found", status["message"])
         self.assertGreater(len(status["errors"]), 0)
-        self.assertIn("Donor has not provided ANBI consent", status["errors"])
+        # The ANBIValidationService blocks ANBI-eligible agreements when the donor
+        # has not given consent; match the consent error by substring rather than
+        # the exact phrasing.
+        self.assertTrue(
+            any("consent" in err.lower() for err in status["errors"]),
+            f"Expected a consent error in {status['errors']}",
+        )
     
     def test_get_anbi_validation_status_non_anbi_agreement(self):
         """Test get_anbi_validation_status for non-ANBI agreement"""

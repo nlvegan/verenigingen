@@ -432,8 +432,14 @@ class Donor(Document):
                 customer_doc.customer_name = self.donor_name
                 changes_made = True
 
-            # Handle contact info via Contact record (Customer email/mobile are read-only)
-            contact_updated = self.sync_donor_to_customer_contact(customer_name)
+            # Handle contact info via Contact record (Customer email/mobile are read-only).
+            # Pass the in-memory customer_doc (which may already hold a pending
+            # customer_name/customer_type change) so the Contact-triggered Customer
+            # save persists those pending changes too. Otherwise the contact sync
+            # re-fetches a fresh Customer, saves it without the pending name change,
+            # then sets _contact_triggered_customer_save which suppresses the real
+            # save below — silently dropping the customer_name update.
+            contact_updated = self.sync_donor_to_customer_contact(customer_name, customer_doc=customer_doc)
             if frappe.flags.get("in_test"):
                 print(f"📞 Contact sync returned: contact_updated={contact_updated}")
 
@@ -536,10 +542,17 @@ class Donor(Document):
                 "Donor-Customer Data Sync Error",
             )
 
-    def sync_donor_to_customer_contact(self, customer_name):
+    def sync_donor_to_customer_contact(self, customer_name, customer_doc=None):
         """
         Create or update Contact record for Customer with donor contact info.
         Returns True if contact was updated, False otherwise.
+
+        Args:
+            customer_name: Customer name
+            customer_doc: Optional in-memory Customer document with pending changes
+                (e.g. an updated customer_name) so the Contact-triggered Customer
+                save persists those changes instead of overwriting them from a
+                fresh DB copy.
         """
         try:
             # Find existing primary contact for this customer
@@ -612,9 +625,10 @@ class Donor(Document):
                     print(f"📋 Contact {contact.name} after save: {saved_contact_data}")
 
                 # Trigger Customer field refresh from Contact
-                # This saves the Customer, so mark it to prevent double-save later
-                # Refresh customer contact reference (no pending changes in this context)
-                self.refresh_customer_from_contact(customer_name, contact.name)
+                # This saves the Customer, so mark it to prevent double-save later.
+                # Pass the in-memory customer_doc so any pending changes on it
+                # (e.g. customer_name) are persisted by this single save.
+                self.refresh_customer_from_contact(customer_name, contact.name, customer_doc=customer_doc)
 
                 # Set flag to prevent double Customer save in main sync logic
                 if hasattr(frappe.local, "_contact_triggered_customer_save"):
@@ -769,9 +783,18 @@ class Donor(Document):
             # Use provided customer_doc if available, otherwise fetch fresh
             customer = customer_doc if customer_doc else frappe.get_doc("Customer", customer_name)
 
-            # Set the primary contact reference - ERPNext will handle fetch_from automatically
-            if customer.customer_primary_contact != contact_name:
+            # Set the primary contact reference - ERPNext will handle fetch_from automatically.
+            primary_contact_changed = customer.customer_primary_contact != contact_name
+            if primary_contact_changed:
                 customer.customer_primary_contact = contact_name
+
+            # Save when the primary contact changed OR an in-memory customer_doc was
+            # passed in. When customer_doc is provided, the caller hands us the
+            # authoritative document (which may carry pending changes such as an
+            # updated customer_name) AND sets _contact_triggered_customer_save to
+            # suppress its own later save — so we MUST persist it here, or those
+            # pending changes are silently dropped.
+            if primary_contact_changed or customer_doc is not None:
                 customer.flags.from_donor_sync = True
                 customer.save()
 

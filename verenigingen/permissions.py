@@ -62,7 +62,6 @@ import frappe
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
-    get_current_user_member_name,
     get_member_name_for_user,
     get_volunteer_for_member,
 )
@@ -593,6 +592,17 @@ def has_donor_permission(doc, user=None, permission_type=None):
     """
     if not user:
         user = frappe.session.user
+
+    # Defense-in-depth: never grant donor access to a disabled user account.
+    # Frappe normally blocks disabled users at login, but a disabled user that
+    # still holds roles would otherwise pass the role/ownership checks below.
+    # Administrator is always treated as enabled. Single query: get_value returns
+    # None for a non-existent user (service accounts etc.), which is NOT == 0, so
+    # only an explicitly-disabled real User is denied here.
+    if user not in ("Administrator", "Guest"):
+        if frappe.db.get_value("User", user, "enabled") == 0:
+            frappe.logger().debug(f"User {user} is disabled; denying donor access")
+            return False
 
     user_roles = frappe.get_roles(user)
 

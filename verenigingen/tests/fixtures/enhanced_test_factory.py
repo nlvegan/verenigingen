@@ -184,15 +184,15 @@ import itertools
 import json
 import random
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from datetime import datetime
+from typing import Dict, Any
 from faker import Faker
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import now_datetime, add_days, add_months, getdate
+from frappe.utils import getdate
 
-from .field_validator import FieldValidationError, FieldValidator, validate_field
+from .field_validator import FieldValidationError, FieldValidator
 
 # erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
 # Groups, Chart of Accounts, Fiscal Year, price lists, ...) via a module-level
@@ -2873,7 +2873,6 @@ class EnhancedTestCase(FrappeTestCase):
         - Roles and permissions
         """
         import os
-        import json
         
         # Define essential fixtures in loading order (dependencies first)
         essential_fixtures = [
@@ -4010,7 +4009,19 @@ class EnhancedTestCase(FrappeTestCase):
         # Add ANBI consent if specified
         if "anbi_consent" in kwargs:
             donor_data["anbi_consent"] = kwargs["anbi_consent"]
-            
+
+        # Pass through any remaining caller-supplied Donor fields (e.g. member,
+        # phone, contact_person, customer). Previously these were silently dropped
+        # because donor_data was built from a fixed whitelist, so callers passing
+        # member=... ended up with an unlinked donor.
+        _handled = {
+            "doctype", "donor_name", "donor_type", "donor_email", "currency",
+            "bsn_citizen_service_number", "rsin_organization_tax_number", "anbi_consent",
+        }
+        for key, value in kwargs.items():
+            if key not in _handled:
+                donor_data[key] = value
+
         donor = frappe.get_doc(donor_data)
         donor.insert()
         self.factory.track_document("Donor", donor.name, priority=4)
@@ -4684,7 +4695,6 @@ class EnhancedTestCase(FrappeTestCase):
         
         # Apply same validations as regular create_test_member
         if 'birth_date' in kwargs:
-            from frappe.utils import get_datetime
             if kwargs.get('create_volunteer', False):
                 # Use AgeValidator for consistent business rule enforcement 
                 from verenigingen.utils.validation_utilities import AgeValidator

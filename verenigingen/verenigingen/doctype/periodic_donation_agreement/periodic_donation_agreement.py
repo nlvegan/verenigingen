@@ -6,7 +6,7 @@ from datetime import datetime
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_months, add_years, date_diff, flt, get_datetime, getdate
+from frappe.utils import add_months, add_years, date_diff, flt, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -534,7 +534,10 @@ class PeriodicDonationAgreement(Document):
         agreement_type = getattr(self, "agreement_type", None)
 
         return validator.get_validation_status_dict(
-            donor_name=self.donor, duration_years=duration, agreement_type=agreement_type
+            donor_name=self.donor,
+            duration_years=duration,
+            agreement_type=agreement_type,
+            current_agreement_name=self.name if not self.is_new() else None,
         )
 
     def update_anbi_eligibility(self):

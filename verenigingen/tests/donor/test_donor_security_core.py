@@ -122,9 +122,12 @@ class TestDonorSecurityCore(VereningingenTestCase):
     def test_admin_access_validation(self):
         """Test admin role access validation"""
         
-        # Test with Administrator (system built-in admin)
+        # Test with Administrator (system built-in admin).
+        # get_donor_permission_query returns "" for admins ("No filter needed");
+        # in Frappe an empty-string permission query and None BOTH mean
+        # "no restriction / unrestricted", so accept either.
         admin_query = get_donor_permission_query("Administrator")
-        self.assertIsNone(admin_query, "Administrator should get unrestricted access")
+        self.assertIn(admin_query, (None, ""), "Administrator should get unrestricted access")
         
         admin_permission = has_donor_permission(self.linked_donor.name, "Administrator")
         self.assertTrue(admin_permission, "Administrator should have donor access")
@@ -265,11 +268,26 @@ class TestDonorSecurityCore(VereningingenTestCase):
             # Should handle malicious input safely
             self.assertIsNotNone(query)
             
-            # If not restrictive "1=0", should be properly escaped
+            # If not restrictive "1=0", should be properly escaped.
+            # The payload's own text ("DROP TABLE ...") legitimately appears inside
+            # an escaped SQL string literal — that is harmless. The security
+            # property is that the injection cannot BREAK OUT of that literal, i.e.
+            # the payload's leading single quote is escaped (as \' or '') by
+            # frappe.db.escape and never appears as a bare, unescaped quote that
+            # would terminate the literal early. Assert the escaped form is present.
             if query != "1=0":
                 self.assertIn("'", query, "Should contain escaped quotes")
-                self.assertNotIn("DROP TABLE", query.replace("'", ""), 
-                               "Should not contain unescaped dangerous SQL")
+                # The injection payload begins with a single quote intended to
+                # terminate the SQL string literal early. frappe.db.escape neutralises
+                # it by emitting the payload wrapped in quotes with the internal quote
+                # escaped as \' (MariaDB driver) or doubled as ''. Assert that the
+                # payload's quote appears only in escaped form — i.e. the escaped
+                # token is present in the query.
+                self.assertTrue(
+                    "\\'; DROP TABLE tabAddress; --" in query
+                    or "''; DROP TABLE tabAddress; --" in query,
+                    f"Injection payload's quote must be escaped (got {query!r})",
+                )
                 
         finally:
             frappe.db.get_value = original_get_value
@@ -295,10 +313,16 @@ class TestDonorSecurityCore(VereningingenTestCase):
         dangerous_input = "'; DROP TABLE tabDonor; --"
         escaped = frappe.db.escape(dangerous_input)
         
-        # Should wrap in quotes and escape dangerous content
+        # Should wrap in quotes and escape dangerous content.
         self.assertTrue(escaped.startswith("'") and escaped.endswith("'"),
                        "Should wrap escaped content in quotes")
-        self.assertIn("''", escaped, "Should escape internal quotes")
+        # The MariaDB driver used by Frappe v16 escapes an internal single quote
+        # with a backslash ("\\'") rather than by doubling it ("''"). Both are
+        # injection-safe; assert the internal quote is escaped by either style.
+        self.assertTrue(
+            "''" in escaped or "\\'" in escaped,
+            f"Internal quote should be escaped (got {escaped!r})",
+        )
         
         # Test the escape is actually used in permission query
         original_get_value = frappe.db.get_value

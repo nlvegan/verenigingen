@@ -36,7 +36,10 @@ class TestDonorCustomerSyncUtils(VereningingenTestCase):
         
         # Modify donor to create sync scenario
         fresh_donor.customer_sync_status = "Pending"
-        
+        # reload_doc_with_retries returns a fresh frappe.get_doc with no flags, so
+        # re-enable the test-mode sync opt-in or the hook short-circuits in tests.
+        fresh_donor.flags.enable_customer_sync_in_test = True
+
         # Call hook function directly
         sync_donor_to_customer(fresh_donor)
         
@@ -165,7 +168,6 @@ class TestDonorCustomerSyncUtils(VereningingenTestCase):
         customer = frappe.get_doc("Customer", self.test_donor.customer)
         
         # Use patch context manager for cleaner error simulation
-        from unittest.mock import patch
         
         # Mock justified: External Service - Testing error handling without database corruption
         # Use real database operations with proper error simulation
@@ -196,41 +198,47 @@ class TestDonorCustomerSyncUtils(VereningingenTestCase):
         fresh_donor = self.reload_doc_with_retries(self.test_donor)
         self.assertIsNotNone(fresh_donor, "Could not reload test donor")
         
-        # Update donor
+        # Update donor.
+        # NOTE: Frappe v16 validates Phone-type fields with the phonenumbers
+        # library, so the test numbers must be genuinely valid Dutch mobiles
+        # (e.g. +31611223344). The previous +316 00.. values are not valid
+        # ranges and failed validation.
         fresh_donor.donor_name = "Bidirectional Test"
         fresh_donor.donor_email = "bidirectional@example.com"
-        fresh_donor.phone = "+31600111222"
-        
+        fresh_donor.phone = "+31611223344"
+        # reload_doc_with_retries drops flags; re-enable the test-mode sync opt-in.
+        fresh_donor.flags.enable_customer_sync_in_test = True
+
         # Save with retry logic
         success = self.save_doc_with_retry(fresh_donor)
         self.assertTrue(success, "Failed to save donor updates")
-        
+
         # Trigger donor-to-customer sync
         sync_donor_to_customer(fresh_donor)
-        
+
         # Wait for sync completion
         sync_completed = self.wait_for_sync_completion(fresh_donor)
         self.assertTrue(sync_completed, "Bidirectional sync did not complete")
-        
+
         # Verify customer was updated
         customer = frappe.get_doc("Customer", fresh_donor.customer)
         self.assertEqual(customer.customer_name, "Bidirectional Test")
         self.assertEqual(customer.email_id, "bidirectional@example.com")
-        self.assertEqual(customer.mobile_no, "+31600111222")
-        
+        self.assertEqual(customer.mobile_no, "+31611223344")
+
         # Update customer
         customer.customer_name = "Bidirectional Customer Update"
         customer.email_id = "bidir_customer@example.com"
-        customer.mobile_no = "+31600333444"
-        
+        customer.mobile_no = "+31623456789"
+
         # Trigger customer-to-donor sync
         sync_customer_to_donor(customer)
-        
+
         # Verify donor was updated
         self.test_donor.reload()
         self.assertEqual(self.test_donor.donor_name, "Bidirectional Customer Update")
         self.assertEqual(self.test_donor.donor_email, "bidir_customer@example.com")
-        self.assertEqual(self.test_donor.phone, "+31600333444")
+        self.assertEqual(self.test_donor.phone, "+31623456789")
 
     def test_sync_only_when_changes_detected(self):
         """Test that sync only occurs when actual changes are detected"""
@@ -283,7 +291,9 @@ class TestDonorCustomerSyncUtils(VereningingenTestCase):
         
         fresh_donor.customer_sync_status = "Pending"
         fresh_donor.last_customer_sync = None
-        
+        # reload_doc_with_retries drops flags; re-enable the test-mode sync opt-in.
+        fresh_donor.flags.enable_customer_sync_in_test = True
+
         # Trigger sync
         sync_donor_to_customer(fresh_donor)
         

@@ -356,14 +356,24 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
         with self.assertRaises(frappe.ValidationError):
             donor2.save()
         
-        # Test missing required field (donor_email)
+        # donor_email is NOT marked reqd=1 in donor.json (the controller only
+        # validates its *format* when present), so a Donor without an email is a
+        # valid record. Assert that the optional email field does not block save,
+        # and that a malformed email IS rejected by the controller's
+        # validate_email_address call.
         donor3 = frappe.new_doc("Donor")
         donor3.donor_name = "Validation Test 3"
         donor3.donor_type = "Individual"
-        # Missing donor_email (required field)
-        
+        # No donor_email — should save without raising
+        donor3.save()
+        self.track_doc("Donor", donor3.name)
+
+        donor4 = frappe.new_doc("Donor")
+        donor4.donor_name = "Validation Test 4"
+        donor4.donor_type = "Individual"
+        donor4.donor_email = "not-a-valid-email"
         with self.assertRaises(frappe.ValidationError):
-            donor3.save()
+            donor4.save()
 
     def test_sync_status_tracking(self):
         """Test that sync status is properly tracked throughout lifecycle"""

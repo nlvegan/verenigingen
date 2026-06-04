@@ -63,6 +63,14 @@ class TestDonorSecurityWorking(EnhancedTestCase):
             donor_email='orphaned@example.com'
             # No member field set - None by default
         )
+
+        # A genuinely unprivileged user for "should be denied" assertions.
+        # NOTE: the historic literal 'test@example.com' is an ERPNext test-fixture
+        # user that has the System Manager role on v16 test sites, so it would be
+        # granted admin access by has_donor_permission and never get denied. Use a
+        # dedicated user that has no admin/board/member role instead.
+        self.regular_user_email = f"donor_regular_{frappe.generate_hash(length=6)}@example.com"
+        self.create_test_user(self.regular_user_email, roles=["Verenigingen Member"])
         
     def test_sql_injection_prevention_basic(self):
         """
@@ -139,10 +147,10 @@ class TestDonorSecurityWorking(EnhancedTestCase):
         for fake_name in fake_donor_names:
             with self.subTest(fake_donor_name=fake_name):
                 # Should handle gracefully without exceptions
-                result = has_donor_permission(fake_name, 'test@example.com')
-                
+                result = has_donor_permission(fake_name, self.regular_user_email)
+
                 # Should return False for non-existent donors
-                self.assertFalse(result, 
+                self.assertFalse(result,
                     f"Non-existent donor '{fake_name}' should return False")
                 
     def test_enhanced_error_handling_invalid_member_links(self):
@@ -164,8 +172,8 @@ class TestDonorSecurityWorking(EnhancedTestCase):
         
         try:
             # Should handle gracefully
-            result = has_donor_permission(invalid_donor.name, 'test@example.com')
-            
+            result = has_donor_permission(invalid_donor.name, self.regular_user_email)
+
             # Should return False due to invalid member link
             self.assertFalse(result, "Donor with invalid member link should return False")
             
@@ -211,9 +219,11 @@ class TestDonorSecurityWorking(EnhancedTestCase):
         result = has_donor_permission(self.orphaned_donor.name, 'Administrator')
         self.assertTrue(result, "Administrator should have access to orphaned donors")
         
-        # Test permission query for admin
+        # Test permission query for admin. get_donor_permission_query returns ""
+        # for admins ("No filter needed"); in Frappe an empty-string permission
+        # query and None both mean "unrestricted", so accept either.
         query = get_donor_permission_query('Administrator')
-        self.assertIsNone(query, "Administrator should get unrestricted query (None)")
+        self.assertIn(query, (None, ""), "Administrator should get unrestricted query")
         
     def test_permission_enforcement_unauthorized_users(self):
         """
@@ -240,7 +250,7 @@ class TestDonorSecurityWorking(EnhancedTestCase):
         This tests the logic that handles donors without member links.
         """
         # Regular users should not have access to orphaned donors
-        result = has_donor_permission(self.orphaned_donor.name, 'test@example.com')
+        result = has_donor_permission(self.orphaned_donor.name, self.regular_user_email)
         self.assertFalse(result, "Regular user should not access orphaned donors")
         
         # Admin should still have access
@@ -266,7 +276,8 @@ class TestDonorSecurityWorking(EnhancedTestCase):
                 query = get_donor_permission_query(user)
                 
                 if expected_type is None:
-                    self.assertIsNone(query, f"User '{user}' should get None query")
+                    # "" and None both mean unrestricted in Frappe permission queries.
+                    self.assertIn(query, (None, ""), f"User '{user}' should get an unrestricted query")
                 elif expected_type == '1=0':
                     self.assertEqual(query, '1=0', f"User '{user}' should get restrictive query")
                 else:

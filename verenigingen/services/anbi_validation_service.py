@@ -74,7 +74,6 @@ See Also
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
-from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 
@@ -157,13 +156,22 @@ class ANBIValidationService(StatelessService):
 
         return (True, None)
 
-    def validate_donor_consent(self, donor_doc: Any, strict: bool = False) -> Tuple[bool, Optional[str]]:
+    def validate_donor_consent(self, donor_doc: Any, strict: bool = True) -> Tuple[bool, Optional[str]]:
         """
         Validate that donor has provided ANBI consent.
 
+        ANBI consent is a hard requirement for any agreement that claims ANBI
+        benefits: without it the donation cannot be reported to the
+        Belastingdienst, so a missing consent must block the agreement. This
+        method is only reached when ``anbi_eligible`` is set (see
+        ``validate_full_anbi_eligibility`` / the PDA controller), so blocking
+        by default is the correct, fail-closed behaviour.
+
         Args:
             donor_doc: Donor document to validate
-            strict: If False (default), returns warning instead of error
+            strict: If True (default), a missing consent is a blocking error.
+                If False, a missing consent is treated as a non-blocking
+                informational case (consent can be obtained later).
 
         Returns:
             (is_valid, error_message) tuple
@@ -174,11 +182,8 @@ class ANBIValidationService(StatelessService):
                     False,
                     "Donor must provide ANBI consent before creating ANBI-eligible agreement. Please update donor record first.",
                 )
-            # Return True but with informational message
-            return (
-                True,
-                None,  # Don't block - consent can be obtained later
-            )
+            # Non-strict: don't block, consent can be obtained later
+            return (True, None)
 
         return (True, None)
 
@@ -369,7 +374,11 @@ class ANBIValidationService(StatelessService):
         return amount >= min_amount
 
     def get_validation_status_dict(
-        self, donor_name: str, duration_years: float, agreement_type: Optional[str] = None
+        self,
+        donor_name: str,
+        duration_years: float,
+        agreement_type: Optional[str] = None,
+        current_agreement_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get comprehensive validation status as dictionary (for UI/diagnostics).
@@ -378,11 +387,16 @@ class ANBIValidationService(StatelessService):
             donor_name: Donor to validate
             duration_years: Agreement duration
             agreement_type: Type of agreement
+            current_agreement_name: Name of the agreement being validated, so the
+                duplicate-agreement check excludes the agreement from itself when
+                this is run for an already-saved agreement.
 
         Returns:
             Dictionary with validation status and detailed errors/warnings
         """
-        is_valid, errors = self.validate_full_anbi_eligibility(donor_name, duration_years, agreement_type)
+        is_valid, errors = self.validate_full_anbi_eligibility(
+            donor_name, duration_years, agreement_type, current_agreement_name
+        )
 
         return {
             "valid": is_valid,

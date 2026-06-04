@@ -15,9 +15,6 @@ without relying on mocks or bypassing validation.
 
 import frappe
 from frappe.utils import getdate, add_days
-import re
-import logging
-from typing import Dict, List, Any
 
 from verenigingen.permissions import (
     has_donor_permission, 
@@ -205,14 +202,16 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
                     
                     # Create a test query using the escaped value (this is what the security fix does)
                     test_query = f"`tabDonor`.member = {escaped_value}"
-                    
-                    # Verify the query doesn't contain the raw injection vector
-                    self.assertNotIn("DROP TABLE", test_query.upper())
-                    self.assertNotIn("DELETE FROM", test_query.upper()) 
-                    self.assertNotIn("INSERT INTO", test_query.upper())
-                    self.assertNotIn("UPDATE", test_query.upper())
-                    self.assertNotIn("UNION SELECT", test_query.upper())
-                    self.assertNotIn("EXEC", test_query.upper())
+
+                    # The payload text (DROP TABLE etc.) legitimately appears inside
+                    # the escaped string literal — that is harmless. The security
+                    # property is that the payload's own quote is escaped (as \' on
+                    # the MariaDB driver, or '' by doubling) so it cannot break out of
+                    # the literal. Assert the escaped quote is present.
+                    self.assertTrue(
+                        "\\'" in escaped_value or "''" in escaped_value,
+                        f"Injection payload's quote must be escaped: {escaped_value!r}",
+                    )
                     
                     # The query should be executable without SQL injection
                     try:
@@ -242,14 +241,15 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         This specifically tests the frappe.db.escape() call that was added
         to prevent SQL injection when member names contain special characters.
         """
-        # Test with realistic but potentially problematic member names
+        # Test with realistic but potentially problematic member names.
+        # NOTE: the Member controller restricts last_name to letters, spaces,
+        # hyphens, apostrophes and periods, so names with ampersands, parentheses
+        # or digits cannot be created — they are excluded here. The apostrophe case
+        # ("O'Connor-Smith") is the SQL-injection-relevant one and is allowed.
         problematic_names = [
             "O'Connor-Smith",  # Apostrophe
             "van der Berg",    # Spaces
             "José María",      # Accented characters
-            "Member & Co",     # Ampersand
-            "Test-123",        # Hyphen and numbers
-            "Member (Special)", # Parentheses
         ]
         
         for name_variant in problematic_names:
@@ -355,13 +355,18 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
             ('', ''),                                # Both empty
         ]
         
-        for donor_doc, user in test_cases:
-            with self.subTest(donor=donor_doc, user=user):
-                # Should handle gracefully without exceptions
-                result = has_donor_permission(donor_doc, user)
-                
-                # Should return False for all invalid combinations
-                self.assertFalse(result)
+        # Run as Guest so that None/empty user values fall back to a session user
+        # with NO admin/member roles. Otherwise the EnhancedTestCase default session
+        # is Administrator, and has_donor_permission(..., None) resolves to the admin
+        # session and returns True — masking the real "deny on invalid input" behavior.
+        with self.as_user('Guest'):
+            for donor_doc, user in test_cases:
+                with self.subTest(donor=donor_doc, user=user):
+                    # Should handle gracefully without exceptions
+                    result = has_donor_permission(donor_doc, user)
+
+                    # Should return False for all invalid combinations
+                    self.assertFalse(result)
                 
     def test_permission_enforcement_member_access_own_donor(self):
         """
@@ -369,7 +374,7 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         
         This validates the core permission logic works correctly.
         """
-        with frappe.set_user('test_member_user@example.com'):
+        with self.as_user('test_member_user@example.com'):
             # Member should have access to their linked donor
             result = has_donor_permission(
                 self.linked_donor.name,
@@ -388,7 +393,7 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         
         This validates permission boundaries are enforced.
         """
-        with frappe.set_user('test_member_user@example.com'):
+        with self.as_user('test_member_user@example.com'):
             # Member should NOT have access to other member's donor
             result = has_donor_permission(
                 self.other_linked_donor.name,
@@ -474,9 +479,9 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         """
         # Test with admin user
         query = get_donor_permission_query('Administrator')
-        
-        # Should return None (no restrictions) for admin
-        self.assertIsNone(query)
+
+        # Should be unrestricted for admin ("" and None both mean no restriction)
+        self.assertIn(query, (None, ""))
         
     def test_permission_query_unauthorized_user_restriction(self):
         """
@@ -508,10 +513,12 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         self.assertIn(self.linked_donor.name, admin_donor_names)
         self.assertIn(self.orphaned_donor.name, admin_donor_names)
             
-        # Test as regular user - should see limited donors
-        with frappe.set_user('test_member_user@example.com'):
+        # Test as regular user - should see limited donors.
+        # Use frappe.get_list (NOT get_all): get_all bypasses the user permission
+        # query, so it would return every donor and never exercise the filter.
+        with self.as_user('test_member_user@example.com'):
             try:
-                user_donors = frappe.get_all(
+                user_donors = frappe.get_list(
                     'Donor',
                     fields=['name', 'donor_name', 'member']
                 )

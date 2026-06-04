@@ -89,15 +89,18 @@ class TestDonorPermissions(EnhancedTestCase):
     def test_permission_with_invalid_member_link(self):
         """Test permission check when donor links to non-existent member"""
         
-        # Create donor with invalid member reference using Enhanced Test Factory
+        # Create a valid donor first, then corrupt the member link via db.set_value.
+        # Frappe v16 validates the Member link on insert, so a non-existent member
+        # cannot be supplied directly; set_value bypasses validation to simulate a
+        # member deleted out from under the donor.
         invalid_donor = self.create_test_donor(
             donor_name="Invalid Link Donor",
-            donor_type="Individual", 
+            donor_type="Individual",
             donor_email="invalid@example.com",
-            member="NON-EXISTENT-MEMBER-999"
         )
+        frappe.db.set_value("Donor", invalid_donor.name, "member", "NON-EXISTENT-MEMBER-999")
         # Enhanced Test Factory handles cleanup automatically
-        
+
         # Should return False due to invalid member link
         has_permission = has_donor_permission(invalid_donor.name, self.test_member_user)
         self.assertFalse(has_permission)
@@ -109,19 +112,21 @@ class TestDonorPermissions(EnhancedTestCase):
         has_permission = has_donor_permission(self.test_donor.name, "Administrator")
         self.assertTrue(has_permission, "Administrator should have access")
         
-        # Admin should get unrestricted query
+        # Admin should get unrestricted query ("" and None both mean unrestricted)
         query = get_donor_permission_query("Administrator")
-        self.assertIsNone(query, "Administrator should have no query restrictions")
+        self.assertIn(query, (None, ""), "Administrator should have no query restrictions")
 
     def test_member_access_to_own_donor_record(self):
         """Test that members can access donor records linked to them"""
         
-        # Create a member with user link using Enhanced Test Factory
+        # Create a member with user link using Enhanced Test Factory.
+        # NOTE: the User link is intentionally omitted — Frappe v16 validates the
+        # User link on insert and this user does not exist; the test below verifies
+        # the non-existent-user path returns False, so no User is needed.
         member_with_user = self.create_test_member(
             first_name="User",
             last_name="Member",
-            email="user_member@example.com",
-            user="user_member@example.com"  # Link to a user
+            email="user_member@example.com"
         )
         # Enhanced Test Factory handles cleanup automatically
         
@@ -144,12 +149,13 @@ class TestDonorPermissions(EnhancedTestCase):
     def test_member_denied_access_to_other_donor_records(self):
         """Test that members cannot access donor records not linked to them"""
         
-        # Create another member and donor using Enhanced Test Factory
+        # Create another member and donor using Enhanced Test Factory.
+        # User link omitted — the user does not exist and Frappe v16 validates the
+        # link on insert; this test only checks self.test_member_user's access.
         other_member = self.create_test_member(
             first_name="Other",
             last_name="Member",
-            email="other@example.com",
-            user="other@example.com"
+            email="other@example.com"
         )
         # Enhanced Test Factory handles cleanup automatically
         
@@ -204,13 +210,17 @@ class TestDonorPermissions(EnhancedTestCase):
     def test_document_object_vs_string_handling(self):
         """Test permission check works with both document objects and strings"""
         
+        # The factory uniquifies member emails (e.g. test_member.<suffix>@...), so
+        # use the member's actual stored email rather than the original literal —
+        # get_member_name_for_user looks the member up by that email.
+        member_user = self.test_member.email
         with frappe.mock_roles(["Verenigingen Member"]):
             # Test with string (donor name)
-            has_permission_str = has_donor_permission(self.test_donor.name, self.test_member_user)
-            
+            has_permission_str = has_donor_permission(self.test_donor.name, member_user)
+
             # Test with document object
             donor_doc = frappe.get_doc("Donor", self.test_donor.name)
-            has_permission_obj = has_donor_permission(donor_doc, self.test_member_user)
+            has_permission_obj = has_donor_permission(donor_doc, member_user)
             
             # Both should return the same result
             self.assertEqual(has_permission_str, has_permission_obj)
@@ -256,14 +266,20 @@ class TestDonorPermissionIntegration(EnhancedTestCase):
     def test_frappe_get_all_respects_permissions(self):
         """Test that frappe.get_all() respects permission queries"""
         
-        # Create test data using Enhanced Test Factory
+        # Create a real User so we can switch into its session, then link it to a
+        # member. frappe.set_user requires an existing User, and the permission
+        # query only applies the member filter for a Verenigingen Member.
+        user_email = "integration@test.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+
         member = self.create_test_member(
             first_name="Integration",
             last_name="Test",
-            email="integration@test.com"
+            email=user_email,
+            user=user_email,
         )
         # Enhanced Test Factory handles cleanup automatically
-        
+
         donor = self.create_test_donor(
             donor_name="Integration Donor",
             donor_type="Individual",
@@ -271,8 +287,10 @@ class TestDonorPermissionIntegration(EnhancedTestCase):
             member=member.name
         )
         # Enhanced Test Factory handles cleanup automatically
-        
-        with frappe.set_user("integration@test.com"):
+
+        # self.as_user is the EnhancedTestCase context manager; frappe.set_user
+        # itself is NOT a context manager.
+        with self.as_user(user_email):
             # Should only see donor records linked to this user's member record
             accessible_donors = frappe.get_all("Donor", fields=["name", "donor_name", "member"])
             
@@ -292,13 +310,17 @@ class TestDonorPermissionIntegration(EnhancedTestCase):
         # This would test actual form access, but requires more complex setup
         # For now, we verify the permission functions work as expected
         
+        user_email = "form@test.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+
         member = self.create_test_member(
             first_name="Form",
             last_name="Test",
-            email="form@test.com"
+            email=user_email,
+            user=user_email,
         )
         # Enhanced Test Factory handles cleanup automatically
-        
+
         donor = self.create_test_donor(
             donor_name="Form Test Donor",
             donor_type="Individual",
@@ -306,9 +328,10 @@ class TestDonorPermissionIntegration(EnhancedTestCase):
             member=member.name
         )
         # Enhanced Test Factory handles cleanup automatically
-        
-        # Test direct document access
-        with frappe.set_user("form@test.com"):
+
+        # Test direct document access. self.as_user is the context manager;
+        # frappe.set_user is not.
+        with self.as_user(user_email):
             # Should be able to get the document
             doc = frappe.get_doc("Donor", donor.name)
             self.assertEqual(doc.name, donor.name)

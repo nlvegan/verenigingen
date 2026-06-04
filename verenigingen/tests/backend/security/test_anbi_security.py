@@ -9,9 +9,7 @@ Tests for BSN/RSIN handling, data masking, and privacy compliance
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from unittest.mock import patch, Mock
 import re
-from cryptography.fernet import Fernet
 
 
 class TestANBISecurity(FrappeTestCase):
@@ -32,6 +30,11 @@ class TestANBISecurity(FrappeTestCase):
             "birth_date": "1990-01-01",
             "status": "Active"
         })
+        # The masking tests read member.full_name. Since this in-memory Member is
+        # never inserted (these are pure masking/format helper tests), full_name is
+        # not auto-computed by the insert hooks — populate it from the name parts
+        # the same way Member.update_full_name would.
+        self.test_member.update_full_name()
         
     def test_bsn_encryption_decryption(self):
         """Test BSN encryption and decryption"""
@@ -280,40 +283,46 @@ class TestANBISecurity(FrappeTestCase):
         
     def test_bsn_validation(self):
         """Test BSN validation (11-proof)"""
-        # Valid BSN test cases
-        valid_bsns = [
-            "123456789",  # Test BSN
-        ]
-        
+        from verenigingen.tests.fixtures.dutch_validation_helpers import get_test_bsn_numbers
+
+        # Valid BSN test cases: pre-validated 11-proof BSNs used across the suite.
+        valid_bsns = get_test_bsn_numbers()
+
         # Invalid BSN test cases
         invalid_bsns = [
-            "000000000",  # All zeros
-            "123456788",  # Invalid checksum
+            "000000000",  # All zeros (rejected even though 0 % 11 == 0)
+            "123456789",  # Fails 11-proof checksum
+            "123456788",  # Fails 11-proof checksum
             "12345678",   # Too short
             "1234567890", # Too long
             "abcdefghi",  # Non-numeric
         ]
-        
+
         # Test validation
         for bsn in valid_bsns:
-            self.assertTrue(self._validate_bsn_format(bsn))
-            
+            self.assertTrue(self._validate_bsn_format(bsn), f"{bsn} should be valid")
+
         for bsn in invalid_bsns:
-            self.assertFalse(self._validate_bsn_format(bsn))
-            
+            self.assertFalse(self._validate_bsn_format(bsn), f"{bsn} should be invalid")
+
     def _validate_bsn_format(self, bsn):
-        """Helper to validate BSN format"""
+        """Helper to validate BSN format using the real 11-proof algorithm.
+
+        Mirrors Donor.validate_bsn_eleven_proof so the test exercises genuine
+        Dutch BSN validation rather than accepting any 9-digit number.
+        """
         # Basic format check
         if not bsn or not bsn.isdigit() or len(bsn) != 9:
             return False
-            
+
         # Don't allow all zeros
         if bsn == "000000000":
             return False
-            
-        # For testing, accept any 9-digit number
-        # In production, would implement 11-proof algorithm
-        return True
+
+        # 11-proof: (9A + 8B + 7C + 6D + 5E + 4F + 3G + 2H - 1I) % 11 == 0
+        weights = [9, 8, 7, 6, 5, 4, 3, 2, -1]
+        total = sum(int(d) * w for d, w in zip(bsn, weights))
+        return total % 11 == 0
         
     def test_field_level_permissions(self):
         """Test field-level permission enforcement"""
