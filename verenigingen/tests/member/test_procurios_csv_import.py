@@ -363,9 +363,9 @@ class TestProcuriosCSVImportPropertyCache(EnhancedTestCase):
 
 # ---- End-to-end integration ------------------------------------------------
 
-import csv  # noqa: E402
-import os  # noqa: E402
-import tempfile  # noqa: E402
+from verenigingen.tests.fixtures.procurios_csv_fixtures import (  # noqa: E402
+    create_csv_file_attachment,
+)
 
 
 _MEMBER_CSV_HEADERS = [
@@ -407,27 +407,8 @@ def _member_csv_row(**overrides):
 
 
 def _create_member_csv_attachment(rows):
-    """Test fixture: write `rows` to a temp CSV and register as a Frappe File."""
-    fd, path = tempfile.mkstemp(suffix=".csv", prefix="procurios_member_")
-    os.close(fd)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=_MEMBER_CSV_HEADERS, delimiter=";")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
-    with open(path, "rb") as f:
-        content = f.read()
-    file_doc = frappe.get_doc(
-        {
-            "doctype": "File",
-            "file_name": os.path.basename(path),
-            "is_private": 1,
-            "content": content,
-        }
-    )
-    file_doc.flags.ignore_permissions = True
-    file_doc.insert()
-    return file_doc.file_url
+    """Member-importer convenience wrapper around the shared fixture."""
+    return create_csv_file_attachment(rows, _MEMBER_CSV_HEADERS, prefix="procurios_member_")
 
 
 def _create_existing_member(member_id, suffix):

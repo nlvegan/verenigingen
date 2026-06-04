@@ -6,15 +6,16 @@
 Real DB. No business-logic mocks (per project test-quality enforcer).
 """
 
-import csv
 import json
-import os
-import tempfile
 import unittest
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.procurios_csv_fixtures import (
+    create_csv_file_attachment,
+    create_raw_csv_attachment,
+)
 
 
 CSV_HEADERS = [
@@ -59,40 +60,13 @@ def _base_row(**overrides):
 
 
 def _create_csv_attach(rows):
-    """Test fixture: write `rows` to a temp CSV and register as a Frappe File."""
-    fd, path = tempfile.mkstemp(suffix=".csv", prefix="procurios_mandate_")
-    os.close(fd)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=CSV_HEADERS, delimiter=";")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
-
-    with open(path, "rb") as f:
-        content = f.read()
-
-    file_doc = frappe.get_doc({
-        "doctype": "File",
-        "file_name": os.path.basename(path),
-        "is_private": 1,
-        "content": content,
-    })
-    file_doc.flags.ignore_permissions = True
-    file_doc.insert()
-    return file_doc.file_url
+    """Mandate-importer convenience wrapper around the shared fixture."""
+    return create_csv_file_attachment(rows, CSV_HEADERS, prefix="procurios_mandate_")
 
 
 def _create_raw_csv_attach(raw_text: str, name_hint: str = "raw.csv"):
-    """Test fixture: register an arbitrary CSV blob as a Frappe File."""
-    file_doc = frappe.get_doc({
-        "doctype": "File",
-        "file_name": name_hint,
-        "is_private": 1,
-        "content": raw_text.encode("utf-8"),
-    })
-    file_doc.flags.ignore_permissions = True
-    file_doc.insert()
-    return file_doc.file_url
+    """Mandate-importer convenience wrapper around the shared fixture."""
+    return create_raw_csv_attachment(raw_text, name_hint)
 
 
 def _create_import_doc(file_url: str, **fields):
