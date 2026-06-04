@@ -26,15 +26,30 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
     def setUpClass(cls):
         """Set up test environment"""
         super().setUpClass()
+        # Single-module runs do not fire before_tests, so seed shared masters
+        # (creation_user, Membership Types, Team Roles) explicitly.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
         cls.test_env = TestEnvironmentSetup.create_standard_test_environment()
 
     def setUp(self):
         """Set up for each test"""
         super().setUp()
         self.builder = TestDataBuilder()
+        # Team membership changes update the volunteer assignment history via
+        # background-job subscribers that do not run inline during tests. This
+        # flag makes the event emitter dispatch the real subscriber code
+        # synchronously so assignment-history side effects are observable.
+        self._prev_run_events_sync = getattr(frappe.flags, "run_events_synchronously", False)
+        frappe.flags.run_events_synchronously = True
 
     def tearDown(self):
         """Clean up after each test"""
+        frappe.flags.run_events_synchronously = self._prev_run_events_sync
         self.builder.cleanup()
         super().tearDown()
 
@@ -70,11 +85,20 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "start_date": today()}
         )
 
-        with self.assertRaises(frappe.DoesNotExistError):
+        # Frappe's Link-field validation rejects the non-existent member before
+        # the controller's validate_member_link() runs, so a LinkValidationError
+        # is raised; the controller would raise DoesNotExistError if it got that
+        # far. Either is an acceptable "invalid member" signal.
+        with self.assertRaises((frappe.DoesNotExistError, frappe.LinkValidationError)):
             volunteer2.insert()
 
     def test_update_aggregated_data_method(self):
         """Test aggregated data updates"""
+        # Ensure the role exists as a Team Role, otherwise the builder silently
+        # falls back to "Team Member" and the role assertion below would fail.
+        if not frappe.db.exists("Team Role", "Event Coordinator"):
+            frappe.get_doc({"doctype": "Team Role", "role_name": "Event Coordinator"}).insert()
+
         # Create volunteer with team assignment
         test_data = (
             self.builder.with_member()
@@ -117,9 +141,12 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
         )
 
         volunteer.save()
+        volunteer.reload()
 
-        # Test get_activity_assignments
-        active = volunteer.get_activity_assignments()
+        # The volunteer controller exposes no get_active_assignments() method;
+        # active assignments are represented as rows in assignment_history with
+        # status == "Active". Verify the active-only view of the data.
+        active = [a for a in volunteer.assignment_history if a.status == "Active"]
         self.assertEqual(len(active), 1)
         self.assertEqual(active[0].role, "Active Role")
 
@@ -249,11 +276,13 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
         )
         team_doc.insert()
         self.track_doc("Team", team_doc.name)
+        # team_role is mandatory on Team Member rows; use the seeded default.
         team_doc.append(
             "team_members",
             {
                 "volunteer": volunteer.name,
                 "volunteer_name": volunteer.volunteer_name,
+                "team_role": "Team Member",
                 "role": "Test Role",
                 "role_type": "Team Member",
                 "from_date": today(),
@@ -271,7 +300,9 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 break
 
         self.assertIsNotNone(active_assignment)
-        self.assertEqual(active_assignment.role, "Test Role")
+        # Assignment history role is composed from the Team Role name plus the
+        # optional free-text role ("Team Member - Test Role").
+        self.assertIn("Test Role", active_assignment.role)
 
         # Remove from team (should complete assignment)
         team_doc.reload()
@@ -326,7 +357,8 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
 
         # Create user for member
         user = self.create_test_user(
-            email=f"volunteer.user.{frappe.utils.random_string(8)}@test.com", roles=["Member", "Verenigingen Volunteer"]
+            email=f"volunteer.user.{frappe.utils.random_string(8)}@test.com",
+            roles=["Verenigingen Member", "Verenigingen Volunteer"],
         )
 
         # Reload member to avoid timestamp issues

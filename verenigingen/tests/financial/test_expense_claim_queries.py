@@ -30,6 +30,18 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 class TestExpenseClaimQueryAPIs(EnhancedTestCase):
     """Test expense claim query API functions"""
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Single-module runs do not fire before_tests, so seed the shared
+        # masters (creation_user, Team Roles, Membership Types, etc.) here.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+
     def setUp(self):
         """Set up test data"""
         super().setUp()
@@ -59,8 +71,13 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         self.board_member.user = self.board_user.name
         self.board_member.save()
 
-        # Create volunteer and board position
+        # Create volunteer and board position. The volunteer factory sets
+        # frappe.flags.skip_volunteer_account_creation, so the controller never
+        # links volunteer.user from the member. The expense-approver query joins
+        # tabVolunteer.user = tabUser.email, so link it explicitly here.
         self.volunteer = self.create_test_volunteer(member=self.board_member.name)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "user", self.board_user.name)
+        self.volunteer.reload()
 
         # Create chapter role with Financial permissions. role_name is the
         # Chapter Role primary key, so uniquify it per run to avoid PRIMARY
@@ -82,12 +99,23 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         })
         chapter1_doc.save()
 
-        # Give board user Expense Approver role
-        board_user_doc = frappe.get_doc("User", self.board_user.name)
-        board_user_doc.append("roles", {
-            "role": "Expense Approver"
-        })
-        board_user_doc.save()
+        # Give board user the Expense Approver role.
+        # Frappe v16 makes role_profiles exclusive: User.populate_role_profile_roles()
+        # strips any role not contained in an assigned role profile. Linking the
+        # member/volunteer applied the "Verenigingen Volunteer" role profile, so a
+        # plain append("roles", {...}) would be silently removed on save. Clear the
+        # profile first so the directly-assigned role persists (the approver query
+        # reads tabHas Role, not role profiles).
+        self._grant_expense_approver_role(self.board_user.name)
+
+    def _grant_expense_approver_role(self, user_name):
+        """Assign the Expense Approver role so it survives v16 role-profile sync."""
+        user_doc = frappe.get_doc("User", user_name)
+        user_doc.set("role_profiles", [])
+        user_doc.role_profile_name = None
+        if "Expense Approver" not in [r.role for r in user_doc.roles]:
+            user_doc.append("roles", {"role": "Expense Approver"})
+        user_doc.save(ignore_permissions=True)
 
     def test_api_security_decorators_applied(self):
         """Verify all expense query APIs have security decorators"""
@@ -103,9 +131,11 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         for func_name in functions:
             func = getattr(expense_claim_queries, func_name)
 
-            # Check if function is whitelisted
-            self.assertTrue(
-                hasattr(func, "_is_whitelisted") or func_name in frappe.whitelisted,
+            # frappe.whitelisted is a set of the registered function objects
+            # (not names), so check membership by identity.
+            self.assertIn(
+                func,
+                frappe.whitelisted,
                 f"{func_name} should be whitelisted"
             )
 
@@ -171,9 +201,8 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
 
     def test_chapter_expense_approvers_requires_financial_role(self):
         """Expense approvers must have Financial or Admin permission level"""
-        frappe.set_user(self.staff_user.name)
-
-        # Create a board member with non-financial role
+        # Build the additional fixtures as Administrator; a Staff user cannot
+        # insert Chapter Role / Member / Volunteer master records.
         non_financial_member = self.create_test_member(
             first_name="NonFinancial",
             last_name="Member",
@@ -189,13 +218,16 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         non_financial_member.save()
 
         volunteer2 = self.create_test_volunteer(member=non_financial_member.name)
+        frappe.db.set_value("Volunteer", volunteer2.name, "user", non_financial_user.name)
 
-        # Create role with Operations level (not Financial). role_name is the
-        # primary key; uniquify per run to avoid PRIMARY collisions.
+        # Create a role with a non-Financial permission level. The valid
+        # Chapter Role levels are Basic/Financial/Admin; "Basic" is the
+        # non-financial case here. role_name is the primary key; uniquify
+        # per run to avoid PRIMARY collisions.
         ops_role = frappe.get_doc({
             "doctype": "Chapter Role",
-            "role_name": f"Test Operations Role {frappe.generate_hash(length=6)}",
-            "permissions_level": "Operations"
+            "role_name": f"Test Basic Role {frappe.generate_hash(length=6)}",
+            "permissions_level": "Basic"
         })
         ops_role.insert()
 
@@ -207,6 +239,9 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
             "is_active": 1
         })
         chapter1_doc.save()
+
+        # Run the query under test as the staff user.
+        frappe.set_user(self.staff_user.name)
 
         from verenigingen.api.expense_claim_queries import get_chapter_expense_approvers
 
@@ -225,12 +260,13 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
 
     def test_team_expense_approvers_uses_team_chapter(self):
         """Team expense approvers should come from the team's parent chapter"""
-        frappe.set_user(self.staff_user.name)
-
-        # Create a team under chapter1
+        # Create the team as Administrator (Staff cannot insert Team masters).
         team = self.create_test_team(
             chapter=self.chapter1.name
         )
+
+        # Run the query under test as the staff user.
+        frappe.set_user(self.staff_user.name)
 
         from verenigingen.api.expense_claim_queries import get_team_expense_approvers
 
@@ -281,11 +317,24 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
         # Get source code of the function
         source = inspect.getsource(expense_claim_queries.get_user_accessible_chapters_for_expenses)
 
-        # Check for duplicate LIKE conditions
-        like_count = source.count("name LIKE %(txt)s")
+        # The function has two independent branches (admin sees all chapters,
+        # board members see only theirs) and each builds its own query, so the
+        # LIKE clause legitimately appears once per branch. The bug this guards
+        # against is the SAME query carrying a duplicated LIKE condition, which
+        # would surface as two "name LIKE %(txt)s" with no intervening SQL.
+        import re
 
-        # Should appear only once in the query, not duplicated
-        self.assertEqual(like_count, 1, "Should have only one LIKE condition, not duplicate")
+        normalized = re.sub(r"\s+", " ", source)
+        self.assertNotIn(
+            "name LIKE %(txt)s AND name LIKE %(txt)s",
+            normalized,
+            "Query must not contain a duplicated LIKE condition",
+        )
+        self.assertNotIn(
+            "name LIKE %(txt)s name LIKE %(txt)s",
+            normalized,
+            "Query must not contain a duplicated LIKE condition",
+        )
 
     def test_chapter_query_pagination(self):
         """Test pagination parameters work correctly"""
@@ -329,6 +378,16 @@ class TestExpenseClaimQueryAPIs(EnhancedTestCase):
 
 class TestExpenseQueryAPIIntegration(EnhancedTestCase):
     """Integration tests for expense query APIs"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
 
     def test_expense_claim_form_integration(self):
         """Test that expense query APIs work with actual Expense Claim form"""

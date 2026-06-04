@@ -21,6 +21,65 @@ from verenigingen.utils.volunteer_expense_setup import (
 # Note: setup_expense_claim_types function removed in ERPNext integration simplification
 
 
+def _get_valid_expense_account():
+    """Return an account that passes Expense Category validation.
+
+    ExpenseCategory.validate requires ``account_type == "Expense Account"``
+    EXACTLY (not merely root_type Expense). The previous helper grabbed the first
+    root_type=Expense leaf with NO company filter, which under full before_tests
+    seeding resolves to a tax account from another company (e.g. "Tax Expense -
+    TPIC") and fails validation, erroring this module's whole setUp. Scope to the
+    default company and require the exact account_type, creating a dedicated test
+    expense account if the seeded chart has none.
+    """
+    company = frappe.db.get_single_value("Global Defaults", "default_company") or frappe.get_all(
+        "Company", limit=1, pluck="name"
+    )[0]
+    acct = frappe.db.get_value(
+        "Account",
+        {"account_type": "Expense Account", "is_group": 0, "company": company},
+        "name",
+    )
+    if acct:
+        return acct
+    # No "Expense Account"-typed leaf in the seeded chart: create one under the
+    # company's Expense parent group.
+    parent = frappe.db.get_value(
+        "Account", {"root_type": "Expense", "is_group": 1, "company": company}, "name"
+    )
+    return frappe.get_doc(
+        {
+            "doctype": "Account",
+            "account_name": "Test Volunteer Expense Account",
+            "company": company,
+            "parent_account": parent,
+            "root_type": "Expense",
+            "report_type": "Profit and Loss",
+            "account_type": "Expense Account",
+            "is_group": 0,
+        }
+    ).insert(ignore_permissions=True).name
+
+
+def _ensure_expense_categories(category_names):
+    """Create the named Expense Category records if missing.
+
+    Single-module test runs do not seed the Dutch expense categories that the
+    production validation expects, so create them with a real expense account.
+    """
+    expense_account = _get_valid_expense_account()
+    for name in category_names:
+        if not frappe.db.exists("Expense Category", name):
+            frappe.get_doc(
+                {
+                    "doctype": "Expense Category",
+                    "category_name": name,
+                    "is_active": 1,
+                    "expense_account": expense_account,
+                }
+            ).insert(ignore_permissions=True)
+
+
 class TestERPNextExpenseIntegration(EnhancedTestCase):
     """Test ERPNext Expense Claims integration"""
 
@@ -65,45 +124,16 @@ class TestERPNextExpenseIntegration(EnhancedTestCase):
         self._ensure_expense_categories_exist()
 
     def _ensure_expense_categories_exist(self):
-        """Ensure at least one expense category exists for testing"""
-        # Check if any expense category exists, if not create a simple one
-        existing_categories = frappe.get_all("Expense Category", limit=1)
-        if not existing_categories:
-            # Create a basic expense category for testing using proper user context
-            test_admin = self.ensure_test_admin_user()
-            current_user = frappe.session.user
-            try:
-                frappe.set_user(test_admin.email)
-                
-                # Get a default expense account if it exists
-                expense_account = frappe.db.get_value("Account", {"account_type": "Expense"}, "name")
-                if not expense_account:
-                    expense_account = "Miscellaneous Expenses - Test"
-                
-                cat = frappe.get_doc({
-                    "doctype": "Expense Category",
-                    "category_name": "Test Travel",
-                    "is_active": 1,
-                    "expense_account": expense_account
-                })
-                cat.insert()
-                self.test_category = "Test Travel"
-            except Exception as e:
-                # If creation fails, skip the test - category setup is not the focus
-                frappe.log_error(f"Could not create test expense category: {e}")
-                self.test_category = None
-            finally:
-                frappe.set_user(current_user)
-        else:
-            # Use the first existing category
-            self.test_category = existing_categories[0].name
-        
-        # Create mapping from English test names to existing Dutch categories
+        """Ensure the Dutch expense categories used by these tests exist."""
+        # Create mapping from English test names to the Dutch category names the
+        # production code/tests expect.
         self.category_mapping = {
             "Travel": "Reiskosten",  # Travel costs
             "Office Supplies": "Materiaalkosten",  # Material costs
-            "Communications": "Materiaalkosten"  # Use material costs as fallback
+            "Communications": "Communicatiekosten"  # Communication costs
         }
+        _ensure_expense_categories(set(self.category_mapping.values()))
+        self.test_category = "Reiskosten"
 
     def get_expense_category(self, english_name):
         """Get the correct expense category name (maps English test names to Dutch system names)"""
@@ -510,30 +540,15 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
         )
 
     def _ensure_expense_categories_exist(self):
-        """Ensure required expense categories exist for testing"""
-        # The system already has Dutch expense categories
-        # We'll use the existing Dutch categories and map English test names to them
-        
-        # Check if we have the expected categories (using Dutch names which already exist)
-        existing_categories = frappe.get_all("Expense Category", fields=["name", "category_name"])
-        existing_names = [cat.name for cat in existing_categories]
-        
-        # Create mapping from English test names to existing Dutch categories
+        """Ensure required Dutch expense categories exist for testing."""
+        # Create mapping from English test names to the Dutch category names.
         self.category_mapping = {
             "Travel": "Reiskosten",  # Travel costs
             "Office Supplies": "Materiaalkosten",  # Material costs
             "Communications": "Materiaalkosten"  # Use material costs as fallback
         }
-        
-        # Use existing Dutch categories - no need to create new ones
-        if "Reiskosten" in existing_names:
-            self.travel_category = "Reiskosten"  # Use existing Dutch travel category
-        else:
-            # Fallback to first existing category if Dutch ones aren't available
-            if existing_categories:
-                self.travel_category = existing_categories[0].name
-            else:
-                self.travel_category = None  # Will cause tests to skip
+        _ensure_expense_categories(set(self.category_mapping.values()))
+        self.travel_category = "Reiskosten"
 
     def get_expense_category(self, english_name):
         """Get the correct expense category name (maps English test names to Dutch system names)"""

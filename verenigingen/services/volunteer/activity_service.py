@@ -180,7 +180,12 @@ class VolunteerActivityService(StatelessService):
             self.logger.info(f"Ended activity {activity_name} for volunteer {self.volunteer_name}")
 
         except frappe.DoesNotExistError:
-            frappe.throw(_("Volunteer Activity {0} not found").format(activity_name))
+            # Preserve the DoesNotExistError type (per docstring) while giving a
+            # clearer message than the framework default.
+            frappe.throw(
+                _("Volunteer Activity {0} not found").format(activity_name),
+                frappe.DoesNotExistError,
+            )
         except frappe.ValidationError:
             # ValidationErrors already have user-friendly messages, just re-raise
             raise

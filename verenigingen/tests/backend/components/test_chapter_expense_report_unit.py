@@ -166,18 +166,31 @@ class TestChapterExpenseReport(VereningingenTestCase):
             self.assertEqual(result[0]["status"], "Reimbursed")  # Paid -> Reimbursed
 
     def test_get_user_accessible_chapters_admin_user(self):
-        """Test that admin users see all chapters"""
-        with patch("frappe.session.user", "administrator@example.com"):
-            with patch("frappe.get_roles", return_value=["System Manager"]):
-                result = get_user_accessible_chapters()
-                self.assertIsNone(result)  # None means see all
+        """Test that admin users see all chapters (None == no filter)."""
+        # Run as a real admin user instead of patching frappe.session internals.
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Administrator")
+            result = get_user_accessible_chapters()
+            self.assertIsNone(result)  # None means see all
+        finally:
+            frappe.set_user(original_user)
 
     def test_get_user_accessible_chapters_regular_user(self):
-        """Test that regular users have restricted access"""
-        with patch("frappe.session.user", "user@example.com"):
-            with patch("frappe.get_roles", return_value=["Employee"]):
-                result = get_user_accessible_chapters()
-                self.assertIsNone(result)  # Currently returns None for all users
+        """Test that a non-board user has no chapter access (empty list)."""
+        regular_user = self.create_test_user(
+            email="report.regular.user@example.com",
+            roles=["Verenigingen Member"],
+        )
+        original_user = frappe.session.user
+        try:
+            frappe.set_user(regular_user.name)
+            result = get_user_accessible_chapters()
+            # A user with no board positions gets an empty list (no access),
+            # which is distinct from the admin's None (see all).
+            self.assertEqual(result, [])
+        finally:
+            frappe.set_user(original_user)
 
     def test_get_approval_level_for_amount(self):
         """Test approval level calculation based on amount"""
@@ -448,6 +461,9 @@ class TestChapterExpenseReportIntegration(VereningingenTestCase):
     """Integration tests for Chapter Expense Report with ERPNext"""
 
     def setUp(self):
+        # Must call super().setUp() so the base case sets up session/cleanup
+        # state that tearDown relies on (e.g. _original_session_user).
+        super().setUp()
         frappe.set_user("Administrator")
 
     def test_report_execution_end_to_end(self):

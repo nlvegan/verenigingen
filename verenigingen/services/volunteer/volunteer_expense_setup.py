@@ -211,6 +211,11 @@ def get_or_create_expense_type(category):
         # The expense account will be set separately from the Expense Category
         return category
 
+    except frappe.ValidationError:
+        # The validations above raise specific, user-facing ValidationErrors
+        # (category not found / no expense account). Re-raise them unchanged so
+        # the caller sees the real reason instead of a generic message.
+        raise
     except Exception as e:
         frappe.log_error(
             f"Error validating expense category {category}: {str(e)}", "Expense Category Validation"

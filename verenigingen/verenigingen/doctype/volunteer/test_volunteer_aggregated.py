@@ -10,6 +10,15 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestVolunteerAggregatedAssignments(EnhancedTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Single-module runs do not fire before_tests; seed Team Roles so the
+        # mandatory team_role on Team Member rows can be satisfied.
+        from verenigingen.setup import create_default_team_roles
+
+        create_default_team_roles()
+
     def setUp(self):
         # Initialize the cleanup list
         super().setUp()
@@ -129,6 +138,7 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
                 "member_name": self.test_member.full_name,
                 "volunteer": self.test_volunteer.name,
                 "volunteer_name": self.test_volunteer.volunteer_name,
+                "team_role": "Team Member",  # mandatory link to Team Role
                 "role_type": "Team Member",
                 "role": "Working Group Member",
                 "from_date": today(),
@@ -180,7 +190,7 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
         for assignment in assignments:
             if (
                 assignment["source_type"] == "Board Position"
-                and assignment["source_doctype"] == "Chapter"
+                and assignment["source_doctype"] == "Chapter Board Member"
                 and assignment["source_name"] == self.test_chapter.name
             ):
                 has_board_assignment = True
@@ -194,13 +204,13 @@ class TestVolunteerAggregatedAssignments(EnhancedTestCase):
         for assignment in assignments:
             if (
                 assignment["source_type"] == "Team"
-                and assignment["source_doctype"] == "Team"
+                and assignment["source_doctype"] == "Team Member"
                 and assignment["source_name"] == self.test_team.name
             ):
                 has_team_assignment = True
-                self.assertEqual(
-                    assignment["role"], "Working Group Member", "Team role should be Working Group Member"
-                )
+                # The aggregated role for a team comes from team_role (the Team
+                # Role link), not the free-text role field.
+                self.assertEqual(assignment["role"], "Team Member", "Team role should be the team_role link")
                 break
 
         # Make this check conditional based on whether we found the assignment

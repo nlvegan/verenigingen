@@ -76,6 +76,15 @@ class TestVolunteerAPI(VereningingenTestCase):
 
     def test_add_activity_api_with_all_fields(self):
         """Test add_activity API with all optional fields"""
+        # A valid Chapter is needed for the activity's reference_name; create one
+        # as Administrator (the test user lacks Chapter create permission). This
+        # test overrides self.factory with the lightweight TestDataFactory, so use
+        # a CoreTestDataFactory directly for chapter creation.
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+
+        chapter = CoreTestDataFactory().create_test_chapter()
+        self.track_doc("Chapter", chapter.name)
+
         frappe.set_user(self.test_user.name)
 
         end_date = getdate(today()) + timedelta(days=30)
@@ -87,11 +96,7 @@ class TestVolunteerAPI(VereningingenTestCase):
             start_date=today(),
             end_date=end_date,
             reference_doctype="Chapter",
-            # Get chapter through Chapter Member relationships instead of deprecated member.chapter field
-            reference_name=frappe.get_value(
-                "Chapter Member", {"member": self.test_member.name, "status": "Active"}, "chapter"
-            )
-            or "Test Chapter",
+            reference_name=chapter.name,
             estimated_hours=10,
             notes="Test activity notes",
         )
@@ -182,28 +187,36 @@ class TestVolunteerAPI(VereningingenTestCase):
         self.assertIsInstance(history, list)
         self.assertTrue(len(history) >= 2)
 
-        # Verify history items contain expected fields
+        # Verify history items contain the documented fields. get_volunteer_history()
+        # returns dicts keyed assignment_type/role/reference/start_date/end_date/
+        # is_active/status.
         for item in history:
-            self.assertIn("date", item)
-            self.assertIn("description", item)
-            self.assertIn("type", item)
+            self.assertIn("assignment_type", item)
+            self.assertIn("role", item)
+            self.assertIn("start_date", item)
 
     def test_get_skills_by_category_api(self):
         """Test get_skills_by_category whitelisted API endpoint"""
         frappe.set_user(self.test_user.name)
         volunteer = frappe.get_doc("Volunteer", self.test_volunteer.name)
 
-        # Add some test skills
+        # Add some test skills. The child table is "skills_and_qualifications"
+        # with fields volunteer_skill/skill_category/proficiency_level, and the
+        # Select options are constrained (see Volunteer Skill DocType).
         volunteer.append(
-            "skills",
-            {"skill": "Project Management", "skill_category": "Leadership", "proficiency_level": "Advanced"},
+            "skills_and_qualifications",
+            {
+                "volunteer_skill": "Project Management",
+                "skill_category": "Leadership",
+                "proficiency_level": "4 - Advanced",
+            },
         )
         volunteer.append(
-            "skills",
+            "skills_and_qualifications",
             {
-                "skill": "Event Planning",
-                "skill_category": "Event Management",
-                "proficiency_level": "Beginner",
+                "volunteer_skill": "Event Planning",
+                "skill_category": "Event Planning",
+                "proficiency_level": "1 - Beginner",
             },
         )
         volunteer.save()
@@ -214,13 +227,14 @@ class TestVolunteerAPI(VereningingenTestCase):
         # Verify response structure
         self.assertIsInstance(skills_by_category, dict)
 
-        # Check for expected categories
+        # Check for expected categories. get_skills_by_category() returns each
+        # skill as {"skill": ..., "level": ..., "experience": ...}.
         if skills_by_category:  # Only check if skills exist
             for category, skills in skills_by_category.items():
                 self.assertIsInstance(skills, list)
                 for skill in skills:
                     self.assertIn("skill", skill)
-                    self.assertIn("proficiency_level", skill)
+                    self.assertIn("level", skill)
 
     def test_get_aggregated_assignments_api(self):
         """Test get_aggregated_assignments whitelisted API endpoint"""

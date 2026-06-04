@@ -42,7 +42,7 @@ def get_user_accessible_chapters(
 
     Args:
         user_email: User email (defaults to current user)
-        required_permission_levels: List of permission levels required (defaults to ["Admin", "Membership", "Finance"])
+        required_permission_levels: List of permission levels required (defaults to ["Admin", "Financial"])
 
     Returns:
         None: User has admin access (can see all chapters)
@@ -63,9 +63,12 @@ def get_user_accessible_chapters(
     if user_email is None:
         user_email = frappe.session.user
 
-    # Set default required permission levels
+    # Set default required permission levels.
+    # Chapter Role.permissions_level only allows Basic/Financial/Admin, so the
+    # legacy ["Admin", "Membership", "Finance"] strings never matched any role,
+    # silently denying access to every Financial board member.
     if required_permission_levels is None:
-        required_permission_levels = ["Admin", "Membership", "Finance"]
+        required_permission_levels = ["Admin", "Financial"]
 
     if not user_email:
         frappe.logger().warning("get_user_accessible_chapters called with empty user_email")
@@ -326,7 +329,7 @@ def get_chapters_with_permission(permission_level: str, user_email: Optional[str
     Get chapters where user has a specific permission level.
 
     Args:
-        permission_level: Required permission level ("Admin", "Membership", "Finance", etc.)
+        permission_level: Required permission level ("Basic", "Financial", "Admin")
         user_email: User email (defaults to current user)
 
     Returns:

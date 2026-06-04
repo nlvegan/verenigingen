@@ -198,21 +198,39 @@ class TestVolunteerWhitelistMethods(VereningingenTestCase):
         self.assertEqual(total_hours, 8.5)
 
     def test_create_minimal_employee_whitelist(self):
-        """Test create_minimal_employee method"""
+        """Test employee creation for a volunteer.
+
+        Volunteer.create_minimal_employee() was removed; employee creation is
+        now performed by create_employee_for_approved_volunteer() (which the
+        secure AccountCreationManager flow uses).
+        """
+        from verenigingen.utils.employee_user_link import create_employee_for_approved_volunteer
+
+        # Employee creation needs a company on Verenigingen Settings.
+        settings = frappe.get_single("Verenigingen Settings")
+        if not settings.company:
+            company = frappe.db.get_value("Company", {}, "name")
+            self.assertIsNotNone(company, "A Company is required for employee creation")
+            settings.company = company
+            settings.save(ignore_permissions=True)
+
         volunteer = self._create_test_volunteer()
 
-        # Create minimal employee
-        employee_name = volunteer.create_minimal_employee()
+        # Create employee
+        employee_name = create_employee_for_approved_volunteer(volunteer)
 
-        # Verify employee was created
+        # Verify employee was created with the volunteer's identity
         self.assertTrue(employee_name)
+        self.track_doc("Employee", employee_name)
         employee = frappe.get_doc("Employee", employee_name)
         self.assertEqual(employee.employee_name, volunteer.volunteer_name)
         self.assertEqual(employee.personal_email, volunteer.email)
-        self.track_doc("Employee", employee.name)
 
-        # Test idempotency - calling again should return same employee
-        employee_name_2 = volunteer.create_minimal_employee()
+        # Idempotency: once the volunteer is linked to the employee, a repeat
+        # call returns the same employee instead of creating a duplicate.
+        volunteer.db_set("employee_id", employee_name)
+        volunteer.reload()
+        employee_name_2 = create_employee_for_approved_volunteer(volunteer)
         self.assertEqual(employee_name, employee_name_2)
 
     def test_create_volunteer_from_member_whitelist(self):

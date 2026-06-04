@@ -20,8 +20,10 @@ class ChapterInfoValidator(BaseValidator):
         "route": 200,
     }
 
-    # Valid name pattern (alphanumeric, spaces, hyphens, underscores)
-    NAMEPATTERN = re.compile(r"^[a-zA-Z0-9\s\-]+$")
+    # Valid name pattern (alphanumeric, spaces, hyphens, underscores).
+    # Must match the client-side ChapterConfig.namePattern and the error
+    # message below, both of which allow underscores.
+    NAMEPATTERN = re.compile(r"^[a-zA-Z0-9\s\-_]+$")
 
     def __init__(self, chapter_doc=None):
         super().__init__(chapter_doc)
