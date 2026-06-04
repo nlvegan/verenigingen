@@ -97,6 +97,18 @@ class TestProcuriosMandateValidator(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validator.map_row(bad, row_num=3)
 
+    def test_map_row_invalid_opzegdatum_raises(self):
+        # Symmetry with the Datum-van-ondertekening test above. Without
+        # this, a future change to `_parse_date` that silently swallows
+        # invalid Opzegdatum (e.g. treating bad dates as 'no cancellation,
+        # row is active') could land without any test catching it — and
+        # would change the per-row decision tree: a row currently rejected
+        # as a validator-stage error would suddenly be imported as an
+        # ACTIVE mandate.
+        bad = self._base_row(Opzegdatum="not-a-date")
+        with self.assertRaises(ValueError):
+            self.validator.map_row(bad, row_num=4)
+
     def test_validate_and_map_filters_old_cancelled(self):
         rows = [
             self._base_row(Mandaatnummer="A", Opzegdatum=""),                 # active
