@@ -206,6 +206,23 @@ class BaseCSVImport(Document):
     def _read_csv_file(self) -> List[dict]:
         return self._parser.read_csv_file(self.csv_file)
 
+    def before_submit(self) -> None:
+        """Validate the subclass contract BEFORE Frappe writes docstatus=1.
+
+        Frappe's submit lifecycle is: validate → before_submit → write
+        docstatus=1 → on_submit. Putting the misconfiguration guard here
+        (rather than in on_submit) means a subclass that forgets
+        `_BACKGROUND_METHOD` fails out cleanly with docstatus still 0 —
+        no half-submitted doc, no enqueue attempt with a None method.
+
+        The strip-check catches both missing and whitespace-only values.
+        The message is developer-facing (programming bug, not a user
+        error) so no `frappe._()` wrapping.
+        """
+        method = getattr(self, "_BACKGROUND_METHOD", None)
+        if not method or not method.strip():
+            frappe.throw("Subclasses of BaseCSVImport must define _BACKGROUND_METHOD")
+
     def on_submit(self) -> None:
         """Enqueue the subclass-specific background job.
 
@@ -214,20 +231,12 @@ class BaseCSVImport(Document):
         to bool here so the enqueued args are unambiguous; the receiver
         re-coerces defensively via `coerce_test_mode`.
 
-        Misconfigured subclass guard: validate `_BACKGROUND_METHOD`
-        BEFORE setting `import_status = "Queued"`, otherwise a future
-        subclass that forgets the class attribute would leave the doc
-        stuck in "Queued" with no job enqueued.
+        Misconfiguration is caught earlier in `before_submit`; reaching
+        this method means `_BACKGROUND_METHOD` is well-formed.
         """
-        # Strip-check catches both missing and whitespace-only values; the
-        # message is developer-facing (programming bug, not a user error) so
-        # no `frappe._()` wrapping.
-        method = getattr(self, "_BACKGROUND_METHOD", None)
-        if not method or not method.strip():
-            frappe.throw("Subclasses of BaseCSVImport must define _BACKGROUND_METHOD")
         self.db_set("import_status", "Queued")
         frappe.enqueue(
-            method=method,
+            method=self._BACKGROUND_METHOD,
             queue="long",
             timeout=3600,
             import_doc_name=self.name,

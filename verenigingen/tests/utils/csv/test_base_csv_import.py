@@ -160,36 +160,41 @@ class TestPrepareBackgroundImport(EnhancedTestCase):
             frappe.flags.ignore_version_changes = False
 
 
-class TestOnSubmitBackgroundMethodGuard(unittest.TestCase):
-    """BaseCSVImport.on_submit raises before db_set when _BACKGROUND_METHOD missing.
+class TestBeforeSubmitBackgroundMethodGuard(unittest.TestCase):
+    """BaseCSVImport.before_submit raises when _BACKGROUND_METHOD missing.
 
     Future-proofing guard: a hypothetical third subclass that forgets to set
-    `_BACKGROUND_METHOD` would otherwise flip the doc into "Queued" status
-    without enqueueing anything, leaving it stuck. The guard must fire BEFORE
-    the `db_set("import_status", "Queued")` write.
+    `_BACKGROUND_METHOD` would otherwise reach the on_submit enqueue with
+    a None method. Frappe's submit lifecycle runs `before_submit` BEFORE
+    writing docstatus=1, so this guard rejects the submit cleanly — the
+    doc stays in Draft (docstatus=0), no half-submitted state, no enqueue
+    attempt.
     """
 
-    def test_missing_attribute_throws_before_db_set(self):
-        # Mock justified: testing the guard's ordering invariant in isolation;
-        # constructing a real misconfigured Document subclass and instantiating
-        # it would require registering a fake DocType.
+    def test_missing_attribute_throws(self):
+        # Mock justified: testing the guard in isolation; constructing a
+        # real misconfigured Document subclass and instantiating it would
+        # require registering a fake DocType.
         from verenigingen.utils.csv.base_csv_import import BaseCSVImport
 
-        # FakeSelf has db_set (so we can assert it wasn't called) but
-        # deliberately lacks _BACKGROUND_METHOD — exactly the misconfiguration
-        # this guard is meant to catch. db_set is instance-scoped so a future
-        # second test creating another FakeSelf doesn't share the mock.
         class FakeSelf:
             pass
 
         fake_self = FakeSelf()
-        fake_self.db_set = MagicMock()
-        # frappe.throw raises frappe.ValidationError. Confirm the throw fires.
         with self.assertRaises(frappe.ValidationError):
-            BaseCSVImport.on_submit(fake_self)
-        # And — critically — db_set was never called, so a misconfigured
-        # subclass never leaves the doc stranded in "Queued".
-        fake_self.db_set.assert_not_called()
+            BaseCSVImport.before_submit(fake_self)
+
+    def test_whitespace_only_attribute_throws(self):
+        # The strip-check catches accidental whitespace-only values too —
+        # a developer typing `_BACKGROUND_METHOD = "   "` would have passed
+        # `if not method:` alone.
+        from verenigingen.utils.csv.base_csv_import import BaseCSVImport
+
+        class FakeSelf:
+            _BACKGROUND_METHOD = "   "
+
+        with self.assertRaises(frappe.ValidationError):
+            BaseCSVImport.before_submit(FakeSelf())
 
 
 class TestMarkImportFailed(EnhancedTestCase):
