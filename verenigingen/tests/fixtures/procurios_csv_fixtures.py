@@ -14,9 +14,13 @@ the kind of structural duplication that grows surprise inconsistencies
 as one importer gets a bug-fix the other doesn't. Keep them here so the
 two test files stay in sync by construction.
 
-These helpers are `_create_*` / `create_*` prefixed per the project's
-test-quality-enforcer policy (permission bypasses are only allowed in
-setup/teardown/factory methods, identified by name).
+The `flags.ignore_permissions = True` write inside
+`create_csv_file_attachment` is admissible because the
+test-quality-enforcer skips any file under `/tests/fixtures/` by PATH
+(see `scripts/validation/test_quality_enforcer.py:204`). If this module
+is ever moved out of `/tests/fixtures/`, the public helpers will trip
+the enforcer (whose factory-name allowlist only honours `create_*`
+inside files containing `_factory` in their name) — move it carefully.
 """
 
 from __future__ import annotations
@@ -50,24 +54,34 @@ def create_csv_file_attachment(
     """
     fd, path = tempfile.mkstemp(suffix=".csv", prefix=prefix)
     os.close(fd)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=headers, delimiter=";")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
-    with open(path, "rb") as f:
-        content = f.read()
-    file_doc = frappe.get_doc(
-        {
-            "doctype": "File",
-            "file_name": os.path.basename(path),
-            "is_private": 1,
-            "content": content,
-        }
-    )
-    file_doc.flags.ignore_permissions = True
-    file_doc.insert()
-    return file_doc.file_url
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=headers, delimiter=";")
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+        with open(path, "rb") as f:
+            content = f.read()
+        file_doc = frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_name": os.path.basename(path),
+                "is_private": 1,
+                "content": content,
+            }
+        )
+        file_doc.flags.ignore_permissions = True
+        file_doc.insert()
+        return file_doc.file_url
+    finally:
+        # The two pre-refactor helpers both leaked /tmp/procurios_*.csv per
+        # test run; centralising the fixture is a good moment to fix that.
+        # Frappe owns the uploaded content via the File doc; the temp file
+        # is no longer needed.
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def create_raw_csv_attachment(raw_text: str, name_hint: str = "raw.csv") -> str:

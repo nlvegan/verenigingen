@@ -277,12 +277,20 @@ class TestBeforeSubmitGuardIntegration(EnhancedTestCase):
 
     Patch is applied via `@patch.object` (class attribute mocker) rather
     than inline try/finally. unittest.mock restores the original value
-    even under SIGINT / `bench run-tests` hard kills; an inline
-    try/finally could leak the empty string into the class's cached
-    controller entry if the test process was interrupted between
-    the assignment and the finally clause.
+    on SIGINT and on any exception that unwinds the test stack (including
+    `bench run-tests` graceful shutdown); the previous inline try/finally
+    could leak the empty string into the class's cached controller entry
+    if a test exception fired between the assignment and the finally
+    clause. (Neither form survives SIGKILL — but only the new form
+    survives a `KeyboardInterrupt` mid-assertion.)
     """
 
+    # @patch.object mutates the imported class object. Frappe's
+    # controller cache (`frappe.model.base_document.get_controller`)
+    # stores the SAME class reference per site, so instances Frappe
+    # constructs see the patched attribute. This invariant holds as
+    # long as no `extend_doctype_class` / `override_doctype_class`
+    # hook is registered for "Procurios Mandate Import" (none today).
     @patch.object(ProcuriosMandateImport, "_BACKGROUND_METHOD", "")
     def test_guard_prevents_docstatus_write(self):
         doc = frappe.get_doc(
