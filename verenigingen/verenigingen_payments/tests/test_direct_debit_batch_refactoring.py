@@ -60,22 +60,39 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
     @classmethod
     def _setup_sepa_configuration(cls):
-        """Set up SEPA configuration for testing"""
+        """Set up SEPA configuration for testing.
+
+        The SEPA configuration service reads creditor_id / company_bic /
+        company_iban from *Verenigingen Payments Settings* (not Verenigingen
+        Settings), and the company must be EUR for invoice validation.
+        """
         try:
-            # Get or create Verenigingen Settings
-            settings = frappe.get_single("Verenigingen Settings")
+            from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 
-            # Set test SEPA configuration
-            settings.sepa_creditor_id = "NL12ZZZ123456789"
-            settings.company_iban = "NL91ABNA0417164300"
-            settings.company_bic = "ABNANL2A"
-            settings.company = "Test Association"
-            settings.sepa_batch_size_limit = 1000
-            settings.enable_strict_sepa_validation = True
-            settings.allow_zero_amount_transactions = False
+            cls.eur_company = get_eur_test_company()
 
-            settings.save()
+            ven_settings = frappe.get_single("Verenigingen Settings")
+            if ven_settings.company != cls.eur_company:
+                ven_settings.company = cls.eur_company
+                ven_settings.flags.ignore_validate = True
+                ven_settings.save(ignore_permissions=True)
+
+            payments = frappe.get_single("Verenigingen Payments Settings")
+            payments.company_iban = "NL91ABNA0417164300"
+            payments.company_bic = "ABNANL2A"
+            payments.creditor_id = "NL12ZZZ123456789"
+            payments.flags.ignore_validate = True
+            payments.save(ignore_permissions=True)
             frappe.db.commit()
+
+            # The SEPA configuration service caches the resolved settings
+            # (organization_name etc.) at the singleton level; clear that cache
+            # plus the cached Verenigingen Settings single so the EUR company set
+            # above is picked up. (Do NOT call frappe.clear_cache() — wiping the
+            # DocType meta cache mid-test drops field defaults like
+            # SEPA Batch Upload Log.batch_status and breaks inserts.)
+            sepa_config_service.refresh_settings_cache()
+            frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
 
         except Exception as e:
             frappe.logger().warning(f"Could not set up SEPA configuration: {str(e)}")
@@ -87,6 +104,12 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         self.test_invoices = []
         self.test_mandates = []
         self.test_batch = None
+        # The app's before_tests hook (and other modules) can reset
+        # Verenigingen Settings.company to the ERPNext "_Test Company" (whose
+        # name contains an underscore, invalid for SEPA), and the config service
+        # caches the resolved organization_name. Re-assert the EUR company and
+        # refresh the cache per-test so SEPA XML generation gets a valid name.
+        self._setup_sepa_configuration()
 
     def tearDown(self):
         """Clean up test data"""
@@ -404,8 +427,11 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         batch_doc = frappe.new_doc("Direct Debit Batch")
         batch_doc.batch_date = today()
         batch_doc.batch_description = f"Test Batch - {random_string(8)}"
-        # Real batch_type options are CORE/B2B/FRST/RCUR.
-        batch_doc.batch_type = "RCUR"
+        # Real batch_type options are CORE/B2B/FRST/RCUR. The rows below use FRST
+        # (first usage of brand-new mandates); the XML PaymentInfo SeqTp comes
+        # from batch_type and must match the transaction sequence types, so use
+        # FRST here too (a RCUR batch_type would fail XML sequence validation).
+        batch_doc.batch_type = "FRST"
         batch_doc.currency = "EUR"
 
         for i in range(invoice_count):
@@ -454,41 +480,66 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         return batch_doc
 
     def _create_test_members_with_mandates(self, count: int = 3) -> List[Dict[str, Any]]:
-        """Create test members with SEPA mandates"""
-        from verenigingen.utils.validation.iban_validator import generate_test_iban
+        """Create REAL test members, memberships and SEPA mandates.
 
-        members_data = []
+        orchestrate_batch_creation_workflow inserts a real Direct Debit Batch
+        whose invoice rows link to Sales Invoice / Membership and require
+        iban + mandate_reference, so fake placeholder data cannot form a batch.
+        """
         bank_codes = ["ABNA", "RABO", "INGB"]
+        members_data = []
 
         for i in range(count):
-            bank_code = bank_codes[i % len(bank_codes)]
-            test_iban = generate_test_iban(bank_code, f"{i:010d}")
-
-            # Create basic member data
-            member_data = {
-                "first_name": f"Test{i+1}",
-                "last_name": f"Member{i+1}",
-                "email": f"test{i+1}@verenigingen.test",
-                "iban": test_iban,
-                "mandate_reference": f"MAND-{i+1:03d}",
-            }
-
-            members_data.append(member_data)
+            member = self.create_test_member(
+                first_name=f"E2E{i+1}",
+                last_name=f"Member{i+1}",
+                birth_date="1990-01-01",
+            )
+            membership = self.create_test_membership(member_name=member.name)
+            mandate = self.create_test_sepa_mandate(
+                member_name=member.name,
+                iban=self.factory.create_test_iban(bank_codes[i % len(bank_codes)]),
+                # Unique per run: a fixed mandate_id collides across re-runs
+                # because mandate rows are committed.
+                mandate_id=f"MAND-E2E-{frappe.generate_hash(length=8)}",
+            )
+            members_data.append(
+                {
+                    "member": member.name,
+                    "member_name": member.full_name,
+                    "membership": membership.name,
+                    "iban": mandate.iban,
+                    "mandate_reference": mandate.mandate_id,
+                }
+            )
 
         return members_data
 
     def _create_test_invoice_for_member(self, member_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create test invoice data for a member"""
+        """Create a REAL submitted Sales Invoice for a member and return the
+        invoice-data dict the orchestration workflow expects."""
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        invoice = self.create_test_sales_invoice(
+            customer=member_data["member"],
+            status="Unpaid",
+            company=getattr(self, "eur_company", None) or get_eur_test_company(),
+            currency="EUR",
+        )
         return {
-            "name": f"INV-{member_data['first_name']}-{random_string(4)}",
-            "customer": f"CUST-{member_data['first_name']}",
+            "name": invoice.name,
+            "customer": invoice.customer,
+            "member": member_data["member"],
+            "member_name": member_data["member_name"],
+            "membership": member_data["membership"],
             "outstanding_amount": 25.00,
-            "currency": "EUR",
+            "currency": invoice.currency,
             "status": "Unpaid",
-            "due_date": datetime.now() + timedelta(days=30),
-            "posting_date": datetime.now() - timedelta(days=5),
+            "due_date": invoice.due_date,
+            "posting_date": invoice.posting_date,
             "iban": member_data["iban"],
             "mandate_reference": member_data["mandate_reference"],
+            "sequence_type": "FRST",
         }
 
     def _validate_sepa_xml_structure(self, batch_doc):

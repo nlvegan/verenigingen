@@ -415,14 +415,24 @@ class TestSEPAPerformanceIntegration(EnhancedTestCase):
             self.assertIn("member_data", member_entry)
             self.assertIn("child_table_stats", member_entry)
         
-        with self.assertQueryCount(150):  # Much reduced from 1000+ due to bulk optimization
+        # Warm DocType meta caches so the count reflects per-save work, not the
+        # one-time meta loading of SEPA Mandate / Member / link DocTypes.
+        for dt in ("SEPA Mandate", "Member", "Member SEPA Mandate Link", "SEPA Mandate Usage"):
+            frappe.get_meta(dt)
+
+        # 10 full document saves (each runs validation, link checks, member sync
+        # and version tracking). The threshold guards against the pre-optimization
+        # N+1 explosion (1000+ queries) while allowing the real ~30 queries/save.
+        with self.assertQueryCount(400):
             for i, member in enumerate(members):
                 mandate = frappe.new_doc("SEPA Mandate")
                 mandate.member = member.name
                 mandate.account_holder_name = member.full_name
-                mandate.iban = "NL91ABNA0417164300"  # Use validated test IBAN
+                # Same IBAN is fine here: the duplicate-mandate guard is scoped to
+                # (member, iban) and each mandate is for a different member.
+                mandate.iban = "NL91ABNA0417164300"
                 mandate.status = "Active"
-                mandate.sign_date = today()  # Fixed: use 'sign_date' not 'sign_date'
+                mandate.sign_date = today()
                 mandate.save()
         
         # Validate bulk operation results with real queries

@@ -62,13 +62,16 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
         return _generate(bank_code=bank_code, account_number=f"{seq:010d}")
     
     def generate_mandate_id(self) -> str:
-        """Generate test mandate ID following Dutch conventions with timestamp uniqueness"""
-        import time
-        # Combine sequence with microsecond timestamp for uniqueness across factory instances
+        """Generate a GLOBALLY-UNIQUE test mandate ID.
+
+        The previous scheme (sequence + last 3 digits of the millisecond clock)
+        collided across factory instances: each instance restarts its sequence
+        at 1, so two instances creating a mandate in the same millisecond both
+        produced e.g. ``TST001064`` -> duplicate mandate_id. Append a random hash
+        so IDs are unique regardless of instance or timing.
+        """
         seq = self.get_next_sequence('mandate')
-        # Use last 3 digits of microseconds for sub-second uniqueness
-        timestamp_suffix = int(time.time() * 1000) % 1000
-        return f"TST{seq:03d}{timestamp_suffix:03d}"  # TST prefix with seq + timestamp
+        return f"TST{seq:03d}{frappe.generate_hash(length=6).upper()}"
     
     def create_test_sepa_mandate(self, member: str = None, iban: str = None, 
                                 mandate_id: str = None, status: str = "Active",
@@ -272,7 +275,11 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
             "batch_description": kwargs.get("batch_description", f"Test Batch {self.get_next_sequence('batch')}"),
             "currency": kwargs.get("currency", "EUR"),
             "status": kwargs.get("status", "Draft"),
-            "batch_type": kwargs.get("batch_type", "RCUR"),
+            # Freshly-created mandates have no prior usage, so their first
+            # collection is FRST. The batch_type (PaymentInfo SeqTp in the XML)
+            # must match the per-transaction sequence type or the enhanced XML
+            # generator raises a sequence-type-mismatch validation error.
+            "batch_type": kwargs.get("batch_type", "FRST"),
             **kwargs
         })
         
@@ -310,7 +317,10 @@ class SEPATestDataFactory(EnhancedTestDataFactory):
                 "iban": mandate.iban,
                 "mandate_reference": mandate.mandate_id,
                 "status": "Pending",
-                "sequence_type": "RCUR"
+                # First usage of a freshly-created mandate must be FRST; the SEPA
+                # sequence-type validation flags RCUR-on-first-use as a critical
+                # error, which would block XML generation for this batch.
+                "sequence_type": "FRST"
             })
             total_amount += amount
         

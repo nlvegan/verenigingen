@@ -91,16 +91,24 @@ class SEPAMandateNotificationManager:
             "company_name": settings.company_name,
         }
 
-        # MIGRATED: Use unified EmailService instead of custom _send_email
+        # MIGRATED: Use unified EmailService instead of custom _send_email.
+        # A notification failure (permission/email error) must NOT abort the
+        # caller (e.g. mandate creation), so failures are logged and swallowed.
         from verenigingen.services.communication.compatibility import send_sepa_email
 
-        send_sepa_email(
-            recipients=[member.email],
-            subject=_("SEPA Direct Debit Mandate Activated"),
-            template="sepa_mandate_created",
-            context=context,
-            member=member.name,
-        )
+        try:
+            send_sepa_email(
+                recipients=[member.email],
+                subject=_("SEPA Direct Debit Mandate Activated"),
+                template="sepa_mandate_created",
+                context=context,
+                member=member.name,
+            )
+        except Exception as e:
+            frappe.log_error(
+                title="SEPA: mandate-created notification failed",
+                message=f"Mandate: {mandate.mandate_id}\nError: {e}",
+            )
 
     def send_mandate_cancelled_notification(self, mandate, reason=None):
         """Send notification when a mandate is cancelled - OPTIMIZED VERSION"""
@@ -131,16 +139,24 @@ class SEPAMandateNotificationManager:
             "support_email": settings.support_email,
         }
 
-        # MIGRATED: Use unified EmailService instead of custom _send_email
+        # MIGRATED: Use unified EmailService instead of custom _send_email.
+        # As with mandate-created, a notification failure must NOT abort the caller
+        # (e.g. mandate cancellation); log and swallow.
         from verenigingen.services.communication.compatibility import send_sepa_email
 
-        send_sepa_email(
-            recipients=[member.email],
-            subject=_("SEPA Direct Debit Mandate Cancelled"),
-            template="sepa_mandate_cancelled",
-            context=context,
-            member=member.name,
-        )
+        try:
+            send_sepa_email(
+                recipients=[member.email],
+                subject=_("SEPA Direct Debit Mandate Cancelled"),
+                template="sepa_mandate_cancelled",
+                context=context,
+                member=member.name,
+            )
+        except Exception as e:
+            frappe.log_error(
+                title="SEPA: mandate-cancelled notification failed",
+                message=f"Mandate: {mandate.mandate_id}\nError: {e}",
+            )
 
     def send_mandate_expiring_notification(self, mandate, days_until_expiry):
         """Send notification when a mandate is about to expire - OPTIMIZED VERSION"""
@@ -171,16 +187,25 @@ class SEPAMandateNotificationManager:
             "renewal_link": f"{frappe.utils.get_url()}/payment_dashboard",
         }
 
-        # MIGRATED: Use unified EmailService instead of custom _send_email
+        # MIGRATED: Use unified EmailService instead of custom _send_email.
+        # A notification failure must NOT abort the caller (e.g. the expiry
+        # scheduler scanning many mandates); log and swallow so one bad address
+        # doesn't halt the batch.
         from verenigingen.services.communication.compatibility import send_sepa_email
 
-        send_sepa_email(
-            recipients=[member.email],
-            subject=_("SEPA Mandate Expiring Soon - Action Required"),
-            template="sepa_mandate_expiring",
-            context=context,
-            member=member.name,
-        )
+        try:
+            send_sepa_email(
+                recipients=[member.email],
+                subject=_("SEPA Mandate Expiring Soon - Action Required"),
+                template="sepa_mandate_expiring",
+                context=context,
+                member=member.name,
+            )
+        except Exception as e:
+            frappe.log_error(
+                title="SEPA: mandate-expiring notification failed",
+                message=f"Mandate: {mandate.mandate_id}\nError: {e}",
+            )
 
     def send_payment_retry_notification(self, retry_record):
         """Send notification about payment retry attempts"""

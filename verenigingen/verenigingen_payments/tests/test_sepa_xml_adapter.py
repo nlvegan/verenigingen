@@ -335,12 +335,14 @@ class TestSEPAXMLAdapterIntegration(FrappeTestCase):
         mock_invoice.mandate_reference = "MAND-001"
         mock_invoice.member = None
 
-        result = adapter._get_mandate_sign_date(mock_invoice)
+        # _get_mandate_sign_date returns (sign_date, used_fallback).
+        result, used_fallback = adapter._get_mandate_sign_date(mock_invoice)
 
         # Should NOT be 2023-01-01
         self.assertNotEqual(result, date(2023, 1, 1))
-        # Should be the actual date
+        # Should be the actual date (and not a today() fallback)
         self.assertEqual(result, date(2024, 8, 20))
+        self.assertFalse(used_fallback)
 
 
 class TestSEPAXMLAdapterXMLGeneration(FrappeTestCase):
@@ -389,27 +391,21 @@ class TestSEPAXMLAdapterXMLGeneration(FrappeTestCase):
             "creditor_id": "NL12ZZZ123456789",
         }
 
-        with patch.object(
-            self.adapter.generator.config_service
-            if hasattr(self.adapter.generator, "config_service")
-            else self.adapter,
-            "get_sepa_settings"
-            if hasattr(self.adapter.generator, "config_service")
-            else "_build_creditor_from_settings",
-            return_value=mock_settings if hasattr(self.adapter.generator, "config_service") else MagicMock(),
-        ):
-            try:
-                # Generate XML
-                from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
-                    sepa_config_service,
-                )
+        # Patch only the settings source. The adapter then builds a real
+        # SEPACreditor from this dict via _build_creditor_from_settings; the
+        # previous code additionally stubbed that builder to a bare MagicMock,
+        # whose .name failed the SEPA character-set regex during validation.
+        from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+            sepa_config_service,
+        )
 
-                with patch.object(sepa_config_service, "get_sepa_settings", return_value=mock_settings):
-                    xml_string = self.adapter.generate_xml_for_batch(
-                        batch_doc=mock_batch,
-                        message_id="MSG-TEST-001",
-                        payment_info_id="PMT-TEST-001",
-                    )
+        with patch.object(sepa_config_service, "get_sepa_settings", return_value=mock_settings):
+            try:
+                xml_string = self.adapter.generate_xml_for_batch(
+                    batch_doc=mock_batch,
+                    message_id="MSG-TEST-001",
+                    payment_info_id="PMT-TEST-001",
+                )
 
                 # Parse XML and verify sign date
                 root = ET.fromstring(xml_string)

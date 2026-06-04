@@ -202,45 +202,37 @@ class TestSEPASecurityValidation(EnhancedTestCase):
         frappe.flags.in_test = False
         
         try:
-            # Mock secure_document_operation to always fail
-            # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch('verenigingen.verenigingen_payments.utils.sepa_notifications.secure_document_operation') as mock_secure_op:
-                # Configure mock to return failure
-                mock_result = MagicMock()
-                mock_result.success = False
-                mock_result.errors = ["Insufficient permissions"]
-                mock_result.document = None
-                mock_secure_op.return_value = mock_result
-                
-                # Mock member data loading
-                with patch.object(self.notification_manager, '_load_member_data_bulk') as mock_load:
-                    mock_load.return_value = {
-                        self.test_member.name: {
-                            "name": self.test_member.name,
-                            "full_name": self.test_member.full_name,
-                            "email": self.test_member.email
-                        }
-                    }
-                    
-                    # Create test mandate
-                    mandate = frappe.new_doc("SEPA Mandate")
-                    mandate.member = self.test_member.name
-                    mandate.account_holder_name = self.test_member.full_name
-                    mandate.iban = "NL91ABNA0417164300"
-                    mandate.status = "Active"
-                    mandate.sign_date = frappe.utils.today()
-                    mandate.save()
-                    
-                    # Try to send notification with mocked permission failure
-                    try:
-                        self.notification_manager.send_mandate_created_notification(mandate)
-                        # Should not raise exception even when permissions fail
-                    except Exception as e:
-                        self.fail(f"Notification system should handle permission failures gracefully: {e}")
-                    
-                    # Verify secure_document_operation was called
-                    mock_secure_op.assert_called()
-        
+            # The notification path sends via the unified email service
+            # (send_sepa_email). Simulate that boundary failing (e.g. an
+            # SMTP/permission error) and verify the notification method swallows
+            # it rather than propagating and aborting the caller.
+            # Mock justified: send_sepa_email is the external email/SMTP boundary.
+            with patch(
+                "verenigingen.services.communication.compatibility.send_sepa_email",
+                side_effect=Exception("Insufficient permissions"),
+            ) as mock_send_email:
+
+                # Create test mandate
+                mandate = frappe.new_doc("SEPA Mandate")
+                mandate.member = self.test_member.name
+                mandate.account_holder_name = self.test_member.full_name
+                mandate.iban = "NL91ABNA0417164300"
+                mandate.status = "Active"
+                mandate.sign_date = frappe.utils.today()
+                mandate.save()
+
+                # Should NOT raise even though the email send fails.
+                try:
+                    self.notification_manager.send_mandate_created_notification(mandate)
+                except Exception as e:
+                    self.fail(
+                        f"Notification system should handle failures gracefully: {e}"
+                    )
+
+                # The email boundary should have been attempted (and its failure
+                # swallowed by the notification method).
+                mock_send_email.assert_called()
+
         finally:
             # Restore test mode
             frappe.flags.in_test = original_in_test

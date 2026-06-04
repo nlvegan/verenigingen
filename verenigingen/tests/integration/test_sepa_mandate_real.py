@@ -183,14 +183,17 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
 
     def test_sepa_mandate_business_rule_validation(self):
         """Test SEPA mandate business rules with real validation"""
-        
-        # Test 1: Member can only have one active mandate
+
+        # Business rule: a member may not have two ACTIVE mandates that share the
+        # same IBAN (a genuine duplicate). A different IBAN is a legitimate bank
+        # switch and is allowed, so the duplicate must reuse the same IBAN.
+        shared_iban = "NL28INGB0000000001"
         mandate1 = frappe.get_doc({
             "doctype": "SEPA Mandate",
             "scheme": "SEPA",
             "sign_date": today(),
             "member": self.member.name,
-            "iban": "NL28INGB0000000001",
+            "iban": shared_iban,
             "account_holder_name": "First Mandate",
             "mandate_type": "RCUR",
             "sequence_type": "FRST",
@@ -199,25 +202,25 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
         })
         mandate1.insert()
         self.track_test_record("SEPA Mandate", mandate1.name)
-        
-        # Attempting to create second active mandate should fail
+
+        # Attempting to create a second active mandate with the SAME IBAN fails
         mandate2 = frappe.get_doc({
-            "doctype": "SEPA Mandate", 
+            "doctype": "SEPA Mandate",
             "scheme": "SEPA",
             "sign_date": today(),
             "member": self.member.name,
-            "iban": "NL98INGB0000000002",
+            "iban": shared_iban,
             "account_holder_name": "Second Mandate",
             "mandate_type": "RCUR",
             "sequence_type": "FRST",
             "status": "Active",
             "signed_date": today()
         })
-        
+
         # Should raise validation error for duplicate active mandate
         with self.assertRaises(frappe.ValidationError) as context:
             mandate2.insert()
-        
+
         self.assertIn("already has an active", str(context.exception).lower())
 
     def test_sepa_mandate_dutch_banking_compliance(self):
@@ -393,7 +396,11 @@ class TestSEPAMandateRealIntegration(EnhancedTestCase):
             with self.as_user(self.admin_user.email):
                 mandate.status = "Active"
                 mandate.signed_date = today()
-                mandate.save()
+                # In test mode Frappe defaults flags.ignore_version to
+                # frappe.in_test (True), which skips Version creation. Pass
+                # ignore_version=False so the status change is recorded in the
+                # audit trail asserted below.
+                mandate.save(ignore_version=False)
         finally:
             frappe.flags.in_import = original_in_import
 

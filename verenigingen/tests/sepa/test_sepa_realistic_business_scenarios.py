@@ -504,16 +504,24 @@ class TestSEPAMemoryEfficiency(EnhancedTestCase):
                 mandate.insert()
                 test_mandates.append(mandate)
                 
-                # Create invoice
-                customer = frappe.new_doc("Customer")
-                customer.update({
-                    "customer_name": f"Customer {member.full_name}",
-                    "customer_type": "Individual"
-                })
-                customer.insert()
-                
+                # Reuse the member's auto-created Customer and set the Customer.member
+                # back-link. Sales Invoice.before_validate derives invoice.member
+                # from Customer.member, so a standalone customer (no back-link)
+                # leaves invoice.member empty and the bulk optimizer skips every
+                # invoice (0% success rate).
+                customer_name = member.customer
+                if not customer_name:
+                    customer = frappe.new_doc("Customer")
+                    customer.update({
+                        "customer_name": f"Customer {member.full_name}",
+                        "customer_type": "Individual",
+                    })
+                    customer.insert()
+                    customer_name = customer.name
+                frappe.db.set_value("Customer", customer_name, "member", member.name)
+
                 invoice = frappe.new_doc("Sales Invoice")
-                invoice.customer = customer.name
+                invoice.customer = customer_name
                 invoice.posting_date = today()
                 invoice.due_date = add_days(today(), 14)
                 _prepare_sepa_test_invoice(invoice, "MEMBERSHIP-DUES", 25.0)
@@ -666,7 +674,7 @@ class TestSEPAPartialBatchFailures(EnhancedTestCase):
                 first_name=f"Valid{i}",
                 birth_date="1990-01-01"
             )
-            
+
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.update({
                 "member": member.name,
@@ -678,21 +686,28 @@ class TestSEPAPartialBatchFailures(EnhancedTestCase):
                 "bic": "ABNANL2A"
             })
             mandate.insert()
-            
-            # Create customer manually since no factory method exists
-        customer = frappe.new_doc("Customer")
-        customer.update({
-            "customer_name": "Field Test Customer",
-            "customer_type": "Individual"
-        })
-        customer.insert()
-        invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = customer.name
-        invoice.posting_date = today()
-        _prepare_sepa_test_invoice(invoice, "TEST", 25.0)
-        invoice.insert()
-        invoice.submit()
-        valid_invoices.append(invoice)
+
+            # Reuse the member's auto-created Customer and set the Customer.member
+            # back-link so Sales Invoice.before_validate populates invoice.member
+            # (otherwise the bulk optimizer skips the invoice).
+            customer_name = member.customer
+            if not customer_name:
+                customer = frappe.new_doc("Customer")
+                customer.update({
+                    "customer_name": f"Valid Customer {frappe.generate_hash(length=6)}",
+                    "customer_type": "Individual",
+                })
+                customer.insert()
+                customer_name = customer.name
+            frappe.db.set_value("Customer", customer_name, "member", member.name)
+
+            invoice = frappe.new_doc("Sales Invoice")
+            invoice.customer = customer_name
+            invoice.posting_date = today()
+            _prepare_sepa_test_invoice(invoice, "TEST", 25.0)
+            invoice.insert()
+            invoice.submit()
+            valid_invoices.append(invoice)
         
         # Create invalid invoices (no mandate)
         for i in range(2):
@@ -702,10 +717,12 @@ class TestSEPAPartialBatchFailures(EnhancedTestCase):
             )
             # No mandate created - this should fail
             
-            # Create customer manually since no factory method exists
+            # Create customer manually since no factory method exists. Customer
+            # autoname is the customer_name, so make it unique to avoid a
+            # DuplicateEntryError when the test runs more than once.
         customer = frappe.new_doc("Customer")
         customer.update({
-            "customer_name": "Field Test Customer",
+            "customer_name": f"Field Test Customer {frappe.generate_hash(length=6)}",
             "customer_type": "Individual"
         })
         customer.insert()

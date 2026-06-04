@@ -8,6 +8,7 @@ Tests the business logic for ING Checkout SEPA Direct Debit mandate management.
 """
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -26,24 +27,19 @@ class TestMandateService(FrappeTestCase):
     def setUp(self):
         """Set up test fixtures for each test."""
         super().setUp()
-        # Create mock settings
-        self.mock_settings = {
-            "service_id": "SL-1234-5678",
-            "terms_and_conditions_url": "https://example.com/terms",
-        }
+        # Stand-in for the real INGCheckoutSettings document. Production reads
+        # settings via attribute access (self.settings.service_id), so this must
+        # be an attribute-accessible object, NOT a plain dict.
+        self.mock_settings = SimpleNamespace(
+            service_id="SL-1234-5678",
+            terms_and_conditions_url="https://example.com/terms",
+        )
 
     # -------------------------------------------------------------------------
     # create_mandate_for_member Tests
     # -------------------------------------------------------------------------
 
-    @patch(
-        "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.settings",
-        new_callable=lambda: property(
-            lambda self: {"service_id": "SL-1234", "terms_and_conditions_url": "/terms"}
-        ),
-    )
-    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
-    def test_create_mandate_for_member_success(self, mock_client_prop, mock_settings):
+    def test_create_mandate_for_member_success(self):
         """Test successful mandate creation for member."""
         from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
 
@@ -114,7 +110,7 @@ class TestMandateService(FrappeTestCase):
             result = service.create_mandate_for_member("MEM-00001")
 
             self.assertFalse(result["success"])
-            self.assertIn("no active SEPA mandate", result["error"].lower())
+            self.assertIn("no active sepa mandate", result["error"].lower())
 
     @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
     def test_create_mandate_for_member_inactive_sepa_mandate(self, mock_client):
@@ -147,11 +143,10 @@ class TestMandateService(FrappeTestCase):
             result = service.create_mandate_for_member("MEM-00001")
 
             self.assertFalse(result["success"])
-            self.assertIn("no active SEPA mandate", result["error"].lower())
+            self.assertIn("no active sepa mandate", result["error"].lower())
 
-    @patch("verenigingen.verenigingen_payments.ing_checkout.services.mandate_service.MandateService.client")
     @patch("frappe.log_error")
-    def test_create_mandate_for_member_api_error(self, mock_log_error, mock_client_prop):
+    def test_create_mandate_for_member_api_error(self, mock_log_error):
         """Test mandate creation handles API errors gracefully."""
         from verenigingen.verenigingen_payments.ing_checkout.services import MandateService
 

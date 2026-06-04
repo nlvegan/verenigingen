@@ -54,33 +54,14 @@ class SEPABusinessLogicUnitTest(EnhancedTestCase):
             ""                         # Empty string
         ]
         
+        # Use the REAL production validator (proper MOD-97 + bank-code checks)
+        # rather than a simplified inline stub that cannot detect invalid check
+        # digits (e.g. NL00...) or invalid bank codes.
+        from verenigingen.utils.validation.iban_validator import validate_iban
+
         def validate_dutch_iban(iban):
-            """Simplified IBAN validation logic"""
-            if not iban:
-                return False
-                
-            # Normalize: remove spaces and convert to uppercase
-            iban = iban.replace(" ", "").upper()
-            
-            # Check length (Dutch IBANs are 18 characters)
-            if len(iban) != 18:
-                return False
-                
-            # Check country code
-            if not iban.startswith("NL"):
-                return False
-                
-            # Check if remaining characters are alphanumeric
-            if not iban[2:].isalnum():
-                return False
-                
-            # Simplified check digits validation (would need proper mod-97 in real implementation)
-            check_digits = iban[2:4]
-            if not check_digits.isdigit():
-                return False
-                
-            return True
-        
+            return validate_iban(iban)["valid"]
+
         for iban in valid_ibans:
             self.assertTrue(validate_dutch_iban(iban),
                           f"IBAN {iban} should be valid")
@@ -542,7 +523,10 @@ class SEPAValidationUnitTest(EnhancedTestCase):
         
         # Valid SEPA purpose codes
         valid_codes = ["CBFF", "CDCB", "CHAR", "COMC", "CPKC", "DIVI", "GOVI"]
-        invalid_codes = ["INVALID", "XXXX", "", None, "ABC"]
+        # A purpose code is optional, so a missing value (None or "") is treated
+        # as valid; only a present-but-wrong value is invalid.
+        invalid_codes = ["INVALID", "XXXX", "ABC"]
+        optional_codes = ["", None]
         
         def validate_purpose_code(code):
             """Validate SEPA purpose code"""
@@ -566,9 +550,12 @@ class SEPAValidationUnitTest(EnhancedTestCase):
                           f"Purpose code {code} should be valid")
                           
         for code in invalid_codes:
-            if code is not None:  # None should be valid (optional)
-                self.assertFalse(validate_purpose_code(code),
-                               f"Purpose code {code} should be invalid")
+            self.assertFalse(validate_purpose_code(code),
+                           f"Purpose code {code} should be invalid")
+
+        for code in optional_codes:
+            self.assertTrue(validate_purpose_code(code),
+                          f"Optional/empty purpose code {code!r} should be valid")
             
     def test_batch_booking_validation(self):
         """Test SEPA batch booking indicator validation"""

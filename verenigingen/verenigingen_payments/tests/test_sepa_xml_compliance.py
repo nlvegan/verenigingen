@@ -40,6 +40,12 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
     def setUpClass(cls):
         """Set up SEPA configuration for XML testing"""
         super().setUpClass()
+        # Single-module runs under-seed (before_tests is unreliable in erpnext-v16),
+        # leaving Verenigingen Settings.creation_user unset; seed it so the customer
+        # <->donor link and Settings save succeed.
+        from verenigingen.tests.setup import ensure_member_test_masters
+
+        ensure_member_test_masters()
         cls._setup_sepa_test_configuration()
 
     @classmethod
@@ -144,7 +150,12 @@ class TestSEPAXMLCompliance(EnhancedTestCase):
                     "mandate_id": mandate_reference,
                     "member": self._invoice_member.name,
                     "account_holder_name": f"{self._invoice_member.first_name} {self._invoice_member.last_name}",
-                    "iban": generate_test_iban("TEST"),
+                    # Unique account number per mandate: a fixed test IBAN would
+                    # collide on the second mandate for the same member ("already
+                    # has an active SEPA mandate with this IBAN").
+                    "iban": generate_test_iban(
+                        "TEST", account_number=str(abs(hash(mandate_reference)) % (10**10)).zfill(10)
+                    ),
                     "status": "Active",
                     "mandate_type": "RCUR",
                     "scheme": "SEPA",

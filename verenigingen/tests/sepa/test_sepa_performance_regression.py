@@ -284,15 +284,24 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
 
         from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
 
-        service = get_sepa_mandate_service()
         results = []
+        site = frappe.local.site
 
         def worker_thread(thread_id):
-            start_time = time.time()
-            test_members = [f"THREAD-{thread_id}-{i}" for i in range(5)]
-            result = service.get_active_mandate_batch(test_members)
-            execution_time = time.time() - start_time
-            results.append(execution_time)
+            # Each thread needs its OWN Frappe DB connection: frappe.db is
+            # thread-local, so a spawned thread that uses the parent's connection
+            # raises "object is not bound". Initialize + connect per thread.
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                service = get_sepa_mandate_service()
+                start_time = time.time()
+                test_members = [f"THREAD-{thread_id}-{i}" for i in range(5)]
+                service.get_active_mandate_batch(test_members)
+                execution_time = time.time() - start_time
+                results.append(execution_time)
+            finally:
+                frappe.destroy()
 
         # Create 5 concurrent threads
         threads = []

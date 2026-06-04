@@ -321,7 +321,13 @@ class TestPain002IngestionService(FrappeTestCase):
             (batch_name, f"Test Batch {batch_name}", frappe.utils.today(), "RCUR", "Generated"),
         )
 
-        # Create log entry
+        # update_batch_status() looks up the log by file_name. The helper commits
+        # its rows and does not clean them up, so a fixed file_name accumulates
+        # across runs and the service would lock/update a STALE prior row instead
+        # of the one created here. Delete any pre-existing rows with this
+        # file_name first so exactly one matches.
+        frappe.db.delete("SEPA Batch Upload Log", {"file_name": file_name})
+
         log_name = frappe.generate_hash(length=10)
         frappe.db.sql(
             """

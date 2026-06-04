@@ -59,11 +59,12 @@ class SEPAPerformanceMonitor:
         # Record baseline metrics
         process = psutil.Process()
         memory_baseline = process.memory_info().rss / 1024 / 1024  # MB
-        # Query counting is MySQL version specific, use approximation
-        try:
-            query_baseline = 0  # Simplified for compatibility
-        except:
-            query_baseline = 0
+
+        # Begin counting SQL queries for this operation. We wrap frappe.db.sql
+        # with a counter (the same technique Frappe's own assertQueryCount uses)
+        # rather than relying on a DB-specific counter. Reference-counted so
+        # nested operations share a single wrapper and restore it correctly.
+        query_baseline = self._begin_query_counting()
 
         self.current_operations[operation_id] = {
             "operation": operation_name,
@@ -74,6 +75,43 @@ class SEPAPerformanceMonitor:
         }
 
         return operation_id
+
+    def _begin_query_counting(self) -> int:
+        """Install a SQL-query counter (idempotent / reference-counted).
+
+        Returns the current cumulative query count so the caller can compute a
+        per-operation delta in ``end_operation``.
+        """
+        if not hasattr(self, "_sql_counter_depth"):
+            self._sql_counter_depth = 0
+            self._sql_query_total = 0
+
+        if self._sql_counter_depth == 0:
+            db_cls = frappe.db.__class__
+            self._orig_db_sql = db_cls.sql
+
+            orig_sql = self._orig_db_sql
+            monitor = self
+
+            def _counting_sql(*args, **kwargs):
+                monitor._sql_query_total += 1
+                return orig_sql(*args, **kwargs)
+
+            db_cls.sql = _counting_sql
+
+        self._sql_counter_depth += 1
+        return self._sql_query_total
+
+    def _end_query_counting(self) -> int:
+        """Tear down the SQL-query counter when the outermost op finishes."""
+        if not getattr(self, "_sql_counter_depth", 0):
+            return getattr(self, "_sql_query_total", 0)
+
+        self._sql_counter_depth -= 1
+        total = self._sql_query_total
+        if self._sql_counter_depth == 0:
+            frappe.db.__class__.sql = self._orig_db_sql
+        return total
 
     def end_operation(self, operation_id: str, additional_data: Dict[str, Any] = None) -> PerformanceMetric:
         """End monitoring and record performance metrics"""
@@ -90,11 +128,9 @@ class SEPAPerformanceMonitor:
         current_memory = process.memory_info().rss / 1024 / 1024  # MB
         memory_used = current_memory - operation_data["memory_baseline"]
 
-        # Approximate query count (simplified for compatibility)
-        try:
-            current_queries = 0  # Simplified for compatibility
-        except:
-            current_queries = 0
+        # Number of SQL queries executed during this operation (delta against the
+        # baseline captured at start_operation), then tear down the counter.
+        current_queries = self._end_query_counting()
         query_count = current_queries - operation_data["query_baseline"]
 
         metric = PerformanceMetric(
@@ -210,21 +246,28 @@ class SEPAPerformanceMonitor:
         """Specialized monitoring for XML generation performance"""
         operation_id = self.start_operation("sepa_xml_generation", batch_size)
 
+        # start_operation installs a process-global query-counting monkey-patch on
+        # frappe.db.__class__.sql; end_operation removes it. Wrap the analysis in
+        # try/finally so the patch is ALWAYS removed even if XML analysis raises
+        # (e.g. _get_xml_depth / _estimate_compression_ratio) — otherwise the patch
+        # leaks and inflates query counts in every subsequent operation/test.
         xml_stats = {}
-        if xml_content:
-            # Analyze XML characteristics
-            try:
-                root = ET.fromstring(xml_content)
-                xml_stats = {
-                    "xml_size_bytes": len(xml_content.encode("utf-8")),
-                    "xml_elements_count": len(root.iter()),
-                    "xml_depth": self._get_xml_depth(root),
-                    "compression_ratio": self._estimate_compression_ratio(xml_content),
-                }
-            except ET.ParseError:
-                xml_stats["xml_parse_error"] = True
-
-        metric = self.end_operation(operation_id, xml_stats)
+        try:
+            if xml_content:
+                # Analyze XML characteristics
+                try:
+                    root = ET.fromstring(xml_content)
+                    xml_stats = {
+                        "xml_size_bytes": len(xml_content.encode("utf-8")),
+                        # ET.Element.iter() returns an iterator (no __len__); materialize it.
+                        "xml_elements_count": len(list(root.iter())),
+                        "xml_depth": self._get_xml_depth(root),
+                        "compression_ratio": self._estimate_compression_ratio(xml_content),
+                    }
+                except ET.ParseError:
+                    xml_stats["xml_parse_error"] = True
+        finally:
+            metric = self.end_operation(operation_id, xml_stats)
 
         # XML-specific recommendations
         if xml_stats.get("xml_size_bytes", 0) > 10 * 1024 * 1024:  # 10MB threshold

@@ -52,14 +52,30 @@ class SEPAXMLGenerationService:
         try:
             frappe.logger().info(f"Starting SEPA XML generation for batch {batch_doc.name} (pain.008.001.08)")
 
-            # Generate IDs for SEPA message
-            message_id = f"BATCH-{batch_doc.name}-{random_string(8)}"
-            payment_info_id = f"PMT-{batch_doc.name}-{random_string(8)}"
+            # Generate IDs for SEPA message. Reuse previously-stored IDs when the
+            # batch is regenerated so the same batch deterministically yields the
+            # same file (and is correctly recognized as a duplicate upload);
+            # only mint new IDs on the first generation.
+            #
+            # INVARIANT (safe against cross-batch MsgId reuse): sepa_message_id is
+            # written ONLY here (db_set below) — there is no other setter in the
+            # codebase and no copy_doc path that carries it onto a different batch.
+            # The id is namespaced by batch_doc.name (unique per batch), so reuse
+            # can only ever return THIS batch's own previously-minted id, never one
+            # a bank already received for a different batch.
+            message_id = batch_doc.get("sepa_message_id") or f"BATCH-{batch_doc.name}-{random_string(8)}"
+            payment_info_id = (
+                batch_doc.get("sepa_payment_info_id") or f"PMT-{batch_doc.name}-{random_string(8)}"
+            )
 
-            # Store IDs - use db_set to avoid validation issues after submission
+            # Store IDs - use db_set to avoid validation issues after submission.
+            # Preserve an existing generation date so regeneration is
+            # deterministic (same IDs + timestamp => identical file => duplicate
+            # correctly detected).
+            generation_date = batch_doc.get("sepa_generation_date") or f"{nowdate()} {nowtime()}"
             batch_doc.db_set("sepa_message_id", message_id)
             batch_doc.db_set("sepa_payment_info_id", payment_info_id)
-            batch_doc.db_set("sepa_generation_date", f"{nowdate()} {nowtime()}")
+            batch_doc.db_set("sepa_generation_date", generation_date)
 
             # Validate required settings
             validation_result = self.config_service.validate_sepa_configuration()

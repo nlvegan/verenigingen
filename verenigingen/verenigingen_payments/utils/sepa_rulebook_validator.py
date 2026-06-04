@@ -86,10 +86,28 @@ class SEPARulebookValidator:
     - Country-specific requirements (focus on Netherlands)
     """
 
+    # Default namespace; the actual one is derived from each document at
+    # validation time (the codebase emits both pain.008.001.02 and .08).
+    DEFAULT_NAMESPACE = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"
+
     def __init__(self):
-        self.namespace = {"sepa": "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"}
+        self.namespace = {"sepa": self.DEFAULT_NAMESPACE}
         self.rules = self._initialize_sepa_rules()
         self.validation_cache = {}
+
+    @staticmethod
+    def _extract_namespace(root) -> str:
+        """Extract the XML namespace URI from a parsed root element.
+
+        ElementTree tags are of the form '{namespace}localname' when the
+        document declares a default namespace. Rule XPaths bind the 'sepa'
+        prefix to this URI, so it must match the document's actual namespace
+        (otherwise every findall returns nothing and invalid XML passes).
+        """
+        tag = getattr(root, "tag", "")
+        if tag.startswith("{"):
+            return tag[1 : tag.index("}")]
+        return SEPARulebookValidator.DEFAULT_NAMESPACE
 
     def _initialize_sepa_rules(self) -> List[SEPARule]:
         """Initialize SEPA rulebook rules"""
@@ -268,6 +286,10 @@ class SEPARulebookValidator:
         try:
             # Parse XML
             root = ET.fromstring(xml_content)
+
+            # Bind the 'sepa' prefix used by rule XPaths to THIS document's
+            # namespace (pain.008.001.02 vs .08) so element lookups resolve.
+            self.namespace = {"sepa": self._extract_namespace(root)}
 
             # Run all applicable rules
             issues = []

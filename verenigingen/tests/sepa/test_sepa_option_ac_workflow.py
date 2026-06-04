@@ -51,29 +51,29 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
         test_cases = [
             # Valid monthly period (30 days, within tolerance)
             {
-                "current_coverage_start": "2024-01-01",
-                "current_coverage_end": "2024-01-31",
+                "last_invoice_coverage_start": "2024-01-01",
+                "last_invoice_coverage_end": "2024-01-31",
                 "billing_frequency": "Monthly",
                 "expected_valid": True
             },
             # Valid annual period (365 days, within tolerance)
             {
-                "current_coverage_start": "2024-01-01", 
-                "current_coverage_end": "2024-12-31",
+                "last_invoice_coverage_start": "2024-01-01", 
+                "last_invoice_coverage_end": "2024-12-31",
                 "billing_frequency": "Annual",
                 "expected_valid": True
             },
             # Valid weekly period (7 days, exact)
             {
-                "current_coverage_start": "2024-01-01",
-                "current_coverage_end": "2024-01-07", 
+                "last_invoice_coverage_start": "2024-01-01",
+                "last_invoice_coverage_end": "2024-01-07", 
                 "billing_frequency": "Weekly",
                 "expected_valid": True
             },
             # Invalid monthly period (too long)
             {
-                "current_coverage_start": "2024-01-01",
-                "current_coverage_end": "2024-03-01",
+                "last_invoice_coverage_start": "2024-01-01",
+                "last_invoice_coverage_end": "2024-03-01",
                 "billing_frequency": "Monthly", 
                 "expected_valid": False
             }
@@ -241,8 +241,8 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
             
         # Test with missing coverage period data
         invalid_schedule = {
-            "current_coverage_start": None,
-            "current_coverage_end": "2024-01-31",
+            "last_invoice_coverage_start": None,
+            "last_invoice_coverage_end": "2024-01-31",
             "billing_frequency": "Monthly"
         }
         

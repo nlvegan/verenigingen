@@ -20,6 +20,7 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import date, timedelta
 
 import frappe
+from frappe.utils import getdate
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.services.sepa_mandate_lifecycle_service import SEPAMandateLifecycleService
 
@@ -510,13 +511,14 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         mandate = self._create_mock_mandate()
         result = {'success': True, 'warnings': [], 'errors': []}
 
-        with patch('frappe.utils.today', return_value=date.today()):
-            with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
 
-                self.service._handle_cancellation(mandate, result)
+            self.service._handle_cancellation(mandate, result)
 
-                self.assertEqual(mandate.cancellation_date, date.today())
-                mock_update.assert_called_once_with(mandate, 'Cancelled')
+            # The service sets cancellation_date via frappe.utils.today(), which
+            # returns a yyyy-mm-dd string; normalize before comparing to a date.
+            self.assertEqual(getdate(mandate.cancellation_date), date.today())
+            mock_update.assert_called_once_with(mandate, 'Cancelled')
 
     def test_handle_expiration_workflow(self):
         """Test expiration workflow handling"""

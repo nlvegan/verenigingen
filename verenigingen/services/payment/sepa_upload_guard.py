@@ -284,10 +284,13 @@ class SEPAUploadGuard(StatelessService):
             uploaded_by = frappe.session.user
 
         try:
+            # batch_status is mandatory and its default is not auto-applied on a
+            # raw get_doc().insert() under frappe.flags.in_import; set explicitly.
             log_entry = frappe.get_doc(
                 {
                     "doctype": self.UPLOAD_LOG_DOCTYPE,
                     "batch_name": batch_name,
+                    "batch_status": "Uploaded",
                     "file_hash": file_hash,
                     "upload_time": frappe.utils.now_datetime(),
                     "uploaded_by": uploaded_by,
@@ -362,14 +365,20 @@ class SEPAUploadGuard(StatelessService):
         if uploaded_by is None:
             uploaded_by = frappe.session.user
 
-        # Use transaction to ensure atomicity
-        frappe.db.begin()
+        # Use a SAVEPOINT (nested transaction) rather than frappe.db.begin().
+        # begin() issues "START TRANSACTION", which fails with ImplicitCommitError
+        # when a transaction is already open (always true under the test runner,
+        # and during any request). Atomicity of "check duplicate + insert" is
+        # ultimately guaranteed by the DB unique constraint (handled below);
+        # the savepoint only scopes our rollback to this operation.
+        savepoint = "sepa_upload_register"
+        frappe.db.savepoint(savepoint)
         try:
             # Check for existing upload within transaction
             existing = self._find_existing_upload(file_hash)
 
             if existing:
-                frappe.db.rollback()
+                frappe.db.rollback(save_point=savepoint)
                 return UploadCheckResult(
                     success=False,
                     file_hash=file_hash,
@@ -383,11 +392,15 @@ class SEPAUploadGuard(StatelessService):
                     ).format(existing.get("batch_name"), existing.get("upload_time")),
                 )
 
-            # No duplicate found, register the upload
+            # No duplicate found, register the upload. batch_status is a
+            # mandatory field whose JSON default ("Uploaded") is NOT auto-applied
+            # on a raw get_doc().insert() under frappe.flags.in_import, so set it
+            # explicitly to avoid a MandatoryError when called from such contexts.
             log_entry = frappe.get_doc(
                 {
                     "doctype": self.UPLOAD_LOG_DOCTYPE,
                     "batch_name": batch_name,
+                    "batch_status": "Uploaded",
                     "file_hash": file_hash,
                     "upload_time": frappe.utils.now_datetime(),
                     "uploaded_by": uploaded_by,
@@ -396,7 +409,9 @@ class SEPAUploadGuard(StatelessService):
             )
             # Security: Audit log entry for SEPA upload - atomic operation with transaction isolation
             log_entry.insert(ignore_permissions=True)
-            frappe.db.commit()
+            # Release the savepoint by letting the surrounding transaction carry
+            # the insert forward; do NOT commit() here (that would prematurely
+            # commit unrelated request work and breaks under the test runner).
 
             self.logger.info(
                 f"Atomically registered SEPA batch upload: batch={batch_name}, hash={file_hash[:16]}..."
@@ -411,7 +426,7 @@ class SEPAUploadGuard(StatelessService):
 
         except frappe.DuplicateEntryError:
             # DB unique constraint caught the race condition - another worker won
-            frappe.db.rollback()
+            frappe.db.rollback(save_point=savepoint)
             self.logger.warning(
                 f"DuplicateEntryError in check_and_register (race condition caught by DB): hash={file_hash[:16]}..."
             )
@@ -442,7 +457,7 @@ class SEPAUploadGuard(StatelessService):
                 )
 
         except Exception as e:
-            frappe.db.rollback()
+            frappe.db.rollback(save_point=savepoint)
 
             # Check if this is a DB integrity error (pymysql.IntegrityError, etc.)
             # These indicate constraint violations not caught by frappe.DuplicateEntryError

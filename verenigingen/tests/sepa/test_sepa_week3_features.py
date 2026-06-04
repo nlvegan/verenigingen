@@ -94,7 +94,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
                     "amount": 75.25,
                     "currency": "EUR",
                     "member_name": "Test Member 2",
-                    "iban": "NL13INGB0012345678",
+                    "iban": "NL71INGB0012345678",
                     "bic": "INGBNL2A",
                     "mandate_reference": "TEST-MANDATE-002"
                 }
@@ -155,11 +155,13 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         lock_manager2 = SEPADistributedLock()
         resource = "test_resource_002"
 
-        # First manager acquires lock
-        with lock_manager1.acquire_lock(resource, timeout=10):
+        # First manager holds the lock long enough (60s) that the second
+        # manager cannot simply wait it out. The second manager uses a short
+        # acquisition window so contention fails fast deterministically.
+        with lock_manager1.acquire_lock(resource, timeout=60):
             # Second manager should fail to acquire the same lock
             with self.assertRaises(Exception):  # Should raise SEPAError
-                with lock_manager2.acquire_lock(resource, timeout=1):
+                with lock_manager2.acquire_lock(resource, timeout=1, acquisition_timeout=2):
                     pass
 
     def test_batch_creation_with_race_protection(self):
@@ -295,7 +297,10 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             nonlocal attempt_count
             attempt_count += 1
             if attempt_count < 2:
-                raise ValueError("First attempt fails")
+                # Use a generic Exception (classified as a retryable SYSTEM
+                # failure). ValueError/TypeError are classified VALIDATION and
+                # are intentionally NOT retried by the retry manager.
+                raise Exception("First attempt fails")
             return "Success"
 
         result = decorated_function()
@@ -359,7 +364,7 @@ class TestSEPAWeek3Features(EnhancedTestCase):
 
         debtor = SEPADebtor(
             name="Test Customer",
-            iban="NL13INGB0012345678",
+            iban="NL71INGB0012345678",
             bic="INGBNL2A"
         )
 
@@ -397,8 +402,8 @@ class TestSEPAWeek3Features(EnhancedTestCase):
             initiating_party_name="Test Company"
         )
 
-        # Verify XML structure
-        self.assertIn("urn:iso:std:iso:20022:tech:xsd:pain.008.001.02", xml_content)
+        # Verify XML structure. The enhanced generator emits pain.008.001.08.
+        self.assertIn("urn:iso:std:iso:20022:tech:xsd:pain.008.001.08", xml_content)
         self.assertIn("CstmrDrctDbtInitn", xml_content)
         self.assertIn("MSG-TEST-001", xml_content)
         self.assertIn("E2E-TEST-001", xml_content)
@@ -719,7 +724,7 @@ def create_test_sepa_xml():
                     </DrctDbtTx>
                     <DbtrAgt><FinInstnId><BIC>INGBNL2A</BIC></FinInstnId></DbtrAgt>
                     <Dbtr><Nm>Test Customer</Nm></Dbtr>
-                    <DbtrAcct><Id><IBAN>NL13INGB0012345678</IBAN></Id></DbtrAcct>
+                    <DbtrAcct><Id><IBAN>NL71INGB0012345678</IBAN></Id></DbtrAcct>
                     <RmtInf><Ustrd>Test payment</Ustrd></RmtInf>
                 </DrctDbtTxInf>
             </PmtInf>

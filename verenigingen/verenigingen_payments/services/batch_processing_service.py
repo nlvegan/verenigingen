@@ -239,6 +239,12 @@ class BatchProcessingService:
                 "has_warnings": len(validation_errors) > 0,
             }
 
+        except frappe.ValidationError:
+            # Intentional validation throws (e.g. "No valid invoices found in
+            # batch") must propagate unchanged — wrapping them in the generic
+            # F3001 ("Negative batch total amount calculated") handler below
+            # masked the real cause and produced misleading error messages.
+            raise
         except Exception as e:
             from verenigingen.verenigingen_payments.utils.financial_error_handler import (
                 handle_data_integrity_error,

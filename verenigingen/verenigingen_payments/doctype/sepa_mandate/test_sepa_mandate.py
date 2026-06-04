@@ -26,6 +26,10 @@ class TestSEPAMandate(EnhancedTestCase):
             }
         )
 
+    def _reset_in_import_flag(self):
+        """Restore frappe.flags.in_import after a test toggled it off."""
+        frappe.flags.in_import = getattr(self, "_restore_in_import", False)
+
     def tearDown(self):
         # Clean up test data
         try:
@@ -250,6 +254,13 @@ class TestSEPAMandate(EnhancedTestCase):
 
     def test_sequence_type_determination(self):
         """Test FRST/RCUR sequence type determination"""
+        # EnhancedTestCase sets frappe.flags.in_import=True, which skips child
+        # validate() hooks (where sequence_type is auto-determined). Clear it so
+        # the production sequence-type logic runs.
+        self._restore_in_import = frappe.flags.in_import
+        frappe.flags.in_import = False
+        self.addCleanup(self._reset_in_import_flag)
+
         # Insert mandate with Active status
         self.mandate.status = "Active"
         self.mandate.insert()
@@ -290,6 +301,14 @@ class TestSEPAMandate(EnhancedTestCase):
 
     def test_mandate_usage_validation(self):
         """Test mandate usage validation"""
+        # EnhancedTestCase sets frappe.flags.in_import=True, which makes Frappe
+        # SKIP child-table validate() hooks. This test exercises the SEPA Mandate
+        # Usage child validate() (auto-setting sequence_type, rejecting inactive
+        # mandates), so the import flag must be cleared for the real code path.
+        self._restore_in_import = frappe.flags.in_import
+        frappe.flags.in_import = False
+        self.addCleanup(self._reset_in_import_flag)
+
         # Insert mandate with Active status
         self.mandate.status = "Active"
         self.mandate.insert()

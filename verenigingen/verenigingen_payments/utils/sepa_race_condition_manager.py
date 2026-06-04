@@ -118,7 +118,12 @@ class SEPADistributedLock:
 
     @contextmanager
     def acquire_lock(
-        self, resource: str, lock_type: str = None, timeout: int = None, metadata: Dict[str, Any] = None
+        self,
+        resource: str,
+        lock_type: str = None,
+        timeout: int = None,
+        metadata: Dict[str, Any] = None,
+        acquisition_timeout: int = None,
     ):
         """
         Context manager to acquire and release distributed lock
@@ -126,8 +131,11 @@ class SEPADistributedLock:
         Args:
             resource: Resource identifier to lock
             lock_type: Type of lock (batch_creation, invoice_processing, etc.)
-            timeout: Lock timeout in seconds
+            timeout: Lock timeout in seconds (how long the lock is held)
             metadata: Additional metadata to store with lock
+            acquisition_timeout: How long to keep retrying to acquire the lock
+                before giving up. Defaults to ``ACQUISITION_TIMEOUT``. Callers
+                that must fail fast on contention can pass a small value.
 
         Yields:
             LockInfo object if lock acquired successfully
@@ -142,6 +150,7 @@ class SEPADistributedLock:
                 lock_type=lock_type or self.BATCH_CREATION_LOCK,
                 timeout=timeout or self.DEFAULT_TIMEOUT,
                 metadata=metadata or {},
+                acquisition_timeout=acquisition_timeout,
             )
             yield lock_info
 
@@ -156,7 +165,12 @@ class SEPADistributedLock:
                 self._release_lock_internal(lock_info.lock_id)
 
     def _acquire_lock_internal(
-        self, resource: str, lock_type: str, timeout: int, metadata: Dict[str, Any]
+        self,
+        resource: str,
+        lock_type: str,
+        timeout: int,
+        metadata: Dict[str, Any],
+        acquisition_timeout: int = None,
     ) -> LockInfo:
         """
         Internal method to acquire distributed lock
@@ -166,6 +180,8 @@ class SEPADistributedLock:
             lock_type: Type of lock
             timeout: Lock timeout in seconds
             metadata: Lock metadata
+            acquisition_timeout: How long to keep retrying (defaults to
+                ``ACQUISITION_TIMEOUT``).
 
         Returns:
             LockInfo if lock acquired
@@ -176,8 +192,9 @@ class SEPADistributedLock:
         lock_id = self._generate_lock_id(resource, lock_type)
         start_time = time.time()
         attempt = 0
+        max_wait = acquisition_timeout if acquisition_timeout is not None else self.ACQUISITION_TIMEOUT
 
-        while time.time() - start_time < self.ACQUISITION_TIMEOUT:
+        while time.time() - start_time < max_wait:
             attempt += 1
 
             try:
@@ -224,13 +241,20 @@ class SEPADistributedLock:
                     },
                 )
 
-                # Check if we got the lock
-                current_lock = frappe.db.get_value(
-                    "SEPA_Distributed_Lock",
-                    f"SEPA_LOCK_{resource}",
-                    ["lock_id", "lock_owner", "acquired_at", "expires_at", "is_active"],
+                # Check if we got the lock. tabSEPA_Distributed_Lock is a raw
+                # table (no registered DocType), so frappe.db.get_value raises
+                # "DocType SEPA_Distributed_Lock not found" in v16 — read it with
+                # raw SQL instead.
+                _rows = frappe.db.sql(
+                    """
+                    SELECT lock_id, lock_owner, acquired_at, expires_at, is_active
+                    FROM `tabSEPA_Distributed_Lock`
+                    WHERE name = %s
+                    """,
+                    (f"SEPA_LOCK_{resource}",),
                     as_dict=True,
                 )
+                current_lock = _rows[0] if _rows else None
 
                 if (
                     current_lock
@@ -279,7 +303,7 @@ class SEPADistributedLock:
         current_lock_info = self._get_current_lock_info(resource)
         error_msg = (
             f"Failed to acquire lock for resource '{resource}' after {attempt} attempts. "
-            f"Lock held by: {current_lock_info.get('owner', 'unknown')} "
+            f"Lock held by: {current_lock_info.get('lock_owner', 'unknown')} "
             f"since {current_lock_info.get('acquired_at', 'unknown')}"
         )
 
@@ -344,13 +368,17 @@ class SEPADistributedLock:
     def _get_current_lock_info(self, resource: str) -> Dict[str, Any]:
         """Get information about current lock on resource"""
         try:
-            lock_info = frappe.db.get_value(
-                "SEPA_Distributed_Lock",
-                f"SEPA_LOCK_{resource}",
-                ["lock_owner", "acquired_at", "expires_at", "lock_type", "is_active"],
+            # Raw table (no registered DocType) -> use raw SQL, not get_value.
+            rows = frappe.db.sql(
+                """
+                SELECT lock_owner, acquired_at, expires_at, lock_type, is_active
+                FROM `tabSEPA_Distributed_Lock`
+                WHERE name = %s
+                """,
+                (f"SEPA_LOCK_{resource}",),
                 as_dict=True,
             )
-            return lock_info or {}
+            return (rows[0] if rows else {}) or {}
         except Exception:
             return {}
 

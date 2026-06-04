@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import get_datetime, getdate
 
 from verenigingen.utils.constants import Roles
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
@@ -154,10 +154,25 @@ class SEPAXMLAdapter:
             transactions=transactions,
         )
 
+        # Use the batch's stored generation timestamp (set by the generation
+        # service) so regenerating the same batch yields byte-identical XML and
+        # is correctly recognized as a duplicate upload; fall back to now().
+        creation_datetime = datetime.now()
+        stored_gen_date = batch_doc.get("sepa_generation_date")
+        # Only honour real datetime/str values (mocked batches in tests may
+        # return non-date objects here).
+        if isinstance(stored_gen_date, (str, datetime)):
+            try:
+                parsed = get_datetime(stored_gen_date)
+                if isinstance(parsed, datetime):
+                    creation_datetime = parsed
+            except Exception:
+                creation_datetime = datetime.now()
+
         # Generate XML using enhanced generator
         xml_string = self.generator.generate_sepa_xml(
             message_id=message_id,
-            creation_datetime=datetime.now(),
+            creation_datetime=creation_datetime,
             payment_infos=[payment_info],
             initiating_party_name=settings["organization_name"],
         )

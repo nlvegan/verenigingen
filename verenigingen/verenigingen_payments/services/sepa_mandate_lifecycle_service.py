@@ -400,15 +400,18 @@ class SEPAMandateLifecycleService:
     def _handle_activation(self, mandate_doc, result: Dict) -> None:
         """Handle mandate activation workflow"""
         try:
-            # Ensure required fields are present
+            # Ensure required fields are present. Report ALL missing requirements
+            # in one pass (rather than failing on the first) so the caller sees
+            # the complete list of what must be supplied before activation.
             if not mandate_doc.mandate_id:
                 result["errors"].append(_("Mandate ID is required for activation"))
                 result["success"] = False
-                return
 
             if not mandate_doc.iban:
                 result["errors"].append(_("IBAN is required for activation"))
                 result["success"] = False
+
+            if not result["success"]:
                 return
 
             # Update member integration

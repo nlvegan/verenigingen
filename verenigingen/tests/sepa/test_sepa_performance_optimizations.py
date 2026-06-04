@@ -144,11 +144,12 @@ class TestBatchPerformanceOptimizer(EnhancedTestCase):
             
             # Create SEPA mandate for member
             sepa_mandate = self.create_test_sepa_mandate(
-                member=member.name,
-                iban=f"NL91ABNA041716430{i:01d}",
+                member_name=member.name,
+                iban=self.factory.create_test_iban(),
                 mandate_id=f"MTEST{i:03d}"
             )
-            member.db_set("active_mandate", sepa_mandate.name)
+            # Member has no `active_mandate` column; the bulk optimizer JOINs
+            # SEPA Mandate by member, so the mandate created above is enough.
             test_members.append(member)
         
         # Test bulk retrieval
@@ -180,24 +181,26 @@ class TestBatchPerformanceOptimizer(EnhancedTestCase):
                 birth_date="1985-01-01"
             )
             
-            # Create customer for member
-            customer = self.create_test_customer(
-                customer_name=f"Customer {member.full_name}",
-                customer_type="Individual"
-            )
-            member.db_set("customer", customer.name)
-            
-            # Create membership and invoice
+            # Create customer for member (create_test_sales_invoice with a Member
+            # name auto-creates and links the Customer via member.create_customer()).
             membership = self.create_test_membership(member=member.name)
             invoice = self.create_test_sales_invoice(
-                customer=customer.name,
-                member=member.name,
+                customer=member.name,
                 membership=membership.name
             )
-            
+            member.reload()
+
+            # process_batch_invoices_optimized() skips any invoice whose member
+            # has no SEPA mandate, so a SEPA-processable invoice must have one.
+            self.create_test_sepa_mandate(
+                member_name=member.name,
+                iban=self.factory.create_test_iban(),
+                mandate_id=f"ITEST{i:03d}",
+            )
+
             test_data.append({
                 "member": member,
-                "customer": customer,
+                "customer": member.customer,
                 "invoice": invoice,
                 "membership": membership
             })
@@ -214,7 +217,8 @@ class TestBatchPerformanceOptimizer(EnhancedTestCase):
         for processed in processed_invoices:
             self.assertIn("invoice_data", processed)
             self.assertIn("member_data", processed)
-            # Note: mandate_data may be None if no mandate exists
+            # Every processed invoice has a mandate (those without are skipped).
+            self.assertIsNotNone(processed["mandate_data"])
             self.assertIn("address_data", processed)
     
     def test_performance_statistics_tracking(self):
@@ -315,14 +319,19 @@ class TestSEPAPerformanceMonitoring(EnhancedTestCase):
     
     def test_performance_recommendations_generation(self):
         """Test automatic performance recommendation generation"""
-        # Simulate high-query operation
-        operation_id = self.monitor.start_operation("high_query_operation", batch_size=100)
-        
-        # Simulate work and queries (mock high query count)
-        with patch.object(frappe.db, 'sql_list', return_value=[500]):  # Mock high query count
-            time.sleep(0.05)  # 50ms
-            metric = self.monitor.end_operation(operation_id)
-        
+        # Drive a genuine N+1 pattern: run real SQL queries (well over the
+        # 3-queries-per-item threshold) inside a small-batch operation so the
+        # monitor's real query counter records a high queries-per-item ratio and
+        # emits a query_optimization recommendation. No mocking — the monitor
+        # wraps frappe.db.sql to count actual queries.
+        operation_id = self.monitor.start_operation("high_query_operation", batch_size=2)
+
+        for _ in range(20):  # 20 queries / 2 items = 10 queries-per-item (> 3)
+            frappe.db.sql("SELECT 1")
+        metric = self.monitor.end_operation(operation_id)
+
+        self.assertGreater(metric.query_count, 6)
+
         # Check if recommendations were generated
         recommendations = self.monitor.get_recent_recommendations(1)
         
@@ -408,32 +417,33 @@ class TestSEPAProcessorIntegration(EnhancedTestCase):
         """Test batch creation with performance optimizations enabled"""
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
-        # Create test data for batch processing
+        # Create test data for batch processing. The Customer is created and
+        # linked via member.create_customer() (invoked by create_test_sales_invoice
+        # below when given a Member name).
         member = self.create_test_member(birth_date="1990-01-01")
-        customer = self.create_test_customer(
-            customer_name=f"Customer {member.full_name}",
-            customer_type="Individual"
-        )
-        member.db_set("customer", customer.name)
-        
+
         # Create SEPA mandate
         sepa_mandate = self.create_test_sepa_mandate(
-            member=member.name,
+            member_name=member.name,
             iban="NL91ABNA0417164300",
             mandate_id="TEST001"
         )
-        member.db_set("active_mandate", sepa_mandate.name)
-        
-        # Create membership dues schedule
-        schedule = self.create_test_membership_dues_schedule(
+        # Member has no `active_mandate` column; the SEPA processor resolves the
+        # mandate by member, so no link field write is needed.
+
+        # A Membership provides the mandatory membership_type the dues schedule
+        # derives from.
+        membership = self.create_test_membership(member=member.name)
+
+        # Create membership dues schedule (bridge method on EnhancedTestCase).
+        schedule = self.create_test_dues_schedule(
             member=member.name,
             payment_terms_template="SEPA Direct Debit"
         )
         
-        # Create invoice
+        # Create invoice (auto-creates + links the Customer for the member)
         invoice = self.create_test_sales_invoice(
-            customer=customer.name,
-            member=member.name,
+            customer=member.name,
             status="Unpaid"
         )
         
@@ -499,8 +509,11 @@ class TestDirectDebitBatchOptimizations(EnhancedTestCase):
         except Exception as e:
             # Expected to fail since invoices don't exist, but should have used optimizer
             error_msg = str(e)
-            # The error should come from bulk validation, not individual queries
-            self.assertIn("Invoice", error_msg)  # Should mention invoice validation
+            # The error should come from bulk invoice validation ("No valid
+            # invoices found in batch"), not be masked by the generic F3001
+            # "Negative batch total amount calculated" data-integrity handler.
+            self.assertIn("invoice", error_msg.lower())  # Should mention invoice validation
+            self.assertNotIn("Negative batch total", error_msg)
 
 
 if __name__ == "__main__":

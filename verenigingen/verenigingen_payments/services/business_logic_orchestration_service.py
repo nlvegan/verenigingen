@@ -344,9 +344,16 @@ class BusinessLogicOrchestrationService:
         """Create a new Direct Debit Batch document"""
         try:
             batch_doc = frappe.new_doc("Direct Debit Batch")
-            batch_doc.collection_date = collection_date or frappe.utils.today()
-            batch_doc.batch_date = frappe.utils.today()
+            # Direct Debit Batch has batch_date (not collection_date) and
+            # mandatory batch_type / batch_description. The collection date
+            # drives the batch_date.
+            batch_doc.batch_date = collection_date or frappe.utils.today()
+            batch_doc.batch_description = f"Direct Debit Batch {frappe.utils.today()}"
             batch_doc.status = "Draft"
+            # batch_type is mandatory; derive from the invoices' sequence type
+            # (all rows in one batch share a sequence type), defaulting to RCUR.
+            seq_types = {inv.get("sequence_type") for inv in invoices if inv.get("sequence_type")}
+            batch_doc.batch_type = seq_types.pop() if len(seq_types) == 1 else "RCUR"
 
             # Add invoices to batch
             for invoice_data in invoices:
@@ -354,12 +361,14 @@ class BusinessLogicOrchestrationService:
                     "invoices",
                     {
                         "invoice": invoice_data.get("name"),
-                        "customer": invoice_data.get("customer"),
+                        "membership": invoice_data.get("membership"),
+                        "member": invoice_data.get("member"),
+                        "member_name": invoice_data.get("member_name"),
                         "amount": invoice_data.get("outstanding_amount", 0),
                         "currency": invoice_data.get("currency", "EUR"),
                         "iban": invoice_data.get("iban"),
                         "mandate_reference": invoice_data.get("mandate_reference"),
-                        "membership": invoice_data.get("membership"),
+                        "sequence_type": invoice_data.get("sequence_type", "RCUR"),
                     },
                 )
 

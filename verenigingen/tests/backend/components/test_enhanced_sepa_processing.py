@@ -193,21 +193,42 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         # The Direct Debit Batch Invoice.invoice field is a Link to Sales Invoice,
         # so it must reference a real invoice (not a placeholder string), and the
         # batch must contain at least one invoice before the first save.
-        invoice = self.create_test_sales_invoice(member=dues_schedule.member)
+        # SEPA invoice validation only accepts EUR invoices, so create it under
+        # the app's EUR test company (otherwise the batch save raises "No valid
+        # invoices found in batch").
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        eur_company = get_eur_test_company()
+        invoice = self.create_test_sales_invoice(
+            member=dues_schedule.member, company=eur_company, currency="EUR"
+        )
         invoice.submit()
+        # handle_failed_payment() looks the schedule up via the invoice's
+        # membership_dues_schedule_display link; set it so failure handling runs.
+        invoice.db_set("membership_dues_schedule_display", dues_schedule.name)
+
+        # The Direct Debit Batch Invoice child requires membership, iban and
+        # mandate_reference (all mandatory), so create a SEPA mandate for the
+        # member (the local helper creates one for self.test_member, which is
+        # exactly dues_schedule.member) and populate the row from it.
+        mandate = self.create_test_sepa_mandate()
 
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = "Test batch"
-        batch.batch_type = "RCUR"
+        batch.batch_type = "FRST"
         batch.currency = "EUR"
         batch.status = "Draft"
         batch.append("invoices", {
             "invoice": invoice.name,
+            "membership": dues_schedule.membership,
             "member": dues_schedule.member,
             "member_name": "Test Member",
             "amount": 25.0,
             "currency": "EUR",
+            "iban": mandate.iban,
+            "mandate_reference": mandate.mandate_id,
+            "sequence_type": "FRST",
             "status": "Pending"
         })
         batch.save()
@@ -221,10 +242,12 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         
         processor.handle_failed_payment(batch.invoices[0], return_info)
         
-        # Validate failure handling
+        # Validate failure handling. On the first failure the processor moves the
+        # schedule into "Grace Period" (it only escalates to "Suspended" after 3
+        # consecutive failures), and records the failure count.
         dues_schedule.reload()
-        # Check that failure is recorded in notes or status
-        self.assertIn("Failed", dues_schedule.status)
+        self.assertEqual(dues_schedule.status, "Grace Period")
+        self.assertEqual(dues_schedule.consecutive_failures, 1)
         
     def test_grace_period_handling(self):
         """Test grace period handling for failed payments"""

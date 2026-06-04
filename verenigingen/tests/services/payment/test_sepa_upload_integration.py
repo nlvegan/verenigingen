@@ -26,6 +26,40 @@ from verenigingen.verenigingen_payments.services.sepa_xml_generation_service imp
 )
 
 
+def _ensure_sepa_settings_for_xml_generation():
+    """Seed the minimal, VALID SEPA configuration the XML generation service
+    needs so the upload-integration XML tests run deterministically.
+
+    Without this the service either raises "Missing required SEPA settings"
+    (tests skip) or resolves the creditor name to the underscore-prefixed
+    "_Test Company" (invalid SEPA character set -> validation error). We point
+    Verenigingen Settings at the EUR test company (whose name is SEPA-clean) and
+    set creditor_id / BIC / IBAN on Verenigingen Payments Settings, then refresh
+    the config service cache. Idempotent.
+    """
+    from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+    from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+        sepa_config_service,
+    )
+
+    company = get_eur_test_company()
+    ven_settings = frappe.get_single("Verenigingen Settings")
+    if ven_settings.company != company:
+        ven_settings.company = company
+        ven_settings.flags.ignore_validate = True
+        ven_settings.save(ignore_permissions=True)
+
+    payments = frappe.get_single("Verenigingen Payments Settings")
+    payments.company_iban = "NL91ABNA0417164300"
+    payments.company_bic = "ABNANL2A"
+    payments.creditor_id = "NL13ZZZ123456780000"
+    payments.flags.ignore_validate = True
+    payments.save(ignore_permissions=True)
+    frappe.db.commit()
+    sepa_config_service.refresh_settings_cache()
+    frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
+
+
 class TestSEPAUploadIntegration(FrappeTestCase):
     """
     Integration tests for SEPA upload guard in XML generation flow.
@@ -39,10 +73,15 @@ class TestSEPAUploadIntegration(FrappeTestCase):
         """Set up test fixtures once for all tests in this class."""
         super().setUpClass()
         cls.factory = SEPATestDataFactory(seed=54321)
+        _ensure_sepa_settings_for_xml_generation()
 
     def setUp(self):
         """Set up test fixtures for each test."""
         super().setUp()
+        # The shared site's Verenigingen Settings.company can drift back to the
+        # ERPNext "_Test Company" (underscore -> invalid SEPA name) between runs,
+        # so re-assert valid SEPA config per test and refresh the cached settings.
+        _ensure_sepa_settings_for_xml_generation()
         self.guard = get_sepa_upload_guard()
         self.service = SEPAXMLGenerationService()
 
@@ -217,10 +256,22 @@ class TestSEPAUploadGuardDirectIntegration(FrappeTestCase):
     independent of the full SEPA XML generation service.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.factory = SEPATestDataFactory(seed=24680)
+
     def setUp(self):
         """Set up test fixtures."""
         super().setUp()
         self.guard = get_sepa_upload_guard()
+
+        # SEPA Batch Upload Log.batch_name is a Link to Direct Debit Batch, so
+        # register_upload validates it. Create real batches (Direct Debit Batch
+        # validation requires at least one invoice) rather than using
+        # non-existent literal names that fail link validation.
+        self.batch_1 = self.factory.create_test_direct_debit_batch(invoice_count=1).name
+        self.batch_2 = self.factory.create_test_direct_debit_batch(invoice_count=1).name
 
         # Sample SEPA XML content for testing
         self.sample_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -253,22 +304,22 @@ class TestSEPAUploadGuardDirectIntegration(FrappeTestCase):
         After registration: should return success=False for same content
         """
         # Initial check should allow upload
-        result1 = self.guard.check_upload_allowed(self.sample_xml, "TEST-BATCH-001")
+        result1 = self.guard.check_upload_allowed(self.sample_xml, self.batch_1)
         self.assertTrue(result1.success)
         self.assertIsNotNone(result1.file_hash)
 
         # Register the upload
         register_result = self.guard.register_upload(
             self.sample_xml,
-            "TEST-BATCH-001",
+            self.batch_1,
             uploaded_by="Administrator",
         )
         self.assertTrue(register_result.success)
 
         # Second check should block
-        result2 = self.guard.check_upload_allowed(self.sample_xml, "TEST-BATCH-002")
+        result2 = self.guard.check_upload_allowed(self.sample_xml, self.batch_2)
         self.assertFalse(result2.success)
-        self.assertEqual(result2.duplicate_batch, "TEST-BATCH-001")
+        self.assertEqual(result2.duplicate_batch, self.batch_1)
 
     def test_guard_atomic_check_and_register(self):
         """
@@ -280,7 +331,7 @@ class TestSEPAUploadGuardDirectIntegration(FrappeTestCase):
         # First atomic operation should succeed
         result1 = self.guard.check_and_register(
             self.sample_xml,
-            "TEST-BATCH-001",
+            self.batch_1,
             uploaded_by="Administrator",
         )
         self.assertTrue(result1.success)
@@ -288,11 +339,11 @@ class TestSEPAUploadGuardDirectIntegration(FrappeTestCase):
         # Second atomic operation with same content should fail
         result2 = self.guard.check_and_register(
             self.sample_xml,
-            "TEST-BATCH-002",
+            self.batch_2,
             uploaded_by="Administrator",
         )
         self.assertFalse(result2.success)
-        self.assertEqual(result2.duplicate_batch, "TEST-BATCH-001")
+        self.assertEqual(result2.duplicate_batch, self.batch_1)
 
         # Only one log entry should exist
         log_count = frappe.db.count("SEPA Batch Upload Log")

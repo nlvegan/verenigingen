@@ -145,8 +145,16 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
     try:
         mandate = frappe.get_doc("SEPA Mandate", mandate_name)
 
+        # Guard: a usage record may only be created for an active mandate. We
+        # check here explicitly rather than relying solely on the child
+        # SEPAMandateUsage.validate() hook, because Frappe skips child-table
+        # validation in some save paths (e.g. when frappe.flags.in_import is set),
+        # which would silently allow recording a collection against a cancelled
+        # or expired mandate.
+        if mandate.status != "Active":
+            frappe.throw(_("Cannot use inactive mandate: {0}").format(mandate.mandate_id))
+
         # Add usage record to the mandate's usage_history child table
-        # The sequence_type will be auto-determined in validate() if None
         usage_row = mandate.append(
             "usage_history",
             {
@@ -155,13 +163,16 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
                 "reference_name": reference_name,
                 "amount": amount,
                 "status": "Pending",
+                # Determine sequence type up front. The child validate() also does
+                # this, but it is skipped under in_import, so set it here to
+                # guarantee the (mandatory) field is populated.
                 "sequence_type": sequence_type,
             },
         )
+        if not usage_row.sequence_type:
+            usage_row.sequence_type = usage_row.determine_sequence_type()
 
-        # Save the parent mandate to persist the child table record
-        # The SEPAMandateUsage.validate() will be called here, which calls
-        # determine_sequence_type() if sequence_type is None
+        # Save the parent mandate to persist the child table record.
         mandate.save()
 
         return usage_row.name
