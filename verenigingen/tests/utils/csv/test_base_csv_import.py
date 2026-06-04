@@ -160,40 +160,197 @@ class TestPrepareBackgroundImport(EnhancedTestCase):
             frappe.flags.ignore_version_changes = False
 
 
-class TestOnSubmitBackgroundMethodGuard(unittest.TestCase):
-    """BaseCSVImport.on_submit raises before db_set when _BACKGROUND_METHOD missing.
+class TestBeforeSubmitBackgroundMethodGuard(unittest.TestCase):
+    """BaseCSVImport.before_submit raises when _BACKGROUND_METHOD missing.
 
     Future-proofing guard: a hypothetical third subclass that forgets to set
-    `_BACKGROUND_METHOD` would otherwise flip the doc into "Queued" status
-    without enqueueing anything, leaving it stuck. The guard must fire BEFORE
-    the `db_set("import_status", "Queued")` write.
+    `_BACKGROUND_METHOD` would otherwise reach the on_submit enqueue with
+    a None method. Frappe's submit lifecycle runs `before_submit` BEFORE
+    writing docstatus=1, so this guard rejects the submit cleanly — the
+    doc stays in Draft (docstatus=0), no half-submitted state, no enqueue
+    attempt.
     """
 
-    def test_missing_attribute_throws_before_db_set(self):
-        # Mock justified: testing the guard's ordering invariant in isolation;
-        # constructing a real misconfigured Document subclass and instantiating
-        # it would require registering a fake DocType.
+    def test_missing_attribute_throws(self):
+        # Mock justified: testing the guard in isolation; constructing a
+        # real misconfigured Document subclass and instantiating it would
+        # require registering a fake DocType.
         from verenigingen.utils.csv.base_csv_import import BaseCSVImport
 
-        # FakeSelf has db_set (so we can assert it wasn't called) but
-        # deliberately lacks _BACKGROUND_METHOD — exactly the misconfiguration
-        # this guard is meant to catch. db_set is instance-scoped so a future
-        # second test creating another FakeSelf doesn't share the mock.
         class FakeSelf:
             pass
 
         fake_self = FakeSelf()
-        fake_self.db_set = MagicMock()
-        # frappe.throw raises frappe.ValidationError. Confirm the throw fires.
         with self.assertRaises(frappe.ValidationError):
+            BaseCSVImport.before_submit(fake_self)
+
+    def test_whitespace_only_attribute_throws(self):
+        # The strip-check catches accidental whitespace-only values too —
+        # a developer typing `_BACKGROUND_METHOD = "   "` would have passed
+        # `if not method:` alone.
+        from verenigingen.utils.csv.base_csv_import import BaseCSVImport
+
+        class FakeSelf:
+            _BACKGROUND_METHOD = "   "
+
+        with self.assertRaises(frappe.ValidationError):
+            BaseCSVImport.before_submit(FakeSelf())
+
+
+class TestOnSubmitEnqueueKwargs(unittest.TestCase):
+    """Restores the kwarg-shape coverage of BaseCSVImport.on_submit.
+
+    When the guard moved from on_submit to before_submit, the unit test
+    that verified the on_submit body (`db_set("import_status", "Queued")`
+    + `frappe.enqueue(...)`) was repurposed. Nothing now pins the
+    enqueue call signature — a subclass that override on_submit and
+    forgot to enqueue (or used the wrong queue / timeout / kwargs) would
+    not be caught. This test pins the exact kwargs.
+    """
+
+    def test_enqueue_is_called_with_expected_kwargs(self):
+        # Mock justified: testing the on_submit body without a real
+        # background-job runtime; we want to verify the call signature,
+        # not actually enqueue anything.
+        from verenigingen.utils.csv.base_csv_import import BaseCSVImport
+
+        class FakeSelf:
+            _BACKGROUND_METHOD = "some.dotted.path.process_import_background"
+            name = "CSV-IMPORT-TEST-001"
+            test_mode = False
+
+        fake_self = FakeSelf()
+        fake_self.db_set = MagicMock()
+
+        with patch.object(frappe, "enqueue") as enqueue_mock:
             BaseCSVImport.on_submit(fake_self)
-        # And — critically — db_set was never called, so a misconfigured
-        # subclass never leaves the doc stranded in "Queued".
-        fake_self.db_set.assert_not_called()
+
+        # Status flips to Queued via db_set.
+        fake_self.db_set.assert_called_once_with("import_status", "Queued")
+        # Enqueue called with the right shape.
+        enqueue_mock.assert_called_once_with(
+            method="some.dotted.path.process_import_background",
+            queue="long",
+            timeout=3600,
+            import_doc_name="CSV-IMPORT-TEST-001",
+            test_mode=False,
+            now=False,
+        )
+
+    def test_enqueue_coerces_test_mode_to_bool(self):
+        # The test_mode arg may arrive as a falsy non-bool (e.g. None on
+        # a fresh doc with no checkbox set). bool() must coerce so the
+        # downstream receiver doesn't have to second-guess.
+        from verenigingen.utils.csv.base_csv_import import BaseCSVImport
+
+        class FakeSelf:
+            _BACKGROUND_METHOD = "some.path"
+            name = "X"
+            # No test_mode attribute at all — exercises the getattr default.
+
+        fake_self = FakeSelf()
+        fake_self.db_set = MagicMock()
+
+        with patch.object(frappe, "enqueue") as enqueue_mock:
+            BaseCSVImport.on_submit(fake_self)
+
+        # Got coerced to bool (False), not left as the implicit None.
+        _, kwargs = enqueue_mock.call_args
+        self.assertIs(kwargs["test_mode"], False)
+
+
+class TestBeforeSubmitGuardIntegration(EnhancedTestCase):
+    """Confirm the guard fires INSIDE Frappe's real submit lifecycle.
+
+    The unit tests above use a FakeSelf; they verify the method body but
+    don't exercise the submit machinery (validate → before_submit → write
+    docstatus → on_submit). This integration test temporarily monkey-patches
+    `_BACKGROUND_METHOD` on a real Procurios Mandate Import to simulate a
+    misconfigured subclass, then attempts `doc.submit()` and asserts that
+    docstatus stays at 0 — proving the guard fired BEFORE Frappe's
+    docstatus write.
+    """
+
+    def test_guard_prevents_docstatus_write(self):
+        from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (
+            ProcuriosMandateImport,
+        )
+
+        original_method = ProcuriosMandateImport._BACKGROUND_METHOD
+        ProcuriosMandateImport._BACKGROUND_METHOD = ""
+        doc = None
+        try:
+            doc = frappe.get_doc(
+                {
+                    "doctype": "Procurios Mandate Import",
+                    "import_date": frappe.utils.today(),
+                    "encoding": "auto-detect",
+                    "csv_delimiter": "Semicolon",
+                }
+            )
+            doc.flags.ignore_permissions = True
+            doc.flags.ignore_mandatory = True
+            doc.insert()
+
+            # Attempting to submit MUST raise because before_submit's guard
+            # rejects the misconfigured class.
+            with self.assertRaises(frappe.ValidationError):
+                doc.submit()
+
+            # Critical: reload from DB and confirm docstatus is still 0
+            # (Draft). If the guard had fired in on_submit instead, the
+            # docstatus would already be 1 by the time of the throw.
+            doc.reload()
+            self.assertEqual(doc.docstatus, 0)
+        finally:
+            ProcuriosMandateImport._BACKGROUND_METHOD = original_method
+            if doc is not None:
+                frappe.delete_doc(
+                    "Procurios Mandate Import",
+                    doc.name,
+                    force=1,
+                    ignore_permissions=True,
+                )
 
 
 class TestMarkImportFailed(EnhancedTestCase):
     """mark_import_failed: reload + Failed status + sanitized error_log + commit."""
+
+    def _make_doc(self):
+        """Build a real Procurios Mandate Import in Validating state."""
+        doc = frappe.get_doc(
+            {
+                "doctype": "Procurios Mandate Import",
+                "import_date": frappe.utils.today(),
+                "encoding": "auto-detect",
+                "csv_delimiter": "Semicolon",
+                "import_status": "Validating",
+            }
+        )
+        doc.flags.ignore_permissions = True
+        doc.flags.ignore_mandatory = True
+        doc.insert()
+        return doc
+
+    def test_empty_string_writes_fallback_diagnostic_not_null(self):
+        # Regression guard for the skeptical reviewer's footgun #3 on PR #123:
+        # sanitize_error_for_audit("") returns None, and a naive
+        # db_set("error_log", None) would silently write SQL NULL — leaving
+        # a Failed import with no diagnostic. The helper now substitutes a
+        # fallback string.
+        from verenigingen.utils.csv.base_csv_import import mark_import_failed
+
+        doc = self._make_doc()
+        try:
+            mark_import_failed(doc, "")
+            doc.reload()
+            self.assertEqual(doc.import_status, "Failed")
+            self.assertIsNotNone(doc.error_log)
+            self.assertNotEqual((doc.error_log or "").strip(), "")
+        finally:
+            frappe.delete_doc(
+                "Procurios Mandate Import", doc.name, force=1, ignore_permissions=True
+            )
 
     def test_sets_failed_status_and_sanitized_log(self):
         from verenigingen.utils.csv.base_csv_import import mark_import_failed

@@ -143,15 +143,16 @@ def mark_import_failed(doc: Document, error_message: str) -> None:
        the DB alongside the Failed state. This matches the pre-refactor
        behaviour but is easier to overlook now that the helper hides
        the commit.
-    3. `sanitize_error_for_audit` returns `None` for empty/whitespace
-       input; `doc.db_set("error_log", None)` silently writes SQL NULL,
-       leaving the UI with no diagnostic. Callers should pass a
-       non-empty `error_message` even if the underlying exception had an
-       empty message — `traceback.format_exc()` always has content.
+
+    A Failed import doc without any error_log is always a debugging
+    hole — `sanitize_error_for_audit("")` returns `None`, so naive
+    callers that pass `str(some_empty_exception)` would silently write
+    SQL NULL. We always write SOMETHING here.
     """
     doc.reload()
+    sanitized = sanitize_error_for_audit(error_message) or "Unknown error (no diagnostic available)"
     doc.db_set("import_status", "Failed")
-    doc.db_set("error_log", sanitize_error_for_audit(error_message))
+    doc.db_set("error_log", sanitized)
     frappe.db.commit()
 
 
@@ -205,6 +206,31 @@ class BaseCSVImport(Document):
     def _read_csv_file(self) -> List[dict]:
         return self._parser.read_csv_file(self.csv_file)
 
+    def before_submit(self) -> None:
+        """Validate the subclass contract BEFORE Frappe writes docstatus=1.
+
+        Frappe's submit lifecycle is: validate → before_submit → write
+        docstatus=1 → on_submit. Putting the misconfiguration guard here
+        (rather than in on_submit) means a subclass that forgets
+        `_BACKGROUND_METHOD` fails out cleanly with docstatus still 0 —
+        no half-submitted doc, no enqueue attempt with a None method.
+
+        The strip-check catches both missing and whitespace-only values.
+        The message is developer-facing (programming bug, not a user
+        error) so no `frappe._()` wrapping.
+
+        Known bypass: `flags.ignore_validate = True` short-circuits
+        `run_before_save_methods` in Frappe (frappe/model/document.py),
+        skipping both `validate` AND `before_submit`. No production code
+        sets this flag on either Procurios importer today, but if a
+        future caller does, `on_submit`'s `self._BACKGROUND_METHOD`
+        access would raise `AttributeError` instead of this clear
+        ValidationError. Not a silent stall — just a less-helpful error.
+        """
+        method = getattr(self, "_BACKGROUND_METHOD", None)
+        if not method or not method.strip():
+            frappe.throw("Subclasses of BaseCSVImport must define _BACKGROUND_METHOD")
+
     def on_submit(self) -> None:
         """Enqueue the subclass-specific background job.
 
@@ -213,20 +239,12 @@ class BaseCSVImport(Document):
         to bool here so the enqueued args are unambiguous; the receiver
         re-coerces defensively via `coerce_test_mode`.
 
-        Misconfigured subclass guard: validate `_BACKGROUND_METHOD`
-        BEFORE setting `import_status = "Queued"`, otherwise a future
-        subclass that forgets the class attribute would leave the doc
-        stuck in "Queued" with no job enqueued.
+        Misconfiguration is caught earlier in `before_submit`; reaching
+        this method means `_BACKGROUND_METHOD` is well-formed.
         """
-        # Strip-check catches both missing and whitespace-only values; the
-        # message is developer-facing (programming bug, not a user error) so
-        # no `frappe._()` wrapping.
-        method = getattr(self, "_BACKGROUND_METHOD", None)
-        if not method or not method.strip():
-            frappe.throw("Subclasses of BaseCSVImport must define _BACKGROUND_METHOD")
         self.db_set("import_status", "Queued")
         frappe.enqueue(
-            method=method,
+            method=self._BACKGROUND_METHOD,
             queue="long",
             timeout=3600,
             import_doc_name=self.name,

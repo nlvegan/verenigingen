@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
+from dateutil.relativedelta import relativedelta
+
 CANCELLED_CUTOFF_MONTHS = 12
 
 REQUIRED_COLUMNS = [
@@ -131,13 +133,19 @@ class ProcuriosMandateValidator:
     # ---- helpers ------------------------------------------------------
 
     def _is_too_old_cancelled(self, cancelled_iso: str) -> bool:
-        """True if `cancelled_iso` is more than `cutoff_months` before today."""
+        """True if `cancelled_iso` is more than `cutoff_months` before today.
+
+        Uses calendar-month math via `dateutil.relativedelta` rather than
+        the previous 30-day-window approximation. The old `months * 30`
+        approximation rejected cancellations between 360 and 365 days
+        ago that, by calendar months, were still within the cutoff
+        window (e.g. an exactly-12-months-old cancellation would be
+        treated as "too old" because 360 < 365). Calendar-month math
+        gives the contract its claimed semantics.
+        """
         cancelled = date.fromisoformat(cancelled_iso)
-        # Approximate months as 30-day windows. Exact calendar-month math
-        # would need dateutil; this is well within tolerance for a 12-month
-        # business cutoff.
-        cutoff_days = self.cutoff_months * 30
-        return (self._today - cancelled).days > cutoff_days
+        cutoff_threshold = self._today - relativedelta(months=self.cutoff_months)
+        return cancelled < cutoff_threshold
 
     def _map_mandate_type(self, type_text: str) -> str:
         return MANDATE_TYPE_MAP.get((type_text or "").strip().lower(), "RCUR")

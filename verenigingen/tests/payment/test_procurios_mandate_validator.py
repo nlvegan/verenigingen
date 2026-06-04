@@ -97,6 +97,18 @@ class TestProcuriosMandateValidator(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validator.map_row(bad, row_num=3)
 
+    def test_map_row_invalid_opzegdatum_raises(self):
+        # Symmetry with the Datum-van-ondertekening test above. Without
+        # this, a future change to `_parse_date` that silently swallows
+        # invalid Opzegdatum (e.g. treating bad dates as 'no cancellation,
+        # row is active') could land without any test catching it — and
+        # would change the per-row decision tree: a row currently rejected
+        # as a validator-stage error would suddenly be imported as an
+        # ACTIVE mandate.
+        bad = self._base_row(Opzegdatum="not-a-date")
+        with self.assertRaises(ValueError):
+            self.validator.map_row(bad, row_num=4)
+
     def test_validate_and_map_filters_old_cancelled(self):
         rows = [
             self._base_row(Mandaatnummer="A", Opzegdatum=""),                 # active
@@ -107,6 +119,25 @@ class TestProcuriosMandateValidator(unittest.TestCase):
         ids = sorted(m.mandate_id for m in mapped)
         self.assertEqual(ids, ["A", "B"])
         self.assertEqual(filtered, 1)
+        self.assertEqual(errors, [])
+
+    def test_cutoff_uses_calendar_months_not_30_day_approximation(self):
+        # Boundary regression guard. With today pinned to 2026-05-31:
+        #   - exactly 12 calendar months ago = 2025-05-31 → INSIDE cutoff
+        #   - 12 calendar months + 1 day ago  = 2025-05-30 → OUTSIDE
+        # The old `cutoff_days = months * 30` approximation rejected
+        # cancellations 360-365 days old that were still within the
+        # 12-calendar-month contract. dateutil.relativedelta does this
+        # correctly.
+        rows = [
+            self._base_row(Mandaatnummer="EXACTLY", Opzegdatum="2025-05-31"),
+            self._base_row(Mandaatnummer="OVER",    Opzegdatum="2025-05-30"),
+        ]
+        mapped, errors, filtered = self.validator.validate_and_map(rows)
+        ids = sorted(m.mandate_id for m in mapped)
+        # Exactly-12-months-ago must be kept (the new calendar-month math).
+        self.assertEqual(ids, ["EXACTLY"])
+        self.assertEqual(filtered, 1)  # OVER was filtered
         self.assertEqual(errors, [])
 
     def test_validate_and_map_collects_errors_without_aborting(self):
