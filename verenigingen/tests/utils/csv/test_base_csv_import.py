@@ -160,6 +160,36 @@ class TestPrepareBackgroundImport(EnhancedTestCase):
             frappe.flags.ignore_version_changes = False
 
 
+class TestOnSubmitBackgroundMethodGuard(unittest.TestCase):
+    """BaseCSVImport.on_submit raises before db_set when _BACKGROUND_METHOD missing.
+
+    Future-proofing guard: a hypothetical third subclass that forgets to set
+    `_BACKGROUND_METHOD` would otherwise flip the doc into "Queued" status
+    without enqueueing anything, leaving it stuck. The guard must fire BEFORE
+    the `db_set("import_status", "Queued")` write.
+    """
+
+    def test_missing_attribute_throws_before_db_set(self):
+        # Mock justified: testing the guard's ordering invariant in isolation;
+        # constructing a real misconfigured Document subclass and instantiating
+        # it would require registering a fake DocType.
+        from verenigingen.utils.csv.base_csv_import import BaseCSVImport
+
+        # FakeSelf has db_set (so we can assert it wasn't called) but
+        # deliberately lacks _BACKGROUND_METHOD — exactly the misconfiguration
+        # this guard is meant to catch.
+        class FakeSelf:
+            db_set = MagicMock()
+
+        fake_self = FakeSelf()
+        # frappe.throw raises frappe.ValidationError. Confirm the throw fires.
+        with self.assertRaises(frappe.ValidationError):
+            BaseCSVImport.on_submit(fake_self)
+        # And — critically — db_set was never called, so a misconfigured
+        # subclass never leaves the doc stranded in "Queued".
+        fake_self.db_set.assert_not_called()
+
+
 class TestMarkImportFailed(EnhancedTestCase):
     """mark_import_failed: reload + Failed status + sanitized error_log + commit."""
 

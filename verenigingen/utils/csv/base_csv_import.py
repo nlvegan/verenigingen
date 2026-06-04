@@ -126,6 +126,28 @@ def mark_import_failed(doc: Document, error_message: str) -> None:
     catastrophic except-block in both Procurios controllers. Reloads
     first because background-job callers may hold a stale in-memory
     document.
+
+    Caller contracts (footguns to be aware of):
+
+    1. The `reload()` discards any unsaved in-memory state. Callers must
+       persist via `db_set(...)` INSIDE the try-block — a plain
+       `self.some_field = computed_value` written before an exception
+       fires will be silently wiped here. The two existing Procurios
+       controllers obey this; every Failed-path field write in
+       `_validate_and_preview_csv` and `process_import_background` uses
+       `db_set`.
+    2. The `commit()` flushes ANY pending uncommitted writes from this
+       request, not just the Failed status + error_log. If the
+       try-block did `db_set("preview_data", ...)` and
+       `db_set("total_rows", ...)` before the exception, those land in
+       the DB alongside the Failed state. This matches the pre-refactor
+       behaviour but is easier to overlook now that the helper hides
+       the commit.
+    3. `sanitize_error_for_audit` returns `None` for empty/whitespace
+       input; `doc.db_set("error_log", None)` silently writes SQL NULL,
+       leaving the UI with no diagnostic. Callers should pass a
+       non-empty `error_message` even if the underlying exception had an
+       empty message — `traceback.format_exc()` always has content.
     """
     doc.reload()
     doc.db_set("import_status", "Failed")
@@ -190,10 +212,18 @@ class BaseCSVImport(Document):
         `process_import_background`'s dotted path. test_mode is coerced
         to bool here so the enqueued args are unambiguous; the receiver
         re-coerces defensively via `coerce_test_mode`.
+
+        Misconfigured subclass guard: validate `_BACKGROUND_METHOD`
+        BEFORE setting `import_status = "Queued"`, otherwise a future
+        subclass that forgets the class attribute would leave the doc
+        stuck in "Queued" with no job enqueued.
         """
+        method = getattr(self, "_BACKGROUND_METHOD", None)
+        if not method:
+            frappe.throw(frappe._("Subclasses of BaseCSVImport must define _BACKGROUND_METHOD"))
         self.db_set("import_status", "Queued")
         frappe.enqueue(
-            method=self._BACKGROUND_METHOD,
+            method=method,
             queue="long",
             timeout=3600,
             import_doc_name=self.name,
