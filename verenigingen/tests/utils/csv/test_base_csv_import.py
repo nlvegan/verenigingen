@@ -197,6 +197,68 @@ class TestBeforeSubmitBackgroundMethodGuard(unittest.TestCase):
             BaseCSVImport.before_submit(FakeSelf())
 
 
+class TestOnSubmitEnqueueKwargs(unittest.TestCase):
+    """Restores the kwarg-shape coverage of BaseCSVImport.on_submit.
+
+    When the guard moved from on_submit to before_submit, the unit test
+    that verified the on_submit body (`db_set("import_status", "Queued")`
+    + `frappe.enqueue(...)`) was repurposed. Nothing now pins the
+    enqueue call signature — a subclass that override on_submit and
+    forgot to enqueue (or used the wrong queue / timeout / kwargs) would
+    not be caught. This test pins the exact kwargs.
+    """
+
+    def test_enqueue_is_called_with_expected_kwargs(self):
+        # Mock justified: testing the on_submit body without a real
+        # background-job runtime; we want to verify the call signature,
+        # not actually enqueue anything.
+        from verenigingen.utils.csv.base_csv_import import BaseCSVImport
+
+        class FakeSelf:
+            _BACKGROUND_METHOD = "some.dotted.path.process_import_background"
+            name = "CSV-IMPORT-TEST-001"
+            test_mode = False
+
+        fake_self = FakeSelf()
+        fake_self.db_set = MagicMock()
+
+        with patch.object(frappe, "enqueue") as enqueue_mock:
+            BaseCSVImport.on_submit(fake_self)
+
+        # Status flips to Queued via db_set.
+        fake_self.db_set.assert_called_once_with("import_status", "Queued")
+        # Enqueue called with the right shape.
+        enqueue_mock.assert_called_once_with(
+            method="some.dotted.path.process_import_background",
+            queue="long",
+            timeout=3600,
+            import_doc_name="CSV-IMPORT-TEST-001",
+            test_mode=False,
+            now=False,
+        )
+
+    def test_enqueue_coerces_test_mode_to_bool(self):
+        # The test_mode arg may arrive as a falsy non-bool (e.g. None on
+        # a fresh doc with no checkbox set). bool() must coerce so the
+        # downstream receiver doesn't have to second-guess.
+        from verenigingen.utils.csv.base_csv_import import BaseCSVImport
+
+        class FakeSelf:
+            _BACKGROUND_METHOD = "some.path"
+            name = "X"
+            # No test_mode attribute at all — exercises the getattr default.
+
+        fake_self = FakeSelf()
+        fake_self.db_set = MagicMock()
+
+        with patch.object(frappe, "enqueue") as enqueue_mock:
+            BaseCSVImport.on_submit(fake_self)
+
+        # Got coerced to bool (False), not left as the implicit None.
+        _, kwargs = enqueue_mock.call_args
+        self.assertIs(kwargs["test_mode"], False)
+
+
 class TestBeforeSubmitGuardIntegration(EnhancedTestCase):
     """Confirm the guard fires INSIDE Frappe's real submit lifecycle.
 

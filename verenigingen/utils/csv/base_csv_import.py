@@ -218,6 +218,14 @@ class BaseCSVImport(Document):
         The strip-check catches both missing and whitespace-only values.
         The message is developer-facing (programming bug, not a user
         error) so no `frappe._()` wrapping.
+
+        Known bypass: `flags.ignore_validate = True` short-circuits
+        `run_before_save_methods` in Frappe (frappe/model/document.py),
+        skipping both `validate` AND `before_submit`. No production code
+        sets this flag on either Procurios importer today, but if a
+        future caller does, `on_submit`'s `self._BACKGROUND_METHOD`
+        access would raise `AttributeError` instead of this clear
+        ValidationError. Not a silent stall — just a less-helpful error.
         """
         method = getattr(self, "_BACKGROUND_METHOD", None)
         if not method or not method.strip():

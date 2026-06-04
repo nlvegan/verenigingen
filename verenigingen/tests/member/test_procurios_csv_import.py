@@ -481,13 +481,16 @@ class TestProcuriosCSVImportEndToEnd(EnhancedTestCase):
         # Pre-create one Member that will be hit by the duplicate-row branch.
         _create_existing_member(existing_member_id, suffix)
 
+        # Names must be unique per run too — the Member-to-Customer sync
+        # commits independently of the test transaction, so a fixed
+        # "Nieuw Lid" would collide on the second run.
         rows = [
             # new valid row → CREATED
             _member_csv_row(
                 **{
                     "NVV-relatienummer": new_member_id,
-                    "Voornaam": "Nieuw",
-                    "Volledige naam": "Nieuw Lid",
+                    "Voornaam": f"Nieuw-{suffix}",
+                    "Volledige naam": f"Nieuw-{suffix} Lid",
                     "E-mailadres": f"nieuw+{suffix}@example.test",
                 }
             ),
@@ -495,8 +498,8 @@ class TestProcuriosCSVImportEndToEnd(EnhancedTestCase):
             _member_csv_row(
                 **{
                     "NVV-relatienummer": existing_member_id,
-                    "Voornaam": "Duplicate",
-                    "Volledige naam": "Duplicate Attempt",
+                    "Voornaam": f"Duplicate-{suffix}",
+                    "Volledige naam": f"Duplicate-{suffix} Attempt",
                     "E-mailadres": f"dup+{suffix}@example.test",
                 }
             ),
@@ -523,17 +526,32 @@ class TestProcuriosCSVImportEndToEnd(EnhancedTestCase):
         doc.reload()
         self.assertEqual(doc.import_status, "Completed")
 
-        # 1 new member created, 1 duplicate skipped. The nameless row is
-        # rejected at the validator stage before reaching the processor —
-        # it doesn't get counted as "created" or as a runtime "skipped".
+        # 1 new member created. The nameless row is rejected at the validator
+        # stage before reaching the processor (does not count as "skipped");
+        # the duplicate row reaches the processor and IS counted as skipped.
         self.assertEqual(doc.members_created, 1)
+        self.assertEqual(doc.members_skipped, 1)
+
+        # The duplicate row must produce a Duplicate-related diagnostic
+        # in error_log. We assert on the duplicate-key text and the
+        # offending member_id rather than the specific exception-branch
+        # phrasing — Frappe's exception wrapping for IntegrityError vs
+        # DuplicateEntryError varies between versions, but the
+        # underlying string always references the conflicting key.
+        log = doc.error_log or ""
+        self.assertIn("Duplicate", log)
+        self.assertIn(existing_member_id, log)
 
         # Confirm the new Member exists in the DB and has the right shape.
         created = frappe.get_doc("Member", {"member_id": new_member_id})
-        self.assertEqual(created.first_name, "Nieuw")
+        self.assertEqual(created.first_name, f"Nieuw-{suffix}")
         self.assertEqual(created.last_name, "Lid")
         self.assertEqual(created.status, "Active")
-        self.assertIsNotNone(created.procurios_id is None or created.procurios_id)
+        # The test row uses NVV-relatienummer only (not Systeem ID), so
+        # procurios_id is intentionally absent. `assertFalse` covers both
+        # None (current behaviour, no field default) and "" (if a future
+        # contributor adds a "default": "" to member.json's procurios_id).
+        self.assertFalse(created.procurios_id)
 
         # Background-job flags are cleaned up.
         self.assertFalse(getattr(frappe.flags, "in_background_job", False))
