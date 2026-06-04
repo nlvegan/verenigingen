@@ -269,9 +269,6 @@ def validate_import_file(import_doc_name: str) -> dict:
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: process the validated CSV and create members."""
     doc, test_mode = prepare_background_import("Procurios CSV Import", import_doc_name, test_mode)
-    # Sibling-specific flag (the mandate importer does NOT set this).
-    # Authorisation is already enforced by prepare_background_import.
-    frappe.flags.bulk_member_operations = True
 
     try:
         csv_data = doc._read_csv_file()
@@ -294,6 +291,12 @@ def process_import_background(import_doc_name: str, test_mode=False):
         processor = CSVImportBackgroundProcessor(import_doc_name, "Procurios CSV Import")
         processor.load_import_doc()
 
+        # `bulk_member_operations` is the sibling-specific flag. The CM
+        # owns its full lifecycle (sets True on entry, resets False on
+        # exit — including on exception). Setting it earlier was
+        # redundant: nothing in the prologue above writes a Member doc,
+        # so the flag's hook-suppression effect would never have fired.
+        # Resetting it in the outer `finally` was likewise redundant.
         with bulk_member_operations(import_doc_name):
             processor.process_import(
                 data_rows=mapped_data,
@@ -308,5 +311,4 @@ def process_import_background(import_doc_name: str, test_mode=False):
 
     finally:
         frappe.flags.in_background_job = False
-        frappe.flags.bulk_member_operations = False
         frappe.flags.ignore_version_changes = False

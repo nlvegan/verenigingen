@@ -177,11 +177,13 @@ class TestOnSubmitBackgroundMethodGuard(unittest.TestCase):
 
         # FakeSelf has db_set (so we can assert it wasn't called) but
         # deliberately lacks _BACKGROUND_METHOD — exactly the misconfiguration
-        # this guard is meant to catch.
+        # this guard is meant to catch. db_set is instance-scoped so a future
+        # second test creating another FakeSelf doesn't share the mock.
         class FakeSelf:
-            db_set = MagicMock()
+            pass
 
         fake_self = FakeSelf()
+        fake_self.db_set = MagicMock()
         # frappe.throw raises frappe.ValidationError. Confirm the throw fires.
         with self.assertRaises(frappe.ValidationError):
             BaseCSVImport.on_submit(fake_self)

@@ -218,9 +218,12 @@ class BaseCSVImport(Document):
         subclass that forgets the class attribute would leave the doc
         stuck in "Queued" with no job enqueued.
         """
+        # Strip-check catches both missing and whitespace-only values; the
+        # message is developer-facing (programming bug, not a user error) so
+        # no `frappe._()` wrapping.
         method = getattr(self, "_BACKGROUND_METHOD", None)
-        if not method:
-            frappe.throw(frappe._("Subclasses of BaseCSVImport must define _BACKGROUND_METHOD"))
+        if not method or not method.strip():
+            frappe.throw("Subclasses of BaseCSVImport must define _BACKGROUND_METHOD")
         self.db_set("import_status", "Queued")
         frappe.enqueue(
             method=method,
