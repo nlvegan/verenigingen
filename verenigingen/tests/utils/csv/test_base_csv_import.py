@@ -197,6 +197,60 @@ class TestBeforeSubmitBackgroundMethodGuard(unittest.TestCase):
             BaseCSVImport.before_submit(FakeSelf())
 
 
+class TestBeforeSubmitGuardIntegration(EnhancedTestCase):
+    """Confirm the guard fires INSIDE Frappe's real submit lifecycle.
+
+    The unit tests above use a FakeSelf; they verify the method body but
+    don't exercise the submit machinery (validate → before_submit → write
+    docstatus → on_submit). This integration test temporarily monkey-patches
+    `_BACKGROUND_METHOD` on a real Procurios Mandate Import to simulate a
+    misconfigured subclass, then attempts `doc.submit()` and asserts that
+    docstatus stays at 0 — proving the guard fired BEFORE Frappe's
+    docstatus write.
+    """
+
+    def test_guard_prevents_docstatus_write(self):
+        from verenigingen.verenigingen_payments.doctype.procurios_mandate_import.procurios_mandate_import import (
+            ProcuriosMandateImport,
+        )
+
+        original_method = ProcuriosMandateImport._BACKGROUND_METHOD
+        ProcuriosMandateImport._BACKGROUND_METHOD = ""
+        doc = None
+        try:
+            doc = frappe.get_doc(
+                {
+                    "doctype": "Procurios Mandate Import",
+                    "import_date": frappe.utils.today(),
+                    "encoding": "auto-detect",
+                    "csv_delimiter": "Semicolon",
+                }
+            )
+            doc.flags.ignore_permissions = True
+            doc.flags.ignore_mandatory = True
+            doc.insert()
+
+            # Attempting to submit MUST raise because before_submit's guard
+            # rejects the misconfigured class.
+            with self.assertRaises(frappe.ValidationError):
+                doc.submit()
+
+            # Critical: reload from DB and confirm docstatus is still 0
+            # (Draft). If the guard had fired in on_submit instead, the
+            # docstatus would already be 1 by the time of the throw.
+            doc.reload()
+            self.assertEqual(doc.docstatus, 0)
+        finally:
+            ProcuriosMandateImport._BACKGROUND_METHOD = original_method
+            if doc is not None:
+                frappe.delete_doc(
+                    "Procurios Mandate Import",
+                    doc.name,
+                    force=1,
+                    ignore_permissions=True,
+                )
+
+
 class TestMarkImportFailed(EnhancedTestCase):
     """mark_import_failed: reload + Failed status + sanitized error_log + commit."""
 
